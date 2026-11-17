@@ -115,8 +115,10 @@ internal static class HostImageSource
 
         var ignoreCrop = recipe.CropExportMethod is CropExportMethod.Ignore or CropExportMethod.AsPath;
         var geometry = VariantGeometryTransformer.FromProcessSettings(ref settings);
+        // replaced the old ignore-crop bool with a ScaleByArea enum.
         var scale = ScaleCalcHelpers.CreateScaleCalcTakingQuickProofIntoAccount(geometry, selection.Variant.CoreImage,
-            recipe, ApplicationSettings.Default.PreviewSizeInPx, ignoreCrop);
+            recipe, ApplicationSettings.Default.PreviewSizeInPx,
+            ignoreCrop ? ScaleByArea.FullCrop : ScaleByArea.ActiveCrop);
         return new RecipeInfo(recipe.Name, recipe.FileType.ToString(), recipe.ColorProfileName, recipe.ColorProfilePath,
             recipe.CropExportMethod.ToString(), recipe.DestinationRootFolder.ToString(), recipe.DestinationCustomRootFolder,
             recipe.DestinationSubFolder, recipe.DestinationFilename, recipe.DestinationSubName, recipe.TiffBits, recipe.JpegQuality,
@@ -369,6 +371,8 @@ internal static class HostImageSource
             IC_ProcessSettings renderSettings, ICPStatusCallback status)
         {
             using var emptyMetadata = new UTF8BytyesSafeHandle(string.Empty);
+            // added a C2PA author handle to IC_FileDestination; a null handle fails marshalling.
+            using var emptyC2paAuthor = new UTF8BytyesSafeHandle(string.Empty);
             using var processor = new ImageCoreProcessor("Spektrafilm full-resolution development");
             // Use the primary file's open ImageCore handle with no proxy path.
             var result = processor.SetSource(new SourceSettings(image, string.Empty));
@@ -386,6 +390,9 @@ internal static class HostImageSource
                 guides = new IC_Guide[128],
                 xmpMetadata = emptyMetadata,
                 embeddedICCDisplayName = new byte[128],
+                c2paSign = false,
+                c2paAuthor = emptyC2paAuthor,
+                c2paWithEdits = false,
             };
             result = processor.AddFileDestination(destination);
             return result == IC_Result.resOK

@@ -103,29 +103,29 @@ internal sealed class ExportHook : IDisposable
         }
     }
 
-    private bool Confirm(Func<bool> native, bool editMultiple)
+    private Task<bool> Confirm(Func<Task<bool>> native, bool editMultiple)
     {
         try
         {
             if (disposed || !IsApprovedDocument() || busy)
-                return false;
+                return Task.FromResult(false);
             if (!isActive())
                 return native();
             if (!HasSingleSelection(editMultiple))
             {
                 Warn("Select one variant to export with Spektrafilm.");
-                return false;
+                return Task.FromResult(false);
             }
             if (!CheckRecipe())
-                return false;
+                return Task.FromResult(false);
             _ = ExportAsync();
         }
         catch (Exception error)
         {
             Fail(error);
         }
-        // The native dialog command closes itself only when its action returns true.
-        return false;
+        // The native dialog command closes itself only when its action completes with true.
+        return Task.FromResult(false);
     }
 
     private void ExportWithPrevious(Command command, bool editMultiple)
@@ -301,19 +301,22 @@ internal sealed class ExportHook : IDisposable
     {
         private readonly object closure;
         private readonly FieldInfo field;
-        private readonly Func<bool> original;
-        private readonly Func<bool> wrapper;
+        private readonly Func<Action, Task<bool>> original;
+        private readonly Func<Action, Task<bool>> wrapper;
 
-        private ConfirmationBinding(object closure, FieldInfo field, Func<bool> original, Func<Func<bool>, bool> confirm)
+        private ConfirmationBinding(object closure, FieldInfo field, Func<Action, Task<bool>> original,
+            Func<Func<Task<bool>>, Task<bool>> confirm)
         {
             this.closure = closure;
             this.field = field;
             this.original = original;
-            wrapper = () => confirm(original);
+            // Capture One 16.7 passes an Action to the confirmation and expects a Task<bool> back.
+            wrapper = callback => confirm(() => original(callback));
             field.SetValue(closure, wrapper);
         }
 
-        internal static ConfirmationBinding Attach(System.Windows.Input.ICommand command, Func<Func<bool>, bool> confirm)
+        internal static ConfirmationBinding Attach(System.Windows.Input.ICommand command,
+            Func<Func<Task<bool>>, Task<bool>> confirm)
         {
             var actionField = command.GetType().BaseType?.GetField("m_actionToExecute", Instance)
                 ?? throw new MissingFieldException(command.GetType().FullName, "m_actionToExecute");
@@ -321,8 +324,17 @@ internal sealed class ExportHook : IDisposable
                 throw new InvalidOperationException("Capture One did not expose its Export confirmation action.");
             var exportAction = closure.GetType().GetField("argExportAction", Instance)
                 ?? throw new MissingFieldException(closure.GetType().FullName, "argExportAction");
-            if (exportAction.GetValue(closure) is not Func<bool> native)
-                throw new InvalidOperationException("Capture One’s Export confirmation action has an unexpected type.");
+            var value = exportAction.GetValue(closure);
+            if (value is not Func<Action, Task<bool>> native)
+            {
+                // Diagnostic for Capture One builds where the action type differs from the verified build.
+                var closureFields = string.Join("; ", closure.GetType().GetFields(Instance)
+                    .Select(item => $"{item.Name}: {item.FieldType}"));
+                throw new InvalidOperationException(
+                    "Capture One’s Export confirmation action has an unexpected type. "
+                    + $"Field type {exportAction.FieldType}; value type {value?.GetType().ToString() ?? "null"}; "
+                    + $"command {command.GetType()}; closure {closure.GetType()} fields [{closureFields}].");
+            }
             return new ConfirmationBinding(closure, exportAction, native, confirm);
         }
 

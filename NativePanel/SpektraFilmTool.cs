@@ -242,7 +242,7 @@ internal static class SpektraFilmTool
         }
     }
 
-    private sealed class LookPanel : UserControl, IDisposable, IHandleMessage<PrimaryVariantChangedMessage>
+    private sealed class LookPanel : UserControl, IDisposable, IHandleMessage<PrimaryVariantChangingMessage>
     {
         private const string DefaultFilm = "kodak_portra_400";
         private const string DefaultPaper = "kodak_portra_endura";
@@ -352,13 +352,13 @@ internal static class SpektraFilmTool
             enableSpektraFilm.Checked += (_, _) => OnEnabledChanged();
             enableSpektraFilm.Unchecked += (_, _) => OnEnabledChanged();
             Loaded += (_, _) => LoadStocks();
-            document.MessageBus.Subscribe<PrimaryVariantChangedMessage>(this);
+            document.MessageBus.Subscribe<PrimaryVariantChangingMessage>(this);
             selections.CollectionsSelectionChanged += OnCollectionsSelectionChanged;
         }
 
         public Guid Id { get; } = Guid.NewGuid();
 
-        public void Handle(PrimaryVariantChangedMessage message)
+        public void Handle(PrimaryVariantChangingMessage message)
         {
             if (ReferenceEquals(message.Collection, selections.PrimarySelectedCollection))
                 ScheduleSelectionSync();
@@ -406,7 +406,7 @@ internal static class SpektraFilmTool
             FlushLooks();
             disposed = true;
             selections.CollectionsSelectionChanged -= OnCollectionsSelectionChanged;
-            document.MessageBus.Unsubscribe<PrimaryVariantChangedMessage>(this);
+            document.MessageBus.Unsubscribe<PrimaryVariantChangingMessage>(this);
             opticalPreview.SetEnabled(false);
             baker?.Dispose();
             baker = null;
