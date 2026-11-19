@@ -50,6 +50,7 @@ internal static class Program
         TestExport(folder);
         TestExportMetadata(folder);
         TestExportResolution();
+        TestExportJobJournal(folder);
         TestColorSampling();
         TestFractionalColorSampling();
         TestColorPrecision();
@@ -61,6 +62,48 @@ internal static class Program
         TestMemoryAdmission();
         TestExportFrameLimits();
         Console.WriteLine($"PASS: {assertions} assertions. Pure current-source probes only; no Capture One process used.");
+    }
+
+    private static void TestExportJobJournal(string folder)
+    {
+        var directory = Path.Combine(folder, "Export jobs");
+        var messages = new List<string>();
+        var journal = new ExportJobJournal(directory, messages.Add);
+        Check(journal.ReadLatest() is null && messages.Count == 0, "a missing export history is normal");
+        var variant = Guid.NewGuid();
+        var firstPath = Path.GetFullPath(Path.Combine(folder, "First.tif"));
+        File.WriteAllText(firstPath, "existing output");
+        var first = journal.Accept(variant, firstPath);
+        first = journal.Report(first, ExportStage.DevelopingSource);
+        first = journal.Report(first, ExportStage.RenderingFilm);
+        var restarted = new ExportJobJournal(directory, messages.Add);
+        Check(restarted.ReadLatest() == first && first is { Finished: false, Stage: ExportStage.RenderingFilm },
+            "accepted variant, destination and in-progress stage survive a fresh journal reader");
+
+        if (!SpinWait.SpinUntil(() => DateTime.UtcNow > first.AcceptedUtc, TimeSpan.FromSeconds(1)))
+            throw new InvalidOperationException("The system clock did not advance for the export fixture.");
+        var second = journal.Accept(Guid.NewGuid(), Path.GetFullPath(Path.Combine(folder, "Second.png")));
+        first = journal.Report(first, ExportStage.Encoding, 2400, 1600);
+        first = journal.Report(first, ExportStage.Completed);
+        Check(restarted.ReadLatest() == second && Directory.GetFiles(directory, "*.json").Length == 2,
+            "a late older completion cannot replace the receipt for a newer accepted export");
+        second = journal.Report(second, ExportStage.Canceled);
+        Check(restarted.ReadLatest() == second && second.Finished, "canceled export publishes its distinct terminal state");
+        try
+        {
+            journal.Report(first, ExportStage.Canceled);
+            throw new InvalidDataException("A terminal export accepted a new transition.");
+        }
+        catch (InvalidOperationException) { Check(true, "a terminal export cannot be overwritten by a subsequent cancellation"); }
+        Check(File.ReadAllText(firstPath) == "existing output", "progress tracking does not modify its exported targets");
+
+        var malformed = Path.Combine(directory, "z-invalid.json");
+        File.WriteAllText(malformed, "{}");
+        Check(restarted.ReadLatest() == second && File.Exists(malformed) && messages.Count == 1,
+            "malformed history is preserved and the latest valid receipt is still used");
+        var unavailable = new ExportJobJournal(Path.Combine(firstPath, "journal"), messages.Add);
+        Check(unavailable.Accept(variant, firstPath).Stage == ExportStage.Accepted && messages.Count == 2,
+            "an unavailable progress directory does not block a separately authorized export");
     }
 
     private static void TestViewerHistogram()

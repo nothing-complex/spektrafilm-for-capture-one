@@ -28,6 +28,7 @@ internal sealed class VariantLookStore
     private readonly Session session;
     private readonly Dictionary<Guid, string> blocked;
     internal GrainReceiptStore GrainReceipts { get; }
+    internal string CatalogIdentity => catalogKey;
     internal string? RecoveryNotice { get; private set; }
 
     internal VariantLookStore(string root, string catalogDatabase)

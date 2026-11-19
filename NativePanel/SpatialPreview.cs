@@ -59,6 +59,7 @@ internal sealed class SpatialPreview : IDisposable
     private readonly TextBlock status = new() { Margin = new Thickness(0, 5, 0, 3), TextWrapping = TextWrapping.Wrap };
     private readonly DispatcherTimer refresh = new() { Interval = TimeSpan.FromMilliseconds(33) };
     private readonly ViewerPreview viewer;
+    private readonly ExportJobJournal exportJobs;
     private readonly ViewportQuality viewportQuality = new();
     private readonly ViewerHistogramControl histogram = new();
     private OpticalRenderer? renderer;
@@ -128,11 +129,12 @@ internal sealed class SpatialPreview : IDisposable
     private bool selectionUnavailable;
     private string? previewDetail;
 
-    private SpatialPreview(object window, Func<LookSettings?> getSettings, Func<Guid, bool> useSelectedLook)
+    private SpatialPreview(object window, Func<LookSettings?> getSettings, Func<Guid, bool> useSelectedLook, ExportJobJournal exportJobs)
     {
         this.window = window;
         this.getSettings = getSettings;
         this.useSelectedLook = useSelectedLook;
+        this.exportJobs = exportJobs;
         viewer = new ViewerPreview(window);
         viewer.StatusChanged += UpdateViewerStatus;
         var liveControls = new StackPanel();
@@ -158,6 +160,7 @@ internal sealed class SpatialPreview : IDisposable
         showSource.Unchecked += (_, _) => RequestRefresh();
         savePreview.Click += async (_, _) => await SavePreviewAsync();
         var exportControls = new StackPanel();
+        exportStatus.Text = DescribePreviousExport(exportJobs.ReadLatest());
         exportControls.Children.Add(exportStatus);
         exportControls.Children.Add(cancelExport);
         cancelExport.Click += (_, _) => exportWork?.Cancel();
@@ -198,8 +201,8 @@ internal sealed class SpatialPreview : IDisposable
     internal bool CompareSource { get => showSource.IsChecked == true; set => showSource.IsChecked = value; }
     private int DragLongEdge => ((DragSize)dragPreviewSize.SelectedItem).LongEdge;
 
-    internal static SpatialPreview BuildForPanel(object window, Func<LookSettings?> getSettings, Func<Guid, bool> useSelectedLook) =>
-        new(window, getSettings, useSelectedLook);
+    internal static SpatialPreview BuildForPanel(object window, Func<LookSettings?> getSettings, Func<Guid, bool> useSelectedLook,
+        ExportJobJournal exportJobs) => new(window, getSettings, useSelectedLook, exportJobs);
 
     internal void VerifyRendererOptions(RendererParameters renderer)
     {
@@ -663,6 +666,7 @@ internal sealed class SpatialPreview : IDisposable
             exportStatus.Text = "Wait for the Spektrafilm LUT export to finish.";
             return false;
         }
+        ExportReceipt? receipt = null;
         try
         {
             var look = getSettings() ?? throw new InvalidOperationException("Wait for the Spektrafilm controls to finish loading.");
@@ -705,10 +709,11 @@ internal sealed class SpatialPreview : IDisposable
 
                 var approved = OutputPathGuard.Approve(destination, target.SourcePath);
                 var outputFormat = SpektraExport.PixelFormatFor(approved.Path);
+                receipt = exportJobs.Accept(work.VariantId, approved.Path);
                 cancelExport.Visibility = Visibility.Visible;
-                exportStatus.Text = "Waiting for Viewer rendering to finish…";
+                Advance(ExportStage.WaitingForViewer, "Waiting for Viewer rendering to finish…");
                 await DrainPreviewWorkersAsync(work.Token);
-                exportStatus.Text = "Rendering Spektrafilm export…";
+                Advance(ExportStage.DevelopingSource, "Developing export pixels in Capture One…");
                 var result = await Task.Run(async () =>
                 {
                     var rendered = snapshot.RenderExport(null, work.Token, useRecipeSize);
@@ -719,18 +724,20 @@ internal sealed class SpatialPreview : IDisposable
                     byte[]? pixels = null;
                     if (look.Strength > 0)
                     {
+                        Advance(ExportStage.RenderingFilm, "Rendering the Spektrafilm look…");
                         await using var exporter = new OpticalRenderer(export: true);
                         pixels = await exporter.RenderAsync(source.Width, source.Height, source.FloatBytes, args, work.Token).ConfigureAwait(false);
                     }
                     work.Token.ThrowIfCancellationRequested();
+                    Advance(ExportStage.Encoding, "Writing the 16-bit export…", rendered.Crop.Width, rendered.Crop.Height);
                     using var memory = RenderMemoryBudget.SystemMemory.Reserve(RenderAllocation.ImageEncoding,
                         (long)rendered.Crop.Width * rendered.Crop.Height, "Free memory or choose a smaller Export Recipe.");
                     var output = DecodeExport(source, pixels, look.Strength, input.Space, encoding, outputFormat, rendered.Crop, work.Token, dpi);
                     SpektraExport.SaveApproved(approved, output, work.Token, recipe?.Metadata);
                     return (output.PixelWidth, output.PixelHeight);
                 }, work.Token);
-                if (!disposed)
-                    exportStatus.Text = $"Saved 16-bit Spektrafilm export · {result.PixelWidth} × {result.PixelHeight}";
+                Advance(ExportStage.Completed, $"Saved 16-bit Spektrafilm export · {result.PixelWidth} × {result.PixelHeight}",
+                    result.PixelWidth, result.PixelHeight);
                 StartupHook.Log($"Spektrafilm 16-bit export saved at {result.PixelWidth}x{result.PixelHeight}: {approved.Path}");
                 return true;
             }
@@ -746,22 +753,48 @@ internal sealed class SpatialPreview : IDisposable
         }
         catch (OperationCanceledException)
         {
-            if (!disposed)
-                exportStatus.Text = "Spektrafilm export canceled.";
+            Advance(ExportStage.Canceled, "Spektrafilm export canceled.");
             return false;
         }
         catch (Exception error)
         {
             StartupHook.Log("Spektrafilm export failed: " + error);
+            var message = error.GetBaseException().Message;
+            Advance(ExportStage.Failed, message, error: message);
             if (disposed) return false;
-            exportStatus.Text = error.GetBaseException().Message;
             if (owner is { IsVisible: true })
-                MessageBox.Show(owner, exportStatus.Text, "Could not export with Spektrafilm", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show(owner, message, "Could not export with Spektrafilm", MessageBoxButton.OK, MessageBoxImage.Error);
             else
-                MessageBox.Show(exportStatus.Text, "Could not export with Spektrafilm", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show(message, "Could not export with Spektrafilm", MessageBoxButton.OK, MessageBoxImage.Error);
             return false;
         }
+
+        void Advance(ExportStage stage, string message, int width = 0, int height = 0, string? error = null)
+        {
+            if (receipt is not null)
+                receipt = exportJobs.Report(receipt, stage, width, height, error);
+            if (exportStatus.Dispatcher.CheckAccess())
+            {
+                if (!disposed) exportStatus.Text = message;
+                return;
+            }
+            var current = exportWork;
+            if (!exportStatus.Dispatcher.HasShutdownStarted)
+                _ = exportStatus.Dispatcher.InvokeAsync(() =>
+                {
+                    if (!disposed && ReferenceEquals(exportWork, current)) exportStatus.Text = message;
+                });
+        }
     }
+
+    private static string DescribePreviousExport(ExportReceipt? receipt) => receipt?.Stage switch
+    {
+        null => string.Empty,
+        ExportStage.Completed => $"Last Spektrafilm export · {receipt.Width} × {receipt.Height} · {Path.GetFileName(receipt.Destination)}",
+        ExportStage.Canceled => "Previous Spektrafilm export canceled.",
+        ExportStage.Failed => "Previous Spektrafilm export failed. " + receipt.Error,
+        _ => "Unfinished Spektrafilm export · " + Path.GetFileName(receipt.Destination),
+    };
 
     private static string? ChooseExportDestination(SaveFileDialog picker, Window? owner) =>
         (owner is { IsVisible: true } ? picker.ShowDialog(owner) : picker.ShowDialog()) == true ? picker.FileName : null;

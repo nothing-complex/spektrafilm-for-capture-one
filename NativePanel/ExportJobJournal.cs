@@ -1,0 +1,86 @@
+using System;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
+[JsonConverter(typeof(JsonStringEnumConverter<ExportStage>))]
+internal enum ExportStage { Accepted, WaitingForViewer, DevelopingSource, RenderingFilm, Encoding, Completed, Canceled, Failed }
+
+internal sealed record ExportReceipt([property: JsonRequired] int Version, [property: JsonRequired] Guid JobId,
+    [property: JsonRequired] Guid VariantId, [property: JsonRequired] string Destination, [property: JsonRequired] DateTime AcceptedUtc,
+    [property: JsonRequired] DateTime UpdatedUtc, [property: JsonRequired] ExportStage Stage,
+    int Width = 0, int Height = 0, string? Error = null)
+{
+    internal bool Finished => Stage is ExportStage.Completed or ExportStage.Canceled or ExportStage.Failed;
+}
+
+internal sealed class ExportJobJournal(string directory, Action<string> log)
+{
+    internal ExportReceipt? ReadLatest()
+    {
+        try
+        {
+            foreach (var path in Directory.EnumerateFiles(directory, "*.json").OrderByDescending(path => path, StringComparer.Ordinal).Take(16))
+            {
+                try
+                {
+                    var receipt = PanelFiles.ReadPreset<ExportReceipt>(path);
+                    if (receipt.Version == 1 && receipt.JobId != Guid.Empty && receipt.VariantId != Guid.Empty
+                        && receipt.Destination is { Length: > 0 } && Path.IsPathFullyQualified(receipt.Destination) && Enum.IsDefined(receipt.Stage)
+                        && receipt.AcceptedUtc <= receipt.UpdatedUtc && Path.GetFileName(path) == Name(receipt))
+                        return receipt;
+                    log("Ignored a malformed Spektrafilm export record.");
+                }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or InvalidDataException)
+                {
+                    log("Could not read a Spektrafilm export record: " + error.GetBaseException().Message);
+                }
+            }
+        }
+        catch (DirectoryNotFoundException) { }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            log("Could not read Spektrafilm export history: " + error.GetBaseException().Message);
+        }
+        return null;
+    }
+
+    internal ExportReceipt Accept(Guid variantId, string destination)
+    {
+        if (variantId == Guid.Empty || !Path.IsPathFullyQualified(destination))
+            throw new ArgumentException("A saved export needs a variant and an absolute destination path.");
+        var now = DateTime.UtcNow;
+        var receipt = new ExportReceipt(1, Guid.NewGuid(), variantId, destination, now, now, ExportStage.Accepted);
+        Save(receipt);
+        return receipt;
+    }
+
+    internal ExportReceipt Report(ExportReceipt current, ExportStage stage, int width = 0, int height = 0, string? error = null)
+    {
+        if (current.Finished || stage <= current.Stage || !Enum.IsDefined(stage))
+            throw new InvalidOperationException("The Spektrafilm export stage cannot move backwards or change after completion.");
+        var now = DateTime.UtcNow;
+        var next = current with { Stage = stage, UpdatedUtc = now < current.UpdatedUtc ? current.UpdatedUtc : now, Width = width == 0 ? current.Width : width,
+            Height = height == 0 ? current.Height : height, Error = error is { Length: > 1000 } ? error[..1000] : error };
+        Save(next);
+        return next;
+    }
+
+    private void Save(ExportReceipt receipt)
+    {
+        try
+        {
+            Directory.CreateDirectory(directory);
+            PanelFiles.WriteCompactPreset(Path.Combine(directory, Name(receipt)), receipt);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            log("Could not save Spektrafilm export progress: " + error.GetBaseException().Message);
+        }
+    }
+
+    private static string Name(ExportReceipt receipt) =>
+        receipt.AcceptedUtc.ToString("yyyyMMdd-HHmmss-fffffff", CultureInfo.InvariantCulture) + "-" + receipt.JobId.ToString("N") + ".json";
+}

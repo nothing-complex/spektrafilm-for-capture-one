@@ -87,6 +87,8 @@ public static class StartupHook
             {
                 Check(Math.Abs((double)Prop(exposure, "Value")! - 1.2) < 1e-9, "exposure restored after process restart");
                 Check(toggle.IsChecked == false, "disabled master switch restored without hiding tool");
+                Check(((TextBlock)Field(spatial, "exportStatus")!).Text == "Previous Spektrafilm export canceled.",
+                    "the last terminal export status was loaded after restarting Capture One");
             }
             TestExportBinding(hookField, exportHook!, hosted, panel, window, exposure, toggle);
             toggle.IsChecked = true;
@@ -530,9 +532,24 @@ public static class StartupHook
     {
         var output = Path.Combine(folder, "full-precision-export.tif");
         var started = Stopwatch.GetTimestamp();
-        var exported = await (Task<bool>)Call(spatial, "ExportWithDestinationAsync", false, null,
+        var export = (Task<bool>)Call(spatial, "ExportWithDestinationAsync", false, null,
             (Func<SaveFileDialog, Window?, string?>)((_, _) => output))!;
+        var jobs = Field(spatial, "exportJobs")!;
+        var observedStages = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
+        while (!export.IsCompleted)
+        {
+            if (Call(jobs, "ReadLatest") is { } progress && Prop(progress, "Destination") is string path && path == output)
+                observedStages.Add(Prop(progress, "Stage")!.ToString()!);
+            await Task.WhenAny(export, Task.Delay(30));
+        }
+        var exported = await export;
         Check(exported && File.Exists(output), "direct export processed the full-sized RAW source");
+        Check(observedStages.Contains("RenderingFilm") && observedStages.Contains("Encoding"),
+            "the real full RAW export published its film-render and encoding stages while it was working");
+        var receipt = Call(jobs, "ReadLatest")!;
+        Check(Prop(receipt, "Stage")!.ToString() == "Completed" && Equals(Prop(receipt, "Destination"), output)
+            && Prop(receipt, "Width") is 6000 && Prop(receipt, "Height") is 4000,
+            "completed output receipt kept its immutable destination and exact exported dimensions");
         using var input = File.OpenRead(output);
         var frame = BitmapDecoder.Create(input, BitmapCreateOptions.PreservePixelFormat | BitmapCreateOptions.IgnoreColorProfile,
             BitmapCacheOption.OnDemand).Frames[0];
@@ -1464,5 +1481,8 @@ public static class StartupHook
             "detach aborts the late dispatcher callback");
         Check(!await export.WaitAsync(TimeSpan.FromSeconds(10)) && File.ReadAllBytes(output).AsSpan().SequenceEqual(existing),
             "detached export exits without replacing the prior output");
+        var canceled = Call(Field(spatial, "exportJobs")!, "ReadLatest")!;
+        Check(Prop(canceled, "Stage")!.ToString() == "Canceled" && Equals(Prop(canceled, "Destination"), output),
+            "detached job records a durable cancellation for its accepted filename");
     }
 }

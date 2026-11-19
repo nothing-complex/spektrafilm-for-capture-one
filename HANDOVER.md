@@ -389,6 +389,15 @@ Evidence is under `.test-results/reference-setup-A2-20261120`, `.test-results/re
 
 Evidence is under `.test-results/host-viewer-histogram-20261120` and `.test-results/contracts-viewer-histogram-20261120`. Users can expand **Viewer histogram** below the resolution controls.
 
+## Persistent export progress
+
+- [x] Write one catalog-scoped receipt per accepted export. Preserve the chosen path and variant while reporting native development, film rendering, encoding and terminal outcomes. Preserve prior outputs under cancellation.
+- [x] Observe both film rendering and encoding live during the full 6000 × 4000, 16-bit RAW export. The completed record matched its actual dimensions and destination. Detach saved a canceled status, which loaded on restart.
+- [x] Pass 12,547 ordinary contracts and 177 first-launch plus 182 restart assertions. Validate stale completion, malformed history and unavailable progress storage separately. The source catalog hash remained unchanged.
+- [ ] Add resumable job descriptors, batch scheduling and full interruption coverage.
+
+Evidence is under `.test-results/host-export-progress-20261120` and `.test-results/contracts-export-progress-20261120`.
+
 ## Status maintenance
 
 `qa/AUDIT-FIX-STATUS.json` owns task IDs, status, implemented substeps, remaining acceptance work and evidence. This handover owns context, runtime identity and resume instructions. `.test-results/FINAL-RESULT.json` is the completed runtime delivery receipt; keep its runtime commit/package identity distinct from later documentation-only commits.

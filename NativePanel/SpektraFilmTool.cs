@@ -384,7 +384,8 @@ internal static class SpektraFilmTool
             printExposure = AddSlider(controls, "Print exposure", -5, 5, 0, 0.1, "EV");
             printExposure.ToolTip = "More light on the print stock makes the result darker.";
             strength = AddSlider(controls, "Look strength", 0, 100, 100, 1, "%");
-            opticalPreview = SpatialPreview.BuildForPanel(window, CurrentSettings, UseSelectedLook);
+            var exports = new ExportJobJournal(Path.Combine(PanelPreferences.UserDataDirectory(), "Export jobs", looks.CatalogIdentity), StartupHook.Log);
+            opticalPreview = SpatialPreview.BuildForPanel(window, CurrentSettings, UseSelectedLook, exports);
             layout.Children.Insert(3, opticalPreview.ExportControls);
             opticalPreview.SettingsChanged += SaveLook;
             opticalPreview.SliderDragActivity += UpdateHistoryGesture;

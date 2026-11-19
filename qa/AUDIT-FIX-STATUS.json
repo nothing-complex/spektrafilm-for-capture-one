@@ -2668,14 +2668,22 @@
       "priority": "P2",
       "status": "partial",
       "implemented": [
-        "Image export has dedicated visible cancel/status controls outside the enabled look-control subtree."
+        "Image export has dedicated visible cancel/status controls outside the enabled look-control subtree.",
+        "After the user approves an output path, atomically store the variant, immutable destination and real export stage. The panel reports waiting, native development, film rendering and encoding. Completion, cancel and failure are distinct terminal outcomes. Reopening displays the most recent durable outcome or unfinished export.",
+        "Each accepted export has its own receipt. Tests prove a late completion cannot replace the newer job, malformed history stays preserved and unavailable progress storage does not change an authorized output transaction.",
+        "The licensed host observed actual film and encoding stages during a 6000 × 4000 RGB48 export. The completed receipt matched the exact path and dimensions. Detach canceled an accepted export without replacing its previous file, and restart reloaded the canceled state."
       ],
       "evidence_paths": [
         "NativePanel/SpatialPreview.cs",
-        "NativePanel/ExportOperation.cs"
+        "NativePanel/ExportOperation.cs",
+        "NativePanel/ExportJobJournal.cs",
+        "tests/ViewerContracts/Program.cs",
+        ".test-results/contracts-export-progress-20261120/summary.json",
+        ".test-results/host-export-progress-20261120/host-smoke.log"
       ],
       "remaining_work": [
-        "No persistent staged job service, resumable descriptors, batch queue or truthful per-stage progress/nonmodal completion integration yet."
+        "Add resumable authorized descriptors and an explicit batch queue with per-image isolation. Current receipts preserve progress and outcome for a single accepted export.",
+        "Run hard interruption and storage-failure probes at each native/GPU/encoding stage, and replace any lingering modal errors with nonmodal job completion where the host supports it."
       ],
       "original_acceptance_tests": [
         "Close dialog during each stage: documented continuation/cancellation and no dangling native command.",
