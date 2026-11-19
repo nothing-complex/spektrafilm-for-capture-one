@@ -289,7 +289,7 @@ internal sealed class SpatialPreview : IDisposable
         inputSpace.SelectionChanged += (_, _) => OnSettingsChanged();
         color.Children.Add(inputSpace);
         AddPreviewChoice(color, outputSpace, "Render output encoding");
-        body.Children.Add(Section("Color management", color));
+        body.Children.Add(Section("optics-color-management", "Color management", color));
 
         var metering = new StackPanel();
         AddToggle(metering, "auto-exposure", "Automatic film exposure");
@@ -297,7 +297,7 @@ internal sealed class SpatialPreview : IDisposable
         {
             new Choice("center_weighted", "Center weighted"), new Choice("median", "Median"),
         });
-        body.Children.Add(Section("Exposure metering", metering));
+        body.Children.Add(Section("optics-metering", "Exposure metering", metering));
 
         var halation = new StackPanel();
         AddSlider(halation, "halation-amount", "Halation amount", 0, 4, 0, 0.05);
@@ -314,7 +314,7 @@ internal sealed class SpatialPreview : IDisposable
         AddSlider(halationChannels, "halation-green", "Green strength", 0, 1, 0.015, 0.005);
         AddSlider(halationChannels, "halation-blue", "Blue strength", 0, 1, 0, 0.005);
         halation.Children.Add(halationChannels);
-        body.Children.Add(Section("Halation and scatter", halation));
+        body.Children.Add(Section("optics-halation", "Halation and scatter", halation));
         body.Children.Add(MakeDiffusion("camera", "Camera diffusion"));
         body.Children.Add(MakeDiffusion("print", "Print diffusion"));
 
@@ -345,7 +345,7 @@ internal sealed class SpatialPreview : IDisposable
         AddChannelSliders(particle, "grain-density-min", "Minimum density", 0, 1, (0.04, 0.05, 0.06), 0.01);
         AddChannelSliders(particle, "grain-uniformity", "Uniformity", 0, 1, (0.99, 0.97, 0.98), 0.01);
         AddLayerSliders(particle, "grain-layer-scale", (6, 1, 0.4));
-        grain.Children.Add(Section("Particle grain", particle));
+        grain.Children.Add(Section("optics-particle-grain", "Particle grain", particle));
         var synthesis = new StackPanel();
         fastSynthesis.Checked += (_, _) => OnPreferencesChanged();
         fastSynthesis.Unchecked += (_, _) => OnPreferencesChanged();
@@ -365,8 +365,8 @@ internal sealed class SpatialPreview : IDisposable
         AddSlider(synthesis, "grain-synthesis-cell-cap", "Max grains per cell", 1, 128, 32, 1);
         AddChannelSliders(synthesis, "grain-synthesis-radius-scale", "Radius scale", 0.01, 20, (1.2, 1, 2.5), 0.01);
         AddLayerSliders(synthesis, "grain-synthesis-layer-scale", (6, 1, 0.4));
-        grain.Children.Add(Section("Grain synthesis", synthesis));
-        body.Children.Add(Section("Spektrafilm grain", grain));
+        grain.Children.Add(Section("optics-grain-synthesis", "Grain synthesis", synthesis));
+        body.Children.Add(Section("optics-grain", "Spektrafilm grain", grain));
 
         var scanner = new StackPanel();
         AddToggle(scanner, "scanner-enabled", "Enable scanner controls");
@@ -380,7 +380,7 @@ internal sealed class SpatialPreview : IDisposable
         AddSlider(scanner, "scanner-mtf", "Scanner MTF50 (lp/mm)", 0, 300, 60, 1);
         AddSlider(scanner, "scanner-unsharp-radius", "Unsharp radius (µm)", 0, 100, 5, 0.5);
         AddSlider(scanner, "scanner-unsharp-amount", "Unsharp amount", 0, 4, 0.7, 0.05);
-        body.Children.Add(Section("Scanning", scanner));
+        body.Children.Add(Section("optics-scanning", "Scanning", scanner));
 
         var geometry = new StackPanel();
         var scale = AddSlider(geometry, "enlarger-scale", "Enlarger scale", 1, 32, 1, 0.1);
@@ -389,7 +389,7 @@ internal sealed class SpatialPreview : IDisposable
         AddSlider(geometry, "enlarger-x", "Horizontal offset (%)", -100, 100, 0, 1);
         AddSlider(geometry, "enlarger-y", "Vertical offset (%)", -100, 100, 0, 1);
         geometry.PreviewMouseWheel += ScrollPastFramingControls;
-        body.Children.Add(Section("Enlarger positioning", geometry));
+        body.Children.Add(Section("optics-enlarger", "Enlarger positioning", geometry));
 
         var couplers = new StackPanel();
         AddSlider(couplers, "dir-diffusion", "Diffusion width (µm)", 0, 100, 20, 0.5);
@@ -406,7 +406,7 @@ internal sealed class SpatialPreview : IDisposable
         })
             AddSlider(couplerChannels, $"dir-{from}-to-{to}", $"{from.ToUpperInvariant()} → {to.ToUpperInvariant()} coupling", 0, 1, baseline, 0.001);
         couplers.Children.Add(couplerChannels);
-        body.Children.Add(Section("Coupler diffusion", couplers));
+        body.Children.Add(Section("optics-couplers", "Coupler diffusion", couplers));
 
         var adaptation = new StackPanel();
         AddToggle(adaptation, "color-adaptation", "Color adaptation");
@@ -414,9 +414,9 @@ internal sealed class SpatialPreview : IDisposable
         AddToggle(adaptation, "color-curve-smoothing", "Density curve smoothing", true);
         AddToggle(adaptation, "color-output-lightness-compression", "Output lightness compression", true);
         AddToggle(adaptation, "color-output-chroma-compression", "Output chroma compression", true);
-        body.Children.Add(Section("Color adaptation", adaptation));
+        body.Children.Add(Section("optics-color-adaptation", "Color adaptation", adaptation));
 
-        return Section("Spektrafilm optics", body);
+        return Section("optics", "Spektrafilm optics", body);
     }
 
     private Expander MakeDiffusion(string stage, string name)
@@ -431,13 +431,11 @@ internal sealed class SpatialPreview : IDisposable
             AddSlider(section, $"{stage}-diffusion-{part}-intensity", label + " intensity", 0, 4, 1, 0.05);
             AddSlider(section, $"{stage}-diffusion-{part}-size", label + " size", 0.1, 4, 1, 0.05);
         }
-        return Section(name, section);
+        return Section("optics-" + stage + "-diffusion", name, section);
     }
 
-    private static Expander Section(string name, UIElement content) => new()
-    {
-        Header = name, Content = content, Margin = new Thickness(0, 5, 0, 0),
-    };
+    private static Expander Section(string key, string title, UIElement content) =>
+        PanelPreferences.CreateSection(key, title, content, 5);
 
     private void AddChannelSliders(Panel panel, string key, string label, double min, double max,
         (double Red, double Green, double Blue) initial, double step)

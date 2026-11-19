@@ -12,7 +12,8 @@ $appName='Spektrafilm backup fixture'
 $tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $repo 'Start-Spektrafilm.ps1'),[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'Launcher syntax failed.'}
-foreach($name in @('New-LookBackup','Confirm-CatalogIntegrity','Save-CatalogBackup')) {
+. (Join-Path $repo 'CatalogIntegrity.ps1')
+foreach($name in @('New-LookBackup','Save-CatalogBackup')) {
     $definition=$ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name},$true)
     . ([scriptblock]::Create($definition.Extent.Text))
 }
@@ -91,4 +92,51 @@ $relativeManifest=New-LookBackup $db $relativeArchive
 Assert (@($relativeManifest.files | Where-Object path -eq 'Variant looks/11111111111111111111111111111111.json').Count -eq 1) 'Relative data root produces canonical archive paths'
 $zip=[IO.Compression.ZipFile]::OpenRead($relativeArchive)
 try {Assert ($null -ne $zip.GetEntry('Look recovery/11111111111111111111111111111111.pending.json')) 'Relative data root preserves recovery entry name'}finally{$zip.Dispose()}
+
+# Use schema-valid managed state to exercise restoration and catalog-key rebasing.
+$base = [ordered]@{
+    Version=1;Enabled=$true
+    Look=[ordered]@{Film='kodak_portra_400';Paper='kodak_portra_endura';Exposure=0.5;PrintExposure=0;Strength=1;
+        Mode='print';SpectralMethod='hanatos2025';ScanInvert=$false;Development=@{};FilmPushPullMode='standard'}
+    Optics=[ordered]@{Numbers=@{};Selections=@{};Switches=@{}}
+}
+[IO.File]::WriteAllText($look, ($base | ConvertTo-Json -Depth 10 -Compress))
+$baseHash=(Get-FileHash -LiteralPath $look -Algorithm SHA256).Hash
+$changed = [IO.File]::ReadAllText($look) | ConvertFrom-Json
+$changed.Look.Exposure = 2.2
+$pending = [ordered]@{Version=1;CatalogKey=$key;Variant='11111111-1111-1111-1111-111111111111';BaseHash=$baseHash;Look=$changed}
+[IO.File]::WriteAllText($recovery, ($pending | ConvertTo-Json -Depth 12 -Compress))
+$restorable = Save-CatalogBackup $db
+$restore = Join-Path $repo 'Restore-SpektrafilmCatalog.ps1'
+$restored = Join-Path $root 'restored\test È.cocatalogdb'
+$restoredData = Join-Path $root 'restored-state'
+$preview = & $restore -BackupDatabase $restorable -DestinationDatabase $restored -UserDataRoot $restoredData
+Assert (($preview -join ' ').Contains('preview verified')) 'Restore preview verifies checksums'
+Assert (!(Test-Path -LiteralPath (Split-Path -Parent $restored)) -and !(Test-Path -LiteralPath $restoredData)) 'Restore preview has no filesystem side effect'
+$restoreResult = & $restore -BackupDatabase $restorable -DestinationDatabase $restored -UserDataRoot $restoredData -Apply
+Assert (($restoreResult -join ' ').Contains('Restored verified catalog')) 'Restore committed the catalog and look files'
+Assert ((Get-FileHash -LiteralPath $restored -Algorithm SHA256).Hash -eq $originalHash) 'Catalog restored byte for byte'
+$sha=[Security.Cryptography.SHA256]::Create()
+try{$restoredKey=([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($restored.ToUpperInvariant())))).Replace('-','')}finally{$sha.Dispose()}
+$restoredLook=Join-Path (Join-Path (Join-Path $restoredData 'Variant looks') $restoredKey) '11111111111111111111111111111111.json'
+$restoredPending=Join-Path (Join-Path (Join-Path $restoredData 'Look recovery') $restoredKey) '11111111111111111111111111111111.pending.json'
+Assert ((Get-FileHash -LiteralPath $restoredLook -Algorithm SHA256).Hash -eq $baseHash) 'Committed look bytes preserved under the new catalog key'
+$pendingCopy=[IO.File]::ReadAllText($restoredPending)|ConvertFrom-Json
+Assert ($pendingCopy.CatalogKey -eq $restoredKey -and $pendingCopy.BaseHash -eq $baseHash -and $pendingCopy.Look.Look.Exposure -eq 2.2) 'Pending recovery rebased without changing its look or base hash'
+Assert (([IO.File]::ReadAllText($recovery)|ConvertFrom-Json).CatalogKey -eq $key) 'Original pending checkpoint unchanged'
+$failure = $null
+try { $null = & $restore -BackupDatabase $restorable -DestinationDatabase $restored -UserDataRoot $restoredData -Apply }
+catch { $failure = $_.Exception.Message }
+Assert ($failure -match 'unused destination') 'Restore refuses to overwrite a catalog'
+Assert ((Get-FileHash -LiteralPath $restored -Algorithm SHA256).Hash -eq $originalHash) 'Failed overwrite leaves restored catalog unchanged'
+$blocked = Join-Path $root 'blocked\test.cocatalogdb'
+$archivePath = $restorable + '.spektrafilm.zip'
+$archiveBytes = [IO.File]::ReadAllBytes($archivePath)
+try {
+    [IO.File]::AppendAllText($archivePath, 'corruption')
+    $failure = $null
+    try { $null = & $restore -BackupDatabase $restorable -DestinationDatabase $blocked -UserDataRoot $restoredData -Apply }
+    catch { $failure = $_.Exception.Message }
+    Assert ($failure -match 'checksum failed' -and !(Test-Path -LiteralPath $blocked)) 'Corrupt saved-look archive cannot publish a catalog'
+} finally { [IO.File]::WriteAllBytes($archivePath, $archiveBytes) }
 Write-Output "PASS: $count joint backup assertions. Evidence: $root"

@@ -147,6 +147,9 @@ internal static class SpektraFilmTool
                 Holder.Content = null;
                 scroll.Content = panel;
                 window.Show();
+                var offset = PanelPreferences.Current.FloatingScrollOffset;
+                if (double.IsFinite(offset) && offset > 0)
+                    scroll.ScrollToVerticalOffset(offset);
                 StartupHook.Log($"{StartupHook.ProductName} panel is floating.");
             }
             catch (Exception error)
@@ -207,15 +210,24 @@ internal static class SpektraFilmTool
         {
             if (sender is not DockableWindow window || !ReferenceEquals(window, floating))
                 return;
-            var bounds = window.RestoreBounds;
-            if (!bounds.IsEmpty)
-            {
-                floatingBounds = bounds;
-                PanelPreferences.Update(p => p with { Floating = new(bounds.Left, bounds.Top, bounds.Width, bounds.Height) });
-            }
+            SaveFloatingPlacement(window);
             RestoreDock(window);
             if (!disposed)
                 StartupHook.Log($"{StartupHook.ProductName} panel is docked.");
+        }
+
+        private void SaveFloatingPlacement(DockableWindow window)
+        {
+            var bounds = window.RestoreBounds;
+            if (bounds.IsEmpty) return;
+            var placement = new FloatingPlacement(bounds.Left, bounds.Top, bounds.Width, bounds.Height);
+            if (!placement.IsValid) return;
+            floatingBounds = bounds;
+            var offset = floatingScroll?.VerticalOffset ?? 0;
+            PanelPreferences.Update(preferences => preferences with
+            {
+                Floating = placement, FloatingScrollOffset = double.IsFinite(offset) && offset >= 0 ? offset : 0,
+            });
         }
 
         private void RestoreDock(DockableWindow window)
@@ -247,9 +259,7 @@ internal static class SpektraFilmTool
             panel.Dispose();
             if (floating is { } window)
             {
-                var bounds = window.RestoreBounds;
-                if (!bounds.IsEmpty)
-                    PanelPreferences.Update(p => p with { Floating = new(bounds.Left, bounds.Top, bounds.Width, bounds.Height) });
+                SaveFloatingPlacement(window);
                 RestoreDock(window);
                 window.Close();
             }
@@ -498,7 +508,7 @@ internal static class SpektraFilmTool
             AddDevelopment(section, "negative_leuco_cyan", "Negative leuco cyan", 0, 2, 1, 0.05);
             AddDevelopment(section, "uv_cutoff", "UV cutoff", 380, 450, 380, 1, "nm");
             AddDevelopment(section, "ir_cutoff", "IR cutoff", 600, 780, 780, 1, "nm");
-            return Section("Film development", section);
+            return Section("film-development", "Film development", section);
         }
 
         private FrameworkElement MakePrintControls()
@@ -526,7 +536,7 @@ internal static class SpektraFilmTool
             AddDevelopment(printing, "preflash_exposure", "Preflash exposure", 0, 1, 0, 0.01);
             AddDevelopment(printing, "preflash_magenta", "Preflash magenta", -60, 60, 0, 1, "CC");
             AddDevelopment(printing, "preflash_yellow", "Preflash yellow", -60, 60, 0, 1, "CC");
-            return Section("Enlarger and print", printing);
+            return Section("enlarger-and-print", "Enlarger and print", printing);
         }
 
         private FrameworkElement MakeAdvancedControls()
@@ -536,7 +546,7 @@ internal static class SpektraFilmTool
             AddDevelopment(section, "dir_amount", "DIR coupler amount", 0, 2, 1, 0.05);
             AddDevelopment(section, "dir_same_layer", "Same-layer inhibition", 0, 2, 1, 0.05);
             AddDevelopment(section, "dir_interlayer", "Interlayer inhibition", 0, 2, 1, 0.05);
-            return Section("Spectral reconstruction and DIR", section);
+            return Section("spectral-dir", "Spectral reconstruction and DIR", section);
         }
 
         private void AddDevelopment(StackPanel section, string key, string label, double min, double max,
@@ -546,8 +556,8 @@ internal static class SpektraFilmTool
             development.Add(key, (slider, initial));
         }
 
-        private static Expander Section(string header, FrameworkElement content) =>
-            new() { Header = header, Content = content, Margin = new Thickness(0, 7, 0, 0) };
+        private static Expander Section(string key, string title, FrameworkElement content) =>
+            PanelPreferences.CreateSection(key, title, content, 7);
 
         private FrameworkElement MakeFileControls()
         {
@@ -564,7 +574,7 @@ internal static class SpektraFilmTool
             section.Children.Add(export);
             section.Children.Add(new TextBlock { Text = "Image export saves 16-bit sRGB TIFF or PNG. With Capture One Export, the recipe supplies size, crop and resolution. Use the save dialog to name the file. Recipe profiles, metadata and watermarks are omitted.",
                 TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 5, 0, 0) });
-            return Section("Presets and LUT export", section);
+            return Section("presets-and-lut", "Presets and LUT export", section);
         }
 
         internal bool IsSpektraExportActive => SyncSelection() && IsSpektraFilmEnabled;
@@ -927,7 +937,7 @@ internal static class SpektraFilmTool
                 return Task.CompletedTask;
             }));
             section.Children.Add(buttons);
-            return new Expander { Header = "Capture One Grain", Content = section, Margin = new Thickness(0, 9, 0, 0) };
+            return PanelPreferences.CreateSection("capture-one-grain", "Capture One Grain", section, 9);
         }
 
         private void SetGrainControls(GrainControls grain)

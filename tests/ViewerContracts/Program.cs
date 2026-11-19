@@ -16,6 +16,11 @@ internal static class HostImageSource
     internal sealed record Frame(int Width, int Height, byte[] Codes, byte[] FloatBytes, int BitDepth);
 }
 
+internal static class StartupHook
+{
+    internal static void Log(string message) => throw new InvalidOperationException(message);
+}
+
 internal static class Program
 {
     private static int assertions;
@@ -38,8 +43,41 @@ internal static class Program
         TestFractionalColorSampling();
         TestColorPrecision();
         TestOutputProtection(folder);
+        TestSectionPreferences(folder);
         TestScheduling().GetAwaiter().GetResult();
         Console.WriteLine($"PASS: {assertions} assertions. Pure current-source probes only; no Capture One process used.");
+    }
+
+    private static void TestSectionPreferences(string folder)
+    {
+        var path = Path.Combine(folder, "panel-preferences.json");
+        PanelFiles.WritePreset(path, new { Version = 1, ViewerSize = "1600", DragSize = 720, DraftSynthesis = true });
+        var messages = new List<string>();
+        var store = new PanelPreferenceStore(path, messages.Add);
+        var panel = new System.Windows.Controls.StackPanel();
+        var parent = store.CreateSection("parent", "Parent", panel, 5);
+        var child = store.CreateSection("child", "Child", new System.Windows.Controls.StackPanel(), 5);
+        panel.Children.Add(child);
+        Check(!parent.IsExpanded && !child.IsExpanded, "Legacy preferences changed default layout");
+        parent.IsExpanded = true;
+        child.IsExpanded = true;
+        parent.IsExpanded = false;
+        Check(store.Current.Sections?["parent"] == false && store.Current.Sections?["child"] == true,
+            "Routed expansion/collapse changed a different section's saved state");
+        store.Update(preferences => preferences with { FloatingScrollOffset = 314.25 });
+        var reopened = new PanelPreferenceStore(path, messages.Add);
+        Check(reopened.CreateSection("parent", "Localized parent", new System.Windows.Controls.StackPanel(), 5).IsExpanded == false,
+            "Parent section did not restore independently of its title");
+        Check(reopened.CreateSection("child", "Localized child", new System.Windows.Controls.StackPanel(), 5).IsExpanded,
+            "Child section did not restore independently of its title");
+        Check(reopened.Current.FloatingScrollOffset == 314.25 && reopened.Current.ViewerSize == "1600"
+            && reopened.Current.DragSize == 720 && reopened.Current.DraftSynthesis, "Layout persistence changed quality preferences");
+        Check(messages.Count == 0, "Reading a compatible preference file reported an error");
+        const string future = "{\"Version\":99,\"Unknown\":true}";
+        File.WriteAllText(path, future);
+        var fallback = new PanelPreferenceStore(path, messages.Add);
+        fallback.CreateSection("child", "Child", new System.Windows.Controls.StackPanel(), 5).IsExpanded = true;
+        Check(File.ReadAllText(path) == future && messages.Count == 1, "Future preferences were overwritten or unreported");
     }
 
     private static void TestColorSampling()

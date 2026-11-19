@@ -4,7 +4,7 @@
   "project": "Spektrafilm for Capture One",
   "baseline_commit": "d56ebefe023cd32ca6bf3a129ae7add02ff0b6b4",
   "source_plan": "../Audit-2026-11-16/IMPLEMENTATION-PLAN.json",
-  "scope": "High-priority implementation batch in isolated audit worktree; not a complete 70-task audit closure.",
+  "scope": "Incremental implementation and testing of the 70-task audit in the isolated audit worktree.",
   "full_audit_complete": false,
   "status_definitions": {
     "implemented": "The primary bounded fix is implemented. Proof and remaining validation are explicitly bounded; this is not a claim of full platform or every acceptance-matrix coverage.",
@@ -208,6 +208,37 @@
         "Existing-file rename is still a path operation after the final identity check",
         "GPU results are for the two tested LUT methods and the fixture look"
       ]
+    },
+    "restore_layout_and_geometry": {
+      "contracts": {
+        "status": "passed",
+        "assertions": 12006,
+        "backup_restore_assertions": 31,
+        "summary": ".test-results/contracts-backup-layout-20261119/summary.json",
+        "skipped": [
+          "Local symbolic-file-link creation lacks Windows privilege."
+        ]
+      },
+      "prior_github": {
+        "status": "passed",
+        "assertions": 11990,
+        "run_id": 44612520456,
+        "url": "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44612520456",
+        "scope": "Includes symbolic-file-link and directory-junction fixtures."
+      },
+      "restore": {
+        "status": "passed",
+        "looks": 2,
+        "database_hash_matches": true,
+        "evidence": ".test-results/restored-real-catalog-20261119/result.txt"
+      },
+      "host": {
+        "status": "passed",
+        "assertions": 53,
+        "source_catalog_unchanged": true,
+        "scope": "Exact installed host 16.4.6.2414, a disposable copy of the restored catalog; sampled rotate, flip and keystone plus previous state/export/detach checks.",
+        "evidence": ".test-results/host-restore-geometry-20261119/host-smoke.log"
+      }
     }
   },
   "known_limitations": [
@@ -438,16 +469,18 @@
       "status": "partial",
       "implemented": [
         "Tracked pure tests verify affine geometry, exact 16-bit TIFF/PNG samples, ICC, atomic-write preservation, draft filtering and cancellation.",
-        "A separate overlap integral validates nonconstant color and alpha on fractional sampling footprints in all four transfer spaces and five output sizes."
+        "A separate overlap integral validates nonconstant color and alpha on fractional sampling footprints in all four transfer spaces and five output sizes.",
+        "Actual Capture One native development from a restored catalog uses 16-bit input with correctly sampled quarter-turn and horizontal mirroring. Keystone correction changes the developed pixels."
       ],
       "evidence_paths": [
         "tests/ViewerContracts",
         "NativePanel/ColorTransfer.cs",
         "NativePanel/ViewerDraftSource.cs",
-        ".test-results/contracts-audit-resolution-20261119/summary.json"
+        ".test-results/contracts-audit-resolution-20261119/summary.json",
+        ".test-results/host-restore-geometry-20261119/host-smoke.log"
       ],
       "remaining_work": [
-        "Add host-dependent rotate/flip/keystone/DPI geometry and crop/rounding cases."
+        "Test host DPI coordinate transforms and crop/rounding edge cases."
       ],
       "original_acceptance_tests": [
         "Run CI Windows matrix on supported .NET target without installed Capture One for pure tests.",
@@ -1198,14 +1231,17 @@
       "priority": "P1",
       "status": "partial",
       "implemented": [
-        "Launcher backups now include film-state archives and manifests alongside catalog snapshots."
+        "Launcher backups now include film-state archives and manifests alongside catalog snapshots.",
+        "Verified joint restore to a new catalog path publishes rebased film state and pending edits. The production reader recovered two looks and native Capture One opened a disposable copy of the restored database."
       ],
       "evidence_paths": [
         "Start-Spektrafilm.ps1",
-        "tests/installer/Test-CatalogBackup.ps1"
+        "tests/installer/Test-CatalogBackup.ps1",
+        "Restore-SpektrafilmCatalog.ps1",
+        ".test-results/restored-real-catalog-20261119/result.txt"
       ],
       "remaining_work": [
-        "Catalog state identity remains uppercase-path SHA; portable sidecar identity, move/clone migration, restore/import and conflict handling remain pending."
+        "Identify moves and clones outside the restore flow, handle case aliases and read-only/reverted catalogs, offer portable cross-account state, and validate conflict and rollback paths."
       ],
       "original_acceptance_tests": [
         "original/moved/renamed/case-alias/copied/reverted catalog, two clones diverging, read-only directory, separate Windows account, missing sidecar, rollback. Verify edited source catalog never changes during copy migration."
@@ -1277,21 +1313,21 @@
       "id": "VE-14",
       "title": "Harden source protection against directory aliases at final output commit",
       "priority": "P1",
-      "status": "partial",
+      "status": "implemented",
       "implemented": [
         "High-depth and preview output validate resolved final paths before work and again immediately before atomic commit.",
-        "Original, output and enclosing directory identity revalidated around atomic preview, image, LUT and preset writes. Hardlink and junction aliases, concurrent creation and replacement during the write, explicit cancellation, and valid overwrite passed."
+        "Original, output and enclosing directory identity revalidated around atomic preview, image, LUT and preset writes. Hardlink and junction aliases, concurrent creation and replacement during the write, explicit cancellation, and valid overwrite passed.",
+        "GitHub Windows CI ran the symbolic-file-link, hardlink and junction cases with the approved path and identity checks. The original bytes and accepted output preservation contracts passed."
       ],
       "evidence_paths": [
         "NativePanel/OutputPathGuard.cs",
         "NativePanel/SpektraExport.cs",
         "NativePanel/SpatialPreview.cs",
         "tests/ViewerContracts",
-        ".test-results/contracts-audit-integrity-20261119/summary.json"
+        ".test-results/contracts-audit-integrity-20261119/summary.json",
+        "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44612520456"
       ],
-      "remaining_work": [
-        "Run the new symbolic-file-link case on CI. Existing replacement checks identity immediately before the path rename; Windows does not provide an atomic expected-file compare-and-swap for this path operation."
-      ],
+      "remaining_work": [],
       "original_acceptance_tests": [
         "Direct same path, case variation, dot segments, source via junction, destination via junction, symlink file and ordinary separate hardlinks in isolated directory.",
         "Cancellation/failure leaves source bytes and existing output intact; no test touches user photo files.",
@@ -1299,6 +1335,9 @@
       ],
       "dependencies": [
         "VE-02"
+      ],
+      "implementation_limits": [
+        "Existing destination replacement checks identity immediately before the path rename. The path operation has no atomic expected-file compare-and-swap."
       ]
     },
     {
@@ -1353,14 +1392,17 @@
       "priority": "P2",
       "status": "partial",
       "implemented": [
-        "Floating bounds are persisted at close/dispose and restored with an offscreen fallback; quality preferences are independent of looks."
+        "Floating bounds are persisted at close/dispose and restored with an offscreen fallback; quality preferences are independent of looks.",
+        "Stable section keys persist comparison-independent expand/collapse state. Nested events leave ancestor state intact. Floating scroll and bounds survive reopen; the isolated store test covers legacy and future preference data."
       ],
       "evidence_paths": [
         "NativePanel/PanelPreferences.cs",
-        "NativePanel/SpektraFilmTool.cs"
+        "NativePanel/SpektraFilmTool.cs",
+        "tests/ViewerContracts",
+        ".test-results/contracts-backup-layout-20261119/ViewerContracts.log"
       ],
       "remaining_work": [
-        "Sections property is not wired; expansion/scroll/dock-state, monitor identity, DPI migration and full visible-area clamping remain pending."
+        "Test and improve workspace docking, per-monitor/DPI migration and full visible-area clamping. Exercise multi-monitor, RDP, narrow/wide panels and keyboard focus."
       ],
       "original_acceptance_tests": [
         "100/150/200% DPI, two monitors then one, RDP reconnect, close/reopen, panel narrow/wide, keyboard traversal and modeless focus."
@@ -1683,15 +1725,19 @@
       "status": "partial",
       "implemented": [
         "Closed-catalog backup now captures catalog and path-keyed film-state archives with hashes; refuses unsafe sidecars/open-file conditions.",
-        "Backups hold the source read lock through the look snapshot and run read-only SQLite integrity_check on new database bytes before rotation. Tests refused a corrupt database with a valid header and preserved all five verified generations. An actual catalog copy passed with unchanged hashes and zero sidecars."
+        "Backups hold the source read lock through the look snapshot and run read-only SQLite integrity_check on new database bytes before rotation. Tests refused a corrupt database with a valid header and preserved all five verified generations. An actual catalog copy passed with unchanged hashes and zero sidecars.",
+        "Read-only restore preview verifies both generation payloads. Restore stages and verifies database and look files, rekeys pending edits, refuses replacement, and opens an actual restored catalog with unchanged native database bytes and two production-read looks."
       ],
       "evidence_paths": [
         "Start-Spektrafilm.ps1",
         "tests/installer/Test-CatalogBackup.ps1",
-        ".test-results/real-catalog-integrity-20261119/result.txt"
+        ".test-results/real-catalog-integrity-20261119/result.txt",
+        "Restore-SpektrafilmCatalog.ps1",
+        "CatalogIntegrity.ps1",
+        ".test-results/restored-real-catalog-20261119/result.txt"
       ],
       "remaining_work": [
-        "Add portable catalog identity and generation pairing, joint restore preview, verified restore, pre-existing sidecars and crash/disk-full backup publication/rotation fixtures."
+        "Test power/fractured publication and disk-full during backup and restore, stale/open SQLite sidecars, old-schema backup migration, and portable catalog identity."
       ],
       "original_acceptance_tests": [
         "Restore into a different directory and verify native and film state for multiple variants.",
@@ -2062,8 +2108,8 @@
   ],
   "counts": {
     "total": 70,
-    "implemented": 8,
-    "partial": 39,
+    "implemented": 9,
+    "partial": 38,
     "pending": 23
   },
   "last_reconciled": "2026-11-19",

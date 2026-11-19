@@ -12,6 +12,7 @@
     <Compile Include="../../NativePanel/ColorTransfer.cs" Link="ColorTransfer.cs" />
     <Compile Include="../../NativePanel/SpektraExport.cs" Link="SpektraExport.cs" />
     <Compile Include="../../NativePanel/PanelFiles.cs" Link="PanelFiles.cs" />
+    <Compile Include="../../NativePanel/PanelPreferences.cs" Link="PanelPreferences.cs" />
     <Compile Include="../../NativePanel/OutputPathGuard.cs" Link="OutputPathGuard.cs" />
     <Compile Include="../../NativePanel/RenderCoordination.cs" Link="RenderCoordination.cs" />
     <Compile Include="../../NativePanel/ExportOperation.cs" Link="ExportOperation.cs" />

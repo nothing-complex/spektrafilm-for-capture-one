@@ -61,6 +61,12 @@ The Python setup scripts remain available for reference/development workflows; t
 
 Diagnostic logs and up to five joint backups per catalog are under `%LOCALAPPDATA%\FilmToolsForCaptureOne`. A changed database copy passes SQLite integrity verification before publication and backup rotation. Each database backup has matching `.spektrafilm.zip` and `.manifest.json` files containing its saved looks, pending recovery records and checksums. Keep all three together. A look-only change creates a new backup even if the catalog database hash is the same. Original images and Capture One previews need their own backups.
 
+To restore a backup, open PowerShell in the Spektrafilm installation folder. Choose a new catalog filename and run the preview. Add `-Apply` to the same command when the preview shows the intended path. The script verifies the database copy and restores variant looks and pending edits for the new location.
+
+```powershell
+.\Restore-SpektrafilmCatalog.ps1 -BackupDatabase 'C:\Backups\Catalog.cocatalogdb' -DestinationDatabase 'D:\Restored\Catalog.cocatalogdb'
+```
+
 To uninstall, close Capture One, delete the **Spektrafilm for Capture One** desktop shortcut, and remove the installation folder printed by the installer. Keep the saved looks and catalog backups under `%LOCALAPPDATA%\FilmToolsForCaptureOne` if you want to use them later. If you used portable mode, remove the extracted folder.
 
 ## Build from source

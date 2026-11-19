@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-19. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 8 bounded primary fixes implemented, 39 partial items and 23 pending items. It includes feasibility investigations and enhancements.
+Updated 2026-11-19. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 9 bounded primary fixes implemented, 38 partial items and 23 pending items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -40,7 +40,7 @@ Supported `CaptureOne.dll` SHA-256: `4E17B2AB68CB60CCE18BB92CF0C829A93A62024B153
 - [x] Kept all settled preview resolutions on native high-depth source development; corrected draft resampling to linear light and stopped unfinished provisional work from holding up ready final development.
 - [x] Separated accepted image export cancellation from selecting a disabled look, added an explicit cancel control, surfaced native Export hook failure and guarded original output paths.
 - [x] Added native grain partial-setter rollback and verified normal apply/restore in the real host.
-- [x] Added global preview preferences and remembered floating bounds. Section expansion and docking state are still unfinished.
+- [x] Added global preview preferences and remembered floating bounds. Later checkpoints add section and scroll persistence.
 - [x] Ran local managed, installer, backup, GPU and live-host checks with their scope recorded below.
 - [x] Fixed PowerShell 7 to Windows PowerShell 5.1 child-module-path contamination discovered on GitHub; added six regression assertions and observed green CI.
 - [x] Built a clean development package, verified extracted files and renderer, backed up the installed application/user state/shortcut, installed it and verified it in a fresh PowerShell process.
@@ -120,7 +120,17 @@ Evidence lives in `.test-results/host-audit-state-selection-20261119`, `.test-re
 - [x] Compare the two supported LUT spectral methods against GPU rendering at 1,024 held-out colors for each cube size. All 17 GPU checks passed. The 65-point LUT normalized sRGB code p95 stayed below 0.00025 on the tested look, and the max was below 0.020. These are results for the tested setup and look.
 - [x] Fix renderer cancellation test timing by waiting until the fake worker receives the request and explicitly releasing the queued-request fixture. The full Windows suite passed 11,989 assertions before the usual local symbolic-file-link privilege skip.
 
-Logs live under `.test-results/contracts-audit-integrity-20261119`, `.test-results/host-detach-20261119`, `.test-results/gpu-lut-heldout-20261119.log`, and `.test-results/real-catalog-integrity-20261119`. Next audit work includes actual form closure, native command confirmation, recipe metadata, panel layout preferences, portable restoration and full renderer request envelopes.
+Logs live under `.test-results/contracts-audit-integrity-20261119`, `.test-results/host-detach-20261119`, `.test-results/gpu-lut-heldout-20261119.log`, and `.test-results/real-catalog-integrity-20261119`. Next audit work includes actual form closure, native command confirmation, recipe metadata, workspace and multi-monitor tests, portable catalog identity and full renderer request envelopes.
+
+## Restore, layout and native geometry checkpoint
+
+- [x] The Windows CI run exercised a symbolic file link, hardlink and directory junction. The output protection tests passed. The late Windows rename limitation remains documented under VE-14. [Windows contracts](https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44612520456)
+- [x] Stable panel section IDs preserve expansion across renames and reopen. Nested expansion leaves ancestors untouched. Floating scroll and bounds are stored together. Workspace and monitor/DPI coverage remains open.
+- [x] Run the backup/restore suite with 31 assertions. Preview verifies the archive without writing, and explicit restore refuses collisions. The database and film files are checked before publication. Restore rebases pending film edits to the new path.
+- [x] Restore an actual closed Capture One catalog to another path with matching database SHA-256 and two looks from the production reader. Run 53 assertions against a disposable copy of the restored catalog. Native developed pixels had the expected quarter turn and mirrored pattern, and keystone changed the image. The source hash remained unchanged.
+- [x] Run the full Windows contract suite with 12,006 local assertions. The local symlink fixture skipped because Windows denied creation privilege.
+
+Evidence is under `.test-results/contracts-backup-layout-20261119`, `.test-results/restored-real-catalog-20261119`, and `.test-results/host-restore-geometry-20261119`. The installed runtime still identifies `ffc4819`.
 
 ## Runtime map for the next agent
 
@@ -129,7 +139,7 @@ Logs live under `.test-results/contracts-audit-integrity-20261119`, `.test-resul
 | Startup, catalog opt-in, native tab and Export binding | `Start-Spektrafilm.ps1`, `ApprovedCatalog.cs`, `StartupHook.cs`, `HostProfile.cs`, `ExportHook.cs`. Exact host gate; one approved catalog; attach warning persists if Export binding fails. |
 | Native panel and saved controls | `SpektraFilmTool.cs`, `NativeSlider.cs`, `LookSettings.cs`, `LookStateValidation.cs`. Native sliders/reset behavior, enable switch, presets, recovery, floating native window. |
 | Per-variant persistence | `VariantLookStore.cs`, `PanelFiles.cs`. Absolute catalog-path hash plus variant ID; primary state, shared pending session state and alternate `Look recovery` checkpoints. Unknown/corrupt/future state blocks writes until explicit recovery. Both storage paths failing cannot be made crash-safe; UI says the latest edit is not safely saved. |
-| Machine preferences | `PanelPreferences.cs`. Viewer/drag quality, draft synthesis and floating rectangle are separate from creative looks; compare-source is transient. Sections field is not wired. |
+| Machine preferences | `PanelPreferences.cs`. Viewer/drag quality, draft synthesis and floating rectangle are separate from creative looks; compare-source is transient. Stable section keys and floating scroll restore independently of creative settings. |
 | Host pixels and geometry | `HostImageSource.cs`, `ViewerGeometry.cs`, `ViewerPreview.cs`. Capture One RAW development and native settings, 16-bit source to float, viewer overlay follows native geometry. This is developed bounded data, not proven pre-tone-map scene-linear RAW. |
 | Preview scheduling and colour | `SpatialPreview.cs`, `ViewerDraftSource.cs`, `ColorTransfer.cs`, `RenderCoordination.cs`. Source/render identities, original-depth settled routes, linear-light downsampling, draft cancellation/final priority. No global memory admission or cooperative GPU kernel cancellation yet. |
 | Worker and LUT | `OpticalRenderer.cs`, `WorkerEnvironment.cs`, `NativeLutExporter.cs`, `ofx-still-renderer/main.cpp`. Protocol 1 `HELLO` / `METRICS`, parameter SHA and layout validation. Worker child strips inherited `SPEKTRAFILM_*` and startup hooks. LUT uses the same Vulkan colour engine with explicit spatial exclusions. |
@@ -145,10 +155,10 @@ Consult the detailed JSON before implementation. Useful next bounded packets are
 2. Agree model/parameter/capability contracts (`HS-18`, `HS-11`, `HS-12`, `RC-07`) before native undo, copy/apply/clone (`HS-05`, `HS-06`) or broader host compatibility. One owner should edit each shared UI/scheduler region.
 3. Complete export policy (`VE-02`, `VE-03`), including ICC intent, metadata, naming, crop and orientation edge cases, and explicit handling of unsupported recipes. Current output is 16-bit sRGB TIFF/PNG. Recipe exports use its print resolution, and direct exports use 96 DPI. Native-dialog interaction still needs verification.
 4. Add measured resource admission and generation-aware scheduling (`RC-11`, `VE-09`, `VE-07`, `VE-08`, `VE-17`, `RQ-09`) before increasing output limits. Current export cap is 32 MP / 8192 px per side; native viewer cap is 100 MP / 16384 px; synthesis has its own 32 MP constraints.
-5. Solve portable catalog identity/restore (`HS-02`, `RQ-04`) and native grain restore ownership across restarts (`HS-08`). Joint backup exists; moving a catalog still changes its path-based state key.
+5. Solve portable catalog identity/restore (`HS-02`, `RQ-04`) and native grain restore ownership across restarts (`HS-08`). Verified joint restore rebases saved looks to the chosen path. Moving a catalog outside that flow still changes its path-based state key.
 6. Treat histogram/proofing/native pixel hooks (`VE-10`, `VE-11`), multi-view and sessions as exact-build feasibility work. An overlay does not prove native analysis tools describe the processed image.
 
-Other open work includes full floating/section/workspace persistence, complete presets, native-grain control/model alignment, blur-scale behavior, global LUT/job progress, viewport-aware quality, cache/GPU-copy optimizations and broad camera/GPU performance matrices. Public source lacks licensed SMPTE printer-density tables, so the corresponding printer-density mode remains unavailable. Do not enable unsupported controls or claim measured speedups from code inspection.
+Other open work includes floating DPI, screen placement and workspace persistence, complete presets, native-grain control/model alignment, blur-scale behavior, global LUT/job progress, viewport-aware quality, cache/GPU-copy optimizations and broad camera/GPU performance matrices. Public source lacks licensed SMPTE printer-density tables, so the corresponding printer-density mode remains unavailable. Do not enable unsupported controls or claim measured speedups from code inspection.
 
 ## Commands and operating constraints
 

@@ -108,6 +108,7 @@ public static class StartupHook
             var profile = panelAssembly.GetType("HostProfile")!;
             var target = profile.GetMethod("CaptureTarget", Flags)!.Invoke(null, new[] { window });
             var space = Enum.ToObject(panelAssembly.GetType("PreviewInputSpace")!, 0);
+            await TestNativeGeometry(host, profile, window, target!, space);
             var snapshot = host.GetMethod("Capture", Flags)!.Invoke(null, new[] { window, target, space, false })!;
             object? lastFrame = null;
             foreach (var edge in new[] { 720, 1200 })
@@ -154,6 +155,85 @@ public static class StartupHook
         {
             timer?.Stop();
             File.WriteAllText(Path.Combine(folder, "failed.txt"), error.ToString());
+        }
+    }
+
+    static async Task TestNativeGeometry(Type host, Type profile, object window, object target, object space)
+    {
+        var selected = profile.GetMethod("ReadSelection", Flags)!.Invoke(null, new[] { window })!;
+        var nativeVariant = Prop(selected, "Variant")!;
+        var core = AppDomain.CurrentDomain.GetAssemblies().Single(assembly => assembly.GetName().Name == "P1.C1.Core");
+        var variant = core.GetType("P1.C1.Core.ICoreVariant", true)!;
+        var rotation = variant.GetProperty("Rotation")!;
+        var flip = variant.GetProperty("Flip")!;
+        var keystone = variant.GetProperty("KeystoneH")!;
+        var amount = variant.GetProperty("KeystoneAmount")!;
+        var originalRotation = rotation.GetValue(nativeVariant);
+        var originalFlip = flip.GetValue(nativeVariant)!;
+        var originalKeystone = keystone.GetValue(nativeVariant);
+        var originalAmount = amount.GetValue(nativeVariant);
+
+        async Task<(int Width, int Height, byte[] Pixels)> Develop()
+        {
+            var snap = host.GetMethod("Capture", Flags)!.Invoke(null, new[] { window, target, space, false })!;
+            var frame = await Task.Run(() => Call(snap, "RenderScaledPreview", 480, CancellationToken.None));
+            Check((int)Prop(frame!, "BitDepth")! == 16, "geometry case used native 16-bit development");
+            return ((int)Prop(frame!, "Width")!, (int)Prop(frame!, "Height")!, (byte[])Prop(frame!, "FloatBytes")!);
+        }
+
+        try
+        {
+            flip.SetValue(nativeVariant, Enum.Parse(flip.PropertyType, "None"));
+            var baseline = await Develop();
+            variant.GetMethod("RotateRight")!.Invoke(nativeVariant, null);
+            var rotated = await Develop();
+            Check(baseline.Width == rotated.Height && baseline.Height == rotated.Width,
+                "native rotate right swaps the developed canvas dimensions");
+            var clockwise = PixelDifference(baseline, rotated, (x, y) => (baseline.Height - 1 - y, x));
+            var counterClockwise = PixelDifference(baseline, rotated, (x, y) => (y, baseline.Width - 1 - x));
+            Check(Math.Min(clockwise, counterClockwise) < 0.025 && Math.Abs(clockwise - counterClockwise) > 0.04,
+                "rotated canvas has the expected quarter-turn pixel mapping");
+
+            rotation.SetValue(nativeVariant, originalRotation);
+            flip.SetValue(nativeVariant, Enum.Parse(flip.PropertyType, "Horizontal"));
+            var mirrored = await Develop();
+            Check(mirrored.Width == baseline.Width && mirrored.Height == baseline.Height, "native flip retains canvas size");
+            Check(PixelDifference(baseline, mirrored, (x, y) => (baseline.Width - 1 - x, y)) < 0.025,
+                "native horizontal flip preserves the mirrored sample pattern");
+
+            flip.SetValue(nativeVariant, Enum.Parse(flip.PropertyType, "None"));
+            amount.SetValue(nativeVariant, 100f);
+            keystone.SetValue(nativeVariant, 14f);
+            var corrected = await Develop();
+            Check(corrected.Width > 0 && corrected.Height > 0 && !corrected.Pixels.AsSpan().SequenceEqual(baseline.Pixels),
+                "native keystone correction changes the developed image");
+        }
+        finally
+        {
+            rotation.SetValue(nativeVariant, originalRotation);
+            flip.SetValue(nativeVariant, originalFlip);
+            keystone.SetValue(nativeVariant, originalKeystone);
+            amount.SetValue(nativeVariant, originalAmount);
+        }
+
+        static double PixelDifference((int Width, int Height, byte[] Pixels) source,
+            (int Width, int Height, byte[] Pixels) output, Func<int, int, (int X, int Y)> transform)
+        {
+            double error = 0;
+            int samples = 0;
+            for (int y = 16; y < source.Height - 16; y += 11)
+            for (int x = 16; x < source.Width - 16; x += 13)
+            {
+                var point = transform(x, y);
+                for (int channel = 0; channel < 3; channel++)
+                {
+                    var a = BitConverter.ToSingle(source.Pixels, ((y * source.Width + x) * 4 + channel) * 4);
+                    var b = BitConverter.ToSingle(output.Pixels, ((point.Y * output.Width + point.X) * 4 + channel) * 4);
+                    error += Math.Abs(a - b);
+                    samples++;
+                }
+            }
+            return error / samples;
         }
     }
 

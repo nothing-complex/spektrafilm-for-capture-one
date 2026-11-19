@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Windows;
+using System.Windows.Controls;
 
 internal sealed record FloatingPlacement(double Left, double Top, double Width, double Height)
 {
@@ -9,34 +11,56 @@ internal sealed record FloatingPlacement(double Left, double Top, double Width, 
 }
 
 internal sealed record PanelPreferenceData(int Version = 1, string ViewerSize = "native", int DragSize = 1200,
-    bool DraftSynthesis = false, FloatingPlacement? Floating = null, Dictionary<string, bool>? Sections = null);
+    bool DraftSynthesis = false, FloatingPlacement? Floating = null, Dictionary<string, bool>? Sections = null,
+    double FloatingScrollOffset = 0);
 
 internal static class PanelPreferences
 {
-    private static readonly string Pathname = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "FilmToolsForCaptureOne", "Panel preferences.json");
-    private static bool writable = true;
-    internal static PanelPreferenceData Current { get; private set; } = Read();
+    private static readonly PanelPreferenceStore Store = new(Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "FilmToolsForCaptureOne", "Panel preferences.json"), StartupHook.Log);
 
-    private static PanelPreferenceData Read()
+    internal static PanelPreferenceData Current => Store.Current;
+    internal static void Update(Func<PanelPreferenceData, PanelPreferenceData> edit) => Store.Update(edit);
+    internal static Expander CreateSection(string key, string title, UIElement content, double topMargin) =>
+        Store.CreateSection(key, title, content, topMargin);
+}
+
+internal sealed class PanelPreferenceStore
+{
+    private readonly string pathname;
+    private readonly Action<string> log;
+    private bool writable = true;
+
+    internal PanelPreferenceStore(string pathname, Action<string> log)
+    {
+        this.pathname = pathname;
+        this.log = log;
+        Current = Read();
+    }
+
+    internal PanelPreferenceData Current { get; private set; }
+
+    private PanelPreferenceData Read()
     {
         try
         {
-            if (!File.Exists(Pathname)) return new();
-            var preferences = PanelFiles.ReadPreset<PanelPreferenceData>(Pathname);
+            var preferences = PanelFiles.ReadPreset<PanelPreferenceData>(pathname);
             if (preferences.Version != 1) throw new InvalidDataException("Panel preferences are from a newer version.");
             return preferences;
         }
+        catch (FileNotFoundException) { return new(); }
+        catch (DirectoryNotFoundException) { return new(); }
         catch (Exception error)
         {
             // Keep unknown/corrupt preferences untouched; image state is independent.
             writable = false;
-            StartupHook.Log("Panel preferences could not be loaded: " + error.GetBaseException().Message);
+            log("Panel preferences could not be loaded: " + error.GetBaseException().Message);
             return new();
         }
     }
 
-    internal static void Update(Func<PanelPreferenceData, PanelPreferenceData> edit)
+    internal void Update(Func<PanelPreferenceData, PanelPreferenceData> edit)
     {
         var next = edit(Current);
         if (next == Current) return;
@@ -44,9 +68,34 @@ internal static class PanelPreferences
         if (!writable) return;
         try
         {
-            Directory.CreateDirectory(System.IO.Path.GetDirectoryName(Pathname)!);
-            PanelFiles.WritePreset(Pathname, next);
+            Directory.CreateDirectory(Path.GetDirectoryName(pathname)!);
+            PanelFiles.WritePreset(pathname, next);
         }
-        catch (Exception error) { StartupHook.Log("Panel preferences could not be saved: " + error.GetBaseException().Message); }
+        catch (Exception error) { log("Panel preferences could not be saved: " + error.GetBaseException().Message); }
+    }
+
+    internal Expander CreateSection(string key, string title, UIElement content, double topMargin)
+    {
+        var expander = new Expander
+        {
+            Header = title, Content = content, Margin = new Thickness(0, topMargin, 0, 0),
+            IsExpanded = Current.Sections?.GetValueOrDefault(key) ?? false,
+        };
+        expander.Expanded += OnExpansionChanged;
+        expander.Collapsed += OnExpansionChanged;
+        return expander;
+
+        void OnExpansionChanged(object sender, RoutedEventArgs args)
+        {
+            if (!ReferenceEquals(args.OriginalSource, expander)) return;
+            Update(current =>
+            {
+                if (current.Sections?.GetValueOrDefault(key) == expander.IsExpanded) return current;
+                var sections = current.Sections is null ? new Dictionary<string, bool>(StringComparer.Ordinal)
+                    : new Dictionary<string, bool>(current.Sections, StringComparer.Ordinal);
+                sections[key] = expander.IsExpanded;
+                return current with { Sections = sections };
+            });
+        }
     }
 }
