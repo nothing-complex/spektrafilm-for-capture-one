@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-19. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 9 bounded primary fixes implemented, 38 partial items and 23 pending items. It includes feasibility investigations and enhancements.
+Updated 2026-11-19. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 9 bounded primary fixes implemented, 39 partial items and 22 pending items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -142,6 +142,15 @@ Evidence is under `.test-results/contracts-backup-layout-20261119`, `.test-resul
 
 Logs are in `.test-results/contracts-export-metadata-20261119` and `.test-results/host-export-meta-adapter-20261119`. The installed runtime still identifies `ffc4819`.
 
+## Native grain restart and backup ordering checkpoint
+
+- [x] Persist a catalog- and variant-scoped native grain restore record before changing the host settings. Distinguish the original, requested and previously applied values. Refuse restore after a conflicting native change.
+- [x] Pass 71 first-launch and 74 restart assertions in a disposable catalog. After deliberate process termination, the second process restored the exact original Capture One Grain values. A later native grain edit was preserved. The source database hash stayed unchanged.
+- [x] Include the grain restore record in joint backup and restore. Version 2 fingerprints use ordinal sorting. Legacy archives verify the manifest embedded in the hash-checked ZIP and recheck all entries. A three-file PowerShell 5.1 archive restored on PowerShell 7. A mismatched pair was rejected.
+- [x] Run 12,050 assertions across all seven Windows contract suites, including 150 state assertions and 36 joint backup assertions.
+
+Evidence is under `.test-results/host-grain-receipt-20261119`, `.test-results/contracts-grain-backup-v2-20261119` and `.test-results/legacy-three-entry-state`. Comparing exact grain values cannot detect an unrelated edit that returns them to the same values. Persistent host revision and safe cleanup on variant deletion are open. The installed runtime still identifies `ffc4819`.
+
 ## Runtime map for the next agent
 
 | Responsibility | Main files and contracts |
@@ -154,7 +163,7 @@ Logs are in `.test-results/contracts-export-metadata-20261119` and `.test-result
 | Preview scheduling and colour | `SpatialPreview.cs`, `ViewerDraftSource.cs`, `ColorTransfer.cs`, `RenderCoordination.cs`. Source/render identities, original-depth settled routes, linear-light downsampling, draft cancellation/final priority. No global memory admission or cooperative GPU kernel cancellation yet. |
 | Worker and LUT | `OpticalRenderer.cs`, `WorkerEnvironment.cs`, `NativeLutExporter.cs`, `ofx-still-renderer/main.cpp`. Protocol 1 `HELLO` / `METRICS`, parameter SHA and layout validation. Worker child strips inherited `SPEKTRAFILM_*` and startup hooks. LUT uses the same Vulkan colour engine with explicit spatial exclusions. |
 | Image output | `ExportOperation.cs`, `SpektraExport.cs`, `OutputPathGuard.cs`. Captured job ownership, explicit cancel, atomic commit, original-path checks, 16-bit sRGB TIFF/PNG. Recipe integration remains limited. |
-| Native grain | `NativeGrain.cs`, `NativeAdjustmentTransaction.cs`. Undo-grouped setter sequence and rollback with aggregated errors. Restore receipts remain process-local. |
+| Native grain | `NativeGrain.cs`, `NativeAdjustmentTransaction.cs`. Undo-grouped setter sequence and rollback with aggregated errors. Catalog-scoped receipts restore matched native settings across restarts. |
 | Build, installation and evidence | `ReleaseManifest.ps1`, `Build-Windows.ps1`, `Package-Windows.ps1`, `Install-Spektrafilm.ps1`, `Test-Windows.ps1`, `tests/`, `qa/HostSmoke/`. Manifested builds, preserved custom files, regression fixtures and explicit hardware/host test tiers. |
 
 ## Next work and known constraints
@@ -165,7 +174,7 @@ Consult the detailed JSON before implementation. Useful next bounded packets are
 2. Agree model/parameter/capability contracts (`HS-18`, `HS-11`, `HS-12`, `RC-07`) before native undo, copy/apply/clone (`HS-05`, `HS-06`) or broader host compatibility. One owner should edit each shared UI/scheduler region.
 3. Complete export policy (`VE-02`, `VE-03`), including ICC intent, metadata, naming, crop and orientation edge cases, and explicit handling of unsupported recipes. Current output is 16-bit sRGB TIFF/PNG. Recipe exports use its print resolution, and direct exports use 96 DPI. The host has exercised confirmation and previous-settings commands. The real OS Save picker and broader recipe matrix are still open.
 4. Add measured resource admission and generation-aware scheduling (`RC-11`, `VE-09`, `VE-07`, `VE-08`, `VE-17`, `RQ-09`) before increasing output limits. Current export cap is 32 MP / 8192 px per side; native viewer cap is 100 MP / 16384 px; synthesis has its own 32 MP constraints.
-5. Solve portable catalog identity/restore (`HS-02`, `RQ-04`) and native grain restore ownership across restarts (`HS-08`). Verified joint restore rebases saved looks to the chosen path. Moving a catalog outside that flow still changes its path-based state key.
+5. Solve portable catalog identity/restore (`HS-02`, `RQ-04`) and native grain revision and receipt pruning (`HS-08`). Verified joint restore rebases saved looks to the chosen path. Moving a catalog outside that flow still changes its path-based state key.
 6. Treat histogram/proofing/native pixel hooks (`VE-10`, `VE-11`), multi-view and sessions as exact-build feasibility work. An overlay does not prove native analysis tools describe the processed image.
 
 Other open work includes floating DPI, screen placement and workspace persistence, complete presets, native-grain control/model alignment, blur-scale behavior, global LUT/job progress, viewport-aware quality, cache/GPU-copy optimizations and broad camera/GPU performance matrices. Public source lacks licensed SMPTE printer-density tables, so the corresponding printer-density mode remains unavailable. Do not enable unsupported controls or claim measured speedups from code inspection.

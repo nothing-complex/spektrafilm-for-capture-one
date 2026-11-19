@@ -262,6 +262,30 @@
         "scope": "Independent Python zlib validated every chunk CRC and the PNG iTXt payload for an encoded XMP sample."
       },
       "first_host_failure_fixed": "The real host can return null for an untagged variant even when the active recipe says All keywords. Treat null as an empty list."
+    },
+    "native_grain_and_backup_manifest": {
+      "contracts": {
+        "status": "passed",
+        "assertions": 12050,
+        "backup_assertions": 36,
+        "state_assertions": 150,
+        "summary": ".test-results/contracts-grain-backup-v2-20261119/summary.json",
+        "skipped": [
+          "Local symbolic-file-link creation lacks Windows privilege."
+        ]
+      },
+      "host": {
+        "status": "passed",
+        "first_launch_assertions": 71,
+        "restart_assertions": 74,
+        "source_catalog_unchanged": true,
+        "evidence": ".test-results/host-grain-receipt-20261119/host-smoke.log",
+        "scope": "Applied native grain persisted across deliberate specimen termination. Second process restored exact original grain settings from the saved receipt. External native edit conflicts were rejected without changing values."
+      },
+      "legacy_restore": {
+        "status": "passed",
+        "scope": "A legacy three-file archive with a Windows PowerShell digest restored under PowerShell 7. Paired manifest mismatch is rejected even when ZIP and DB hashes are valid."
+      }
     }
   },
   "known_limitations": [
@@ -1761,7 +1785,8 @@
       "implemented": [
         "Closed-catalog backup now captures catalog and path-keyed film-state archives with hashes; refuses unsafe sidecars/open-file conditions.",
         "Backups hold the source read lock through the look snapshot and run read-only SQLite integrity_check on new database bytes before rotation. Tests refused a corrupt database with a valid header and preserved all five verified generations. An actual catalog copy passed with unchanged hashes and zero sidecars.",
-        "Read-only restore preview verifies both generation payloads. Restore stages and verifies database and look files, rekeys pending edits, refuses replacement, and opens an actual restored catalog with unchanged native database bytes and two production-read looks."
+        "Read-only restore preview verifies both generation payloads. Restore stages and verifies database and look files, rekeys pending edits, refuses replacement, and opens an actual restored catalog with unchanged native database bytes and two production-read looks.",
+        "Version 2 uses ordinal sorted file fingerprints. Restore verifies paired embedded and outer manifests plus all file hashes. Version 1 remains usable across shells, including an actual three-file legacy restore in PowerShell 7."
       ],
       "evidence_paths": [
         "Start-Spektrafilm.ps1",
@@ -1769,10 +1794,12 @@
         ".test-results/real-catalog-integrity-20261119/result.txt",
         "Restore-SpektrafilmCatalog.ps1",
         "CatalogIntegrity.ps1",
-        ".test-results/restored-real-catalog-20261119/result.txt"
+        ".test-results/restored-real-catalog-20261119/result.txt",
+        ".test-results/contracts-grain-backup-v2-20261119/summary.json",
+        ".test-results/legacy-three-entry-state"
       ],
       "remaining_work": [
-        "Test power/fractured publication and disk-full during backup and restore, stale/open SQLite sidecars, old-schema backup migration, and portable catalog identity."
+        "Test power/fractured publication and disk-full during backup and restore, stale/open SQLite sidecar handling, and portable catalog identity."
       ],
       "original_acceptance_tests": [
         "Restore into a different directory and verify native and film state for multiple variants.",
@@ -1959,14 +1986,21 @@
       "id": "HS-08",
       "title": "Restore native grain cannot survive restart",
       "priority": "P2",
-      "status": "pending",
-      "implemented": [],
-      "evidence_paths": [],
+      "status": "partial",
+      "implemented": [
+        "Catalog-scoped grain receipts persist the variant UUID, original values, requested values and previously applied values before native changes. Restoration requires an exact match to recorded applied values and is explicit.",
+        "Fresh Capture One process restored the prior native settings after forced termination. A genuine subsequent native grain edit prevented restore and retained its value. Saved grain records move with the catalog and film state through verified backup and restore."
+      ],
+      "evidence_paths": [
+        "NativePanel/GrainReceiptStore.cs",
+        "NativePanel/NativeGrain.cs",
+        "tests/state/Program.cs",
+        ".test-results/contracts-grain-backup-v2-20261119/summary.json",
+        ".test-results/host-grain-receipt-20261119/host-smoke.log"
+      ],
       "remaining_work": [
-        "persist before/last-applied values and host revision in effect state transaction with catalog/variant identity",
-        "restore only if native values still match last-applied receipt",
-        "never restore after unrelated native changes",
-        "clean receipts when variant deleted. Surface no-ownership vs mismatch distinctly."
+        "Prove a persistent native adjustment revision to distinguish unrelated changes that happen to return to exactly the same grain values.",
+        "Integrate safe receipt pruning for deleted variants and follow the portable catalog identity policy."
       ],
       "original_acceptance_tests": [
         "apply/relaunch/restore, native edits between sessions, partial apply failure, duplicate catalog identity, old v1 state lacking receipt."
@@ -1982,16 +2016,18 @@
       "priority": "P2",
       "status": "partial",
       "implemented": [
-        "Native grain validates property shapes, rolls back partial setter failures and verifies actual receipt after success/failure."
+        "Native grain validates property shapes, rolls back partial setter failures and verifies actual receipt after success/failure.",
+        "A durable receipt is written before native setters, read back after applying and checked against the same native values before restore. Restart and conflicting native edit passed."
       ],
       "evidence_paths": [
         "NativePanel/NativeGrain.cs",
         "NativePanel/NativeAdjustmentTransaction.cs",
         "tests/state/Program.cs",
-        ".test-results/host-final/host-smoke.log"
+        ".test-results/host-final/host-smoke.log",
+        ".test-results/host-grain-receipt-20261119/host-smoke.log"
       ],
       "remaining_work": [
-        "Real host apply/restore succeeded, but injected host setter/EndScope failures and changed-selection races remain unverified; undo-scope semantics are not proven and receipts remain process-local."
+        "Inject host setter and EndScope failures and changed-selection races; inspect native undo history after failure."
       ],
       "original_acceptance_tests": [
         "injected failure at each setter and EndScope",
@@ -2144,8 +2180,8 @@
   "counts": {
     "total": 70,
     "implemented": 9,
-    "partial": 38,
-    "pending": 23
+    "partial": 39,
+    "pending": 22
   },
   "last_reconciled": "2026-11-19",
   "handover": "HANDOVER.md",

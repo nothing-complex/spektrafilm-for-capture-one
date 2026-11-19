@@ -1,3 +1,11 @@
+function Get-CatalogStateDigest([object[]] $records) {
+    [string[]] $lines = @($records | ForEach-Object { $_.path + ':' + $_.sha256 })
+    [Array]::Sort($lines, [StringComparer]::Ordinal)
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { return ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes(($lines -join "`n"))))).Replace('-', '').ToLowerInvariant() }
+    finally { $sha.Dispose() }
+}
+
 function Confirm-CatalogIntegrity([string] $path) {
     if (!('Spektrafilm.CatalogIntegrity' -as [type])) {
         Add-Type -TypeDefinition @'

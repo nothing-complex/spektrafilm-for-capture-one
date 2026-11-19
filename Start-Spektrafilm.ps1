@@ -121,11 +121,8 @@ function New-LookBackup([string] $path, [string] $archive) {
                     }
                 }
             }
-            $fingerprint = ($records.ToArray() | Sort-Object path | ForEach-Object { $_.path + ':' + $_.sha256 }) -join "`n"
-            $hash = [Security.Cryptography.SHA256]::Create()
-            try { $stateDigest = ([BitConverter]::ToString($hash.ComputeHash([Text.Encoding]::UTF8.GetBytes($fingerprint)))).Replace('-', '').ToLowerInvariant() }
-            finally { $hash.Dispose() }
-            $manifest = [ordered]@{schemaVersion=1;catalogKey=$key;stateDigest=$stateDigest;files=$records.ToArray()}
+            $stateDigest = Get-CatalogStateDigest $records.ToArray()
+            $manifest = [ordered]@{schemaVersion=2;catalogKey=$key;stateDigest=$stateDigest;files=$records.ToArray()}
             $entry = $zip.CreateEntry('manifest.json')
             $writer = New-Object IO.StreamWriter($entry.Open(), (New-Object Text.UTF8Encoding($false)))
             try { $writer.Write(($manifest | ConvertTo-Json -Depth 6)) } finally { $writer.Dispose() }
@@ -191,7 +188,7 @@ function Save-CatalogBackup([string] $path) {
         if (!$verifiedDatabase) { Confirm-CatalogIntegrity $tempPath }
         $time = [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss-fff', [Globalization.CultureInfo]::InvariantCulture)
         $destination = Join-Path $folder "$name-$time.cocatalogdb"
-        $joint = [ordered]@{schemaVersion=1;createdUtc=[DateTime]::UtcNow.ToString('o');catalogKey=$looks.catalogKey;
+        $joint = [ordered]@{schemaVersion=$looks.schemaVersion;createdUtc=[DateTime]::UtcNow.ToString('o');catalogKey=$looks.catalogKey;
             stateDigest=$looks.stateDigest;catalogSha256=$catalogHash;databaseIntegrity='ok';
             looksSha256=(Get-FileHash -LiteralPath $tempLooks -Algorithm SHA256).Hash.ToLowerInvariant();files=$looks.files}
         $manifestStream = [IO.File]::Open($tempManifest, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)

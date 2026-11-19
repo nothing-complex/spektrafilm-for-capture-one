@@ -139,11 +139,7 @@ public static class StartupHook
                 Check(decoded.PixelWidth == width && decoded.PixelHeight == height,"actual TIFF keeps intended image dimensions");
             }
             var grain = panelAssembly.GetType("NativeGrain")!;
-            var before = grain.GetMethod("Read",Flags)!.Invoke(null,new[] {window})!;
-            grain.GetMethod("Apply",Flags)!.Invoke(null,new object[] {window,variant,2,37d,51d});
-            Check((bool)grain.GetMethod("HasApplied",Flags)!.Invoke(null,new object[] {window,variant})!,"native grain transaction applied with verified restore receipt");
-            grain.GetMethod("Restore",Flags)!.Invoke(null,new object[] {window,variant});
-            Check(before.Equals(grain.GetMethod("Read",Flags)!.Invoke(null,new[] {window})),"native grain restored exact prior values");
+            TestNativeGrain(grain, window, store, variant, restart);
             var recipe = host.GetMethod("ActiveRecipe", Flags)!.Invoke(null, new[] { window });
             File.AppendAllText(Path.Combine(folder,"host-smoke.log"), "RECIPE " + recipe + Environment.NewLine);
             await TestRecipeExport(panel, spatial, recipe!, variant, toggle);
@@ -157,6 +153,56 @@ public static class StartupHook
         {
             timer?.Stop();
             File.WriteAllText(Path.Combine(folder, "failed.txt"), error.ToString());
+        }
+    }
+
+    static void TestNativeGrain(Type grain, object window, object store, Guid variant, bool restart)
+    {
+        object Read() => grain.GetMethod("Read", Flags)!.Invoke(null, new[] { window })!;
+        void Apply(double impact, double granularity) => grain.GetMethod("Apply", Flags)!
+            .Invoke(null, new[] { window, store, variant, 2, impact, granularity });
+        bool CanRestore() => (bool)grain.GetMethod("HasApplied", Flags)!.Invoke(null, new[] { window, store, variant })!;
+        void Restore() => grain.GetMethod("Restore", Flags)!.Invoke(null, new[] { window, store, variant });
+        string Serialize(object state) => System.Text.Json.JsonSerializer.Serialize(state, state.GetType());
+        var checkRestart = File.Exists(Path.Combine(folder, "verify-grain-restart.marker"));
+        var expected = Path.Combine(folder, "grain-before-restart.json");
+        if (restart && checkRestart)
+        {
+            Check(CanRestore(), "native grain and its catalog-scoped receipt survived process termination");
+            Restore();
+            Check(Serialize(Read()) == File.ReadAllText(expected), "second process restored exact original native grain values");
+        }
+
+        var before = Read();
+        Apply(37, 51);
+        Check(CanRestore(), "native grain transaction applied with verified restore receipt");
+        var profile = grain.Assembly.GetType("HostProfile")!;
+        var native = profile.GetMethod("SelectedVariant", Flags)!.Invoke(null, new[] { window })!;
+        var tuple = (System.Runtime.CompilerServices.ITuple)native;
+        var settings = (Type)tuple[1]!;
+        var amount = settings.GetProperty("FilmGrainAmount")!;
+        amount.SetValue(tuple[0], 52f);
+        Check(!CanRestore(), "external native grain change invalidates ownership");
+        try
+        {
+            Restore();
+            throw new InvalidOperationException("Stale grain restore was accepted.");
+        }
+        catch (TargetInvocationException error) when (error.InnerException is InvalidOperationException)
+        {
+            Check((float)amount.GetValue(tuple[0])! == 52f, "stale restore preserved the external grain change");
+        }
+        finally
+        {
+            amount.SetValue(tuple[0], 37f);
+        }
+        Restore();
+        Check(before.Equals(Read()) && !CanRestore(), "native grain restored exact earlier values and ownership cleared");
+        if (!restart && checkRestart)
+        {
+            File.WriteAllText(expected, Serialize(before));
+            Apply(46, 62);
+            Check(CanRestore(), "native grain receipt exists before the host is stopped");
         }
     }
 

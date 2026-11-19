@@ -915,7 +915,7 @@ internal static class SpektraFilmTool
             buttons.Children.Add(Button("Apply grain", () =>
             {
                 if (SyncSelection() && displayedVariant is { } variant && IsSpektraFilmEnabled)
-                    Run(() => NativeGrain.Apply(window, variant,
+                    Run(() => NativeGrain.Apply(window, looks, variant,
                         grainType.SelectedIndex, grainImpact.Value, grainSize.Value), "Capture One Grain applied.");
                 return Task.CompletedTask;
             }));
@@ -924,9 +924,7 @@ internal static class SpektraFilmTool
                 Run(() =>
                 {
                     var current = NativeGrain.Read(window);
-                    if (!NativeGrain.HasApplied(window, current.VariantId))
-                        throw new InvalidOperationException("No grain adjustment from this panel is active.");
-                    NativeGrain.Restore(window, current.VariantId);
+                    NativeGrain.Restore(window, looks, current.VariantId);
                     var original = NativeGrain.Read(window);
                     if (SyncSelection() && displayedVariant == original.VariantId)
                     {

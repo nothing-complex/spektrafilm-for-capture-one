@@ -17,6 +17,11 @@ if (args.Length != 0)
         try { childStore.Flush(); return 12; }
         catch (IOException) { return 0; }
     }
+    if (args[0] == "--verify-grain")
+        return childStore.GrainReceipts.Read(childVariant) is { } receipt
+            && receipt.Original == new GrainValues(1, 7, 30)
+            && receipt.Matches(new GrainValues(2, 35, 60))
+            && receipt.Matches(new GrainValues(2, 48, 72)) ? 0 : 15;
     if (args[0] == "--verify")
         return childStore.Read(childVariant)?.Look.Exposure == double.Parse(args[4], System.Globalization.CultureInfo.InvariantCulture) ? 0 : 13;
     return 14;
@@ -211,6 +216,34 @@ File.WriteAllText(tooLarge, new string(' ', 65537));
 Throws<InvalidDataException>("size guard", () => PanelFiles.ReadPreset<object>(tooLarge));
 Throws<InvalidDataException>("write size guard", () => PanelFiles.WritePreset(stateFile, new string('x', 65536)));
 Check("oversized write preserves previous committed value", PanelFiles.ReadPreset<VariantLook>(stateFile).Look.Exposure == 1.2);
+
+var grainId = Guid.NewGuid();
+var grainOriginal = new GrainValues(1, 7, 30);
+var grainFirst = new GrainValues(2, 35, 60);
+var grainSecond = new GrainValues(2, 48, 72);
+Check("legacy variant has no grain receipt", store.GrainReceipts.Read(grainId) is null);
+var initialReceipt = store.GrainReceipts.Prepare(grainId, grainOriginal, grainFirst);
+Check("receipt matches the exact applied native values", initialReceipt.Matches(grainFirst) && !initialReceipt.Matches(grainOriginal));
+Check("receipt rejects unrelated edits", !initialReceipt.Matches(grainFirst with { Impact = 36 }));
+var nextReceipt = store.GrainReceipts.Prepare(grainId, grainFirst, grainSecond);
+Check("journal retains original baseline when applying another grain setting", nextReceipt.Original == grainOriginal);
+Check("prepared apply can recover the previous or newly applied values", nextReceipt.Matches(grainFirst) && nextReceipt.Matches(grainSecond));
+Check("separate catalog cannot use grain receipt",
+    new VariantLookStore(root, Path.Combine(scratch, "other.cocatalogdb")).GrainReceipts.Read(grainId) is null);
+Check("separate variant cannot use grain receipt", store.GrainReceipts.Read(Guid.NewGuid()) is null);
+RunChild("--verify-grain", root, catalog, grainId.ToString());
+Check("fresh process read the baseline and both crash-window values", true);
+var grainFile = Directory.GetFiles(Path.Combine(scratch, "Look recovery"), grainId.ToString("N") + ".grain.json", SearchOption.AllDirectories).Single();
+var grainBytes = File.ReadAllBytes(grainFile);
+using (var locked = new FileStream(grainFile, FileMode.Open, FileAccess.Read, FileShare.None))
+    Throws<IOException>("receipt write cannot proceed when existing data is locked", () => store.GrainReceipts.Prepare(grainId, grainSecond, grainFirst));
+Check("failed grain receipt replacement preserves durable values", grainBytes.AsSpan().SequenceEqual(File.ReadAllBytes(grainFile)));
+File.WriteAllText(grainFile, "{\"Version\":9}");
+Throws<JsonException>("future invalid receipt blocks reapply and remains recoverable", () => store.GrainReceipts.Prepare(grainId, grainSecond, grainFirst));
+Check("invalid grain data remains untouched", File.ReadAllText(grainFile) == "{\"Version\":9}");
+File.WriteAllBytes(grainFile, grainBytes);
+var replacementReceipt = store.GrainReceipts.Prepare(grainId, grainSecond with { Impact = 53 }, grainFirst);
+Check("explicit apply after external changes takes the current native values as baseline", replacementReceipt.Original.Impact == 53);
 
 var nativeValues = new[] { 1, 2, 3 };
 var closedScopes = 0;

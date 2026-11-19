@@ -5,9 +5,10 @@ using System.Runtime.ExceptionServices;
 
 internal static class NativeGrain
 {
-    private static readonly Dictionary<Guid, AppliedGrain> Applied = new();
-
-    internal readonly record struct GrainSettings(Guid VariantId, int Type, double Impact, double Granularity);
+    internal readonly record struct GrainSettings(Guid VariantId, int Type, double Impact, double Granularity)
+    {
+        internal GrainValues Values => new(Type, Impact, Granularity);
+    }
 
     internal static GrainSettings Read(object window)
     {
@@ -17,6 +18,7 @@ internal static class NativeGrain
 
     internal static void Apply(
         object window,
+        VariantLookStore looks,
         Guid expectedVariantId,
         int type,
         double impact,
@@ -38,30 +40,39 @@ internal static class NativeGrain
         if (current == next)
             return;
 
-        var original = Applied.TryGetValue(target.Id, out var previous) && previous.Last == current
-            ? previous.Original
-            : current;
-        ChangeWithReceipt(target, original, () => SetValues(target, next, current, "Spektrafilm: Capture One Grain"));
+        // Persist the baseline and expected host values before touching any native setter.
+        var receipt = looks.GrainReceipts.Prepare(target.Id, current.Values, next.Values);
+        ChangeWithReceipt(target, looks.GrainReceipts, receipt, next,
+            () => SetValues(target, next, current, "Spektrafilm: Capture One Grain"));
     }
 
-    internal static bool HasApplied(object window, Guid expectedVariantId)
+    internal static bool HasApplied(object window, VariantLookStore looks, Guid expectedVariantId)
     {
         var target = SelectedTarget(window, expectedVariantId);
-        return Applied.TryGetValue(target.Id, out var previous) && previous.Last == ReadValues(target);
+        return looks.GrainReceipts.Read(target.Id)?.Matches(ReadValues(target).Values) == true;
     }
 
-    internal static void Restore(object window, Guid expectedVariantId)
+    internal static void Restore(object window, VariantLookStore looks, Guid expectedVariantId)
     {
         var target = SelectedTarget(window, expectedVariantId);
         var current = ReadValues(target);
-        if (!Applied.TryGetValue(target.Id, out var previous) || previous.Last != current)
+        var receipt = looks.GrainReceipts.Read(target.Id);
+        if (receipt is null)
+            throw new InvalidOperationException("There is no Spektrafilm grain adjustment to restore.");
+        if (current.Values == receipt.Original)
+            throw new InvalidOperationException("Capture One Grain is already at the saved original values.");
+        if (!receipt.Matches(current.Values))
             throw new InvalidOperationException("Capture One Grain changed since the panel applied it.");
 
-        ChangeWithReceipt(target, previous.Original,
-            () => SetValues(target, previous.Original, current, "Spektrafilm: Restore Capture One Grain"));
+        var original = new GrainSettings(target.Id, receipt.Original.Type, receipt.Original.Impact, receipt.Original.Granularity);
+        // Keep the receipt if native persistence lags behind the successful restore.
+        // A restored value invalidates ownership on both this and future launches.
+        ChangeWithReceipt(target, looks.GrainReceipts, receipt, original,
+            () => SetValues(target, original, current, "Spektrafilm: Restore Capture One Grain"));
     }
 
-    private static void ChangeWithReceipt((object Variant, Type Type, Guid Id) target, GrainSettings original, Action change)
+    private static void ChangeWithReceipt((object Variant, Type Type, Guid Id) target, GrainReceiptStore store,
+        GrainReceipt receipt, GrainSettings requested, Action change)
     {
         Exception? failure = null;
         try { change(); }
@@ -69,12 +80,16 @@ internal static class NativeGrain
         try
         {
             var actual = ReadValues(target);
-            if (actual == original) Applied.Remove(target.Id);
-            else Applied[target.Id] = new(original, actual);
+            if (actual != requested)
+            {
+                if (failure is null)
+                    failure = new InvalidOperationException("Capture One did not accept all grain settings.");
+                if (actual.Values != receipt.Original && !receipt.Matches(actual.Values))
+                    store.Save(receipt with { Applied = actual.Values, PreviousApplied = receipt.Applied });
+            }
         }
         catch (Exception verificationError)
         {
-            Applied.Remove(target.Id); // An unverified receipt must never overwrite a user's later edit.
             failure = failure is null ? verificationError : new AggregateException(
                 "Capture One Grain could not be changed safely and its resulting values could not be verified.", failure, verificationError);
         }
@@ -158,5 +173,4 @@ internal static class NativeGrain
     private static MethodInfo Method(Type type, string name, params Type[] parameters) =>
         type.GetMethod(name, parameters) ?? throw new MissingMethodException(type.FullName, name);
 
-    private sealed record AppliedGrain(GrainSettings Original, GrainSettings Last);
 }

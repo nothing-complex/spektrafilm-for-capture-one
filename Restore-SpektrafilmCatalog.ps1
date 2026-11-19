@@ -37,32 +37,41 @@ function Get-CatalogKey([string] $path) {
 function Read-Manifest([string] $path) {
     if ((Get-Item -LiteralPath $path).Length -gt 32MB) { throw 'The backup manifest is unexpectedly large.' }
     $document = [IO.File]::ReadAllText($path) | ConvertFrom-Json
-    if ($document.schemaVersion -ne 1 -or $document.catalogKey -notmatch '^[0-9a-fA-F]{64}$' -or
+    if ($document.schemaVersion -notin 1, 2 -or $document.catalogKey -notmatch '^[0-9a-fA-F]{64}$' -or
         $document.catalogSha256 -notmatch '^[0-9a-fA-F]{64}$' -or $document.looksSha256 -notmatch '^[0-9a-fA-F]{64}$' -or
         $document.stateDigest -notmatch '^[0-9a-fA-F]{64}$' -or $null -eq $document.files) {
         throw 'This is not a supported joint catalog backup manifest.'
     }
     $names = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
     foreach ($record in $document.files) {
-        if ($record.path -cnotmatch '^(Variant looks/[0-9a-f]{32}\.json|Look recovery/[0-9a-f]{32}\.pending\.json|Look recovery/Preserved originals/[0-9a-f]{32}-[A-Za-z0-9-]+\.json)$' -or
+        if ($record.path -cnotmatch '^(Variant looks/[0-9a-f]{32}\.json|Look recovery/[0-9a-f]{32}\.(pending|grain)\.json|Look recovery/Preserved originals/[0-9a-f]{32}-[A-Za-z0-9-]+\.json)$' -or
             !$names.Add($record.path) -or $record.sha256 -notmatch '^[0-9a-fA-F]{64}$' -or
             ($record.bytes -isnot [int] -and $record.bytes -isnot [long]) -or $record.bytes -lt 0) {
             throw 'The backup manifest has an invalid or duplicate state entry.'
         }
     }
-    $summary = ($document.files | Sort-Object path | ForEach-Object { $_.path + ':' + $_.sha256 }) -join "`n"
-    $sha = [Security.Cryptography.SHA256]::Create()
-    try { $digest = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($summary)))).Replace('-', '') }
-    finally { $sha.Dispose() }
-    if ($digest -ne $document.stateDigest) { throw 'The saved-look manifest digest does not match.' }
+    if ($document.schemaVersion -eq 2 -and (Get-CatalogStateDigest @($document.files)) -ne $document.stateDigest) {
+        throw 'The saved-look manifest digest does not match.'
+    }
     return $document
 }
 
 function Copy-VerifiedState($zip, $manifest, [string] $catalogKey, [hashtable] $staging) {
     $writing = $staging.Count -ne 0
     $entries = @($zip.Entries)
-    if ($entries.Count -ne 1 + @($manifest.files).Count -or $null -eq $zip.GetEntry('manifest.json')) {
+    $manifestEntry = $zip.GetEntry('manifest.json')
+    if ($entries.Count -ne 1 + @($manifest.files).Count -or $null -eq $manifestEntry -or $manifestEntry.Length -gt 32MB) {
         throw 'The saved-look archive does not match its manifest.'
+    }
+    # Version 1 calculated its digest with a shell-dependent order. Match the
+    # embedded record in the hash-verified ZIP and reverify every file instead.
+    $reader = New-Object IO.StreamReader($manifestEntry.Open(), (New-Object Text.UTF8Encoding($false, $true)))
+    try { $embedded = $reader.ReadToEnd() | ConvertFrom-Json }
+    finally { $reader.Dispose() }
+    if ($embedded.schemaVersion -ne $manifest.schemaVersion -or $embedded.catalogKey -ne $manifest.catalogKey -or
+        $embedded.stateDigest -ne $manifest.stateDigest -or @($embedded.files).Count -ne @($manifest.files).Count -or
+        (Get-CatalogStateDigest @($embedded.files)) -ne (Get-CatalogStateDigest @($manifest.files))) {
+        throw 'The saved-look archive contains a different catalog or state generation.'
     }
     foreach ($record in $manifest.files) {
         $entry = $zip.GetEntry($record.path)

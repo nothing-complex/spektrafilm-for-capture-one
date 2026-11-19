@@ -59,6 +59,7 @@ try {
     $env:SPEKTRAFILM_PANEL_LOG=Join-Path $folder 'panel.log'
     $env:SPEKTRAFILM_HOST_SMOKE=$folder
     $phases=if($SkipRestart){@('first')}else{@('first','restart')}
+    if (!$SkipRestart) { [IO.File]::WriteAllText((Join-Path $folder 'verify-grain-restart.marker'), 'test only') }
     foreach($phase in $phases){
         if($phase -eq 'restart'){Start-Sleep -Seconds 10}
         $phaseStarted=[DateTime]::UtcNow

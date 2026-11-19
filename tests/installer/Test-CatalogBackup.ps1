@@ -46,6 +46,7 @@ Assert (Test-Path -LiteralPath ($first+'.manifest.json')) 'Joint manifest create
 $manifest=[IO.File]::ReadAllText($first+'.manifest.json')|ConvertFrom-Json
 Assert ($manifest.files.Count -eq 2) 'Both saved and recovery records included'
 Assert ($manifest.catalogSha256 -eq $originalHash) 'DB fingerprint matches original'
+Assert ($manifest.schemaVersion -eq 2) 'New backup uses portable file ordering'
 Assert ($manifest.databaseIntegrity -eq 'ok') 'Passed full SQLite integrity check before publishing'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $zip=[IO.Compression.ZipFile]::OpenRead($first+'.spektrafilm.zip')
@@ -106,9 +107,17 @@ $changed = [IO.File]::ReadAllText($look) | ConvertFrom-Json
 $changed.Look.Exposure = 2.2
 $pending = [ordered]@{Version=1;CatalogKey=$key;Variant='11111111-1111-1111-1111-111111111111';BaseHash=$baseHash;Look=$changed}
 [IO.File]::WriteAllText($recovery, ($pending | ConvertTo-Json -Depth 12 -Compress))
+$grain = Join-Path (Split-Path -Parent $recovery) '11111111111111111111111111111111.grain.json'
+$grainReceipt = [ordered]@{Version=1;Variant='11111111-1111-1111-1111-111111111111';
+    Original=@{Type=1;Impact=7;Granularity=30};Applied=@{Type=2;Impact=35;Granularity=60};PreviousApplied=$null}
+[IO.File]::WriteAllText($grain, ($grainReceipt | ConvertTo-Json -Depth 4 -Compress))
 $restorable = Save-CatalogBackup $db
+$manifest = [IO.File]::ReadAllText($restorable + '.manifest.json') | ConvertFrom-Json
+$reversed = @($manifest.files)
+[Array]::Reverse($reversed)
+Assert ((Get-CatalogStateDigest $reversed) -eq $manifest.stateDigest) 'File enumeration order does not change the state digest'
 $restore = Join-Path $repo 'Restore-SpektrafilmCatalog.ps1'
-$restored = Join-Path $root 'restored\test È.cocatalogdb'
+$restored = Join-Path $root ('restored\test ' + [char]0x00C8 + '.cocatalogdb')
 $restoredData = Join-Path $root 'restored-state'
 $preview = & $restore -BackupDatabase $restorable -DestinationDatabase $restored -UserDataRoot $restoredData
 Assert (($preview -join ' ').Contains('preview verified')) 'Restore preview verifies checksums'
@@ -124,6 +133,8 @@ Assert ((Get-FileHash -LiteralPath $restoredLook -Algorithm SHA256).Hash -eq $ba
 $pendingCopy=[IO.File]::ReadAllText($restoredPending)|ConvertFrom-Json
 Assert ($pendingCopy.CatalogKey -eq $restoredKey -and $pendingCopy.BaseHash -eq $baseHash -and $pendingCopy.Look.Look.Exposure -eq 2.2) 'Pending recovery rebased without changing its look or base hash'
 Assert (([IO.File]::ReadAllText($recovery)|ConvertFrom-Json).CatalogKey -eq $key) 'Original pending checkpoint unchanged'
+$restoredGrain = Join-Path (Split-Path -Parent $restoredPending) '11111111111111111111111111111111.grain.json'
+Assert ((Get-FileHash -LiteralPath $restoredGrain).Hash -eq (Get-FileHash -LiteralPath $grain).Hash) 'Native grain restore record moves with its saved variant and database'
 $failure = $null
 try { $null = & $restore -BackupDatabase $restorable -DestinationDatabase $restored -UserDataRoot $restoredData -Apply }
 catch { $failure = $_.Exception.Message }
@@ -139,4 +150,31 @@ try {
     catch { $failure = $_.Exception.Message }
     Assert ($failure -match 'checksum failed' -and !(Test-Path -LiteralPath $blocked)) 'Corrupt saved-look archive cannot publish a catalog'
 } finally { [IO.File]::WriteAllBytes($archivePath, $archiveBytes) }
+# Emulate an earlier backup whose shell computed a different file ordering.
+$legacy = Join-Path $root 'legacy.cocatalogdb'
+$legacyZip = $legacy + '.spektrafilm.zip'
+$legacyManifestPath = $legacy + '.manifest.json'
+[IO.File]::Copy($restorable, $legacy)
+[IO.File]::Copy($archivePath, $legacyZip)
+$legacyState = $manifest
+$legacyState.schemaVersion = 1
+$legacyState.stateDigest = 'AB' * 32
+$archive = [IO.Compression.ZipFile]::Open($legacyZip, [IO.Compression.ZipArchiveMode]::Update)
+try {
+    $archive.GetEntry('manifest.json').Delete()
+    $internal = [ordered]@{schemaVersion=1;catalogKey=$legacyState.catalogKey;stateDigest=$legacyState.stateDigest;files=$legacyState.files}
+    $writer = New-Object IO.StreamWriter($archive.CreateEntry('manifest.json').Open(), (New-Object Text.UTF8Encoding($false)))
+    try { $writer.Write(($internal | ConvertTo-Json -Depth 6)) }
+    finally { $writer.Dispose() }
+} finally { $archive.Dispose() }
+$legacyState.looksSha256 = (Get-FileHash -LiteralPath $legacyZip).Hash
+[IO.File]::WriteAllText($legacyManifestPath, ($legacyState | ConvertTo-Json -Depth 6))
+$preview = & $restore -BackupDatabase $legacy -DestinationDatabase $blocked -UserDataRoot $restoredData
+Assert (($preview -join ' ').Contains('preview verified')) 'Version 1 resolves shell-dependent ordering using the paired ZIP manifest and per-file hashes'
+$legacyState.stateDigest = '21' * 32
+[IO.File]::WriteAllText($legacyManifestPath, ($legacyState | ConvertTo-Json -Depth 6))
+$failure = $null
+try { $null = & $restore -BackupDatabase $legacy -DestinationDatabase $blocked -UserDataRoot $restoredData }
+catch { $failure = $_.Exception.Message }
+Assert ($failure -match 'different catalog or state generation') 'Version 1 refuses a mismatched pairing even with valid ZIP and database hashes'
 Write-Output "PASS: $count joint backup assertions. Evidence: $root"

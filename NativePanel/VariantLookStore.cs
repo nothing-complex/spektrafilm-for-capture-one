@@ -27,6 +27,7 @@ internal sealed class VariantLookStore
     private readonly string catalogKey;
     private readonly Session session;
     private readonly Dictionary<Guid, string> blocked;
+    internal GrainReceiptStore GrainReceipts { get; }
     internal string? RecoveryNotice { get; private set; }
 
     internal VariantLookStore(string root, string catalogDatabase)
@@ -34,6 +35,7 @@ internal sealed class VariantLookStore
         catalogKey = CatalogKey(catalogDatabase);
         directory = Path.Combine(Path.GetFullPath(root), catalogKey);
         recoveryDirectory = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(root))!, "Look recovery", catalogKey);
+        GrainReceipts = new GrainReceiptStore(recoveryDirectory);
         session = Sessions.GetOrAdd(directory, _ => new Session());
         blocked = session.Blocked;
     }
