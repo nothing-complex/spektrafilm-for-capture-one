@@ -308,6 +308,32 @@
         "status": "failed",
         "run_id": 44617727524,
         "scope": "Metadata query mismatch between Windows codec builds superseded by direct container validation in this checkpoint."
+      },
+      "github": {
+        "status": "passed",
+        "run_id": 44619139548,
+        "assertions": 12057,
+        "url": "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44619139548",
+        "scope": "Includes symbolic-link output protection and raw encoded XMP verification on the GitHub Windows image."
+      }
+    },
+    "full_look_presets": {
+      "contracts": {
+        "status": "passed",
+        "assertions": 12062,
+        "state_assertions": 160,
+        "summary": ".test-results/contracts-full-presets-20261119/summary.json",
+        "skipped": [
+          "Local symbolic-file-link creation lacks Windows privilege."
+        ]
+      },
+      "host": {
+        "status": "passed",
+        "first_launch_assertions": 96,
+        "restart_assertions": 99,
+        "source_catalog_unchanged": true,
+        "evidence": ".test-results/host-full-presets-20261119/host-smoke.log",
+        "scope": "Version 2 stored master state, optics, film controls and staged grain. Wrong target no-op, single native action for apply/undo/redo and actual grain preserved."
       }
     }
   },
@@ -1428,17 +1454,19 @@
       "implemented": [
         "Proved named extension registration and Do/Undo/Redo on the exact supported host. Production uses the same native undo manager with captured UUID, baseline, next state and weak UI notification.",
         "Consecutive slider motions are saved before the drag ends. Each finished gesture registers one native undo entry. Actual native grain and film changes were undone and redone in order; cross-selection restoration wrote only the originally edited variant.",
-        "Atomically compare the expected saved look before undo or redo. Newer external edits remain untouched. Undo updates the live controls and is durable across restart."
+        "Atomically compare the expected saved look before undo or redo. Newer external edits remain untouched. Undo updates the live controls and is durable across restart.",
+        "Full preset load and redo now use one named native Undo entry. Defaults reset is also recorded with its own named entry."
       ],
       "evidence_paths": [
         "NativePanel/NativeLookUndoAction.cs",
         "NativePanel/VariantLookStore.cs",
         "NativePanel/SpektraFilmTool.cs",
         ".test-results/host-undo-raw-metadata-20261119/host-smoke.log",
-        ".test-results/contracts-native-undo-metadata-20261119/summary.json"
+        ".test-results/contracts-native-undo-metadata-20261119/summary.json",
+        ".test-results/host-full-presets-20261119/host-smoke.log"
       ],
       "remaining_work": [
-        "Test physical keyboard/numeric input, double-click, focus loss or canceled drag, redo after preset/reset and multiple-selection pastes.",
+        "Test actual pointer and keyboard numeric input, double-click, focus loss or canceled drag, Redo after defaults reset and multiple-selection pastes.",
         "Recheck host capabilities and native Undo lifetime through detach/reattach on other verified host builds."
       ],
       "original_acceptance_tests": [
@@ -1456,15 +1484,21 @@
       "priority": "P2",
       "status": "partial",
       "implemented": [
-        "Preset loading now validates complete known effect data before applying and excludes new hardware/comparison state."
+        "Preset loading now validates complete known effect data before applying and excludes new hardware/comparison state.",
+        "Version 2 includes the complete film and optics dictionaries, master enable state and staged native-grain values. Legacy files still load with the earlier semantics. An absent optional section in a version 2 preset leaves that stage intact. Applicable source variants are captured before opening file pickers.",
+        "Live host applied and undid a preset as one native history entry, then redid the exact saved state. A disabled look can still save or load presets. Actual Capture One grain remains unchanged unless explicitly applied."
       ],
       "evidence_paths": [
         "NativePanel/SpektraFilmTool.cs",
         "NativePanel/LookStateValidation.cs",
-        "NativePanel/SpatialPreview.cs"
+        "NativePanel/SpatialPreview.cs",
+        "NativePanel/LookPreset.cs",
+        "tests/state/Program.cs",
+        ".test-results/host-full-presets-20261119/host-smoke.log",
+        ".test-results/contracts-full-presets-20261119/summary.json"
       ],
       "remaining_work": [
-        "Define full named-section apply/reset schema, deliberate native-grain inclusion and one-operation undo; current preset does not represent all native host state."
+        "Add named section selection for applying parts of a preset and an every-control range roundtrip across modes."
       ],
       "original_acceptance_tests": [
         "roundtrip all supported image-effect controls, old presets, absent optional sections, one-operation undo, no unintended host grain mutation."

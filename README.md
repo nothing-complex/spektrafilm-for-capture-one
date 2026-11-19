@@ -30,7 +30,7 @@ Updates also preserve custom files inside bundled folders. If a new package conf
 - Choose **Float Tool** in the tool's three-dot menu. Close the floating tool to dock it again.
 - Use **Viewer resolution** to select native size or a 720–4096 px long-edge cap. **Drag preview resolution** sets the temporary long edge while adjusting sliders. 1200 px is the starting value. Set it to 1600 or 2048 px for more detail, or lower either setting to reduce GPU work. The Viewer returns to its selected quality when the drag settles.
 - In the color controls, pick the input working space Capture One develops into. Use sRGB to start, or choose Linear Rec.2020, ProPhoto RGB or Adobe RGB (1998). The renderer accepts that encoding and can display sRGB, Rec.709 gamma 2.4, or Linear Rec.709 in the Viewer. File exports are tagged sRGB. Capture One handles RAW development, camera profiles and its own adjustments.
-- Use **Save preset** and **Load preset** in **Presets and LUT export** to retain a look and its controls.
+- Use **Save preset** and **Load preset** in **Presets and LUT export** to retain the film look, optics, enable switch and staged grain values. Loading a preset leaves the actual Capture One Grain adjustment untouched.
 
 ## Saved looks
 

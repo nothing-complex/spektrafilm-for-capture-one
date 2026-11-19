@@ -161,6 +161,15 @@ Evidence is under `.test-results/host-grain-receipt-20261119`, `.test-results/co
 
 Evidence is under `.test-results/contracts-native-undo-metadata-20261119` and `.test-results/host-undo-raw-metadata-20261119`. Preset/reset histories, pointer and keyboard edge cases, selection during gestures, and broader host builds remain open. The installed runtime still identifies `ffc4819`.
 
+## Full-look presets checkpoint
+
+- [x] Preset version 2 captures film, optics, the enable switch and staged grain. Vintage presets retain their version-specific behavior. Save and Load remain accessible for disabled looks, with Spektrafilm export disabled. The host's actual grain stays as it was.
+- [x] Verify one native Undo action for preset load and the exact imported state after Redo. Refuse applying to a different variant after navigation. Test older and unversioned files, optional sections and invalid states in the managed suite.
+- [x] All seven local suites pass 12,062 assertions. Capture One passes 96 first-launch and 99 restart assertions in the disposable catalog. The source hash stayed unchanged.
+- [x] The preceding GitHub Windows run passed 12,057 assertions and exercised the portable metadata verification plus the symbolic-link fixture. [Windows contracts](https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44619139548)
+
+Evidence is under `.test-results/contracts-full-presets-20261119` and `.test-results/host-full-presets-20261119`. Selective section apply, every-mode roundtrips and adjacent native clone/copy behavior remain open. The installed runtime still identifies `ffc4819`.
+
 ## Runtime map for the next agent
 
 | Responsibility | Main files and contracts |

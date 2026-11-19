@@ -4,6 +4,8 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Threading;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -93,6 +95,7 @@ public static class StartupHook
                 Check(Math.Abs((double)Prop(Prop(saved, "Look")!, "Exposure")! - value) < 1e-9, "slider movement durably saved: " + value);
             }
             TestProductionUndo(panel, spatial, window, store, variant, exposure);
+            TestPresetHistory(panel, window, store, variant, exposure, toggle);
             await TestLockedLook(panel, store, variant, exposure, toggle);
             var optics = Call(spatial, "CaptureSettings")!;
             Call(spatial, "ValidateSettings", optics);
@@ -238,6 +241,53 @@ public static class StartupHook
             Check(Is(1.2) && Equals(shown, value.GetValue(exposure)), "Undo writes only the original variant while another remains selected");
         }
         finally { SelectWithoutHistory(selected[0]!); }
+    }
+
+    static void TestPresetHistory(object panel, object window, object store, Guid variant, object exposure, CheckBox toggle)
+    {
+        var assembly = panel.GetType().Assembly;
+        var presetType = assembly.GetType("LookPreset")!;
+        var baseline = Call(panel, "CaptureLook")!;
+        var grainType = assembly.GetType("NativeGrain")!;
+        object NativeGrain() => grainType.GetMethod("Read", Flags)!.Invoke(null, new[] { window })!;
+        var originalGrain = NativeGrain();
+        var preset = presetType.GetMethod("From", Flags)!.Invoke(null, new[] { baseline });
+        var json = JsonSerializer.SerializeToNode(preset, presetType)!.AsObject();
+        json["Enabled"] = false;
+        json["Look"]!.AsObject()["Exposure"] = 2.4;
+        json["Optics"]!["Numbers"]!.AsObject()["halation-amount"] = 0.45;
+        json["Grain"] = JsonSerializer.SerializeToNode(new { Type = 3, Impact = 19, Granularity = 59 });
+        var path = Path.Combine(folder, "native-look-roundtrip.spektra.json");
+        File.WriteAllText(path, json.ToJsonString());
+        var disk = JsonSerializer.Deserialize(File.ReadAllText(path), presetType)!;
+        bool SameLook(object look) => JsonNode.DeepEquals(JsonSerializer.SerializeToNode(look, look.GetType()),
+            JsonSerializer.SerializeToNode(baseline, baseline.GetType()));
+        object Saved() => Call(store, "Read", variant)!;
+
+        Check(Call(panel, "ApplyPreset", Guid.NewGuid(), disk) is false && SameLook(Saved()), "preset keeps its captured target after navigation");
+        Check(Call(panel, "ApplyPreset", variant, disk) is true, "full saved preset applied its captured native variant");
+        var saved = JsonSerializer.SerializeToNode(Saved(), baseline.GetType())!;
+        Check(toggle.IsChecked == false && Prop(exposure, "Value") is 2.4
+            && saved["Optics"]!["Numbers"]!["halation-amount"]!.GetValue<double>() == 0.45
+            && saved["Grain"]!["Impact"]!.GetValue<double>() == 19,
+            "preset applied master, film, optics and staged grain together");
+        Check(((FrameworkElement)Field(panel, "fileControls")!).IsEnabled
+            && !((UIElement)Field(panel, "exportButtons")!).IsEnabled,
+            "disabled look can still load or save presets while export actions are disabled");
+        Check(originalGrain.Equals(NativeGrain()), "preset apply leaves actual Capture One Grain unchanged");
+
+        var undo = Field(panel, "nativeUndo")!;
+        var model = AppDomain.CurrentDomain.GetAssemblies().Single(item => item.GetName().Name == "P1.C1.ModelEntities");
+        var contract = model.GetType("P1.C1.ModelEntities.UndoInterfaces.IUndoManager", true)!;
+        var revert = contract.GetMethod("Undo", new[] { typeof(bool) })!;
+        Check(contract.GetProperty("TryGetUndoActionName")!.GetValue(undo) is "Spektrafilm preset", "preset recorded one named native action");
+        revert.Invoke(undo, new object[] { true });
+        Check(toggle.IsChecked == true && SameLook(Saved()), "one Undo restores the complete previous preset state");
+        contract.GetMethod("Redo")!.Invoke(undo, null);
+        Check(toggle.IsChecked == false && JsonNode.DeepEquals(saved, JsonSerializer.SerializeToNode(Saved(), baseline.GetType())),
+            "one Redo restores the complete imported preset state");
+        revert.Invoke(undo, new object[] { false });
+        Check(SameLook(Saved()) && originalGrain.Equals(NativeGrain()), "preset fixture restored saved look and native grain exactly");
     }
 
     static void TestNativeUndoCapability(object document)

@@ -10,7 +10,12 @@ internal static class LookStateValidation
             throw new InvalidDataException("The saved Spektrafilm look has an unsupported format or version.");
         ValidateLook(saved.Look);
         ValidateOptics(saved.Optics);
-        if (saved.Grain is { } grain &&
+        ValidateGrain(saved.Grain);
+    }
+
+    internal static void ValidateGrain(GrainControls? settings)
+    {
+        if (settings is { } grain &&
             (grain.Type is < 0 or > 5 || !InRange(grain.Impact, 0, 100) || !InRange(grain.Granularity, 0, 100)))
             throw new InvalidDataException("The saved native grain controls are invalid.");
     }

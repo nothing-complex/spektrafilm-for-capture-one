@@ -217,6 +217,28 @@ Throws<InvalidDataException>("size guard", () => PanelFiles.ReadPreset<object>(t
 Throws<InvalidDataException>("write size guard", () => PanelFiles.WritePreset(stateFile, new string('x', 65536)));
 Check("oversized write preserves previous committed value", PanelFiles.ReadPreset<VariantLook>(stateFile).Look.Exposure == 1.2);
 
+var presetSource = Sample(1.3) with { Enabled = false, Grain = new GrainControls(4, 18, 62) };
+var presetPath = Path.Combine(scratch, "all-controls.spektra.json");
+PanelFiles.WritePreset(presetPath, LookPreset.From(presetSource));
+var presetCopy = PanelFiles.ReadPreset<LookPreset>(presetPath);
+presetCopy.Validate();
+Check("current preset roundtrips effect, optics, enable and staged grain",
+    presetCopy.SchemaVersion == 2 && presetCopy.Enabled == false && presetCopy.Grain == presetSource.Grain
+    && JsonNode.DeepEquals(JsonSerializer.SerializeToNode(presetSource.Look), JsonSerializer.SerializeToNode(presetCopy.Look))
+    && JsonNode.DeepEquals(JsonSerializer.SerializeToNode(presetSource.Optics), JsonSerializer.SerializeToNode(presetCopy.Optics)));
+var oldPreset = JsonSerializer.Deserialize<LookPreset>(JsonSerializer.Serialize(new { Look = presetSource.Look }))!;
+oldPreset.Validate();
+Check("unversioned preset accepts missing optional sections", oldPreset.SchemaVersion == 0 && oldPreset.Optics is null
+    && oldPreset.Enabled is null && oldPreset.Grain is null);
+var priorPreset = new LookPreset(presetSource.Look, presetSource.Optics, 1);
+priorPreset.Validate();
+Check("version one accepts both original sections", priorPreset.Look.Exposure == 1.3 && priorPreset.Optics is not null);
+Throws<InvalidDataException>("old preset rejects settings reserved for newer versions",
+    () => (priorPreset with { Enabled = false }).Validate());
+Throws<InvalidDataException>("preset validates staged native grain before apply",
+    () => (presetCopy with { Grain = new GrainControls(13, 90, 60) }).Validate());
+Throws<InvalidDataException>("preset cannot apply unknown future format", () => (presetCopy with { SchemaVersion = 3 }).Validate());
+
 var undoVariant = Guid.NewGuid();
 var undoFirst = Sample(0.2);
 var undoSecond = Sample(1.7);

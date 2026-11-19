@@ -10,6 +10,7 @@
     <Compile Include="../../NativePanel/VariantLookStore.cs" Link="VariantLookStore.cs" />
     <Compile Include="../../NativePanel/LookStateValidation.cs" Link="LookStateValidation.cs" />
     <Compile Include="../../NativePanel/LookSettings.cs" Link="LookSettings.cs" />
+    <Compile Include="../../NativePanel/LookPreset.cs" Link="LookPreset.cs" />
     <Compile Include="../../NativePanel/NativeAdjustmentTransaction.cs" Link="NativeAdjustmentTransaction.cs" />
     <Compile Include="../../NativePanel/GrainReceiptStore.cs" Link="GrainReceiptStore.cs" />
   </ItemGroup>
