@@ -358,7 +358,31 @@
         "status": "passed",
         "checks": 17,
         "evidence": ".test-results/gpu-renderer-drain-20261119.log"
+      },
+      "github": {
+        "status": "passed",
+        "run_id": 44621170545,
+        "url": "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44621170545"
       }
+    },
+    "renderer_performance_baseline": {
+      "status": "passed",
+      "cases": 14,
+      "requests": 70,
+      "gpu": "NVIDIA GeForce RTX 3090",
+      "driver": "610.88",
+      "paths": [
+        "qa/renderer-benchmark.py",
+        ".test-results/renderer-benchmark-color-optics-20261119.json",
+        ".test-results/renderer-benchmark-grain-quality-20261119.json"
+      ],
+      "scope": "Worker request/reply and resources, with cold source transfer then 4 same-source edits per case, plus separate real-host baseline above.",
+      "viewer_24mp_optics_peak_working_set_mib": 1544.9,
+      "viewer_24mp_optics_gpu_reported_static_plus_cache_mib": 4032.5,
+      "viewer_24mp_optics_warm_median_ms": 421.9,
+      "viewer_096mp_grain_two_sample_warm_median_ms": 70.3,
+      "viewer_096mp_grain_full_warm_median_ms": 4217.9,
+      "limits": "A single GPU and short warm runs. Reported Vulkan buffers exclude driver and other process residency. The initial all-synthesis matrix was canceled before completing; final cases explicitly bound tested grain resolution."
     }
   },
   "known_limitations": [
@@ -692,16 +716,21 @@
       "priority": "P2",
       "status": "partial",
       "implemented": [
-        "HELLO and METRICS expose bounded protocol/float/contract data and Vulkan timings, uploads and allocations; synthetic GPU/LUT and no-GPU suites exist."
+        "HELLO and METRICS expose bounded protocol/float/contract data and Vulkan timings, uploads and allocations; synthetic GPU/LUT and no-GPU suites exist.",
+        "Windows worker benchmark saves per-request transport wall time, renderer stages and Vulkan allocations, working-set/commit samples, cold request versus reused-source edit percentiles, and renderer fingerprint in machine-readable JSON."
       ],
       "evidence_paths": [
         "ofx-still-renderer/main.cpp",
         "NativePanel/OpticalRenderer.cs",
         "tests/renderer",
-        "ofx-still-renderer/smoke.py"
+        "ofx-still-renderer/smoke.py",
+        "qa/renderer-benchmark.py",
+        ".test-results/renderer-benchmark-color-optics-20261119.json",
+        ".test-results/renderer-benchmark-grain-quality-20261119.json"
       ],
       "remaining_work": [
-        "Add frame/build/settings identity to diagnostics, structured whole-pipeline telemetry, quality oracles, tiled parity and hardware p50/p95/memory budgets."
+        "Add frame/build/settings identity to diagnostics, structured whole-pipeline telemetry, quality oracles, tiled parity and hardware p50/p95/memory budgets.",
+        "Expand across multiple memory sizes and vendors and measure end-to-end actual display, RAW development, and codec stages."
       ],
       "original_acceptance_tests": [
         "FRAME8/REUSE8 native parity and source replacement",
@@ -740,16 +769,18 @@
       "id": "RC-11",
       "title": "Admit rendering by real memory budgets across worker contexts",
       "priority": "P1",
-      "status": "pending",
-      "implemented": [],
-      "evidence_paths": [],
+      "status": "partial",
+      "implemented": [
+        "Measure peak worker working set and Vulkan allocation counters at 0.96, 6 and 24 MP for color and optics in packed Viewer and float export routes. Separate benchmark measured 2-sample draft synthesis and renderer-default synthesis."
+      ],
+      "evidence_paths": [
+        "qa/renderer-benchmark.py",
+        ".test-results/renderer-benchmark-color-optics-20261119.json",
+        ".test-results/renderer-benchmark-grain-quality-20261119.json"
+      ],
       "remaining_work": [
-        "Measure host+worker+GPU peak by graph and format",
-        "Estimate requested graph peak and reserve cross-context tokens",
-        "Use conservative system/adapter budgets and release idle buffers",
-        "Coordinate draft/full/export priorities",
-        "Gracefully propose smaller viewer when needed; never silently resize export",
-        "Evaluate one worker/multiple contexts under explicit isolation contract"
+        "Measure Capture One process memory/commit and actual adapter heap free budget. Build graph-specific estimate and a shared admission lease.",
+        "Use budget-aware tiling or smaller explicit preview selection while retaining full requested export size. Validate 4/6/8 GB bounds, memory pressure and OOM preservation."
       ],
       "original_acceptance_tests": [
         "4/6/8GB GPU scenarios and100MP source sizing",
@@ -1291,17 +1322,22 @@
       "status": "partial",
       "implemented": [
         "Versioned worker metrics and reproducible synthetic/host test entry points supply initial telemetry.",
-        "Repeated full-host 24 MP export baseline was 4204 ms on first process and 4033 ms after restart, including a small TIFF decode. Viewer worker quiescence is timed separately. The test machine used an RTX 3090."
+        "Repeated full-host 24 MP export baseline was 4204 ms on first process and 4033 ms after restart, including a small TIFF decode. Viewer worker quiescence is timed separately. The test machine used an RTX 3090.",
+        "Windows worker benchmark saves per-request transport wall time, renderer stages and Vulkan allocations, working-set/commit samples, cold request versus reused-source edit percentiles, and renderer fingerprint in machine-readable JSON."
       ],
       "evidence_paths": [
         "ofx-still-renderer/main.cpp",
         "NativePanel/OpticalRenderer.cs",
         "qa/HostSmoke",
         "Test-Windows.ps1",
-        ".test-results/host-full-raw-24mp-20261119/host-smoke.log"
+        ".test-results/host-full-raw-24mp-20261119/host-smoke.log",
+        "qa/renderer-benchmark.py",
+        ".test-results/renderer-benchmark-color-optics-20261119.json",
+        ".test-results/renderer-benchmark-grain-quality-20261119.json"
       ],
       "remaining_work": [
-        "No structured end-to-end event model, shared request identity, p50/p95 benchmark matrix or UI latency budget yet."
+        "No structured end-to-end event model, shared request identity, p50/p95 benchmark matrix or UI latency budget yet.",
+        "Expand across multiple memory sizes and vendors and measure end-to-end actual display, RAW development, and codec stages."
       ],
       "original_acceptance_tests": [
         "Telemetry remains bounded during 10-minute rapid interaction and cannot block UI on disk or full diagnostics queue.",
@@ -1717,16 +1753,21 @@
       "priority": "P2",
       "status": "partial",
       "implemented": [
-        "Tracked pure/GPU/host probes establish initial correctness evidence and retain explicit skipped prerequisites."
+        "Tracked pure/GPU/host probes establish initial correctness evidence and retain explicit skipped prerequisites.",
+        "Windows worker benchmark saves per-request transport wall time, renderer stages and Vulkan allocations, working-set/commit samples, cold request versus reused-source edit percentiles, and renderer fingerprint in machine-readable JSON."
       ],
       "evidence_paths": [
         "tests",
         "ofx-still-renderer/smoke.py",
         "qa/HostSmoke",
-        "Test-Windows.ps1"
+        "Test-Windows.ps1",
+        "qa/renderer-benchmark.py",
+        ".test-results/renderer-benchmark-color-optics-20261119.json",
+        ".test-results/renderer-benchmark-grain-quality-20261119.json"
       ],
       "remaining_work": [
-        "No complete end-to-end hardware/source-format performance and quality acceptance matrix or release budgets yet."
+        "No complete end-to-end hardware/source-format performance and quality acceptance matrix or release budgets yet.",
+        "Expand across multiple memory sizes and vendors and measure end-to-end actual display, RAW development, and codec stages."
       ],
       "original_acceptance_tests": [
         "Repeatable benchmark command produces machine-readable raw results and summary.",
@@ -2152,16 +2193,19 @@
       "status": "partial",
       "implemented": [
         "Least-permission Windows public contract workflow and separate opt-in host/GPU paths are tracked.",
-        "Observed GitHub Windows contracts success run43916882324 on ffc4819; no secrets or licensed host binaries are required."
+        "Observed GitHub Windows contracts success run43916882324 on ffc4819; no secrets or licensed host binaries are required.",
+        "Public Windows contracts now run on separate Server 2022 and Server 2025 runners with read-only permissions and no persisted checkout credentials."
       ],
       "evidence_paths": [
         ".github/workflows/contracts.yml",
         "Test-Windows.ps1",
         "tests",
-        "qa/HostSmoke"
+        "qa/HostSmoke",
+        ".github/workflows/contracts.yml"
       ],
       "remaining_work": [
-        "Verify actual outside-fork PR behavior; complete automated release gating and exact host capability matrix. Never automatically run fork code on privileged desktop runners."
+        "Verify actual outside-fork PR behavior; complete automated release gating and exact host capability matrix. Never automatically run fork code on privileged desktop runners.",
+        "Verify both CI jobs on the matrix commit and retain separate approved licensed host gating."
       ],
       "original_acceptance_tests": [
         "Fork PR can run pure tests without upstream write access or secrets.",
@@ -2287,8 +2331,8 @@
   "counts": {
     "total": 70,
     "implemented": 9,
-    "partial": 40,
-    "pending": 21
+    "partial": 41,
+    "pending": 20
   },
   "last_reconciled": "2026-11-19",
   "handover": "HANDOVER.md",

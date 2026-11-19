@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-19. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 9 bounded primary fixes implemented, 40 partial items and 21 pending items. It includes feasibility investigations and enhancements.
+Updated 2026-11-19. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 9 bounded primary fixes implemented, 41 partial items and 20 pending items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -178,6 +178,15 @@ Evidence is under `.test-results/contracts-full-presets-20261119` and `.test-res
 - [x] Pass 12,066 local Windows assertions, 17 GPU checks and 105 first-launch plus 108 restart host assertions. The source catalog hash stayed unchanged.
 
 Evidence is under `.test-results/contracts-renderer-drain-20261119`, `.test-results/host-full-raw-24mp-20261119` and `.test-results/gpu-renderer-drain-20261119.log`. Global admission across panels and processes, accurate VRAM reservations and a performance matrix across GPUs remain open. The installed runtime still identifies `ffc4819`.
+
+## Repeatable worker and memory baseline
+
+- [x] Run 70 real Vulkan requests across 14 cases. The color and 8 mm optics scenes cover packed Viewer and float export at 0.96, 6 and 24 MP. Grain synthesis compares two-sample draft with the worker default at 0.96 MP.
+- [x] Collect working set and process commit, diagnostic allocation counters, renderer stage timings, and request wall time. Store raw samples and warm median/p95 with the executable SHA. The tool writes progress after each completed case.
+- [x] On the RTX 3090, the 24 MP optics Viewer request reported about 4,033 MiB in Vulkan static/cached allocations and 1,545 MiB of worker peak working set. Warm Viewer median was 422 ms. At 0.96 MP, synthesis warm median was 70 ms at two samples and 4,218 ms at the worker default.
+- [x] Add Windows Server 2025 to public CI alongside 2022. Licensed host and GPU coverage remain explicit local tiers. [GitHub-hosted runner labels](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
+
+Evidence is under `.test-results/renderer-benchmark-color-optics-20261119.json` and `.test-results/renderer-benchmark-grain-quality-20261119.json`. Repeat with `python qa/renderer-benchmark.py --renderer renderer/SpektraStillRenderer.exe --output .test-results/next-benchmark.json --scene color --scene optics`. The benchmark covers the worker and pipe. Capture One development, source upload from managed code, host composition, driver residency and file encoding require their own probes.
 
 ## Runtime map for the next agent
 
