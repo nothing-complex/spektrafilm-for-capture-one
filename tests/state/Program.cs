@@ -65,6 +65,19 @@ Throws<IOException>("final guard failure", () => PanelFiles.WriteAtomically(stat
 Check("final guard failure preserves file", File.ReadAllBytes(stateFile).SequenceEqual(bytes));
 Check("atomic write temporary files cleaned", Directory.GetFiles(Path.GetDirectoryName(stateFile)!, ".spektra-*.tmp").Length == 0);
 
+var readLockedId = Guid.NewGuid();
+store.Queue(readLockedId, Sample(2.3));
+store.Flush();
+var readLockedPath = StateFile(root, readLockedId);
+var readLockedBytes = File.ReadAllBytes(readLockedPath);
+using (var locked = new FileStream(readLockedPath, FileMode.Open, FileAccess.Read, FileShare.None))
+{
+    Throws<LookReadUnavailableException>("sharing violation is a retryable read", () => store.Read(readLockedId));
+    Check("sharing violation does not mark the look corrupt", !store.IsBlocked(readLockedId));
+}
+Check("retry reads the original look after the sharing violation", store.Read(readLockedId)?.Look.Exposure == 2.3);
+Check("retry preserves the original file", File.ReadAllBytes(readLockedPath).SequenceEqual(readLockedBytes));
+
 using (var locked = new FileStream(stateFile, FileMode.Open, FileAccess.Read, FileShare.None))
 {
     store.Queue(id, Sample(1.3));

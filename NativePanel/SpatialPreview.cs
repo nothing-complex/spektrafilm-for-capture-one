@@ -630,10 +630,13 @@ internal sealed class SpatialPreview : IDisposable
                 input.Space, captureRecipe: useRecipeSize);
             var recipe = snapshot.Recipe;
             var extension = SpektraExport.ExtensionFor(recipe?.FormatId);
+            var dpi = recipe is null ? ExportResolution.DefaultDpi : ExportResolution.DotsPerInch(recipe.Resolution, recipe.ResolutionUnit);
 
             var picker = new SaveFileDialog
             {
-                Title = "Save 16-bit Spektrafilm export (sRGB)",
+                Title = recipe is null
+                    ? "Save 16-bit Spektrafilm export (sRGB)"
+                    : "Save 16-bit sRGB TIFF or PNG using recipe size, crop and resolution",
                 Filter = SpektraExport.FileFilter,
                 FilterIndex = extension == ".png" ? 2 : 1,
                 FileName = Path.GetFileNameWithoutExtension(target.SourcePath) + "-Spektrafilm",
@@ -674,7 +677,7 @@ internal sealed class SpatialPreview : IDisposable
                         ? await exporter.RenderAsync(source.Width, source.Height, source.FloatBytes, args, work.Token).ConfigureAwait(false)
                         : null;
                     work.Token.ThrowIfCancellationRequested();
-                    var output = DecodeExport(source, pixels, look.Strength, input.Space, encoding, outputFormat, rendered.Crop, work.Token);
+                    var output = DecodeExport(source, pixels, look.Strength, input.Space, encoding, outputFormat, rendered.Crop, work.Token, dpi);
                     SpektraExport.Save(path, output, work.Token, target.SourcePath);
                     return (output.PixelWidth, output.PixelHeight);
                 }, work.Token);
@@ -1315,7 +1318,7 @@ internal sealed class SpatialPreview : IDisposable
     }
 
     private static BitmapSource DecodeExport(HostImageSource.Frame frame, byte[]? rendered, double strength,
-        PreviewInputSpace space, string outputEncoding, PixelFormat format, System.Drawing.Rectangle crop, CancellationToken token)
+        PreviewInputSpace space, string outputEncoding, PixelFormat format, System.Drawing.Rectangle crop, CancellationToken token, double dpi)
     {
         var source = MemoryMarshal.Cast<byte, float>(frame.FloatBytes.AsSpan());
         var floats = MemoryMarshal.Cast<byte, float>(rendered.AsSpan());
@@ -1339,7 +1342,7 @@ internal sealed class SpatialPreview : IDisposable
                     pixels[destination++] = (ushort)Math.Round(Math.Clamp((double)source[i + 3], 0, 1) * ushort.MaxValue);
             }
         }
-        var image = BitmapSource.Create(crop.Width, crop.Height, 96, 96, format, null, pixels, stride);
+        var image = BitmapSource.Create(crop.Width, crop.Height, dpi, dpi, format, null, pixels, stride);
         image.Freeze();
         return image;
     }

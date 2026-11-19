@@ -147,6 +147,33 @@
         "Close during active export and adjustment revision races.",
         "Persistent attach-failure UI and full recipe policy."
       ]
+    },
+    "host_state_and_recipe_density": {
+      "status": "passed",
+      "date": "2026-11-19",
+      "sources": [
+        ".test-results/host-audit-state-selection-20261119/host-smoke.log",
+        ".test-results/host-audit-resolution-20261119/host-smoke.log",
+        ".test-results/contracts-audit-resolution-20261119/summary.json"
+      ],
+      "first_launch_assertions": 38,
+      "restart_assertions": 40,
+      "additional_dpi_fixture_assertions": 39,
+      "source_catalog_hash_unchanged": true,
+      "contracts_assertions": 11968,
+      "contract_skips": [
+        "Symbolic file-link privilege unavailable locally."
+      ],
+      "output": {
+        "width": 3000,
+        "height": 2000,
+        "dpi": [
+          300,
+          300
+        ],
+        "format": "RGB48 TIFF"
+      },
+      "scope": "Actual native selection of a disabled second variant in the destination callback, true startup bind failures, and automatic saved-look retry. The OS Save dialog and native confirm click are separate tests."
     }
   },
   "known_limitations": [
@@ -154,7 +181,7 @@
     "Spektrafilm editing is outside native undo/redo/copy/apply/clone semantics.",
     "Native histograms, pickers, proofing and monitor ICC behavior are not proven to describe the Spektrafilm overlay.",
     "Current source is Capture One-developed bounded16-bit data converted to float32, not proven pre-tone-map scene-linear RAW.",
-    "Export remains16-bit sRGB TIFF/PNG; full recipe profile/metadata/naming/watermark/DPI policy is not implemented; output pipeline supplies96DPI.",
+    "Export remains16-bit sRGB TIFF/PNG; recipe exports follow its print resolution and direct exports use96DPI. Recipe profiles, metadata, naming and watermarks remain open.",
     "Export remains capped at32MP/8192side; native preview100MP/16384side and grain-synthesis32MP constraints remain.",
     "Floating preference Sections property is not wired; section expansion/scroll/dock-state are not persisted.",
     "State backups remain path-keyed archives, not portable catalog identity or automatic cross-directory restore.",
@@ -167,20 +194,22 @@
       "id": "FIX-01",
       "title": "Immediately surface failed native Export binding",
       "priority": "P1",
-      "status": "partial",
+      "status": "implemented",
       "implemented": [
         "Native Export attach failures now create a persistent panel warning with an explicit alternative export route.",
-        "The licensed-host fixture removed each native callback in turn. It verified both delegate lists after first and second binding failures and confirmed an existing Export window stays registered."
+        "The licensed-host fixture removed each native callback in turn. It verified both delegate lists after first and second binding failures and confirmed an existing Export window stays registered.",
+        "Real startup path reported typed Unavailable state after either missing binding, restored both original delegate lists, retained warning after slider edits, kept direct export available and returned to Connected after rebind."
       ],
       "evidence_paths": [
         "NativePanel/StartupHook.cs",
         "NativePanel/SpektraFilmTool.cs",
         "qa/HostSmoke/StartupHook.cs",
-        ".test-results/host-export-20261119-pass/host-smoke.log"
+        ".test-results/host-export-20261119-pass/host-smoke.log",
+        ".test-results/host-audit-state-selection-20261119/host-smoke.log",
+        "NativePanel/ExportHook.cs",
+        "qa/HostSmoke/StartupHook.cs"
       ],
-      "remaining_work": [
-        "Verify persistent warning and independently available direct export after an injected startup attach failure. Typed capability transitions remain open."
-      ],
+      "remaining_work": [],
       "original_acceptance_tests": [
         "Missing first/second binding produces unavailable status and original delegates restored.",
         "Failure message does not disappear after slider movement; direct plugin export is independently enabled only when supported."
@@ -215,7 +244,8 @@
       "status": "implemented",
       "implemented": [
         "Accepted image exports own cancellation independently of SetEnabled/selection; explicit cancel and document disposal cancel the job.",
-        "Reserve export before choosing the destination. Disposable host confirmed a recipe-sized output survives a simulated enable transition in the picker. Explicit cancel preserved the original output bytes."
+        "Reserve export before choosing the destination. Disposable host confirmed a recipe-sized output survives a simulated enable transition in the picker. Explicit cancel preserved the original output bytes.",
+        "Activated a real disabled second variant in the destination chooser and verified the captured variant produced RGB48 output at its own recipe dimensions. Explicit cancellation preserved the previous destination."
       ],
       "evidence_paths": [
         "NativePanel/ExportOperation.cs",
@@ -223,10 +253,11 @@
         "tests/ViewerContracts/Program.cs",
         ".test-results/host-final/host-smoke.log",
         "qa/HostSmoke/StartupHook.cs",
-        ".test-results/host-export-20261119-pass/host-smoke.log"
+        ".test-results/host-export-20261119-pass/host-smoke.log",
+        ".test-results/host-audit-state-selection-20261119/host-smoke.log"
       ],
       "remaining_work": [
-        "Exercise actual navigation to a second variant and active-document closure during export. The fixture changes the panel enable state with a deterministic destination callback."
+        "Verify active document closure during export, and movement after actual background development has already started."
       ],
       "original_acceptance_tests": [
         "Selecting disabled B during A export does not cancel or change A output.",
@@ -241,16 +272,18 @@
       "priority": "P1",
       "status": "partial",
       "implemented": [
-        "Unreadable/future/invalid saved states are blocked and preserved, with explicit backed-up reset rather than silent default overwrite."
+        "Unreadable/future/invalid saved states are blocked and preserved, with explicit backed-up reset rather than silent default overwrite.",
+        "Transient read I/O is distinguished from corrupt state. An exclusive file lock in the live host paused the controls and automatic retry restored the original contents after release without rewriting the file."
       ],
       "evidence_paths": [
         "NativePanel/VariantLookStore.cs",
         "NativePanel/LookStateValidation.cs",
         "NativePanel/PanelFiles.cs",
-        "tests/state/Program.cs"
+        "tests/state/Program.cs",
+        ".test-results/host-audit-state-selection-20261119/host-smoke.log"
       ],
       "remaining_work": [
-        "Add independently retried transient-I/O load outcomes and generation/journal recovery; validate all unavailable-stock/UI cases in host."
+        "Complete typed missing/valid/recovered/unsupported/corrupt outcomes and verified previous-generation recovery. Extend hostile-byte and unavailable-stock live fixtures."
       ],
       "original_acceptance_tests": [
         "future schema, missing stock, truncated UTF-8, malformed dictionary, too-large file, temporary sharing violation. Assert originals survive any normal slider movement and no defaults are silently committed over unrecognized data."
@@ -313,7 +346,8 @@
       "status": "partial",
       "implemented": [
         "Public source-linked state, renderer, viewer and installer contracts plus a no-host entry point are tracked; GPU and host prerequisites are separate.",
-        "Public GitHub Windows workflow passed all seven suites, including six PowerShell child-environment regression assertions."
+        "Public GitHub Windows workflow passed all seven suites, including six PowerShell child-environment regression assertions.",
+        "Ported the independent nonconstant fractional resampling check to the ordinary Windows contract runner."
       ],
       "evidence_paths": [
         "Test-Windows.ps1",
@@ -321,10 +355,11 @@
         "tests/renderer",
         "tests/ViewerContracts",
         "tests/installer",
-        "qa/HostSmoke"
+        "qa/HostSmoke",
+        ".test-results/contracts-audit-resolution-20261119/summary.json"
       ],
       "remaining_work": [
-        "Complete nonconstant resampling reference and host late-callback seams; expand the public test matrix where coverage is still incomplete."
+        "Finish fake host late-callback lifecycle seams and their regression tests."
       ],
       "original_acceptance_tests": [
         "Fresh checkout on Windows with .NET SDK runs pure suite without Capture One DLL redistribution.",
@@ -364,15 +399,17 @@
       "priority": "P2",
       "status": "partial",
       "implemented": [
-        "Tracked pure tests verify affine geometry, exact 16-bit TIFF/PNG samples, ICC, atomic-write preservation, draft filtering and cancellation."
+        "Tracked pure tests verify affine geometry, exact 16-bit TIFF/PNG samples, ICC, atomic-write preservation, draft filtering and cancellation.",
+        "A separate overlap integral validates nonconstant color and alpha on fractional sampling footprints in all four transfer spaces and five output sizes."
       ],
       "evidence_paths": [
         "tests/ViewerContracts",
         "NativePanel/ColorTransfer.cs",
-        "NativePanel/ViewerDraftSource.cs"
+        "NativePanel/ViewerDraftSource.cs",
+        ".test-results/contracts-audit-resolution-20261119/summary.json"
       ],
       "remaining_work": [
-        "Add independent nonconstant area-resampling/crop references and disposable-host rotate/flip/keystone/DPI cases; symlink test was skipped for unavailable privilege."
+        "Add host-dependent rotate/flip/keystone/DPI geometry and crop/rounding cases."
       ],
       "original_acceptance_tests": [
         "Run CI Windows matrix on supported .NET target without installed Capture One for pure tests.",
@@ -536,15 +573,17 @@
       "priority": "P1",
       "status": "partial",
       "implemented": [
-        "An export bind failure is visible and explicit plugin export remains distinct; actual supported-host binding was observed."
+        "An export bind failure is visible and explicit plugin export remains distinct; actual supported-host binding was observed.",
+        "Startup binding now exposes a typed Checking/Connected/Unavailable/Detached state. Real first/second command failures leave the warning visible after edits and direct export available."
       ],
       "evidence_paths": [
         "NativePanel/StartupHook.cs",
         "NativePanel/SpektraFilmTool.cs",
-        "qa/HostSmoke"
+        "qa/HostSmoke",
+        ".test-results/host-audit-state-selection-20261119/host-smoke.log"
       ],
       "remaining_work": [
-        "Implement complete capability/preflight state and fault injection for both commands/dialog closures, then verify each route and teardown on exact builds."
+        "Complete structured compatibility diagnostics and confirmation-adapter fault injection. Verify native Export, Export With Previous and actual confirmation actions through detach/reattach."
       ],
       "original_acceptance_tests": [
         "Inject missing first command, missing second command, wrong closure field/type and changed method name; assert original delegates restored exactly once and capability unavailable.",
@@ -808,15 +847,17 @@
       "priority": "P1",
       "status": "partial",
       "implemented": [
-        "Panel/export dialog now explicitly disclose fixed 16-bit sRGB TIFF/PNG output and unsupported recipe fields."
+        "Panel/export dialog now explicitly disclose fixed 16-bit sRGB TIFF/PNG output and unsupported recipe fields.",
+        "Recipe print resolution now reaches the encoder. The selector and help text state the 16-bit sRGB TIFF/PNG output policy and which recipe settings carry over."
       ],
       "evidence_paths": [
         "NativePanel/SpektraFilmTool.cs",
         "NativePanel/SpatialPreview.cs",
-        "README.md"
+        "README.md",
+        ".test-results/host-audit-resolution-20261119/host-smoke.log"
       ],
       "remaining_work": [
-        "Implement recipe output profile/format/quality/naming policy; only size and crop are supported, not full recipe equivalence."
+        "Implement final destination ICC, format/quality and naming policy, and independent reference exports. Current recipe support is size, crop and resolution."
       ],
       "original_acceptance_tests": [
         "Table-driven JPEG, PNG, TIFF 8/16-bit, unknown-format, custom ICC, image-folder/custom-folder/subfolder/token/suffix and duplicate-name cases.",
@@ -1165,17 +1206,19 @@
       "status": "implemented",
       "implemented": [
         "Captured single-image export owns independent lifetime, settings and target identity; selection/master changes do not cancel it.",
-        "Recipe export now reserves its captured job while the Save dialog is open. The host test verified rejection of a duplicate request, continued output after a simulated enable change and explicit cancellation."
+        "Recipe export now reserves its captured job while the Save dialog is open. The host test verified rejection of a duplicate request, continued output after a simulated enable change and explicit cancellation.",
+        "Exercised real Capture One navigation to a separate disabled variant inside destination selection and confirmed that the original captured target still exported successfully."
       ],
       "evidence_paths": [
         "NativePanel/ExportOperation.cs",
         "NativePanel/SpatialPreview.cs",
         "tests/ViewerContracts/Program.cs",
         "qa/HostSmoke/StartupHook.cs",
-        ".test-results/host-export-20261119-pass/host-smoke.log"
+        ".test-results/host-export-20261119-pass/host-smoke.log",
+        ".test-results/host-audit-state-selection-20261119/host-smoke.log"
       ],
       "remaining_work": [
-        "Test actual host selection and native-adjustment-after-acceptance races plus active document closure. Persistent batch jobs remain a separate task."
+        "Verify navigation after background development starts, adjustment-revision races and actual document closure. Persistent batch jobs remain a separate task."
       ],
       "original_acceptance_tests": [
         "Start a delayed export for A; select enabled B, disabled C, clear selection, float/dock panel, switch tab; accepted A completes unless explicit cancel policy applies.",
@@ -1288,15 +1331,17 @@
       "priority": "P2",
       "status": "partial",
       "implemented": [
-        "Draft area filtering decodes/re-encodes the declared input transfer; Adobe near-black encode accuracy and signed range are tested."
+        "Draft area filtering decodes/re-encodes the declared input transfer; Adobe near-black encode accuracy and signed range are tested.",
+        "Independent continuous-area reference validated spatially nonconstant colour and alpha, including signed and high values in all supported input spaces."
       ],
       "evidence_paths": [
         "NativePanel/ColorTransfer.cs",
         "NativePanel/ViewerDraftSource.cs",
-        "tests/ViewerContracts"
+        "tests/ViewerContracts",
+        ".test-results/contracts-audit-resolution-20261119/summary.json"
       ],
       "remaining_work": [
-        "Full frame descriptor, bounded cached pyramid, nonconstant/alpha-ramp oracle and physical-effect resolution statistics remain pending."
+        "Finish full frame descriptor, bounded cached pyramid and measured physical-effect resolution statistics."
       ],
       "original_acceptance_tests": [
         "Black/white checker linear result .5 vs encoded .5 regression",
@@ -1457,15 +1502,17 @@
       "id": "VE-03",
       "title": "Preserve export metadata, resolution and pixel orientation coherently",
       "priority": "P2",
-      "status": "pending",
-      "implemented": [],
-      "evidence_paths": [],
+      "status": "partial",
+      "implemented": [
+        "Capture One recipe density in inches, centimeters or millimeters is converted to DPI. The disposable-host TIFF reopened with the fixture recipe at 300 × 300 DPI, and TIFF/PNG codec contracts cover independent X/Y densities."
+      ],
+      "evidence_paths": [
+        ".test-results/host-audit-resolution-20261119/host-smoke.log",
+        "NativePanel/ExportResolution.cs",
+        "tests/ViewerContracts/Program.cs"
+      ],
       "remaining_work": [
-        "Snapshot metadata from host-approved metadata APIs with explicit include/exclude policy matching recipe privacy choices.",
-        "Normalize orientation to already-rendered pixels and update pixel dimensions; do not copy stale raw thumbnails or raw orientation tags.",
-        "Pass recipe DPI/resolution unit through ExportPlan and final BitmapSource construction.",
-        "Write format-supported EXIF/IPTC/XMP including copyright and creator, with output software identifier and optional recipe provenance.",
-        "Validate exported metadata after reopening final temporary file before commit; disclose dropped unsupported fields instead of fabricating them."
+        "Add recipe-approved metadata snapshot, explicit normalized orientation/dimension tags, temporary file verification and TIFF/PNG EXIF/IPTC/XMP privacy fixtures."
       ],
       "original_acceptance_tests": [
         "Synthetic EXIF/XMP/IPTC fixture: date, copyright, title, keywords, GPS opt-out, rotated source; compare expected tags after TIFF/PNG reopen.",
@@ -1967,9 +2014,9 @@
   ],
   "counts": {
     "total": 70,
-    "implemented": 7,
+    "implemented": 8,
     "partial": 39,
-    "pending": 24
+    "pending": 23
   },
   "last_reconciled": "2026-11-19",
   "handover": "HANDOVER.md",

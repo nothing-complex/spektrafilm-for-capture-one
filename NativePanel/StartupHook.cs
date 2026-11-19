@@ -168,19 +168,22 @@ internal static class StartupHook
         window = form;
         window.FormClosing += OnFormClosing;
         LogState($"Attached {ProductName} to the selected catalog as {id}.");
-        if (hosted is { } attached)
+        AttachExport(form, hosted);
+    }
+
+    private static void AttachExport(Forms.Form form, SpektraFilmTool.HostedTool hosted)
+    {
+        hosted.SetExportBridgeStatus(ExportBridgeState.Checking);
+        try
         {
-            try
-            {
-                exportHook = new ExportHook(form, () => attached.IsSpektraExportActive,
-                    () => attached.ExportAsync(exportHook?.Dialog));
-                attached.SetExportBridgeStatus(null);
-            }
-            catch (Exception error)
-            {
-                attached.SetExportBridgeStatus("Capture One’s Export command could not be connected. It will not include Spektrafilm. Use Export with Spektrafilm in this panel instead. " + error.GetBaseException().Message);
-                Log($"{BrandName} could not bind the native Export command: {error}");
-            }
+            exportHook = new ExportHook(form, () => hosted.IsSpektraExportActive,
+                () => hosted.ExportAsync(exportHook?.Dialog));
+            hosted.SetExportBridgeStatus(ExportBridgeState.Connected);
+        }
+        catch (Exception error)
+        {
+            hosted.SetExportBridgeStatus(ExportBridgeState.Unavailable, error.GetBaseException().Message);
+            Log($"{BrandName} could not bind the native Export command: {error}");
         }
     }
 
@@ -250,6 +253,7 @@ internal static class StartupHook
 
         if (originalWindow is not null)
             originalWindow.FormClosing -= OnFormClosing;
+        oldTool?.SetExportBridgeStatus(ExportBridgeState.Detached);
         try { oldExport?.Dispose(); }
         finally { oldTool?.Dispose(); }
         if (oldOwner.Tabs.Contains(oldTab))

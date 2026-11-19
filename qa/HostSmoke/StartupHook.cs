@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -64,7 +65,6 @@ public static class StartupHook
             Check(exportHook is not null, "native Export hook attached");
             var catalog = Environment.GetEnvironmentVariable("SPEKTRAFILM_CATALOG")!;
             Check(Path.GetFullPath(catalog).StartsWith(Path.GetFullPath(folder) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase), "catalog is disposable and contained in test folder");
-            TestExportBinding(hookField, exportHook!, window);
             // Isolate saved looks; this does not change any production storage configuration.
             var storeType = panelAssembly!.GetType("VariantLookStore")!;
             var store = Activator.CreateInstance(storeType, Flags, null, new object[] { Path.Combine(folder, "Variant looks"), catalog }, null)!;
@@ -82,6 +82,7 @@ public static class StartupHook
                 Check(Math.Abs((double)Prop(exposure, "Value")! - 1.2) < 1e-9, "exposure restored after process restart");
                 Check(toggle.IsChecked == false, "disabled master switch restored without hiding tool");
             }
+            TestExportBinding(hookField, exportHook!, hosted, panel, window, exposure, toggle);
             toggle.IsChecked = true;
             foreach (var value in new[] { 0.3, 0.7, 1.2 })
             {
@@ -89,6 +90,7 @@ public static class StartupHook
                 var saved = Call(store, "Read", variant)!;
                 Check(Math.Abs((double)Prop(Prop(saved, "Look")!, "Exposure")! - value) < 1e-9, "slider movement durably saved: " + value);
             }
+            await TestLockedLook(panel, store, variant, exposure, toggle);
             var optics = Call(spatial, "CaptureSettings")!;
             Call(spatial, "ValidateSettings", optics);
             var selections = (System.Collections.Generic.Dictionary<string,string>)Prop(optics, "Selections")!;
@@ -124,7 +126,7 @@ public static class StartupHook
                 var pixels = await renderTask;
                 Check(pixels.Length == width * height * 16,"native source rendered through float32 GPU export transport");
                 var bitmap = (BitmapSource)spatial.GetType().GetMethod("DecodeExport",Flags)!.Invoke(null,new object[] {
-                    lastFrame!,pixels,1d,space,"srgb",PixelFormats.Rgb48,new System.Drawing.Rectangle(0,0,width,height),CancellationToken.None })!;
+                    lastFrame!,pixels,1d,space,"srgb",PixelFormats.Rgb48,new System.Drawing.Rectangle(0,0,width,height),CancellationToken.None,96d })!;
                 var output = Path.Combine(folder,"host-export.tif");
                 panelAssembly.GetType("SpektraExport")!.GetMethod("Save",Flags)!.Invoke(null,new object[] {
                     output,bitmap,CancellationToken.None,Prop(target!,"SourcePath")! });
@@ -141,7 +143,7 @@ public static class StartupHook
             Check(before.Equals(grain.GetMethod("Read",Flags)!.Invoke(null,new[] {window})),"native grain restored exact prior values");
             var recipe = host.GetMethod("ActiveRecipe", Flags)!.Invoke(null, new[] { window });
             File.AppendAllText(Path.Combine(folder,"host-smoke.log"), "RECIPE " + recipe + Environment.NewLine);
-            await TestRecipeExport(spatial, recipe!);
+            await TestRecipeExport(panel, spatial, recipe!, variant, toggle);
             toggle.IsChecked = false;
             Call(panel, "FlushLooks");
             Check(Prop(Call(store, "Read", variant)!, "Enabled") is false, "master switch persisted after all tests");
@@ -155,19 +157,42 @@ public static class StartupHook
         }
     }
 
-    static void TestExportBinding(FieldInfo hookField, object attached, object window)
+    static async Task TestLockedLook(object panel, object store, Guid variant, object exposure, CheckBox toggle)
     {
-        var hookType = attached.GetType();
+        var path = (string)Call(store, "GetPath", variant)!;
+        var bytes = File.ReadAllBytes(path);
+        var warning = (TextBlock)Field(panel, "saveError")!;
+        using (var locked = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            panel.GetType().GetField("displayedVariant", Flags)!.SetValue(panel, null);
+            Call(panel, "SyncSelection");
+            Check(!toggle.IsEnabled && warning.Visibility == Visibility.Visible
+                && warning.Text.Contains("retry", StringComparison.OrdinalIgnoreCase),
+                "temporarily inaccessible saved look pauses editing and reports retry");
+            Check(Call(store, "IsBlocked", variant) is false, "sharing violation leaves corrupt-state recovery inactive");
+        }
+
+        var until = DateTime.UtcNow.AddSeconds(5);
+        while (!toggle.IsEnabled && DateTime.UtcNow < until)
+            await Task.Delay(100);
+        Check(toggle.IsEnabled && toggle.IsChecked == true && Math.Abs((double)Prop(exposure, "Value")! - 1.2) < 1e-9,
+            "host watchdog restored the original look after the sharing violation without user input");
+        Check(File.ReadAllBytes(path).AsSpan().SequenceEqual(bytes), "automatic read retry preserved saved bytes");
+    }
+
+    static void TestExportBinding(FieldInfo hookField, object attached, object hosted, object panel, object window,
+        object exposure, CheckBox toggle)
+    {
         var normal = Field(attached, "normal")!;
         var previous = Field(attached, "previous")!;
         var normalCommand = Field(normal, "command")!;
         var previousCommand = Field(previous, "command")!;
         var callbacks = (FieldInfo)normal.GetType().GetField("Callbacks", Flags)!.GetValue(null)!;
-        var active = Field(attached, "isActive");
-        var export = Field(attached, "export");
-        object Bind() => Activator.CreateInstance(hookType, Flags, null, new[] { window, active, export }, null)!;
+        var warning = (TextBlock)Field(panel, "exportBridgeStatus")!;
+        void Bind() => hookField.DeclaringType!.GetMethod("AttachExport", Flags)!.Invoke(null, new[] { window, hosted });
 
         ((IDisposable)attached).Dispose();
+        hookField.SetValue(null, null);
         var normalBefore = callbacks.GetValue(normalCommand);
         var previousBefore = callbacks.GetValue(previousCommand);
         try
@@ -178,21 +203,26 @@ public static class StartupHook
                 callbacks.SetValue(command, null);
                 try
                 {
-                    using var unexpected = (IDisposable)Bind();
-                    throw new InvalidOperationException("Binding unexpectedly succeeded with a missing " + description + " callback.");
-                }
-                catch (TargetInvocationException error) when (error.InnerException is InvalidOperationException)
-                {
+                    Bind();
+                    Check(hookField.GetValue(null) is null && warning.Visibility == Visibility.Visible
+                        && Prop(panel, "ExportBridgeStatus")!.ToString() == "Unavailable",
+                        "missing " + description + " callback reaches the persistent startup warning");
                     Check(Equals(callbacks.GetValue(normalCommand), command == normalCommand ? null : normalBefore)
                         && Equals(callbacks.GetValue(previousCommand), command == previousCommand ? null : previousBefore),
                         "native delegate lists preserved after missing " + description + " Export binding");
+                    toggle.IsChecked = true;
+                    exposure.GetType().GetProperty("Value", Flags)!.SetValue(exposure, 0.4);
+                    Check(warning.Visibility == Visibility.Visible && Prop(panel, "IsSpektraExportActive") is true,
+                        "attach warning survives an edit and direct Export stays available");
                 }
                 finally { callbacks.SetValue(command, original); }
             }
         }
-        finally { hookField.SetValue(null, Bind()); }
+        finally { Bind(); }
 
-        var current = hookField.GetValue(null)!;
+        var current = hookField.GetValue(null) ?? throw new InvalidOperationException("Native Export did not rebind.");
+        Check(warning.Visibility == Visibility.Collapsed && Prop(panel, "ExportBridgeStatus")!.ToString() == "Connected",
+            "successful native rebind clears its own warning");
         Window? owner = null;
         try
         {
@@ -232,33 +262,67 @@ public static class StartupHook
         }
     }
 
-    static async Task TestRecipeExport(object spatial, object recipe)
+    static async Task TestRecipeExport(object panel, object spatial, object recipe, Guid variant, CheckBox toggle)
     {
         var output = Path.Combine(folder, "recipe-export.tif");
         Task<bool> Start(Func<SaveFileDialog, Window?, string?> choose) =>
             (Task<bool>)Call(spatial, "ExportWithDestinationAsync", true, null, choose)!;
-        Call(spatial, "SetEnabled", true);
+        var document = Field(panel, "document")!;
+        var core = AppDomain.CurrentDomain.GetAssemblies().Single(assembly => assembly.GetName().Name == "P1.C1.Core");
+        var collectionsType = core.GetType("P1.C1.Core.Interfaces.ISelectedCollectionsProvider", true)!;
+        var collection = collectionsType.GetProperty("PrimarySelectedCollection")!.GetValue(document)!;
+        var selected = collectionsType.GetProperty("PrimarySelectedCollectionSelection")!.GetValue(document)!;
+        var selectionType = core.GetType("P1.C1.Core.Selection.ISelection", true)!;
+        var selectedVariants = selectionType.GetProperty("SelectedVariants")!.GetValue(selected)!;
+        var variantSelection = core.GetType("P1.C1.Core.Selection.IVariantSelection", true)!;
+        var simpleCollection = core.GetType("P1.C1.Core.ModelEntities.ISimpleCollection", true)!;
+        var hostVariant = core.GetType("P1.C1.Core.ICoreVariant", true)!;
+        var all = ((IEnumerable)simpleCollection.GetMethod("GetAllFilteredAndVisibleVariants")!.Invoke(collection, null)!).Cast<object>().ToArray();
+        Guid Id(object item) => (Guid)hostVariant.GetProperty("UUID")!.GetValue(item)!;
+        var originalVariant = all.Single(item => Id(item) == variant);
+        var disabledVariant = all.First(item => Id(item) != variant);
+        void Select(object item)
+        {
+            variantSelection.GetMethod("SelectAndSetAsPrimary")!.Invoke(selectedVariants, new[] { item, (object)false });
+            Call(panel, "SyncSelection");
+            if (!Equals(Field(panel, "displayedVariant"), Id(item)))
+                throw new InvalidOperationException("Capture One did not activate the requested fixture variant.");
+        }
+        Select(disabledVariant);
+        toggle.IsChecked = false;
+        Select(originalVariant);
+        Check(toggle.IsChecked == true, "Capture One variants have distinct persisted enable states");
         var result = await Start((_, _) =>
         {
             var duplicate = Start((_, _) => throw new InvalidOperationException("Opened a second save dialog."));
             Check(duplicate.IsCompletedSuccessfully && !duplicate.Result, "duplicate Export blocked while choosing a destination");
-            Call(spatial, "SetEnabled", false);
+            Select(disabledVariant);
+            Check(toggle.IsChecked == false, "real Capture One selection changed to a disabled variant during destination selection");
             return output;
         });
-        Check(result && File.Exists(output), "recipe export completed after enable state changed during destination selection");
+        Check(result && File.Exists(output), "captured recipe export completed while a different disabled variant was selected");
         using (var data = File.OpenRead(output))
         {
             var frame = BitmapDecoder.Create(data, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad).Frames[0];
             Check(frame.Format == PixelFormats.Rgb48, "recipe export saved RGB48 TIFF");
             Check(frame.PixelWidth == (int)Prop(recipe, "Width")! && frame.PixelHeight == (int)Prop(recipe, "Height")!,
                 "recipe export obeyed Capture One output dimensions");
+            var resolution = (double)Prop(recipe, "Resolution")!;
+            var dpi = (string)Prop(recipe, "ResolutionUnit")! switch
+            {
+                "Inch" => resolution,
+                "Centimeter" => 2.54 * resolution,
+                "Millimeter" => 25.4 * resolution,
+                _ => throw new InvalidOperationException("Unknown fixture recipe resolution unit."),
+            };
+            Check(Math.Abs(frame.DpiX - dpi) < 0.03 && Math.Abs(frame.DpiY - dpi) < 0.03,
+                "recipe export recorded Capture One print resolution on both axes");
         }
         var original = File.ReadAllBytes(output);
-        Call(spatial, "SetEnabled", true);
+        Select(originalVariant);
         var canceled = Start((_, _) => output);
         Call(Field(spatial, "exportWork")!, "Cancel");
         Check(!await canceled && File.ReadAllBytes(output).AsSpan().SequenceEqual(original),
             "explicit cancellation preserved the previous recipe export");
-        Call(spatial, "SetEnabled", false);
     }
 }

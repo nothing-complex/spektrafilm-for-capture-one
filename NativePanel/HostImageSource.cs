@@ -48,7 +48,8 @@ internal static class HostImageSource
     internal sealed record ExportFrame(Frame Image, Rectangle Crop);
     internal sealed record RecipeInfo(string Name, string FormatId, string ColorProfileName, string ColorProfilePath,
         string CropMode, string RootFolderMode, string CustomRootFolder, string Subfolder, string Filename,
-        string Suffix, int TiffBits, int JpegQuality, int Width, int Height, double Scale, bool IgnoreCrop);
+        string Suffix, int TiffBits, int JpegQuality, int Width, int Height, double Scale, bool IgnoreCrop,
+        double Resolution, string ResolutionUnit);
 
     internal static (Guid VariantId, Revision AdjustmentKey) GetSelectedRevision(object window)
     {
@@ -112,7 +113,7 @@ internal static class HostImageSource
         return new RecipeInfo(recipe.Name, recipe.FileType.ToString(), recipe.ColorProfileName, recipe.ColorProfilePath,
             recipe.CropExportMethod.ToString(), recipe.DestinationRootFolder.ToString(), recipe.DestinationCustomRootFolder,
             recipe.DestinationSubFolder, recipe.DestinationFilename, recipe.DestinationSubName, recipe.TiffBits, recipe.JpegQuality,
-            scale.ScaledPixelWidth, scale.ScaledPixelHeight, scale.Scale, ignoreCrop);
+            scale.ScaledPixelWidth, scale.ScaledPixelHeight, scale.Scale, ignoreCrop, recipe.Resolution, recipe.ResolutionUnit.ToString());
     }
 
     private static HostProfile.Selection RequireSelection(object window, Guid variantId)

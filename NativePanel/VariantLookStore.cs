@@ -14,6 +14,9 @@ internal sealed record GrainControls([property: JsonRequired] int Type, [propert
 internal sealed record VariantLook([property: JsonRequired] LookSettings Look, [property: JsonRequired] SpatialPreview.Settings Optics,
     [property: JsonRequired] bool Enabled, [property: JsonRequired] int Version = 1, GrainControls? Grain = null);
 
+internal sealed class LookReadUnavailableException(Exception inner)
+    : IOException("The saved look is temporarily inaccessible. Spektrafilm will retry loading it. " + inner.Message, inner);
+
 internal sealed class VariantLookStore
 {
     // Failed writes must survive UI teardown. Pending edits also get an independent
@@ -86,7 +89,7 @@ internal sealed class VariantLookStore
             }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException)
             {
-                throw Block(variant, error, archive: false);
+                throw new LookReadUnavailableException(error);
             }
         }
     }
@@ -195,21 +198,18 @@ internal sealed class VariantLookStore
         catch (DirectoryNotFoundException) { return null; }
     }
 
-    private InvalidDataException Block(Guid variant, Exception error, bool archive = true)
+    private InvalidDataException Block(Guid variant, Exception error)
     {
         var detail = "The original saved look has not been changed.";
-        if (archive)
+        try
         {
-            try
-            {
-                var archived = ArchiveFile(GetPath(variant), variant, "unreadable");
-                ArchiveFile(GetRecoveryPath(variant), variant, "unreadable-recovery");
-                if (archived is not null) detail += $" A recovery copy is at {archived}.";
-            }
-            catch (Exception backupError) when (backupError is IOException or UnauthorizedAccessException)
-            {
-                detail += $" An additional recovery copy could not be written: {backupError.Message}";
-            }
+            var archived = ArchiveFile(GetPath(variant), variant, "unreadable");
+            ArchiveFile(GetRecoveryPath(variant), variant, "unreadable-recovery");
+            if (archived is not null) detail += $" A recovery copy is at {archived}.";
+        }
+        catch (Exception backupError) when (backupError is IOException or UnauthorizedAccessException)
+        {
+            detail += $" An additional recovery copy could not be written: {backupError.Message}";
         }
         var message = $"{error.Message} {detail} Editing is paused for this image. Use Recover saved look only if you want to reset it.";
         blocked[variant] = message;

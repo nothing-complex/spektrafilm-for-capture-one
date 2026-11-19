@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-19. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The export follow-up below has passed local validation. The full 70-item integration audit tracks 7 bounded primary fixes implemented, 39 partial items and 24 pending items. It includes feasibility investigations and enhancements.
+Updated 2026-11-19. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 8 bounded primary fixes implemented, 39 partial items and 23 pending items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -97,7 +97,18 @@ The host tests ran against product commit `285f0aa`; the later runtime package c
 - [x] Build `NativePanel` and `HostSmoke` with zero warnings and errors. Pass all seven local contract suites with 10,061 assertions. The symbolic-link fixture skipped unavailable local privilege.
 - [x] Pass 27 assertions in a disposable Capture One catalog. The harness injected missing first and second native callbacks and verified delegate rollback, prepared and released the native confirmation binding, checked another dialog's ownership, and ran the recipe-sized production export with a deterministic test destination. The resulting 3000 × 2000 TIFF is RGB48. Explicit cancellation preserved its bytes. The source catalog hash stayed unchanged.
 
-Logs live under `.test-results/host-export-20261119-pass` and `.test-results/contracts-export-20261119`. The first attempt diagnosed a reflection error in the test hook and is superseded by the passing run. The test simulated the enable transition in the export panel. Actual navigation to a second variant, the native confirmation click and OS picker interaction, and active document closure during export remain open. This follow-up is a source and test checkpoint. The previous development ZIP and installed build still identify `ffc4819`.
+Logs live under `.test-results/host-export-20261119-pass` and `.test-results/contracts-export-20261119`. The first attempt diagnosed a reflection error in the test hook and is superseded by the passing run. This run simulated the enable transition in the export panel. The previous development ZIP and installed build identify `ffc4819`.
+
+## Host and recipe validation checkpoint
+
+- [x] `FIX-01` uses a typed native Export bridge state. Both missing-callback cases used the production startup binding path. The warning survived a slider edit, direct export remained available, and a successful rebind cleared the warning.
+- [x] The real Capture One selection API switched to a different, disabled variant during destination selection. The captured original exported at 3000 × 2000 in RGB48. Explicit cancellation preserved it. This advances `FIX-03` and `VE-05`.
+- [x] An exclusive lock on a real saved-look file paused the controls. After it was released, the host watchdog restored the saved look and preserved the original bytes without user input. This advances `HS-03`.
+- [x] Recipe print resolution now reaches the 16-bit encoder. The host output reopened as 300 DPI. Contract tests verified inch, centimeter and millimeter conversions, invalid values and both format encoders with unequal horizontal and vertical densities.
+- [x] Added an independent fractional area-sampling oracle with nonconstant colour and alpha across all four input encodings. The Windows contract suite passed 11,968 assertions. The symbolic-link check skipped unavailable local privilege.
+- [x] The expanded host run passed 38 first-launch and 40 restart assertions. With recipe DPI added, the follow-up passed 39 first-launch assertions. Both used disposable copies of the original test database and verified its hash.
+
+Evidence lives in `.test-results/host-audit-state-selection-20261119`, `.test-results/host-audit-resolution-20261119` and `.test-results/contracts-audit-resolution-20261119`. Actual native confirmation and OS picker interactions, device-independent display colour, metadata policy, navigation after background development starts and document closure during export are separate acceptance cases.
 
 ## Runtime map for the next agent
 
@@ -118,9 +129,9 @@ Logs live under `.test-results/host-export-20261119-pass` and `.test-results/con
 
 Consult the detailed JSON before implementation. Useful next bounded packets are:
 
-1. Finish host fault and race coverage for `FIX-01`, `FIX-03`, `HS-03`, `HS-04`, `HS-19`, `VE-01`, `VE-05`, and `HS-15`. Check the persisted attach-failure warning, actual variant navigation during export, active document closure, delayed teardown callbacks and live-host state or grain failures. Build on the tested native delegate rollback and enable-state export paths described above.
+1. Finish host fault and race coverage for `FIX-03`, `HS-03`, `HS-04`, `HS-19`, `VE-01`, `VE-05`, and `HS-15`. Check active document closure, adjustment revision races, delayed teardown callbacks and live-host state or grain failures. Build on the validated startup warning and real selection transitions described above.
 2. Agree model/parameter/capability contracts (`HS-18`, `HS-11`, `HS-12`, `RC-07`) before native undo, copy/apply/clone (`HS-05`, `HS-06`) or broader host compatibility. One owner should edit each shared UI/scheduler region.
-3. Complete export policy (`VE-02`, `VE-03`): ICC/profile intent, metadata, DPI, naming, crop/orientation and explicit unsupported recipes. Current output is 16-bit sRGB TIFF/PNG; output DPI remains 96. Native-dialog interaction still needs verification.
+3. Complete export policy (`VE-02`, `VE-03`), including ICC intent, metadata, naming, crop and orientation edge cases, and explicit handling of unsupported recipes. Current output is 16-bit sRGB TIFF/PNG. Recipe exports use its print resolution, and direct exports use 96 DPI. Native-dialog interaction still needs verification.
 4. Add measured resource admission and generation-aware scheduling (`RC-11`, `VE-09`, `VE-07`, `VE-08`, `VE-17`, `RQ-09`) before increasing output limits. Current export cap is 32 MP / 8192 px per side; native viewer cap is 100 MP / 16384 px; synthesis has its own 32 MP constraints.
 5. Solve portable catalog identity/restore (`HS-02`, `RQ-04`) and native grain restore ownership across restarts (`HS-08`). Joint backup exists; moving a catalog still changes its path-based state key.
 6. Treat histogram/proofing/native pixel hooks (`VE-10`, `VE-11`), multi-view and sessions as exact-build feasibility work. An overlay does not prove native analysis tools describe the processed image.

@@ -12,6 +12,8 @@ using P1.C1.Core.Messaging;
 using P1.C1.ViewModels.Commands;
 using Forms = System.Windows.Forms;
 
+internal enum ExportBridgeState { Checking, Connected, Unavailable, Detached }
+
 internal sealed class ExportHook : IDisposable
 {
     private const BindingFlags Instance = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;

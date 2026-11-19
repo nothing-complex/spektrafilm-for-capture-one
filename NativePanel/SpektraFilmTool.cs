@@ -93,7 +93,7 @@ internal static class SpektraFilmTool
             panel.FlushLooks();
         }
         internal Task<bool> ExportAsync(Window? owner) => panel.ExportAsync(useRecipeSize: true, owner);
-        internal void SetExportBridgeStatus(string? message) => panel.SetExportBridgeStatus(message);
+        internal void SetExportBridgeStatus(ExportBridgeState state, string? detail = null) => panel.SetExportBridgeStatus(state, detail);
         internal InspectorToolHeaderViewModel CreateDockedHeader(ILifeCycleRegistrationService registration) =>
             new InspectorToolHeaderViewModelBuilder(StartupHook.ProductName, () => Tool.Document, registration)
                 .DoShowActionMenu(new PanelActionMenu(() => floating is null ? "Float Tool" : "Show Floating Tool", ShowFloating))
@@ -299,6 +299,7 @@ internal static class SpektraFilmTool
         private readonly CancellationTokenSource lifetime = new();
         private bool lutExporting;
         private Guid? displayedVariant;
+        private long? retryLookReadAt;
         private bool selectionQueued;
         private LookOptions? options;
         private bool settingValues;
@@ -401,13 +402,21 @@ internal static class SpektraFilmTool
             }));
         }
 
-        private bool IsSpektraFilmEnabled => !disposed && enableSpektraFilm.IsChecked == true
+        private bool IsSpektraFilmEnabled => !disposed && retryLookReadAt is null && enableSpektraFilm.IsChecked == true
             && (displayedVariant is not { } variant || !looks.IsBlocked(variant));
 
-        internal void SetExportBridgeStatus(string? message)
+        internal ExportBridgeState ExportBridgeStatus { get; private set; } = ExportBridgeState.Checking;
+
+        internal void SetExportBridgeStatus(ExportBridgeState state, string? detail)
         {
-            exportBridgeStatus.Text = message ?? string.Empty;
-            exportBridgeStatus.Visibility = string.IsNullOrEmpty(message) ? Visibility.Collapsed : Visibility.Visible;
+            ExportBridgeStatus = state;
+            exportBridgeStatus.Text = state switch
+            {
+                ExportBridgeState.Checking => "Checking Capture One Export support…",
+                ExportBridgeState.Unavailable => "Capture One Export is unavailable for film looks. Use Export with Spektrafilm in this panel. " + detail,
+                _ => string.Empty,
+            };
+            exportBridgeStatus.Visibility = exportBridgeStatus.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
         }
 
         private void OnEnabledChanged()
@@ -425,7 +434,8 @@ internal static class SpektraFilmTool
             var enabled = displayedVariant is not null && IsSpektraFilmEnabled;
             recoverSavedLook.Visibility = displayedVariant is { } selected && looks.IsBlocked(selected)
                 ? Visibility.Visible : Visibility.Collapsed;
-            enableSpektraFilm.IsEnabled = displayedVariant is not null && StocksReady;
+            enableSpektraFilm.IsEnabled = displayedVariant is { } variant && StocksReady
+                && retryLookReadAt is null && !looks.IsBlocked(variant);
             controls.IsEnabled = enabled && StocksReady;
             opticalPreview.SetEnabled(enabled);
         }
@@ -532,7 +542,7 @@ internal static class SpektraFilmTool
             export.Children.Add(Button("Export 33-point LUT…", () => ExportLutAsync(33)));
             export.Children.Add(Button("Export 65-point LUT…", () => ExportLutAsync(65)));
             section.Children.Add(export);
-            section.Children.Add(new TextBlock { Text = "Image export: 16-bit TIFF or PNG in sRGB. Capture One recipe size and crop are supported; recipe profiles, metadata, watermarking and naming tokens are not yet carried over.",
+            section.Children.Add(new TextBlock { Text = "Image export saves 16-bit sRGB TIFF or PNG. With Capture One Export, the recipe supplies size, crop and resolution. Use the save dialog to name the file. Recipe profiles, metadata and watermarks are omitted.",
                 TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 5, 0, 0) });
             return Section("Presets and LUT export", section);
         }
@@ -617,6 +627,7 @@ internal static class SpektraFilmTool
             if (displayedVariant is not null)
             {
                 displayedVariant = null;
+                retryLookReadAt = null;
                 UpdateEnabledState();
             }
             return false;
@@ -626,8 +637,9 @@ internal static class SpektraFilmTool
         {
             if (!StocksReady || variant == Guid.Empty)
                 return false;
-            if (displayedVariant != variant)
+            if (displayedVariant != variant || retryLookReadAt is long retryAt && Environment.TickCount64 >= retryAt)
             {
+                retryLookReadAt = null;
                 status.Text = string.Empty;
                 FlushLooks();
                 displayedVariant = variant;
@@ -637,6 +649,12 @@ internal static class SpektraFilmTool
                     ApplyControls(saved?.Look, saved?.Optics, saved?.Enabled ?? true, saved?.Grain);
                     if (looks.RecoveryNotice is { } notice)
                         status.Text = notice;
+                }
+                catch (LookReadUnavailableException error)
+                {
+                    retryLookReadAt = Environment.TickCount64 + 1000;
+                    ApplyControls(null, null, false);
+                    ShowSaveError(error.Message);
                 }
                 catch (Exception error)
                 {
@@ -652,7 +670,8 @@ internal static class SpektraFilmTool
 
         private void SaveLook()
         {
-            if (settingValues || !StocksReady || displayedVariant is not { } variant || CurrentSettings() is not { } look)
+            if (settingValues || !StocksReady || retryLookReadAt is not null
+                || displayedVariant is not { } variant || CurrentSettings() is not { } look)
                 return;
             // The key belongs to the displayed controls, even if the host selection has just changed.
             look = look with { ScanInvert = scanInvert.IsChecked == true };
@@ -674,7 +693,7 @@ internal static class SpektraFilmTool
             try
             {
                 looks.Flush();
-                if (displayedVariant is not { } selected || !looks.IsBlocked(selected))
+                if (retryLookReadAt is null && (displayedVariant is not { } selected || !looks.IsBlocked(selected)))
                     saveError.Visibility = Visibility.Collapsed;
             }
             catch (Exception error)

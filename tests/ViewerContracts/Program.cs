@@ -32,7 +32,9 @@ internal static class Program
         TestGeometry();
         TestDraft();
         TestExport(folder);
+        TestExportResolution();
         TestColorSampling();
+        TestFractionalColorSampling();
         TestColorPrecision();
         TestOutputProtection(folder);
         TestScheduling().GetAwaiter().GetResult();
@@ -80,6 +82,67 @@ internal static class Program
         catch(IOException error) when ((error.HResult & 0xffff) == 1314)
         { Console.WriteLine("SKIP: symbolic-link privilege unavailable for alias test."); }
         Check(File.ReadAllText(source)=="ORIGINAL","Path test altered original");
+    }
+
+    private static void TestFractionalColorSampling()
+    {
+        const int width = 13, height = 7;
+        var samples = new float[width * height * 4];
+        for (var y = 0; y < height; y++)
+        for (var x = 0; x < width; x++)
+        {
+            var index = (y * width + x) * 4;
+            samples[index] = (x - 2) / 9f;
+            samples[index + 1] = ((x + y) % 3) / 2f;
+            samples[index + 2] = (x == 12 ? 1.4f : 0.003f) + y * 0.008f;
+            samples[index + 3] = ((x + y * 2) % 7) / 6f;
+        }
+        var frame = new HostImageSource.Frame(width, height, Array.Empty<byte>(),
+            MemoryMarshal.AsBytes(samples.AsSpan()).ToArray(), 16);
+
+        foreach (var space in Enum.GetValues<PreviewInputSpace>())
+        foreach (var (edge, columns, rows) in new[] { (12, 12, 6), (8, 8, 4), (5, 5, 2), (2, 2, 1), (1, 1, 1) })
+        {
+            var draft = ViewerDraftSource.Downsample(frame, edge, CancellationToken.None, space);
+            Check(draft.Width == columns && draft.Height == rows && draft.BitDepth == 16, "Fractional draft dimensions or precision changed");
+            var output = MemoryMarshal.Cast<byte, float>(draft.FloatBytes);
+            for (var y = 0; y < rows; y++)
+            for (var x = 0; x < columns; x++)
+            for (var channel = 0; channel < 4; channel++)
+            {
+                double weighted = 0;
+                for (var sy = 0; sy < height; sy++)
+                for (var sx = 0; sx < width; sx++)
+                {
+                    // Independent overlap in destination coordinates. Every footprint has area one.
+                    double weight = Overlap(x, sx, width, columns) * Overlap(y, sy, height, rows);
+                    double sample = samples[(sy * width + sx) * 4 + channel];
+                    weighted += weight * (channel == 3 ? sample : DecodeReference(sample, space));
+                }
+                var actual = output[(y * columns + x) * 4 + channel];
+                var linear = channel == 3 ? actual : DecodeReference(actual, space);
+                Check(Math.Abs(linear - weighted) < 4e-6, $"{space} fractional pixel ({x}, {y}, {channel}) at {edge} disagrees with independent overlap integral");
+            }
+        }
+        Console.WriteLine("Fractional area filtering agrees with an independent nonconstant colour and alpha integral.");
+
+        static double Overlap(int dest, int src, int sourceSize, int destSize) =>
+            Math.Max(0, Math.Min(dest + 1, (src + 1) * (double)destSize / sourceSize)
+                - Math.Max(dest, src * (double)destSize / sourceSize));
+
+        static double DecodeReference(double encoded, PreviewInputSpace space)
+        {
+            var value = Math.Abs(encoded);
+            var linear = space switch
+            {
+                PreviewInputSpace.Srgb => value <= 0.04045 ? value / 12.92 : Math.Pow((value + 0.055) / 1.055, 2.4),
+                PreviewInputSpace.AdobeRgb => Math.Pow(value, 563.0 / 256),
+                PreviewInputSpace.ProPhotoRgb => value <= 16.0 / 512 ? value / 16 : Math.Pow(value, 1.8),
+                PreviewInputSpace.LinearRec2020 => value,
+                _ => throw new ArgumentOutOfRangeException(nameof(space)),
+            };
+            return Math.CopySign(linear, encoded);
+        }
     }
 
     private static void TestColorPrecision()
@@ -230,7 +293,29 @@ internal static class Program
             var eight=BitmapSource.Create(2,2,96,96,PixelFormats.Bgr24,null,new byte[12],6);
             try {SpektraExport.Save(path,eight,CancellationToken.None);throw new Exception("Expected high-depth validation");}catch(InvalidDataException){assertions++;}
             Check(existing.SequenceEqual(File.ReadAllBytes(path)),"Rejected write changed destination");
-            Console.WriteLine($"Export {suffix}: {decoded.Format}, exact samples, ICC, canceled/rejected writes passed. Encoder preserves supplied DPI {decoded.DpiX:F3}/{decoded.DpiY:F3}; pipeline supplies 96/96.");
+            Check(Math.Abs(decoded.DpiX - 150) < 0.03 && Math.Abs(decoded.DpiY - 200) < 0.03, "Encoder changed supplied non-square resolution");
+            Console.WriteLine($"Export {suffix}: {decoded.Format}, exact samples, ICC, resolution and canceled/rejected writes passed.");
         }
+    }
+
+    private static void TestExportResolution()
+    {
+        foreach (var (amount, unit) in new[] { (300d, "Inch"), (300 / 2.54, "Centimeter"), (300 / 25.4, "Millimeter") })
+            Check(Math.Abs(ExportResolution.DotsPerInch(amount, unit) - 300) < 1e-9, $"Incorrect DPI conversion from {unit}");
+        foreach (var amount in new[] { 0, -1, double.NaN, double.PositiveInfinity, double.MaxValue })
+        {
+            try
+            {
+                ExportResolution.DotsPerInch(amount, "Millimeter");
+                throw new InvalidOperationException("Invalid recipe resolution was accepted.");
+            }
+            catch (ArgumentOutOfRangeException) { assertions++; }
+        }
+        try
+        {
+            ExportResolution.DotsPerInch(300, "Unknown");
+            throw new InvalidOperationException("Unknown units were accepted.");
+        }
+        catch (ArgumentException) { assertions++; }
     }
 }

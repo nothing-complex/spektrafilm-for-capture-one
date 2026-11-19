@@ -15,5 +15,6 @@
     <Compile Include="../../NativePanel/OutputPathGuard.cs" Link="OutputPathGuard.cs" />
     <Compile Include="../../NativePanel/RenderCoordination.cs" Link="RenderCoordination.cs" />
     <Compile Include="../../NativePanel/ExportOperation.cs" Link="ExportOperation.cs" />
+    <Compile Include="../../NativePanel/ExportResolution.cs" Link="ExportResolution.cs" />
   </ItemGroup>
 </Project>
