@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 16 bounded primary fixes implemented, 40 partial items and 14 pending items. It includes feasibility investigations and enhancements.
+Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 16 bounded primary fixes implemented, 41 partial items and 13 pending items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -335,6 +335,14 @@ Evidence is under `.test-results/host-native-grain-state-20261119`, `.test-resul
 - [ ] Verify live pan/zoom/DPI transitions across physical displays and quantify P95 drag latency. Regional 1:1 refinement and quality presets need follow-up work.
 
 Evidence is under `.test-results/host-auto-viewport-quality-20261120` and `.test-results/contracts-auto-viewport-quality-20261120`.
+
+## Hanatos 2026 checkpoint
+
+- [x] Offer Hanatos 2026 in **Spectral reconstruction and DIR**. New looks still start on Hanatos 2025. Existing 2025 looks keep their saved method.
+- [x] Verify 20 explicit stock calibrations and pass 480 GPU cases across Print and Scan, both Hanatos methods plus Mallett, and all four input encodings. Each stock and mode produced a distinct 2026 reconstruction with finite pixels and unchanged alpha.
+- [x] Pass 152 first-launch and 156 restart checks. The actual panel persisted 2026 when selected and rendered the selected photo from a 16-bit Capture One source. The source catalog hash remained unchanged.
+
+GPU evidence is in `.test-results/spectral-stock-matrix-20261120.log`. Repeat with `python ofx-still-renderer/smoke.py --spectral-stock-matrix --exe build/still-renderer/Release/SpektraStillRenderer.exe`. The licensed-host log is under `.test-results/host-hanatos-2026-20261120`. Canonical control and backend capability documentation remains open.
 
 ## Status maintenance
 

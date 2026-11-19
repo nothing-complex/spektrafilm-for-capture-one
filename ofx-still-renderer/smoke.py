@@ -63,8 +63,8 @@ def frame_request(frame, options):
     return f"FRAME {width} {height} {options}\n".encode("ascii") + frame.astype("<f4", copy=False).tobytes()
 
 
-def run_stream(exe, request, exit_code=0, mode="--stream", env=None):
-    result = subprocess.run([str(exe), mode], input=request, capture_output=True, timeout=20, env=env)
+def run_stream(exe, request, exit_code=0, mode="--stream", env=None, timeout=20):
+    result = subprocess.run([str(exe), mode], input=request, capture_output=True, timeout=timeout, env=env)
     if result.returncode != exit_code:
         raise AssertionError(f"Expected renderer exit {exit_code}, got {result.returncode}: {result.stderr!r}")
     offset = 0
@@ -273,12 +273,53 @@ def check_gpu_budget(exe, base):
           "preserved requested size, and recovered after two refused renders.")
 
 
+def check_spectral_stock_matrix(exe):
+    root = Path(__file__).resolve().parents[1]
+    options = json.loads((root / "stocks.json").read_text(encoding="utf-8"))
+    profile_root = root / "upstream-spektrafilm/src/spektrafilm/data/profiles"
+    frame = source_frame(None)[::17, ::21].copy()
+    stocks = [film["Id"] for film in options["Films"]]
+    methods = [method["Id"] for method in options["SpectralMethods"]]
+    assert methods[0] == "hanatos2025" and "hanatos2026" in methods
+    for stock in stocks:
+        profile = json.loads((profile_root / f"{stock}.json").read_text(encoding="utf-8"))
+        window = profile["data"].get("hanatos2025_adaptation_window_params")
+        assert window and len(window) == 4 and np.isfinite(window).all() and all(value > 0 for value in window), stock
+
+    count = 0
+    for space in ("srgb", "adobe_rgb", "prophoto", "linear_rec2020"):
+        cases = [(stock, mode, method) for stock in stocks for mode in ("print", "scan") for method in methods]
+        request = b"".join(frame_request(frame, f"--stock {stock} --mode {mode} --spectral-method {method} --input-color {space}")
+                           for stock, mode, method in cases)
+        responses = run_stream(exe, request + b"QUIT\n", mode="--native-preview-stream", timeout=90)
+        assert len(responses) == len(cases) + 1 and responses[-1] == (0, b"")
+        rendered = {}
+        for case, (status, payload) in zip(cases, responses):
+            assert status == 0 and len(payload) == frame.nbytes, (space, case, status, payload[:100])
+            pixels = np.frombuffer(payload, dtype="<f4").reshape(frame.shape)
+            assert np.isfinite(pixels).all(), (space, case)
+            np.testing.assert_array_equal(pixels[..., 3], frame[..., 3])
+            rendered[case] = pixels
+        for stock, mode, method in cases:
+            if method != "hanatos2026":
+                continue
+            delta = np.max(np.abs(rendered[(stock, mode, "hanatos2025")] - rendered[(stock, mode, method)]))
+            assert delta > 1e-6, (space, stock, mode, "Hanatos 2026 must produce a distinct result")
+        count += len(cases)
+        print(f"{space}: {len(cases)} finite stock/mode/method renders with intact alpha.")
+    print(f"PASS: {count} Vulkan spectral renders and {len(stocks)} explicit Hanatos 2026 calibrations.")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--image", type=Path, help="Optional photograph. Defaults to a synthetic image.")
     parser.add_argument("--exe", type=Path, default=Path(__file__).resolve().parents[1]
                         / "build-ofx-still" / "Release" / "SpektraStillRenderer.exe")
+    parser.add_argument("--spectral-stock-matrix", action="store_true", help="Check stock calibration and all spectral methods across input spaces.")
     args = parser.parse_args()
+    if args.spectral_stock_matrix:
+        check_spectral_stock_matrix(args.exe)
+        return
     frame = source_frame(args.image)
     base = "--stock kodak_portra_400 --paper kodak_portra_endura --input-color srgb"
     check_stream(args.exe, frame, base)

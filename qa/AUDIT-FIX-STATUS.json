@@ -1421,15 +1421,23 @@
       "id": "RC-07",
       "title": "Generate canonical parameter capabilities and expose Hanatos2026 safely",
       "priority": "P2",
-      "status": "pending",
-      "implemented": [],
-      "evidence_paths": [],
+      "status": "partial",
+      "implemented": [
+        "Expose Hanatos 2026 as an explicit Optics reconstruction choice while keeping Hanatos 2025 as the default and preserving its existing saved method ID.",
+        "The 20 advertised negative stocks have explicit positive four-value Hanatos 2026 adaptation calibration. All 480 stock/mode/method and source-encoding combinations produced finite GPU frames with exact source alpha. Each Hanatos 2026 output was distinct from the same stock/mode with Hanatos 2025.",
+        "The licensed host loaded an existing Hanatos 2025 look without changing its method, then persisted a selected 2026 look and rendered it from real 16-bit Capture One development. This passed on both first launch and restart."
+      ],
+      "evidence_paths": [
+        "stocks.json",
+        "NativePanel/SpektraFilmTool.cs",
+        "qa/HostSmoke/StartupHook.cs",
+        "ofx-still-renderer/smoke.py",
+        ".test-results/spectral-stock-matrix-20261120.log",
+        ".test-results/host-hanatos-2026-20261120/host-smoke.log"
+      ],
       "remaining_work": [
-        "Consume audit parameter inventories as baseline not definitive UI coverage",
-        "Create versioned manifest with defaults, ranges, units, dependency groups, mode/backend/export support",
-        "Generate or validate C#/CLI mapping and migrations",
-        "Expose2026 opt-in while preserving prior saved looks/defaults",
-        "Gate APD on generated calibration capability; classify still omissions intentional"
+        "Generate a canonical renderer parameter schema from the compiled bridge and match every managed control, default, unit and dependency against it.",
+        "Negotiate capability prerequisites, especially APD calibration and exact native support for input encodings. Keep unsupported still controls classified and hidden or explicitly unavailable."
       ],
       "original_acceptance_tests": [
         "Mapping completeness and min/default/max round trip",
@@ -2646,8 +2654,8 @@
   "counts": {
     "total": 70,
     "implemented": 16,
-    "partial": 40,
-    "pending": 14
+    "partial": 41,
+    "pending": 13
   },
   "last_reconciled": "2026-11-20",
   "handover": "HANDOVER.md",

@@ -100,6 +100,7 @@ public static class StartupHook
             TestProductionUndo(panel, spatial, window, store, variant, exposure);
             TestPresetHistory(panel, window, store, variant, exposure, toggle);
             await TestViewportQuality(spatial, variant);
+            await TestSpectralReconstruction(panel, spatial, store, variant);
             await TestLockedLook(panel, store, variant, exposure, toggle);
             var optics = Call(spatial, "CaptureSettings")!;
             Call(spatial, "ValidateSettings", optics);
@@ -294,6 +295,38 @@ public static class StartupHook
             Check(ReferenceEquals(savedPreferences, preferences.GetValue(null)), "fixture quality changes leave the user's stored preference unchanged");
         }
         finally { Select(previous); }
+    }
+
+    static async Task TestSpectralReconstruction(object panel, object spatial, object store, Guid variant)
+    {
+        var picker = (ComboBox)Field(panel, "spectralMethod")!;
+        var prior = picker.SelectedItem;
+        var newer = picker.ItemsSource.Cast<object>().Single(item => Prop(item, "Id") is "hanatos2026");
+        string? SavedMethod() => Prop(Prop(Call(store, "Read", variant)!, "Look")!, "SpectralMethod") as string;
+        Check(Prop(prior, "Id") is "hanatos2025" && SavedMethod() == "hanatos2025",
+            "a prior Hanatos 2025 look stays on the same reconstruction method");
+        try
+        {
+            picker.SelectedItem = newer;
+            Check(SavedMethod() == "hanatos2026", "selecting Hanatos 2026 commits the exact method to the current variant");
+            var deadline = DateTime.UtcNow.AddSeconds(25);
+            while (DateTime.UtcNow < deadline)
+            {
+                if (Field(spatial, "frameCurrent") is true && Field(spatial, "renderedArguments") is string[] arguments
+                    && Field(spatial, "source") is { } frame && Prop(frame, "BitDepth") is 16)
+                {
+                    var index = Array.IndexOf(arguments, "--spectral-method");
+                    if (index >= 0 && index + 1 < arguments.Length && arguments[index + 1] == "hanatos2026")
+                    {
+                        Check(true, "Hanatos 2026 rendered the selected image from the real 16-bit Capture One source");
+                        return;
+                    }
+                }
+                await Task.Delay(100);
+            }
+            throw new InvalidOperationException("Hanatos 2026 did not settle in the disposable Viewer.");
+        }
+        finally { picker.SelectedItem = prior; }
     }
 
     static void TestHostLookups(Assembly panelAssembly, object panel, Forms.Form window)
