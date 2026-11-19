@@ -540,6 +540,22 @@
         "evidence": ".test-results/host-compatibility-check-20261119/check-only.log",
         "scope": "Workspace-staged launcher CheckOnly using the actual 16.4.6.2414 x64 installation and Vulkan helper."
       }
+    },
+    "reproduced_development_package": {
+      "status": "passed",
+      "source_commit": "8bb999e23d0cd21e6d4a938c999dcd3583f2060b",
+      "source_tree_digest_for_zip": "905c2720ffa9f9806d01cb9641bd2a319c7af5a58f8f62403d1f71451a98e6c8",
+      "zip_sha256": "ce194d1f13a0548cb2176915cc8bb5e0f5e3431f440fe7baad7540da52d0b1b2",
+      "zip": "dist/Spektrafilm-for-Capture-One-v0.2.0-audit.2-windows-x64.zip",
+      "package_manifest_file_count": 149,
+      "runtime_manifest_file_count": 18,
+      "tamper_cases": 7,
+      "checks": [
+        ".test-results/audit-package-compatibility-20261119/verified-package.json",
+        ".test-results/package-repro-20261119.json",
+        ".test-results/package-tamper-20261119/tamper-report.json"
+      ],
+      "scope": "Same source commit, two clean checkouts; generated scientific data and shaders reproduce byte for byte. Binary build and checkout EOL differences recorded. The regular installed runtime remains ffc4819."
     }
   },
   "known_limitations": [
@@ -2120,21 +2136,25 @@
       "id": "RQ-03",
       "title": "Package one verifiable build with source and resource provenance",
       "priority": "P1",
-      "status": "partial",
+      "status": "implemented",
       "implemented": [
         "Manifest-based build/package/installer checks reject runtime/hash/source mismatches and record source/dependencies; release validation fixtures exist.",
-        "Fresh complete clean ffc4819 build, renderer smoke,146-file package allowlist/hash verification,17 runtime-file verification, extracted and installed checks passed. Archive checksum is recorded in delivery.package."
+        "Fresh complete clean ffc4819 build, renderer smoke,146-file package allowlist/hash verification,17 runtime-file verification, extracted and installed checks passed. Archive checksum is recorded in delivery.package.",
+        "Built the exact clean 8bb999e commit twice, including a fresh detached checkout. Generated curves/counts/tables and all packaged shader bytes matched. Recorded C# and native PE binary differences and the 19 source files with only checkout line-ending differences.",
+        "Verified explicit ZIP content allowlist and corresponding source link. The original package survived separate tamper probes for a shader, two tables, stocks, helper, panel and host manifest. It installed and ran CheckOnly in isolated folders; branded shortcut points to that installed copy."
       ],
       "evidence_paths": [
         "ReleaseManifest.ps1",
         "Build-Windows.ps1",
         "Package-Windows.ps1",
         "Install-Spektrafilm.ps1",
-        "tests/installer/Test-Manifest.ps1"
+        "tests/installer/Test-Manifest.ps1",
+        ".test-results/audit-package-compatibility-20261119/verified-package.json",
+        ".test-results/package-repro-20261119.json",
+        ".test-results/package-tamper-20261119/tamper-report.json",
+        ".test-results/build-clean-repro-8bb999e.log"
       ],
-      "remaining_work": [
-        "Complete cross-clean-checkout generated-data reproducibility and full swapped-asset tamper matrix; record nondeterministic binary fields. A successful build/package is not proof of every original acceptance test."
-      ],
+      "remaining_work": [],
       "original_acceptance_tests": [
         "Swap shader, table, stocks, helper or panel from another build and assert packaging/installation refuses.",
         "Rebuild from documented inputs and compare generated profile/table hashes; record any nondeterministic binary fields.",
@@ -2144,6 +2164,9 @@
         "RC-18",
         "RQ-01",
         "RQ-02"
+      ],
+      "implementation_limits": [
+        "Managed and native executable files vary by build. Each artifact records its own exact file hashes. Verification used a development ZIP and disposable install."
       ]
     },
     {
@@ -2557,8 +2580,8 @@
   ],
   "counts": {
     "total": 70,
-    "implemented": 12,
-    "partial": 41,
+    "implemented": 13,
+    "partial": 40,
     "pending": 17
   },
   "last_reconciled": "2026-11-19",

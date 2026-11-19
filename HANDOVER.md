@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-19. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 12 bounded primary fixes implemented, 41 partial items and 17 pending items. It includes feasibility investigations and enhancements.
+Updated 2026-11-19. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 13 bounded primary fixes implemented, 40 partial items and 17 pending items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -236,6 +236,15 @@ Evidence is under `.test-results/host-cached-identity-20261119`. An event-led fo
 - [ ] Complete an independent 16.7 adapter and host matrix on a licensed installation. Per-surface readiness reporting is a separate follow-up to the manifest.
 
 Evidence is under `.test-results/host-manifest-gate-20261119`, `.test-results/contracts-host-manifest-20261119` and `.test-results/host-compatibility-check-20261119`. The installed runtime still identifies `ffc4819`.
+
+## Reproduced development package
+
+- [x] Build and stage a clean `8bb999e23d0cd21e6d4a938c999dcd3583f2060b` checkout. Package `dist/Spektrafilm-for-Capture-One-v0.2.0-audit.2-windows-x64.zip`. SHA-256 is `ce194d1f13a0548cb2176915cc8bb5e0f5e3431f440fe7baad7540da52d0b1b2`. Its build manifest records 18 runtime components and its package manifest lists 149 payload files.
+- [x] Pass CheckOnly from the extracted package and an isolated installation. Verify the test Desktop shortcut's launcher and film icon. The ZIP contains exactly its listed payload and manifest, and it links to the exact source commit.
+- [x] Refuse a modified shader, either scientific table, stocks file, helper, panel or host manifest in an isolated tamper copy. Recheck the copied runtime after restoring its originals.
+- [x] Rebuild the same commit in a fresh detached checkout. Both generated tables, profile curves/counts and all packaged shaders match. The raw tree digest differs due only to line endings across 19 files. The host JSON differs only by line endings. The panel DLL and native EXE have different PE timestamps and byte ranges. The report lists the differing sections.
+
+Evidence is under `.test-results/audit-package-compatibility-20261119`, `.test-results/package-repro-20261119.json`, `.test-results/package-tamper-20261119` and `.test-results/build-clean-repro-8bb999e.log`. The normal launcher and user installation still identify `ffc4819`. The new ZIP is an isolated development artifact.
 
 ## Runtime map for the next agent
 
