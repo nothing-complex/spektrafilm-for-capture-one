@@ -93,6 +93,7 @@ internal static class SpektraFilmTool
         {
             panel.SyncSelection();
             panel.RetryPendingLookWrites();
+            panel.RefreshNativeGrain(force: false);
         }
         internal void ReportLaunchHealth() => LaunchHealth.Report(
             panel.StocksReady ? LaunchPhase.Ready : LaunchPhase.LoadingControls, panel.ExportBridgeStatus, panel.ViewerStatus);
@@ -305,6 +306,10 @@ internal static class SpektraFilmTool
         };
         private readonly NativeSlider grainImpact = new("Grain impact", 0, 100, 25, 1);
         private readonly NativeSlider grainSize = new("Grain granularity", 0, 100, 50, 1);
+        private readonly TextBlock nativeGrainText = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 5) };
+        private readonly Expander nativeGrainSection;
+        private readonly Button applyGrain;
+        private readonly Button restoreGrain;
         private static readonly GrainControls DefaultGrain = new(2, 25, 50);
         private readonly StackPanel printing = new();
         private readonly Dictionary<string, (NativeSlider Slider, double Default)> development = new();
@@ -403,8 +408,11 @@ internal static class SpektraFilmTool
             controls.Children.Add(MakeFilmControls());
             controls.Children.Add(MakePrintControls());
             controls.Children.Add(MakeAdvancedControls());
-            controls.Children.Add(MakeGrainControls());
-            controls.Children.Add(opticalPreview.Element);
+            applyGrain = Button("Apply grain", ApplyNativeGrainAsync);
+            restoreGrain = Button("Restore grain", RestoreNativeGrainAsync);
+            nativeGrainSection = MakeGrainControls();
+            layout.Children.Add(nativeGrainSection);
+            layout.Children.Add(opticalPreview.Element);
             fileControls = MakeFileControls();
             layout.Children.Add(fileControls);
 
@@ -492,9 +500,12 @@ internal static class SpektraFilmTool
             enableSpektraFilm.IsEnabled = displayedVariant is { } variant && StocksReady
                 && retryLookReadAt is null && !looks.IsBlocked(variant);
             controls.IsEnabled = enabled && StocksReady;
+            opticalPreview.Element.IsEnabled = enabled && StocksReady;
+            nativeGrainSection.IsEnabled = enableSpektraFilm.IsEnabled;
             fileControls.IsEnabled = enableSpektraFilm.IsEnabled;
             exportButtons.IsEnabled = enabled && StocksReady;
             opticalPreview.SetEnabled(enabled);
+            RefreshNativeGrain(force: false);
         }
 
         public void Dispose()
@@ -1053,10 +1064,13 @@ internal static class SpektraFilmTool
             }
         }
 
-        private FrameworkElement MakeGrainControls()
+        private Expander MakeGrainControls()
         {
             var section = new StackPanel { Margin = new Thickness(0, 4, 0, 0) };
-            AutomationProperties.SetName(grainType, "Grain type");
+            section.Children.Add(nativeGrainText);
+            section.Children.Add(new TextBlock { Text = "Stage values here, then apply them to Capture One.",
+                TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 3) });
+            AutomationProperties.SetName(grainType, "Staged grain type");
             section.Children.Add(grainType);
             section.Children.Add(grainImpact);
             section.Children.Add(grainSize);
@@ -1075,30 +1089,68 @@ internal static class SpektraFilmTool
             }
 
             var buttons = new WrapPanel { Margin = new Thickness(0, 5, 0, 0) };
-            buttons.Children.Add(Button("Apply grain", () =>
-            {
-                if (SyncSelection() && displayedVariant is { } variant && IsSpektraFilmEnabled)
-                    Run(() => NativeGrain.Apply(window, looks, variant,
-                        grainType.SelectedIndex, grainImpact.Value, grainSize.Value), "Capture One Grain applied.");
-                return Task.CompletedTask;
-            }));
-            buttons.Children.Add(Button("Restore grain", () =>
-            {
-                Run(() =>
-                {
-                    var current = NativeGrain.Read(window);
-                    NativeGrain.Restore(window, looks, current.VariantId);
-                    var original = NativeGrain.Read(window);
-                    if (SyncSelection() && displayedVariant == original.VariantId)
-                    {
-                        SetGrainControls(new GrainControls(original.Type, original.Impact, original.Granularity));
-                        SaveLook();
-                    }
-                }, "Prior grain restored.");
-                return Task.CompletedTask;
-            }));
+            applyGrain.IsEnabled = restoreGrain.IsEnabled = false;
+            buttons.Children.Add(applyGrain);
+            buttons.Children.Add(restoreGrain);
             section.Children.Add(buttons);
-            return PanelPreferences.CreateSection("capture-one-grain", "Capture One Grain", section, 9);
+            var expander = PanelPreferences.CreateSection("capture-one-grain", "Capture One Grain", section, 9);
+            expander.Expanded += (_, args) =>
+            {
+                if (ReferenceEquals(args.OriginalSource, expander)) RefreshNativeGrain(force: true);
+            };
+            return expander;
+        }
+
+        internal void RefreshNativeGrain(bool force)
+        {
+            if (disposed || !force && !nativeGrainSection.IsExpanded)
+                return;
+            if (displayedVariant is not { } variant)
+            {
+                nativeGrainText.Text = "Select a photo to see its Capture One Grain.";
+                applyGrain.IsEnabled = restoreGrain.IsEnabled = false;
+                return;
+            }
+            try
+            {
+                var (current, receipt) = NativeGrain.ReadStatus(window, looks, variant);
+                var label = current.Type >= 0 && current.Type < grainType.Items.Count ? grainType.Items[current.Type] : current.Type;
+                var values = $"Current in Capture One · {label} · Impact {current.Impact:0.##}";
+                if (current.Type != 0) values += $" · Granularity {current.Granularity:0.##}";
+                var detail = receipt switch
+                {
+                    NativeGrain.ReceiptState.MatchesApplied => "Matches the grain applied with Spektrafilm.",
+                    NativeGrain.ReceiptState.MatchesOriginal => "Matches the original grain.",
+                    NativeGrain.ReceiptState.Changed => "Capture One Grain changed. Restore is unavailable while these values differ.",
+                    _ => string.Empty,
+                };
+                var text = detail.Length == 0 ? values : values + Environment.NewLine + detail;
+                if (nativeGrainText.Text != text) nativeGrainText.Text = text;
+                applyGrain.IsEnabled = true;
+                restoreGrain.IsEnabled = receipt == NativeGrain.ReceiptState.MatchesApplied;
+            }
+            catch (Exception error)
+            {
+                nativeGrainText.Text = "Capture One Grain is unavailable. " + error.GetBaseException().Message;
+                applyGrain.IsEnabled = restoreGrain.IsEnabled = false;
+            }
+        }
+
+        private Task ApplyNativeGrainAsync()
+        {
+            if (SyncSelection() && displayedVariant is { } variant && nativeGrainSection.IsEnabled)
+                Run(() => NativeGrain.Apply(window, looks, variant,
+                    grainType.SelectedIndex, grainImpact.Value, grainSize.Value), "Capture One Grain applied.");
+            RefreshNativeGrain(force: true);
+            return Task.CompletedTask;
+        }
+
+        private Task RestoreNativeGrainAsync()
+        {
+            if (SyncSelection() && displayedVariant is { } variant && nativeGrainSection.IsEnabled)
+                Run(() => NativeGrain.Restore(window, looks, variant), "Prior grain restored.");
+            RefreshNativeGrain(force: true);
+            return Task.CompletedTask;
         }
 
         private void SetGrainControls(GrainControls grain)

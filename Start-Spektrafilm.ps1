@@ -168,7 +168,7 @@ function New-LookBackup([string] $path, [string] $archive) {
     return $manifest
 }
 
-function Save-CatalogBackup([string] $path) {
+function Save-CatalogBackup([string] $path, [scriptblock] $Clock = { [DateTime]::UtcNow }) {
     Confirm-CatalogIsIdle $path
     $sha = [System.Security.Cryptography.SHA256]::Create()
     try {
@@ -182,6 +182,12 @@ function Save-CatalogBackup([string] $path) {
     $tempPath = Join-Path $folder ([Guid]::NewGuid().ToString('N') + '.tmp')
     $tempLooks = Join-Path $folder ([Guid]::NewGuid().ToString('N') + '.tmp')
     $tempManifest = Join-Path $folder ([Guid]::NewGuid().ToString('N') + '.tmp')
+    try {
+        $backupLock = [IO.File]::Open((Join-Path $folder '.backup.lock'), [IO.FileMode]::OpenOrCreate,
+            [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+    } catch [IO.IOException] {
+        throw "Could not lock this catalog's backup folder. If another launch is making a backup, wait for it to finish. $($_.Exception.Message)"
+    }
     try {
         try {
             $inputDb = [IO.File]::Open($path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)
@@ -206,7 +212,7 @@ function Save-CatalogBackup([string] $path) {
         }
         $name = [IO.Path]::GetFileNameWithoutExtension($path)
         Confirm-CatalogIsIdle $path
-        $existing = @(Get-ChildItem -LiteralPath $folder -Filter '*.cocatalogdb' -File | Sort-Object LastWriteTimeUtc -Descending)
+        $existing = @(Get-ChildItem -LiteralPath $folder -Filter '*.cocatalogdb' -File | Sort-Object LastWriteTimeUtc, Name -Descending)
         $previousState = $null
         if ($existing.Count -gt 0 -and (Test-Path -LiteralPath ($existing[0].FullName + '.manifest.json'))) {
             try { $previousState = [IO.File]::ReadAllText($existing[0].FullName + '.manifest.json') | ConvertFrom-Json } catch { }
@@ -222,9 +228,17 @@ function Save-CatalogBackup([string] $path) {
             return $existing[0].FullName
         }
         if (!$verifiedDatabase) { Confirm-CatalogIntegrity $tempPath }
-        $time = [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss-fff', [Globalization.CultureInfo]::InvariantCulture)
-        $destination = Join-Path $folder "$name-$time.cocatalogdb"
-        $joint = [ordered]@{schemaVersion=$looks.schemaVersion;createdUtc=[DateTime]::UtcNow.ToString('o');catalogKey=$looks.catalogKey;
+        $created = [DateTime](& $Clock)
+        $time = $created.ToString('yyyyMMdd-HHmmss-fff', [Globalization.CultureInfo]::InvariantCulture)
+        $stem = "$name-$time"
+        $sequence = 0
+        $generationPattern = '^' + [Regex]::Escape($stem) + '-(\d{6})\.cocatalogdb(?:\.spektrafilm\.zip|\.manifest\.json)?$'
+        foreach ($file in @(Get-ChildItem -LiteralPath $folder -File)) {
+            if ($file.Name -match $generationPattern) { $sequence = [Math]::Max($sequence, 1 + [int]$Matches[1]) }
+        }
+        $ordinal = $sequence.ToString('D6', [Globalization.CultureInfo]::InvariantCulture)
+        $destination = Join-Path $folder "$stem-$ordinal.cocatalogdb"
+        $joint = [ordered]@{schemaVersion=$looks.schemaVersion;createdUtc=$created.ToString('o');catalogKey=$looks.catalogKey;
             stateDigest=$looks.stateDigest;catalogSha256=$catalogHash;databaseIntegrity='ok';
             looksSha256=(Get-FileHash -LiteralPath $tempLooks -Algorithm SHA256).Hash.ToLowerInvariant();files=$looks.files}
         $manifestStream = [IO.File]::Open($tempManifest, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
@@ -233,9 +247,17 @@ function Save-CatalogBackup([string] $path) {
             $manifestStream.Write($bytes, 0, $bytes.Length)
             $manifestStream.Flush($true)
         } finally { $manifestStream.Dispose() }
-        [IO.File]::Move($tempLooks, $destination + '.spektrafilm.zip')
-        [IO.File]::Move($tempManifest, $destination + '.manifest.json')
-        [IO.File]::Move($tempPath, $destination)
+        $published = [Collections.Generic.List[string]]::new()
+        try {
+            foreach ($part in @(@($tempLooks, ($destination + '.spektrafilm.zip')),
+                @($tempManifest, ($destination + '.manifest.json')), @($tempPath, $destination))) {
+                [IO.File]::Move($part[0], $part[1])
+                $published.Add($part[1])
+            }
+        } catch {
+            foreach ($part in $published) { Remove-Item -LiteralPath $part -ErrorAction SilentlyContinue }
+            throw
+        }
         foreach ($older in @($existing | Select-Object -Skip 4)) {
             try {
                 Remove-Item -LiteralPath $older.FullName -ErrorAction Stop
@@ -248,9 +270,11 @@ function Save-CatalogBackup([string] $path) {
         }
         return $destination
     } finally {
-        if (Test-Path -LiteralPath $tempPath) { Remove-Item -LiteralPath $tempPath }
-        if (Test-Path -LiteralPath $tempLooks) { Remove-Item -LiteralPath $tempLooks }
-        if (Test-Path -LiteralPath $tempManifest) { Remove-Item -LiteralPath $tempManifest }
+        try {
+            foreach ($temp in @($tempPath, $tempLooks, $tempManifest)) {
+                if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp }
+            }
+        } finally { $backupLock.Dispose() }
     }
 }
 

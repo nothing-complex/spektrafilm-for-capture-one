@@ -51,6 +51,7 @@ internal static class Program
         TestColorSampling();
         TestFractionalColorSampling();
         TestColorPrecision();
+        TestLookStrengthDelivery();
         TestOutputProtection(folder);
         TestSectionPreferences(folder);
         TestScheduling().GetAwaiter().GetResult();
@@ -58,6 +59,56 @@ internal static class Program
         TestMemoryAdmission();
         TestExportFrameLimits();
         Console.WriteLine($"PASS: {assertions} assertions. Pure current-source probes only; no Capture One process used.");
+    }
+
+    private static void TestLookStrengthDelivery()
+    {
+        const double tolerance = 0.000003;
+        var neutral = new[] { .25f, .25f, .25f };
+        var bright = new[] { 1.5f, 1.5f, 1.5f };
+        var mid = new SrgbDelivery(PreviewInputSpace.LinearRec2020, "linear_rec709", .5).GetSrgb(neutral, bright, 0);
+        Check(Math.Abs(mid.Red - Encode(.625)) < tolerance && Math.Abs(mid.Green - Encode(.625)) < tolerance
+            && Math.Abs(mid.Blue - Encode(.625)) < tolerance, "the film's linear 1.5 channel clips before mixing with linear .25");
+
+        var chart = new[] { 1.25f, .65f, -.35f };
+        foreach (var encoding in new[] { "srgb", "linear_rec709", "rec709_gamma24" })
+        {
+            var output = new[] { -.2f, .5f, 1.5f };
+            var atHalf = new SrgbDelivery(PreviewInputSpace.Srgb, encoding, .5).GetSrgb(chart, output, 0);
+            var midFilm = encoding switch { "linear_rec709" => .5, "rec709_gamma24" => Math.Pow(.5, 2.4), _ => Decode(.5) };
+            Check(Math.Abs(atHalf.Red - Encode(.5)) < tolerance && Math.Abs(atHalf.Blue - Encode(.5)) < tolerance
+                && Math.Abs(atHalf.Green - Encode((Decode(chart[1]) + midFilm) / 2)) < tolerance,
+                "negative and saturated channels follow the same clipping policy in " + encoding);
+            foreach (var space in Enum.GetValues<PreviewInputSpace>())
+            {
+                var atZero = new SrgbDelivery(space, encoding, 0).GetSrgb(chart, Array.Empty<float>(), 0);
+                var barelyOn = new SrgbDelivery(space, encoding, 0.0000001).GetSrgb(chart, output, 0);
+                var atOne = new SrgbDelivery(space, encoding, 1).GetSrgb(Array.Empty<float>(), output, 0);
+                var almostFull = new SrgbDelivery(space, encoding, 0.9999999).GetSrgb(chart, output, 0);
+                Check(Close(atZero, barelyOn) && Close(atOne, almostFull), "continuous strength endpoints for " + space + " and " + encoding);
+                Check(atOne.Red == 0 && Math.Abs(atOne.Green - Encode(midFilm)) < tolerance && Math.Abs(atOne.Blue - 1) < tolerance,
+                    "the full processed frame has the correct transfer for " + encoding);
+            }
+        }
+
+        var invalid = new SrgbDelivery(PreviewInputSpace.Srgb, "srgb", .5);
+        foreach (var nonfinite in new[] { float.NaN, float.PositiveInfinity, float.NegativeInfinity })
+        {
+            var damaged = new[] { .5f, nonfinite, .5f };
+            Check(Rejects(() => invalid.GetSrgb(damaged, bright, 0)), "a non-finite source component is rejected");
+            Check(Rejects(() => invalid.GetSrgb(neutral, damaged, 0)), "a non-finite processed component is rejected");
+        }
+        Console.WriteLine("Look strength: clip-before-blend policy, all source/output spaces, HDR highlights and endpoint continuity passed.");
+
+        static double Encode(double linear) => linear <= .0031308 ? linear * 12.92 : 1.055 * Math.Pow(linear, 1 / 2.4) - .055;
+        static double Decode(double encoded) => encoded <= .04045 ? encoded / 12.92 : Math.Pow((encoded + .055) / 1.055, 2.4);
+        static bool Close(SrgbDelivery.LinearBgr a, SrgbDelivery.LinearBgr b) => Math.Abs(a.Red - b.Red) < tolerance
+            && Math.Abs(a.Green - b.Green) < tolerance && Math.Abs(a.Blue - b.Blue) < tolerance;
+        static bool Rejects(Action action)
+        {
+            try { action(); return false; }
+            catch (InvalidDataException) { return true; }
+        }
     }
 
     private static void TestSectionPreferences(string folder)

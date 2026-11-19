@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 
@@ -181,12 +182,14 @@ internal static class Program
                 Check(rows[1] == "0.03125 0 0" && rows[33] == "0 0.03125 0", "red varies fastest");
                 var nativeCube = await NativeLutExporter.ExportAsync(plan, 33, 1, default);
                 Check(nativeCube.Contains(Contract), "LUT uses negotiated native engine");
-                Check(Math.Abs(NativeLutExporter.Blend(0.2f, 0.8f, 0.5) - 0.5999308) < 0.00001, "LUT blends in linear light");
+                var delivery = new SrgbDelivery(PreviewInputSpace.Srgb, "srgb", .5);
+                Check(Math.Abs(delivery.GetSrgb(new[] { .2f, .2f, .2f }, new[] { .8f, .8f, .8f }, 0).Red - .5999308) < .00001,
+                    "LUT and image delivery blend in linear light");
                 foreach (var invalid in new[] { float.NaN, float.PositiveInfinity, float.NegativeInfinity })
                 {
                     var samples = NativeLutExporter.BuildGrid(2, default);
                     BitConverter.GetBytes(invalid).CopyTo(samples, 0);
-                    await Throws<ArgumentException>(() => Task.Run(() => NativeLutExporter.FormatCube(plan, 2, 1,
+                    await Throws<InvalidDataException>(() => Task.Run(() => NativeLutExporter.FormatCube(plan, 2, 1,
                         NativeLutExporter.BuildGrid(2, default), samples, Contract, default)));
                 }
                 await Throws<ArgumentOutOfRangeException>(() => NativeLutExporter.ExportAsync(plan, 129, 1, default));
@@ -235,6 +238,22 @@ internal static class Program
                 await renderer.RenderAsync(8, 8, source, options, default);
                 metrics = await renderer.ReadDiagnosticsAsync(default);
                 Check(metrics?.GetProperty("renderSequence").GetInt32() == 1, "native unchanged request cached");
+                var packed = await renderer.RenderAsync(8, 8, source, options, default, displayPixels: true);
+                var delivery = new SrgbDelivery(PreviewInputSpace.Srgb, "srgb", 1);
+                var input = new float[source.Length / sizeof(float)];
+                var rendered = new float[clean.Length / sizeof(float)];
+                Buffer.BlockCopy(source, 0, input, 0, source.Length);
+                Buffer.BlockCopy(clean, 0, rendered, 0, clean.Length);
+                var expectedPacked = new byte[packed.Length];
+                for (var index = 0; index < input.Length; index += 4)
+                {
+                    var rgb = delivery.GetSrgb(input, rendered, index);
+                    expectedPacked[index] = (byte)Math.Round(rgb.Blue * 255);
+                    expectedPacked[index + 1] = (byte)Math.Round(rgb.Green * 255);
+                    expectedPacked[index + 2] = (byte)Math.Round(rgb.Red * 255);
+                    expectedPacked[index + 3] = (byte)MathF.Round(Math.Clamp(input[index + 3], 0, 1) * 255);
+                }
+                Check(packed.SequenceEqual(expectedPacked), "worker packed BGRA and managed delivery round identically at full sRGB strength");
             }
             Environment.SetEnvironmentVariable("SPEKTRAFILM_VULKAN_COPY_PASS", "1");
             using (var renderer = new OpticalRenderer(nativePreview: true))
@@ -260,6 +279,27 @@ internal static class Program
                     for (var c = 0; c < 3; c++) maximum = Math.Max(maximum, Math.Abs(rgb[c] - Math.Clamp(BitConverter.ToSingle(expected, (i * 4 + c) * 4), 0, 1)));
                 }
                 Check(maximum <= 6e-9, "native LUT exact sampled-image parity " + size);
+                if (size == 33)
+                {
+                    var mixed = NativeLutExporter.FormatCube(plan, size, .5, grid, expected, null, default);
+                    var mixedRows = mixed.Split('\n').Where(line => line.Length > 0 && char.IsDigit(line[0])).ToArray();
+                    var maximumMixed = 0d;
+                    for (var index = 0; index < mixedRows.Length; index++)
+                    {
+                        var rgb = mixedRows[index].Split(' ').Select(value => double.Parse(value, CultureInfo.InvariantCulture)).ToArray();
+                        for (var channel = 0; channel < 3; channel++)
+                        {
+                            var offset = (index * 4 + channel) * 4;
+                            var sourceLinear = Decode(BitConverter.ToSingle(grid, offset));
+                            var filmLinear = Decode(BitConverter.ToSingle(expected, offset));
+                            var target = Encode((sourceLinear + filmLinear) / 2);
+                            maximumMixed = Math.Max(maximumMixed, Math.Abs(rgb[channel] - target));
+                        }
+                    }
+                    Console.WriteLine($"Half-strength LUT maximum error against the analytic transfer {maximumMixed:R}.");
+                    Check(mixedRows.Length == rows.Length && maximumMixed < 0.5 / ushort.MaxValue,
+                        "half-strength LUT matches an independent SDR linear mix within half a 16-bit code");
+                }
             }
             Console.WriteLine($"Exact grid maximum code error {maximum:R}.");
             await TestHeldOutLut(options);
@@ -270,6 +310,14 @@ internal static class Program
             Environment.SetEnvironmentVariable("SPEKTRAFILM_ROOT", previousRoot);
             Environment.SetEnvironmentVariable("SPEKTRAFILM_VULKAN_COPY_PASS", previousDebug);
         }
+
+        static double Decode(double value)
+        {
+            var clipped = Math.Clamp(value, 0, 1);
+            return clipped <= .04045 ? clipped / 12.92 : Math.Pow((clipped + .055) / 1.055, 2.4);
+        }
+
+        static double Encode(double value) => value <= .0031308 ? 12.92 * value : 1.055 * Math.Pow(value, 1 / 2.4) - .055;
     }
 
     private static async Task TestHeldOutLut(string[] options)

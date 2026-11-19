@@ -153,7 +153,7 @@ public static class StartupHook
             await TestWorkerQuiescence(panel, spatial, rendererType);
             var grain = panelAssembly.GetType("NativeGrain")!;
             TestNativeUndoCapability(Field(panel, "document")!);
-            TestNativeGrain(grain, window, store, variant, restart);
+            TestNativeGrain(grain, window, panel, store, variant, toggle, restart);
             var recipe = host.GetMethod("ActiveRecipe", Flags)!.Invoke(null, new[] { window });
             File.AppendAllText(Path.Combine(folder,"host-smoke.log"), "RECIPE " + recipe + Environment.NewLine);
             await TestRecipeExport(panel, spatial, recipe!, variant, toggle);
@@ -680,7 +680,7 @@ public static class StartupHook
         }
     }
 
-    static void TestNativeGrain(Type grain, object window, object store, Guid variant, bool restart)
+    static void TestNativeGrain(Type grain, object window, object panel, object store, Guid variant, CheckBox toggle, bool restart)
     {
         object Read() => grain.GetMethod("Read", Flags)!.Invoke(null, new[] { window })!;
         void Apply(double impact, double granularity) => grain.GetMethod("Apply", Flags)!
@@ -690,16 +690,49 @@ public static class StartupHook
         string Serialize(object state) => System.Text.Json.JsonSerializer.Serialize(state, state.GetType());
         var checkRestart = File.Exists(Path.Combine(folder, "verify-grain-restart.marker"));
         var expected = Path.Combine(folder, "grain-before-restart.json");
+        var effective = (TextBlock)Field(panel, "nativeGrainText")!;
+        var applyButton = (Button)Field(panel, "applyGrain")!;
+        var restoreButton = (Button)Field(panel, "restoreGrain")!;
+        void Refresh() => Call(panel, "RefreshNativeGrain", true);
         if (restart && checkRestart)
         {
             Check(CanRestore(), "native grain and its catalog-scoped receipt survived process termination");
+            Refresh();
+            Check(restoreButton.IsEnabled && effective.Text.Contains("Matches the grain applied", StringComparison.Ordinal),
+                "the tool presents the restored receipt as available on restart");
             Restore();
             Check(Serialize(Read()) == File.ReadAllText(expected), "second process restored exact original native grain values");
         }
 
         var before = Read();
-        Apply(37, 51);
+        var savedStage = Prop(Call(panel, "CaptureLook")!, "Grain")!;
+        var stageType = (ComboBox)Field(panel, "grainType")!;
+        var stageImpact = Field(panel, "grainImpact")!;
+        var stageSize = Field(panel, "grainSize")!;
+        var priorMaster = toggle.IsChecked;
+        stageType.SelectedIndex = 2;
+        stageImpact.GetType().GetProperty("Value", Flags)!.SetValue(stageImpact, 37d);
+        stageSize.GetType().GetProperty("Value", Flags)!.SetValue(stageSize, 51d);
+        Check(before.Equals(Read()), "moving the staged grain controls leaves the actual native grain unchanged");
+        toggle.IsChecked = false;
+        Refresh();
+        Check(applyButton.IsEnabled && effective.Text.Contains("Current in Capture One", StringComparison.Ordinal),
+            "effective native grain and Apply remain available with Spektrafilm switched off");
+        applyButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, applyButton));
         Check(CanRestore(), "native grain transaction applied with verified restore receipt");
+        Check(restoreButton.IsEnabled && effective.Text.Contains("Impact 37", StringComparison.Ordinal)
+            && effective.Text.Contains("Matches the grain applied", StringComparison.Ordinal), "effective grain shows the applied native values");
+
+        var undo = Field(panel, "nativeUndo")!;
+        var model = AppDomain.CurrentDomain.GetAssemblies().Single(item => item.GetName().Name == "P1.C1.ModelEntities");
+        var history = model.GetType("P1.C1.ModelEntities.UndoInterfaces.IUndoManager", true)!;
+        history.GetMethod("Undo", new[] { typeof(bool) })!.Invoke(undo, new object[] { true });
+        Refresh();
+        Check(before.Equals(Read()) && !restoreButton.IsEnabled, "native Undo updates the effective grain and Restore state");
+        history.GetMethod("Redo")!.Invoke(undo, null);
+        Refresh();
+        Check(restoreButton.IsEnabled && effective.Text.Contains("Impact 37", StringComparison.Ordinal), "native Redo restores the effective grain and receipt match");
+
         var profile = grain.Assembly.GetType("HostProfile")!;
         var native = profile.GetMethod("SelectedVariant", Flags)!.Invoke(null, new[] { window })!;
         var tuple = (System.Runtime.CompilerServices.ITuple)native;
@@ -707,6 +740,9 @@ public static class StartupHook
         var amount = settings.GetProperty("FilmGrainAmount")!;
         amount.SetValue(tuple[0], 52f);
         Check(!CanRestore(), "external native grain change invalidates ownership");
+        Refresh();
+        Check(!restoreButton.IsEnabled && effective.Text.Contains("Impact 52", StringComparison.Ordinal)
+            && effective.Text.Contains("Capture One Grain changed", StringComparison.Ordinal), "external grain reports current values and disables restore");
         try
         {
             Restore();
@@ -720,8 +756,14 @@ public static class StartupHook
         {
             amount.SetValue(tuple[0], 37f);
         }
-        Restore();
+        Refresh();
+        restoreButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, restoreButton));
         Check(before.Equals(Read()) && !CanRestore(), "native grain restored exact earlier values and ownership cleared");
+        Check(!restoreButton.IsEnabled && Prop(stageImpact, "Value") is 37d && toggle.IsChecked == false,
+            "Restore keeps the staged settings and works with the master switch off");
+        Call(panel, "SetGrainControls", savedStage);
+        Call(panel, "SaveLook");
+        toggle.IsChecked = priorMaster;
         if (!restart && checkRestart)
         {
             File.WriteAllText(expected, Serialize(before));

@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-19. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 15 bounded primary fixes implemented, 39 partial items and 16 pending items. It includes feasibility investigations and enhancements.
+Updated 2026-11-19. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 16 bounded primary fixes implemented, 39 partial items and 15 pending items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -304,7 +304,7 @@ Earlier hidden launches stalled, and an immediate deliberate-crash restart stopp
 
 - [x] Give every launch a unique status file tied to the Capture One PID and exact host build. The optional launcher wait distinguishes missing startup from slow or rejected startup. Panel readiness, Viewer health and native Export availability have separate states.
 - [x] The production launcher reader consumed readiness from a first launch and restart. The two runs passed 120 and 123 live assertions, including an abrupt kill of the real Viewer worker inside the disposable runtime and failure of both native Export callbacks. A normal launch then opened the same disposable test catalog without a Spektrafilm report. The source catalog hash remained unchanged.
-- [x] Pass 12,341 public assertions, including 11 launch reader contracts for wrong session/PID, delayed startup and invalid reports.
+- [x] Pass 12,337 public assertions, including 11 launch reader contracts for wrong session/PID, delayed startup and invalid reports.
 
 Evidence is under `.test-results/host-launch-full-handshake-20261119` and `.test-results/contracts-launch-readiness-20261119`. Use `Run-HostSmoke.ps1 -CheckOrdinaryLaunch` to repeat the ordinary-launch observation. The previously verified development ZIP and regular installation predate this change.
 
@@ -313,10 +313,19 @@ Evidence is under `.test-results/host-launch-full-handshake-20261119` and `.test
 - [x] Prepare and hash each saved snapshot once. Keep the per-movement flush, external-change check before file replacement, and independent fallback. Separate processes were killed immediately before and after replacement and recovered the expected exact bytes.
 - [x] Compare two 10,000-edit runs per build across 64 synthetic variants. Preparation and flush measured 2.86–2.88 ms median before and 2.73–2.79 ms afterwards. Managed allocations fell by about 26%. They measure the save path without WPF dispatcher overhead. The process-kill tests did not emulate device power loss.
 - [x] Let users choose which film, optics, staged Grain and master settings to load or copy. In the licensed host, Copy and Apply across two variants preserved unchecked controls and actual Capture One Grain. One native Undo restored the destination. Print and Scan each round-tripped all saved sliders at both limits.
-- [x] Pass 12,364 public assertions and 139 first-launch plus 142 restart assertions on the copied catalog. Capture One did not change the source database hash.
+- [x] Pass 12,360 public assertions and 139 first-launch plus 142 restart assertions on the copied catalog. Capture One did not change the source database hash.
 - [ ] Add opt-in multi-selection application, exact native clone lineage, and explicit per-image progress and partial completion handling. Per-movement writes still wait for successful disk publication or recovery.
 
 Evidence is under `.test-results/host-selective-presets-ranges-20261119`, `.test-results/contracts-selective-presets-20261119` and the four `.test-results/durable-*-20261119/measurement.json` files. To reproduce 10,000 measured edits, run `dotnet run --project tests/state/StateContracts.csproj -c Release -- --measure-durable-edits .test-results/<new-dir>`.
+
+## Native grain, colour delivery and concurrent backups checkpoint
+
+- [x] Display actual Capture One Grain alongside staged controls. Apply and Restore work with the Spektrafilm switch off. The live tests verified native Undo and Redo, a changed outside value, a restart with a restorable receipt and staging preserved by Restore. Clone and pixel-level native/optical grain separation remain open.
+- [x] Share the existing strength blend between Viewer, high-depth image delivery and LUT export. Test all input and output transfers, signed and saturated values, continuity and non-finite inputs. Nineteen GPU checks passed. The packed Viewer path matched managed sRGB BGRA byte for byte. The half-strength LUT differed from the independent formula by at most 0.000007125 in normalized code values.
+- [x] Fix the same-tick backup filename collision observed on Windows 2022. Serialize per-catalog backup publication and rotate only successful complete generations. Verify 42 joint-backup assertions in both PowerShell versions, including a competing lock and a deliberately blocked manifest. A real closed catalog backed up twice at the same instant and restored the later generation with both look hashes intact.
+- [x] Pass 12,404 local contract assertions with physical hard-link and junction fixtures, plus 146 first-launch and 150 restart checks. The source catalog hash remained unchanged. Local symlink privilege was unavailable. The earlier launch and selective preset checkpoints passed the full Windows 2022 and 2025 CI matrix.
+
+Evidence is under `.test-results/host-native-grain-state-20261119`, `.test-results/real-same-tick-backup-20261119`, and `.test-results/contracts-grain-backup-policy-20261119`. [Launch CI](https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44630864725) and [selective preset CI](https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44632131352).
 
 ## Status maintenance
 

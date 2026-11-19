@@ -1130,17 +1130,22 @@
       "id": "RC-09",
       "title": "Unify look-strength blending and clipping policy",
       "priority": "P2",
-      "status": "partial",
+      "status": "implemented",
       "implemented": [
-        "Native LUT strength now matches current image-delivery sRGB linear-light blending, finite validation and clipping policy."
+        "Native LUT strength now matches current image-delivery sRGB linear-light blending, finite validation and clipping policy.",
+        "Viewer and 16-bit output share the same SDR delivery transform with LUT generation. Existing looks retain their clip-before-linear-light-blend policy. The LUT header records that policy version.",
+        "Validated negative, non-finite, wide-gamut and saturated values; all four input and three output spaces; exact endpoint behaviour and continuity near each endpoint. For a linear baseline of .25 and rendered 1.5 at half strength the linear mixture is .625.",
+        "Hardware results matched the packed worker and managed BGRA conversion byte for byte at full sRGB strength. The half-strength 33-point LUT differed from independent analytic reference by 7.1243e-6 maximum, under half a 16-bit output code."
       ],
       "evidence_paths": [
         "NativePanel/NativeLutExporter.cs",
-        "tests/renderer/Program.cs"
+        "tests/renderer/Program.cs",
+        "NativePanel/SrgbDelivery.cs",
+        "tests/ViewerContracts/Program.cs",
+        ".test-results/contracts-grain-backup-policy-20261119/ViewerContracts.log",
+        ".test-results/host-native-grain-state-20261119/host-smoke.log"
       ],
-      "remaining_work": [
-        "No policy/version migration or shared GPU/managed blend implementation; all output spaces, HDR clipping location and continuity need explicit numerical contracts."
-      ],
+      "remaining_work": [],
       "original_acceptance_tests": [
         "Synthetic linear baseline.25/processed1.5/strength.5 expected policy",
         "Negative components and every output transfer",
@@ -1969,7 +1974,7 @@
         "Every launcher session now has an atomic status record tied to its random session ID, Capture One PID and exact active host version. The optional bounded wait reads only that process and session and distinguishes absent startup, delayed catalog, unsupported host, inaccessible catalog and hook failure.",
         "Tool readiness, native Export binding and Viewer health update separately. The disposable host reported a disabled Viewer, a missing renderer, abrupt termination of its actual in-flight Vulkan worker, and unavailable native Export for each malformed binding.",
         "The production readiness reader observed two genuine startup sessions (120 first-launch and 123 restart assertions). The corresponding ordinary Capture One launch opened the same disposable catalog without any Spektrafilm startup report. The original database hash stayed unchanged.",
-        "Launcher contracts cover missing reports, wrong-session and wrong-PID reports, slow and rejected startup, bad format and excessive size. The public contract runner passed all eight suites (12,341 assertions)."
+        "Launcher contracts cover missing reports, wrong-session and wrong-PID reports, slow and rejected startup, bad format and excessive size. The public contract runner passed all eight suites (12,337 assertions)."
       ],
       "evidence_paths": [
         "Start-Spektrafilm.ps1",
@@ -2204,7 +2209,10 @@
         "Closed-catalog backup now captures catalog and path-keyed film-state archives with hashes; refuses unsafe sidecars/open-file conditions.",
         "Backups hold the source read lock through the look snapshot and run read-only SQLite integrity_check on new database bytes before rotation. Tests refused a corrupt database with a valid header and preserved all five verified generations. An actual catalog copy passed with unchanged hashes and zero sidecars.",
         "Read-only restore preview verifies both generation payloads. Restore stages and verifies database and look files, rekeys pending edits, refuses replacement, and opens an actual restored catalog with unchanged native database bytes and two production-read looks.",
-        "Version 2 uses ordinal sorted file fingerprints. Restore verifies paired embedded and outer manifests plus all file hashes. Version 1 remains usable across shells, including an actual three-file legacy restore in PowerShell 7."
+        "Version 2 uses ordinal sorted file fingerprints. Restore verifies paired embedded and outer manifests plus all file hashes. Version 1 remains usable across shells, including an actual three-file legacy restore in PowerShell 7.",
+        "Windows 2022 CI exposed a timestamp collision during rapid look-only backups. Versioned backup basenames now have a monotonic same-tick suffix, and a per-catalog lock serializes backup generation and rotation.",
+        "If publishing a companion fails, remove only parts published by that attempt and preserve prior complete generations. Frozen-clock rotation, blocked manifest publication and competing backups passed 42 assertions in both PowerShell 5.1 and 7.",
+        "Created two real Capture One backup generations with the same timestamp, restored the latest one and matched both look files and the original catalog hash exactly."
       ],
       "evidence_paths": [
         "Start-Spektrafilm.ps1",
@@ -2214,10 +2222,13 @@
         "CatalogIntegrity.ps1",
         ".test-results/restored-real-catalog-20261119/result.txt",
         ".test-results/contracts-grain-backup-v2-20261119/summary.json",
-        ".test-results/legacy-three-entry-state"
+        ".test-results/legacy-three-entry-state",
+        ".test-results/real-same-tick-backup-20261119/result.txt",
+        ".test-results/contracts-grain-backup-policy-20261119/catalog-backup.log",
+        "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44628947791"
       ],
       "remaining_work": [
-        "Test power/fractured publication and disk-full during backup and restore, stale/open SQLite sidecar handling, and portable catalog identity."
+        "Test abrupt OS/power loss and disk-full during backup and restore. Verify locked/open and stale SQLite sidecar handling across the host matrix and portable catalog identity."
       ],
       "original_acceptance_tests": [
         "Restore into a different directory and verify native and film state for multiple variants.",
@@ -2260,11 +2271,20 @@
       "id": "HS-07",
       "title": "Native grain controls diverge from effective image state",
       "priority": "P2",
-      "status": "pending",
-      "implemented": [],
-      "evidence_paths": [],
+      "status": "partial",
+      "implemented": [
+        "The native Grain tool now displays current Capture One values from the selected variant beside the staged controls and shows whether the current settings match its durable receipt. Restore is available only on a verified applied match.",
+        "Apply and Restore are explicit operations available while the Spektrafilm master is off. Moving staged controls does not modify native output. Restore leaves staged controls intact so the look keeps the same saved values.",
+        "Tested real WPF actions, native Undo and Redo, external native changes, disabled-master behavior and receipt availability after process termination/restart. Full suites passed 146 first-launch and 150 restart checks with the source catalog unchanged."
+      ],
+      "evidence_paths": [
+        "NativePanel/NativeGrain.cs",
+        "NativePanel/SpektraFilmTool.cs",
+        "qa/HostSmoke/StartupHook.cs",
+        ".test-results/host-native-grain-state-20261119/host-smoke.log"
+      ],
       "remaining_work": [
-        "choose a clearly defined policy. Preferred: display native grain state from host model, make Apply visibly staged, show ownership/applied state and external-change conflict. If live native grain is desired, drive actual native commands during gestures with coalesced undo and durable ownership receipt. Do not auto-restore/erase user grain on master-off unless user explicitly enabled plugin-managed grain and current values still match the plugin's last owned state. Alternatively keep native grain outside the master effect and label that distinction concisely."
+        "Verify the separation of native and optical grain through clone and pixel-level export tests. The adapter cannot yet identify an outside edit that leaves the exact same field values."
       ],
       "original_acceptance_tests": [
         "native edits, Ctrl+Z, master on/off, apply/restore, clone, export and restart produce truthful controls. Verify changing Spektrafilm optics grain does not accidentally double native grain."
@@ -2417,14 +2437,16 @@
       "status": "partial",
       "implemented": [
         "Catalog-scoped grain receipts persist the variant UUID, original values, requested values and previously applied values before native changes. Restoration requires an exact match to recorded applied values and is explicit.",
-        "Fresh Capture One process restored the prior native settings after forced termination. A genuine subsequent native grain edit prevented restore and retained its value. Saved grain records move with the catalog and film state through verified backup and restore."
+        "Fresh Capture One process restored the prior native settings after forced termination. A genuine subsequent native grain edit prevented restore and retained its value. Saved grain records move with the catalog and film state through verified backup and restore.",
+        "The tool reads the durable grain receipt on restart and exposes whether the current values allow Restore. Native Undo, Redo and external mismatches immediately update the restore availability on refresh."
       ],
       "evidence_paths": [
         "NativePanel/GrainReceiptStore.cs",
         "NativePanel/NativeGrain.cs",
         "tests/state/Program.cs",
         ".test-results/contracts-grain-backup-v2-20261119/summary.json",
-        ".test-results/host-grain-receipt-20261119/host-smoke.log"
+        ".test-results/host-grain-receipt-20261119/host-smoke.log",
+        ".test-results/host-native-grain-state-20261119/host-smoke.log"
       ],
       "remaining_work": [
         "Prove a persistent native adjustment revision to distinguish unrelated changes that happen to return to exactly the same grain values.",
@@ -2475,7 +2497,8 @@
         "Least-permission Windows public contract workflow and separate opt-in host/GPU paths are tracked.",
         "Observed GitHub Windows contracts success run43916882324 on ffc4819; no secrets or licensed host binaries are required.",
         "Public Windows contracts now run on separate Server 2022 and Server 2025 runners with read-only permissions and no persisted checkout credentials.",
-        "Both CI images passed 12,297 fixture assertions after normalizing the worker EOF/cancellation race. Both ran the symbolic-link fixture."
+        "Both CI images passed 12,297 fixture assertions after normalizing the worker EOF/cancellation race. Both ran the symbolic-link fixture.",
+        "Windows 2022 and 2025 passed startup and selective preset checkpoints. Diagnosed a prior Windows 2022-only backup collision and added a deterministic frozen-clock regression."
       ],
       "evidence_paths": [
         ".github/workflows/contracts.yml",
@@ -2483,7 +2506,9 @@
         "tests",
         "qa/HostSmoke",
         ".github/workflows/contracts.yml",
-        "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44623654332"
+        "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44623654332",
+        "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44630864725",
+        "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44632131352"
       ],
       "remaining_work": [
         "Verify a real outside-fork PR. Finish automated release gating through tagged build provenance and retain a separate exact licensed-host matrix."
@@ -2611,9 +2636,9 @@
   ],
   "counts": {
     "total": 70,
-    "implemented": 15,
+    "implemented": 16,
     "partial": 39,
-    "pending": 16
+    "pending": 15
   },
   "last_reconciled": "2026-11-19",
   "handover": "HANDOVER.md",

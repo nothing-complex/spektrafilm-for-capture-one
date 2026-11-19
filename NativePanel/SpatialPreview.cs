@@ -19,14 +19,8 @@ using Microsoft.Win32;
 
 internal sealed class SpatialPreview : IDisposable
 {
-    private const int TransferSteps = 8192;
     private const int InitialPreviewLongEdge = 1200;
     private const int DragSettleDelay = 220;
-    private static readonly double[] SrgbDecode = BuildTransfer(DecodeSrgb);
-    private static readonly double[] SrgbEncode = BuildTransfer(EncodeSrgb);
-    private static readonly double[] Rec709Gamma24Decode = BuildTransfer(value => Math.Pow(value, 2.4));
-    private static readonly double[] AdobeDecode = BuildTransfer(value => Math.Pow(value, 563.0 / 256));
-    private static readonly double[] ProPhotoDecode = BuildTransfer(value => value <= 1.0 / 32 ? value / 16 : Math.Pow(value, 1.8));
     private static readonly InputChoice[] InputSpaces =
     {
         new(PreviewInputSpace.Srgb, "srgb", "sRGB"),
@@ -1366,7 +1360,7 @@ internal sealed class SpatialPreview : IDisposable
         PreviewInputSpace space, string outputEncoding, CancellationToken token)
     {
         var pixels = GC.AllocateUninitializedArray<byte>(original.FloatBytes.Length / sizeof(float));
-        var transform = new SrgbTransform(space, outputEncoding, strength);
+        var transform = new SrgbDelivery(space, outputEncoding, strength);
         var hasPreviewCodes = original.Codes.Length != 0;
         var rowWidth = original.Width * 4;
         PreviewRows.Process(original.Width, original.Height, token, (first, last) =>
@@ -1395,7 +1389,7 @@ internal sealed class SpatialPreview : IDisposable
     {
         var source = MemoryMarshal.Cast<byte, float>(frame.FloatBytes.AsSpan());
         var floats = MemoryMarshal.Cast<byte, float>(rendered.AsSpan());
-        var transform = new SrgbTransform(space, outputEncoding, strength);
+        var transform = new SrgbDelivery(space, outputEncoding, strength);
         var hasAlpha = format == PixelFormats.Rgba64;
         var channels = hasAlpha ? 4 : 3;
         var stride = checked(crop.Width * channels * sizeof(ushort));
@@ -1420,87 +1414,8 @@ internal sealed class SpatialPreview : IDisposable
         return image;
     }
 
-    private readonly struct SrgbTransform(PreviewInputSpace space, string outputEncoding, double strength)
-    {
-        private readonly bool useWideGamut = space != PreviewInputSpace.Srgb && strength < 1;
-        private readonly double[]? inputTransfer = space switch
-        {
-            PreviewInputSpace.AdobeRgb => AdobeDecode,
-            PreviewInputSpace.ProPhotoRgb => ProPhotoDecode,
-            _ => null,
-        };
-        private readonly double[]? outputTransfer = outputEncoding switch
-        {
-            "srgb" => SrgbDecode,
-            "linear_rec709" => null,
-            _ => Rec709Gamma24Decode,
-        };
-
-        internal LinearBgr GetSrgb(ReadOnlySpan<float> source, ReadOnlySpan<float> rendered, int i)
-        {
-            if (strength <= 0 && space == PreviewInputSpace.Srgb)
-                return new(Math.Clamp(source[i + 2], 0, 1), Math.Clamp(source[i + 1], 0, 1), Math.Clamp(source[i], 0, 1));
-
-            var baseline = strength >= 1 ? default : useWideGamut
-                ? ToLinearSrgb(space, DecodeInput(source[i]), DecodeInput(source[i + 1]), DecodeInput(source[i + 2]))
-                : new LinearBgr(Sample(SrgbDecode, source[i + 2]), Sample(SrgbDecode, source[i + 1]), Sample(SrgbDecode, source[i]));
-            return new(
-                Blend(baseline.Blue, strength > 0 ? rendered[i + 2] : 0),
-                Blend(baseline.Green, strength > 0 ? rendered[i + 1] : 0),
-                Blend(baseline.Red, strength > 0 ? rendered[i] : 0));
-        }
-
-        private double DecodeInput(float value) => inputTransfer is null ? value : Sample(inputTransfer, value);
-
-        private double Blend(double baseline, float processed)
-        {
-            if (!float.IsFinite(processed))
-                throw new InvalidDataException("The optical renderer returned an invalid pixel.");
-            var display = (double)Math.Clamp(processed, 0, 1);
-            if (strength >= 1 && ReferenceEquals(outputTransfer, SrgbDecode))
-                return display;
-            var film = outputTransfer is null ? display : Sample(outputTransfer, display);
-            return Sample(SrgbEncode, baseline + strength * (film - baseline));
-        }
-    }
-
-    // ProPhoto includes Bradford adaptation from D50 to the D65 sRGB white point.
-    // Keep wide-gamut components out of range until final display encoding.
-    private static LinearBgr ToLinearSrgb(PreviewInputSpace space, double red, double green, double blue) => space switch
-    {
-        PreviewInputSpace.AdobeRgb => new(-0.04294 * green + 1.04294 * blue, green, 1.39828 * red - 0.39828 * green),
-        PreviewInputSpace.ProPhotoRgb => new(
-            -0.008555533 * red - 0.153286575 * green + 1.161842108 * blue,
-            -0.228798056 * red + 1.231730282 * green - 0.002932226 * blue,
-            2.034218153 * red - 0.727536473 * green - 0.306681680 * blue),
-        _ => new(
-            -0.018150763 * red - 0.100578898 * green + 1.118729661 * blue,
-            -0.124550475 * red + 1.132899897 * green - 0.008349423 * blue,
-            1.660491002 * red - 0.587641139 * green - 0.072849863 * blue),
-    };
-
-    private static double[] BuildTransfer(Func<double, double> transfer)
-    {
-        var lookup = new double[TransferSteps + 1];
-        for (var i = 0; i <= TransferSteps; i++)
-            lookup[i] = transfer(i / (double)TransferSteps);
-        return lookup;
-    }
-
-    private static double Sample(double[] lookup, double value)
-    {
-        var coordinate = Math.Clamp(value, 0, 1) * TransferSteps;
-        var lower = Math.Min((int)coordinate, TransferSteps - 1);
-        return lookup[lower] + (coordinate - lower) * (lookup[lower + 1] - lookup[lower]);
-    }
-
-    private static double DecodeSrgb(double value) => value <= 0.04045 ? value / 12.92 : Math.Pow((value + 0.055) / 1.055, 2.4);
-
-    private static double EncodeSrgb(double value) => value <= 0.0031308 ? 12.92 * value : 1.055 * Math.Pow(value, 1 / 2.4) - 0.055;
-
     private sealed record Choice(string Id, string Label);
     private sealed record DragSize(int LongEdge, string Label);
     private sealed record InputChoice(PreviewInputSpace Space, string Id, string Label);
-    private readonly record struct LinearBgr(double Blue, double Green, double Red);
     internal sealed record Settings(Dictionary<string, double> Numbers, Dictionary<string, string> Selections, Dictionary<string, bool> Switches);
 }

@@ -5,10 +5,14 @@ using System.Runtime.ExceptionServices;
 
 internal static class NativeGrain
 {
+    internal enum ReceiptState { None, MatchesApplied, MatchesOriginal, Changed }
+
     internal readonly record struct GrainSettings(Guid VariantId, int Type, double Impact, double Granularity)
     {
         internal GrainValues Values => new(Type, Impact, Granularity);
     }
+
+    internal readonly record struct GrainStatus(GrainSettings Current, ReceiptState Receipt);
 
     internal static GrainSettings Read(object window)
     {
@@ -47,9 +51,21 @@ internal static class NativeGrain
     }
 
     internal static bool HasApplied(object window, VariantLookStore looks, Guid expectedVariantId)
+        => ReadStatus(window, looks, expectedVariantId).Receipt == ReceiptState.MatchesApplied;
+
+    internal static GrainStatus ReadStatus(object window, VariantLookStore looks, Guid expectedVariantId)
     {
         var target = SelectedTarget(window, expectedVariantId);
-        return looks.GrainReceipts.Read(target.Id)?.Matches(ReadValues(target).Values) == true;
+        var current = ReadValues(target);
+        var receipt = looks.GrainReceipts.Read(target.Id);
+        var state = receipt switch
+        {
+            null => ReceiptState.None,
+            _ when receipt.Matches(current.Values) => ReceiptState.MatchesApplied,
+            _ when receipt.Original == current.Values => ReceiptState.MatchesOriginal,
+            _ => ReceiptState.Changed,
+        };
+        return new GrainStatus(current, state);
     }
 
     internal static void Restore(object window, VariantLookStore looks, Guid expectedVariantId)

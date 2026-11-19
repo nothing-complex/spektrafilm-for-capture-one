@@ -40,7 +40,8 @@ $recovery=Join-Path (Join-Path (Join-Path $userData 'Look recovery') $key) '1111
 foreach($file in @($look,$recovery)){[void][IO.Directory]::CreateDirectory((Split-Path -Parent $file))}
 [IO.File]::WriteAllText($look,'{"value":1}')
 [IO.File]::WriteAllText($recovery,'{"pending":true}')
-$first=Save-CatalogBackup $db
+$clock = { [DateTime]::new(2026, 11, 19, 12, 0, 0, [DateTimeKind]::Utc) }
+$first=Save-CatalogBackup $db -Clock $clock
 Assert (Test-Path -LiteralPath ($first+'.spektrafilm.zip')) 'Joint look archive created'
 Assert (Test-Path -LiteralPath ($first+'.manifest.json')) 'Joint manifest created'
 $manifest=[IO.File]::ReadAllText($first+'.manifest.json')|ConvertFrom-Json
@@ -55,20 +56,21 @@ try {
         Assert ($null -ne $zip.GetEntry($entryName)) "Archive contains $entryName"
     }
 } finally {$zip.Dispose()}
-$same=Save-CatalogBackup $db
+$same=Save-CatalogBackup $db -Clock $clock
 Assert ($same -eq $first) 'Unchanged DB and state reuse complete backup'
 [IO.File]::WriteAllText($look,'{"value":2}')
-$second=Save-CatalogBackup $db
-Assert ($second -ne $first) 'Look-only edit creates new joint backup'
+$second=Save-CatalogBackup $db -Clock $clock
+Assert ($second -ne $first) 'Look-only edit creates a new joint backup even in the same clock tick'
+Assert ($first -like '*-000000.cocatalogdb' -and $second -like '*-000001.cocatalogdb') 'Same-tick generations have distinct increasing names'
 $zip=[IO.Compression.ZipFile]::OpenRead($second+'.spektrafilm.zip')
 try {
     $reader=New-Object IO.StreamReader($zip.GetEntry('Variant looks/11111111111111111111111111111111.json').Open())
     try {Assert ($reader.ReadToEnd() -eq '{"value":2}') 'Restorable archive contains latest look'}finally{$reader.Dispose()}
 }finally{$zip.Dispose()}
 [IO.File]::WriteAllText($second+'.spektrafilm.zip','corrupted backup archive')
-$third=Save-CatalogBackup $db
+$third=Save-CatalogBackup $db -Clock $clock
 Assert ($third -ne $second) 'Corrupted prior archive is not accepted for deduplication'
-for($i=3;$i -le 7;$i++){[IO.File]::WriteAllText($look,"{`"value`":$i}");$null=Save-CatalogBackup $db}
+for($i=3;$i -le 7;$i++){[IO.File]::WriteAllText($look,"{`"value`":$i}");$null=Save-CatalogBackup $db -Clock $clock}
 $folder=Split-Path -Parent $third
 $databases=@(Get-ChildItem -LiteralPath $folder -Filter '*.cocatalogdb' -File)
 Assert ($databases.Count -eq 5) 'Retains five complete DB generations'
@@ -76,6 +78,28 @@ Assert (@(Get-ChildItem -LiteralPath $folder -Filter '*.spektrafilm.zip' -File).
 Assert (@(Get-ChildItem -LiteralPath $folder -Filter '*.manifest.json' -File).Count -eq 5) 'Companion manifests rotate together'
 Assert ((Get-FileHash -LiteralPath $db -Algorithm SHA256).Hash -eq $originalHash) 'Original DB remains unchanged'
 Assert (@(Get-ChildItem -LiteralPath $folder -Filter '*.tmp' -File).Count -eq 0) 'No incomplete temporary backups remain'
+$same=Save-CatalogBackup $db -Clock $clock
+Assert ($same -like '*-000007.cocatalogdb') 'Same-tick rotation retains and deduplicates the latest generation'
+
+$held = [IO.File]::Open((Join-Path $folder '.backup.lock'), [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+try {
+    $failure=$null
+    try { $null=Save-CatalogBackup $db -Clock $clock } catch { $failure=$_.Exception.Message }
+    Assert ($failure -like '*Could not lock this catalog*') 'A competing backup cannot stage or rotate another generation'
+} finally { $held.Dispose() }
+
+$expectedNext=$same.Replace('-000007.cocatalogdb','-000008.cocatalogdb')
+$obstruction=$expectedNext+'.manifest.json'
+[void][IO.Directory]::CreateDirectory($obstruction)
+[IO.File]::WriteAllText($look,'{"value":8}')
+try {
+    $failure=$null
+    try { $null=Save-CatalogBackup $db -Clock $clock } catch { $failure=$_.Exception.Message }
+    Assert ($null -ne $failure) 'A blocked manifest fails publication'
+    Assert ((Test-Path -LiteralPath $obstruction -PathType Container) -and !(Test-Path -LiteralPath ($expectedNext+'.spektrafilm.zip')) -and
+        !(Test-Path -LiteralPath $expectedNext)) 'Partial publication removes only the archive it created'
+    Assert (@(Get-ChildItem -LiteralPath $folder -Filter '*.cocatalogdb' -File).Count -eq 5) 'Failed publication preserved all complete generations'
+} finally { Remove-Item -LiteralPath $obstruction }
 $verifiedBeforeFailure = @($databases | Get-FileHash -Algorithm SHA256 | ForEach-Object Hash)
 try {
     # Preserve the SQLite signature and schema page while cutting off live data cells.

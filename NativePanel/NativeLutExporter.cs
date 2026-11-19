@@ -11,9 +11,6 @@ using System.Threading.Tasks;
 internal static class NativeLutExporter
 {
     internal sealed record Plan(string[] Arguments, string[] ExcludedEffects);
-    private const int TransferSteps = 8192;
-    private static readonly double[] Decode = BuildTransfer(v => v <= 0.04045 ? v / 12.92 : Math.Pow((v + 0.055) / 1.055, 2.4));
-    private static readonly double[] Encode = BuildTransfer(v => v <= 0.0031308 ? 12.92 * v : 1.055 * Math.Pow(v, 1 / 2.4) - 0.055);
 
     internal static Plan Prepare(string[] rendererArguments)
     {
@@ -99,6 +96,7 @@ internal static class NativeLutExporter
             throw new ArgumentException("The LUT grid and renderer reply dimensions do not agree.");
         var original = MemoryMarshal.Cast<byte, float>(source);
         var processed = MemoryMarshal.Cast<byte, float>(rendered);
+        var delivery = new SrgbDelivery(PreviewInputSpace.Srgb, "srgb", strength);
         var text = new StringBuilder(size * size * size * 36);
         text.AppendLine($"TITLE \"Spektrafilm for Capture One sRGB {size}\"");
         text.AppendLine("# Same source-built Vulkan colour engine as Spektrafilm image rendering.");
@@ -111,37 +109,17 @@ internal static class NativeLutExporter
         text.AppendLine("# Excluded active effects: " + (plan.ExcludedEffects.Length == 0 ? "none" : string.Join(", ", plan.ExcludedEffects)));
         text.AppendLine("# Engine parameter contract: " + (contract ?? "identity; renderer not required"));
         text.AppendLine("# Look strength: " + strength.ToString("R", CultureInfo.InvariantCulture));
+        text.AppendLine($"# Look strength policy v{SrgbDelivery.LookStrengthPolicyVersion} uses SDR clipping before a linear-light blend.");
         text.AppendLine("# Colour parameters: " + string.Join(' ', plan.Arguments));
         text.AppendLine($"LUT_3D_SIZE {size}\nDOMAIN_MIN 0 0 0\nDOMAIN_MAX 1 1 1");
         for (var i = 0; i < original.Length; i += 4)
         {
             if (i % 4096 == 0) stop.ThrowIfCancellationRequested();
-            for (var channel = 0; channel < 3; channel++)
-            {
-                var value = Blend(original[i + channel], processed[i + channel], strength);
-                if (channel > 0) text.Append(' ');
-                text.Append(value.ToString("G9", CultureInfo.InvariantCulture));
-            }
-            text.Append('\n');
+            var rgb = delivery.GetSrgb(original, processed, i);
+            text.Append(rgb.Red.ToString("G9", CultureInfo.InvariantCulture)).Append(' ');
+            text.Append(rgb.Green.ToString("G9", CultureInfo.InvariantCulture)).Append(' ');
+            text.Append(rgb.Blue.ToString("G9", CultureInfo.InvariantCulture)).Append('\n');
         }
         return text.ToString();
-    }
-
-    internal static double Blend(float source, float rendered, double strength)
-    {
-        if (!float.IsFinite(source) || !float.IsFinite(rendered)) throw new ArgumentException("LUT samples must be finite.");
-        if (strength <= 0) return Math.Clamp(source, 0, 1);
-        if (strength >= 1) return Math.Clamp(rendered, 0, 1);
-        // Match the current image-delivery sRGB clipping and table interpolation.
-        var baseline = Sample(Decode, source);
-        return Sample(Encode, baseline + strength * (Sample(Decode, rendered) - baseline));
-    }
-
-    private static double[] BuildTransfer(Func<double, double> f) => Enumerable.Range(0, TransferSteps + 1).Select(i => f(i / (double)TransferSteps)).ToArray();
-    private static double Sample(double[] table, double value)
-    {
-        var position = Math.Clamp(value, 0, 1) * TransferSteps;
-        var lower = Math.Min((int)position, TransferSteps - 1);
-        return table[lower] + (position - lower) * (table[lower + 1] - table[lower]);
     }
 }
