@@ -460,9 +460,6 @@ internal static class Program
 
             if (extension == ".tif")
                 Check(data.GetQuery("/ifd/{ushort=274}") is (ushort)1, "TIFF orientation is not normalized");
-            var metadataPath = extension == ".png" ? "/xmp" : "/ifd/xmp";
-            Check(data.GetQuery(metadataPath) is BitmapMetadata stored
-                && stored.GetQuery("/xmp:Rating") is "4", "XMP rating did not round trip");
             var bytes = File.ReadAllBytes(path);
             var start = bytes.AsSpan().IndexOf("<?xpacket begin="u8);
             Check(start >= 0, "XMP packet missing");
@@ -488,7 +485,14 @@ internal static class Program
                 && properties[(tiff, "ImageLength")] == "2" && properties[(exif, "PixelXDimension")] == "3"
                 && properties[(exif, "PixelYDimension")] == "2", "Normalized orientation or dimensions missing");
             Check(properties[(exif, "DateTimeOriginal")] == "2025-03-14T13:27:06"
-                && !properties.Keys.Any(key => key.LocalName.StartsWith("GPS", StringComparison.Ordinal)), "Capture date or GPS policy changed");
+                && properties[("http://ns.adobe.com/xap/1.0/", "Rating")] == "4"
+                && !properties.Keys.Any(key => key.LocalName.StartsWith("GPS", StringComparison.Ordinal)), "Capture date, rating or GPS policy changed");
+            using var verification = File.OpenRead(path);
+            var packetBytes = System.Text.Encoding.UTF8.GetBytes(packet);
+            bool Verify() => extension == ".png" ? PngXmp.Contains(verification, packetBytes) : EncodedXmp.TiffContains(verification, packetBytes);
+            Check(Verify(), "Container metadata validation rejected a correct packet");
+            packetBytes[packetBytes.Length / 2] ^= 1;
+            Check(!Verify(), "Container metadata validation accepted changed packet bytes");
         }
         Check(File.ReadAllBytes(original).SequenceEqual(new byte[] { 1, 2, 3 }), "Metadata output changed source bytes");
         Console.WriteLine("Export metadata: Unicode XMP, normalized dimensions and orientation, ICC, DPI and exact 16-bit samples passed.");

@@ -15,6 +15,7 @@ using System.Windows.Media;
 using System.Windows.Shell;
 using System.Windows.Threading;
 using Microsoft.Win32;
+using P1.C1.ModelEntities.UndoInterfaces;
 using P1.C1.Components.Docking.WPF;
 using P1.C1.Components.Docking.WPF.Floating;
 using P1.C1.Components.InspectorTools;
@@ -311,6 +312,10 @@ internal static class SpektraFilmTool
         private readonly Button cancelLut = new() { Content = "Cancel LUT export", Visibility = Visibility.Collapsed };
         private CancellationTokenSource? lutWork;
         private bool lutExporting;
+        private readonly IUndoManager? nativeUndo;
+        private readonly Action<Guid, Exception?> historyChanged;
+        private VariantLook? displayedLook;
+        private (Guid Variant, VariantLook Before)? historyGesture;
         private Guid? displayedVariant;
         private long? retryLookReadAt;
         private DispatcherOperation? selectionSync;
@@ -322,6 +327,15 @@ internal static class SpektraFilmTool
         {
             this.window = window;
             this.document = document;
+            nativeUndo = (document as IUndo)?.UndoManager;
+            var weakPanel = new WeakReference<LookPanel>(this);
+            historyChanged = (variant, error) =>
+            {
+                if (weakPanel.TryGetTarget(out var panel) && !panel.disposed)
+                    panel.OnHistoryChanged(variant, error);
+                else if (error is not null)
+                    StartupHook.Log("Spektrafilm Undo could not update the saved look: " + error);
+            };
             selections = (ISelectedCollectionsProvider)document;
             var catalog = ApprovedCatalog.SelectedDatabase ?? throw new InvalidOperationException("No catalog selected for Spektrafilm.");
             var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -363,6 +377,7 @@ internal static class SpektraFilmTool
             opticalPreview = SpatialPreview.BuildForPanel(window, CurrentSettings, UseSelectedLook);
             layout.Children.Insert(3, opticalPreview.ExportControls);
             opticalPreview.SettingsChanged += SaveLook;
+            opticalPreview.SliderDragActivity += UpdateHistoryGesture;
             opticalPreview.TrackSliderDrag(exposure);
             opticalPreview.TrackSliderDrag(printExposure);
             opticalPreview.TrackSliderDrag(strength);
@@ -681,7 +696,9 @@ internal static class SpektraFilmTool
             }
             if (displayedVariant is not null)
             {
+                UpdateHistoryGesture(false);
                 displayedVariant = null;
+                displayedLook = null;
                 retryLookReadAt = null;
                 UpdateEnabledState();
             }
@@ -694,6 +711,8 @@ internal static class SpektraFilmTool
                 return false;
             if (displayedVariant != variant || retryLookReadAt is long retryAt && Environment.TickCount64 >= retryAt)
             {
+                UpdateHistoryGesture(false);
+                displayedLook = null;
                 retryLookReadAt = null;
                 status.Text = string.Empty;
                 FlushLooks();
@@ -702,6 +721,7 @@ internal static class SpektraFilmTool
                 {
                     var saved = looks.Read(variant);
                     ApplyControls(saved?.Look, saved?.Optics, saved?.Enabled ?? true, saved?.Grain);
+                    displayedLook = CaptureLook();
                     if (looks.RecoveryNotice is { } notice)
                         status.Text = notice;
                 }
@@ -723,24 +743,74 @@ internal static class SpektraFilmTool
             return IsSpektraFilmEnabled;
         }
 
+        private VariantLook? CaptureLook()
+        {
+            if (CurrentSettings() is not { } look)
+                return null;
+            look = look with { ScanInvert = scanInvert.IsChecked == true };
+            var grain = new GrainControls(grainType.SelectedIndex, grainImpact.Value, grainSize.Value);
+            return new VariantLook(look, opticalPreview.CaptureSettings(), IsSpektraFilmEnabled, Grain: grain);
+        }
+
         private void SaveLook()
         {
             if (settingValues || !StocksReady || retryLookReadAt is not null
-                || displayedVariant is not { } variant || CurrentSettings() is not { } look)
+                || displayedVariant is not { } variant || CaptureLook() is not { } look)
                 return;
             // The key belongs to the displayed controls, even if the host selection has just changed.
-            look = look with { ScanInvert = scanInvert.IsChecked == true };
-            var grain = new GrainControls(grainType.SelectedIndex, grainImpact.Value, grainSize.Value);
+            var before = displayedLook;
             try
             {
-                looks.Queue(variant, new VariantLook(look, opticalPreview.CaptureSettings(), IsSpektraFilmEnabled, Grain: grain));
+                looks.Queue(variant, look);
+                displayedLook = look;
                 FlushLooks();
+                if (historyGesture is null)
+                    RecordLookEdit(variant, before, look, "Spektrafilm settings");
             }
             catch (Exception error)
             {
                 ShowSaveError($"Spektrafilm could not save your look. {error.Message}");
                 UpdateEnabledState();
             }
+        }
+
+        private void UpdateHistoryGesture(bool active)
+        {
+            if (nativeUndo is null)
+                return;
+            if (active)
+            {
+                if (historyGesture is null && displayedVariant is { } variant && displayedLook is { } before)
+                    historyGesture = (variant, before);
+                return;
+            }
+            var finished = historyGesture;
+            historyGesture = null;
+            if (finished is { } edit && displayedVariant == edit.Variant && displayedLook is { } after)
+                RecordLookEdit(edit.Variant, edit.Before, after, "Spektrafilm slider");
+        }
+
+        private void RecordLookEdit(Guid variant, VariantLook? before, VariantLook after, string name)
+        {
+            if (nativeUndo is null || before is null || VariantLookStore.Equivalent(before, after))
+                return;
+            try { nativeUndo.Do(new NativeLookUndoAction(looks, variant, before, after, name, historyChanged)); }
+            catch (Exception error)
+            {
+                status.Text = "Look saved. Capture One Undo could not record this edit.";
+                StartupHook.Log("Capture One Undo could not record a Spektrafilm edit: " + error);
+            }
+        }
+
+        private void OnHistoryChanged(Guid variant, Exception? error)
+        {
+            if (displayedVariant == variant)
+            {
+                displayedVariant = null;
+                UseSelectedLook(variant);
+            }
+            if (error is not null)
+                ShowSaveError(error.Message);
         }
 
         internal void FlushLooks()
@@ -908,8 +978,14 @@ internal static class SpektraFilmTool
                 grainSize.IsEnabled = grainType.SelectedIndex != 0;
                 SaveLook();
             };
-            grainImpact.ValueChanged += (_, _) => SaveLook();
-            grainSize.ValueChanged += (_, _) => SaveLook();
+            foreach (var slider in new[] { grainImpact, grainSize })
+            {
+                slider.ValueChanged += (_, _) => SaveLook();
+                slider.DragStarted += (_, _) => UpdateHistoryGesture(true);
+                slider.DragCompleted += (_, _) => UpdateHistoryGesture(false);
+                slider.LostMouseCapture += (_, _) => UpdateHistoryGesture(false);
+                slider.Unloaded += (_, _) => UpdateHistoryGesture(false);
+            }
 
             var buttons = new WrapPanel { Margin = new Thickness(0, 5, 0, 0) };
             buttons.Children.Add(Button("Apply grain", () =>

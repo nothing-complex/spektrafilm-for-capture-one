@@ -217,6 +217,20 @@ Throws<InvalidDataException>("size guard", () => PanelFiles.ReadPreset<object>(t
 Throws<InvalidDataException>("write size guard", () => PanelFiles.WritePreset(stateFile, new string('x', 65536)));
 Check("oversized write preserves previous committed value", PanelFiles.ReadPreset<VariantLook>(stateFile).Look.Exposure == 1.2);
 
+var undoVariant = Guid.NewGuid();
+var undoFirst = Sample(0.2);
+var undoSecond = Sample(1.7);
+store.Queue(undoVariant, undoSecond);
+store.Flush();
+store.ReplaceIfCurrent(undoVariant, undoSecond, undoFirst);
+Check("undo writes the captured variant durably", new VariantLookStore(root, catalog).Read(undoVariant)?.Look.Exposure == 0.2);
+store.ReplaceIfCurrent(undoVariant, undoFirst, undoSecond);
+Check("redo writes the same captured variant durably", new VariantLookStore(root, catalog).Read(undoVariant)?.Look.Exposure == 1.7);
+var undoFile = StateFile(root, undoVariant);
+PanelFiles.WriteCompactPreset(undoFile, Sample(2.4));
+Throws<InvalidOperationException>("stale history cannot overwrite a newer saved look", () => store.ReplaceIfCurrent(undoVariant, undoSecond, undoFirst));
+Check("history conflict preserves the newer persisted look", new VariantLookStore(root, catalog).Read(undoVariant)?.Look.Exposure == 2.4);
+
 var grainId = Guid.NewGuid();
 var grainOriginal = new GrainValues(1, 7, 30);
 var grainFirst = new GrainValues(2, 35, 60);

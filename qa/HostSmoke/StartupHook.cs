@@ -92,6 +92,7 @@ public static class StartupHook
                 var saved = Call(store, "Read", variant)!;
                 Check(Math.Abs((double)Prop(Prop(saved, "Look")!, "Exposure")! - value) < 1e-9, "slider movement durably saved: " + value);
             }
+            TestProductionUndo(panel, spatial, window, store, variant, exposure);
             await TestLockedLook(panel, store, variant, exposure, toggle);
             var optics = Call(spatial, "CaptureSettings")!;
             Call(spatial, "ValidateSettings", optics);
@@ -139,6 +140,7 @@ public static class StartupHook
                 Check(decoded.PixelWidth == width && decoded.PixelHeight == height,"actual TIFF keeps intended image dimensions");
             }
             var grain = panelAssembly.GetType("NativeGrain")!;
+            TestNativeUndoCapability(Field(panel, "document")!);
             TestNativeGrain(grain, window, store, variant, restart);
             var recipe = host.GetMethod("ActiveRecipe", Flags)!.Invoke(null, new[] { window });
             File.AppendAllText(Path.Combine(folder,"host-smoke.log"), "RECIPE " + recipe + Environment.NewLine);
@@ -153,6 +155,138 @@ public static class StartupHook
         {
             timer?.Stop();
             File.WriteAllText(Path.Combine(folder, "failed.txt"), error.ToString());
+        }
+    }
+
+    static void TestProductionUndo(object panel, object spatial, object window, object store, Guid variant, object exposure)
+    {
+        var document = Field(panel, "document")!;
+        var undoManager = Field(panel, "nativeUndo")!;
+        var model = AppDomain.CurrentDomain.GetAssemblies().Single(assembly => assembly.GetName().Name == "P1.C1.ModelEntities");
+        var managerType = model.GetType("P1.C1.ModelEntities.UndoInterfaces.IUndoManager", true)!;
+        var undo = managerType.GetMethod("Undo", new[] { typeof(bool) })!;
+        var redo = managerType.GetMethod("Redo")!;
+        var name = managerType.GetProperty("TryGetUndoActionName")!;
+        var value = exposure.GetType().GetProperty("Value", Flags)!;
+        double Saved() => (double)Prop(Prop(Call(store, "Read", variant)!, "Look")!, "Exposure")!;
+        bool Is(double expected) => Math.Abs(Saved() - expected) < 1e-9;
+        void Undo(bool allowRedo) => undo.Invoke(undoManager, new object[] { allowRedo });
+        void Redo() => redo.Invoke(undoManager, null);
+        var previousEntry = name.GetValue(undoManager);
+        Call(spatial, "BeginSliderDrag");
+        foreach (var motion in new[] { 0.3, 0.5, 0.8 })
+        {
+            value.SetValue(exposure, motion);
+            Check(Is(motion) && Equals(name.GetValue(undoManager), previousEntry),
+                "each motion saves durably inside one unfinished undo gesture: " + motion);
+        }
+        Call(spatial, "EndSliderDrag");
+        Check(Equals(name.GetValue(undoManager), "Spektrafilm slider"), "finished slider gesture registered one native action");
+
+        var profile = panel.GetType().Assembly.GetType("HostProfile")!;
+        var selected = (System.Runtime.CompilerServices.ITuple)profile.GetMethod("SelectedVariant", Flags)!.Invoke(null, new[] { window })!;
+        var gain = ((Type)selected[1]!).GetProperty("FilmGrainAmount")!;
+        var priorNative = (float)gain.GetValue(selected[0])!;
+        var newNative = priorNative < 60 ? priorNative + 11 : priorNative - 11;
+        gain.SetValue(selected[0], newNative);
+        Undo(true);
+        Check((float)gain.GetValue(selected[0])! == priorNative && Is(0.8),
+            "Undo removes the later native adjustment before the film gesture");
+        Undo(true);
+        Check(Is(1.2) && Equals(value.GetValue(exposure), 1.2) && Equals(name.GetValue(undoManager), previousEntry),
+            "one native Undo restores the entire slider gesture and refreshes controls");
+        Redo();
+        Check(Is(0.8) && Equals(value.GetValue(exposure), 0.8), "native Redo persists the film look and updates controls");
+        Redo();
+        Check((float)gain.GetValue(selected[0])! == newNative && Is(0.8), "native adjustment remains above the film gesture in Redo history");
+        Undo(false);
+        Undo(false);
+        Check((float)gain.GetValue(selected[0])! == priorNative && Is(1.2), "undo integration fixture restored native and film settings");
+
+        // A second image can be active while Undo still belongs to the captured variant.
+        var core = document.GetType().Assembly.GetName().Name == "P1.C1.Core"
+            ? document.GetType().Assembly
+            : AppDomain.CurrentDomain.GetAssemblies().Single(assembly => assembly.GetName().Name == "P1.C1.Core");
+        var provider = core.GetType("P1.C1.Core.Interfaces.ISelectedCollectionsProvider", true)!;
+        var collection = provider.GetProperty("PrimarySelectedCollection")!.GetValue(document)!;
+        var variants = (IEnumerable)core.GetType("P1.C1.Core.ModelEntities.ISimpleCollection", true)!
+            .GetMethod("GetAllFilteredAndVisibleVariants")!.Invoke(collection, null)!;
+        var uuid = core.GetType("P1.C1.Core.ICoreVariant", true)!.GetProperty("UUID")!;
+        var other = variants.Cast<object>().First(item => !Equals(uuid.GetValue(item), variant));
+        var selection = provider.GetProperty("PrimarySelectedCollectionSelection")!.GetValue(document)!;
+        var variantSelection = core.GetType("P1.C1.Core.Selection.ISelection", true)!.GetProperty("SelectedVariants")!.GetValue(selection)!;
+        var select = core.GetType("P1.C1.Core.Selection.IVariantSelection", true)!.GetMethod("SelectAndSetAsPrimary")!;
+        var noUndo = model.GetType("P1.C1.ModelEntities.UndoInterfaces.IGroupingUndoManager", true)!.GetMethod("NoUndoScope")!;
+        void SelectWithoutHistory(object target)
+        {
+            var scope = noUndo.Invoke(undoManager, new object[] { "Spektrafilm fixture selection" })!;
+            try
+            {
+                select.Invoke(variantSelection, new[] { target, (object)false });
+                Call(panel, "SyncSelection");
+            }
+            finally { noUndo.ReturnType.GetMethod("EndScope")!.Invoke(scope, null); }
+        }
+        value.SetValue(exposure, 2.1);
+        try
+        {
+            SelectWithoutHistory(other);
+            var shown = value.GetValue(exposure);
+            Check(Equals(Field(panel, "displayedVariant"), uuid.GetValue(other)), "a different native variant is active for scoped Undo");
+            Check(Equals(name.GetValue(undoManager), "Spektrafilm settings"), "captured film edit is next in native Undo");
+            Undo(false);
+            Check(Is(1.2) && Equals(shown, value.GetValue(exposure)), "Undo writes only the original variant while another remains selected");
+        }
+        finally { SelectWithoutHistory(selected[0]!); }
+    }
+
+    static void TestNativeUndoCapability(object document)
+    {
+        var model = AppDomain.CurrentDomain.GetAssemblies().Single(assembly => assembly.GetName().Name == "P1.C1.ModelEntities");
+        const string root = "P1.C1.ModelEntities.UndoInterfaces.";
+        var actionType = model.GetType(root + "IUndoableAction", true)!;
+        var managerType = model.GetType(root + "IUndoManager", true)!;
+        var manager = model.GetType(root + "IUndo", true)!.GetProperty("UndoManager")!.GetValue(document)!;
+        var action = DispatchProxy.Create(actionType, typeof(UndoProbe));
+        var probe = (UndoProbe)action;
+        var change = managerType.GetMethod("Do")!;
+        var undo = managerType.GetMethod("Undo", new[] { typeof(bool) })!;
+        var redo = managerType.GetMethod("Redo")!;
+        var name = managerType.GetProperty("TryGetUndoActionName")!;
+        var previous = name.GetValue(manager);
+        change.Invoke(manager, new[] { action });
+        Check(probe.Applied == 1 && !probe.Reversed && Equals(name.GetValue(manager), UndoProbe.ActionName),
+            "native undo manager registered a named extension action");
+        undo.Invoke(manager, new object[] { true });
+        Check(probe.Applied == 1 && probe.Reversed, "native Undo invoked the extension callback");
+        redo.Invoke(manager, null);
+        Check(probe.Applied == 2 && !probe.Reversed, "native Redo invoked the extension apply callback");
+        undo.Invoke(manager, new object[] { false });
+        Check(probe.Reversed && Equals(name.GetValue(manager), previous), "extension probe restored the preceding history entry");
+    }
+
+    public class UndoProbe : DispatchProxy
+    {
+        internal const string ActionName = "Spektrafilm test action";
+        internal int Applied { get; private set; }
+        internal bool Reversed { get; private set; }
+
+        protected override object? Invoke(MethodInfo? method, object?[]? arguments)
+        {
+            switch (method?.Name)
+            {
+                case "get_Name": return ActionName;
+                case "get_CanUndo": return true;
+                case "Do":
+                    Applied++;
+                    Reversed = false;
+                    return null;
+                case "Undo":
+                    Reversed = true;
+                    return null;
+                default:
+                    throw new NotSupportedException(method?.Name);
+            }
         }
     }
 

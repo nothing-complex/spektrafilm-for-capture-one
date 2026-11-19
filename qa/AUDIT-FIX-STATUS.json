@@ -286,6 +286,29 @@
         "status": "passed",
         "scope": "A legacy three-file archive with a Windows PowerShell digest restored under PowerShell 7. Paired manifest mismatch is rejected even when ZIP and DB hashes are valid."
       }
+    },
+    "native_undo_and_portable_metadata": {
+      "contracts": {
+        "status": "passed",
+        "assertions": 12056,
+        "summary": ".test-results/contracts-native-undo-metadata-20261119/summary.json",
+        "skipped": [
+          "Local symbolic-file-link creation lacks Windows privilege."
+        ]
+      },
+      "host": {
+        "status": "passed",
+        "first_launch_assertions": 87,
+        "restart_assertions": 90,
+        "source_catalog_unchanged": true,
+        "evidence": ".test-results/host-undo-raw-metadata-20261119/host-smoke.log",
+        "scope": "Mixed real native and film sequence, durable intermediate slider steps, one native action per gesture and real cross-variant selection inside a native NoUndo scope for the fixture. Includes prior TIFF/PNG native export and grain restart checks."
+      },
+      "prior_ci": {
+        "status": "failed",
+        "run_id": 44617727524,
+        "scope": "Metadata query mismatch between Windows codec builds superseded by direct container validation in this checkpoint."
+      }
     }
   },
   "known_limitations": [
@@ -590,13 +613,16 @@
       "priority": "P2",
       "status": "partial",
       "implemented": [
-        "Some contracts are extracted into LookSettings, validation, preferences, cancellation, colour transfer, and native LUT helpers."
+        "Some contracts are extracted into LookSettings, validation, preferences, cancellation, colour transfer, and native LUT helpers.",
+        "Captured editable look snapshots now have a separate native undo action and atomic expected-state replacement. The state-only suite checks durability and conflicts without WPF or Capture One."
       ],
       "evidence_paths": [
         "NativePanel/LookSettings.cs",
         "NativePanel/LookStateValidation.cs",
         "NativePanel/ExportOperation.cs",
-        "NativePanel/RenderCoordination.cs"
+        "NativePanel/RenderCoordination.cs",
+        "NativePanel/NativeLookUndoAction.cs",
+        "tests/state/Program.cs"
       ],
       "remaining_work": [
         "The imperative WPF panel still owns model/control/scheduler concerns; complete incremental controller/host-adapter separation with headless session tests."
@@ -1398,14 +1424,22 @@
       "id": "HS-05",
       "title": "Film edits are outside Capture One's undo/redo history",
       "priority": "P2",
-      "status": "pending",
-      "implemented": [],
-      "evidence_paths": [],
+      "status": "partial",
+      "implemented": [
+        "Proved named extension registration and Do/Undo/Redo on the exact supported host. Production uses the same native undo manager with captured UUID, baseline, next state and weak UI notification.",
+        "Consecutive slider motions are saved before the drag ends. Each finished gesture registers one native undo entry. Actual native grain and film changes were undone and redone in order; cross-selection restoration wrote only the originally edited variant.",
+        "Atomically compare the expected saved look before undo or redo. Newer external edits remain untouched. Undo updates the live controls and is durable across restart."
+      ],
+      "evidence_paths": [
+        "NativePanel/NativeLookUndoAction.cs",
+        "NativePanel/VariantLookStore.cs",
+        "NativePanel/SpektraFilmTool.cs",
+        ".test-results/host-undo-raw-metadata-20261119/host-smoke.log",
+        ".test-results/contracts-native-undo-metadata-20261119/summary.json"
+      ],
       "remaining_work": [
-        "state-command layer with before/after snapshots and gesture transaction IDs",
-        "prove safe native custom undo operation registration per host adapter, then register one transaction per drag or numeric commit and one per preset/reset/paste",
-        "retain every movement in durable journal while only coalescing user-visible undo steps. If host cannot accept external commands safely, implement clearly scoped local undo and shortcut handling only when panel owns focus",
-        "do not hijack host Ctrl+Z globally."
+        "Test physical keyboard/numeric input, double-click, focus loss or canceled drag, redo after preset/reset and multiple-selection pastes.",
+        "Recheck host capabilities and native Undo lifetime through detach/reattach on other verified host builds."
       ],
       "original_acceptance_tests": [
         "mixed native/Spektrafilm histories, long drags, canceled gestures, selection change, redo after preset, restart recovery. Verify undo itself persists and re-renders exact target UUID."
@@ -1647,7 +1681,8 @@
       "status": "partial",
       "implemented": [
         "Capture One recipe density in inches, centimeters or millimeters is converted to DPI. The disposable-host TIFF reopened with the fixture recipe at 300 × 300 DPI, and TIFF/PNG codec contracts cover independent X/Y densities.",
-        "Reopened a TIFF XMP tag and PNG iTXt XMP chunk with Unicode rights, title, creator and keywords, capture date, rating, actual dimensions and normalized orientation. Verified retained high-depth samples, ICC and non-square DPI. Runtime reopens the temporary file before replacing the approved destination."
+        "Reopened a TIFF XMP tag and PNG iTXt XMP chunk with Unicode rights, title, creator and keywords, capture date, rating, actual dimensions and normalized orientation. Verified retained high-depth samples, ICC and non-square DPI. Runtime reopens the temporary file before replacing the approved destination.",
+        "Verify the metadata bytes directly in TIFF tag 700 or the PNG iTXt chunk and validate the PNG CRC. Avoid WIC XMP query behavior that varied on the GitHub Windows image."
       ],
       "evidence_paths": [
         ".test-results/host-audit-resolution-20261119/host-smoke.log",
@@ -1656,7 +1691,9 @@
         ".test-results/host-export-meta-adapter-20261119/host-smoke.log",
         ".test-results/contracts-export-metadata-20261119/summary.json",
         "NativePanel/ExportMetadata.cs",
-        "NativePanel/SpektraExport.cs"
+        "NativePanel/SpektraExport.cs",
+        ".test-results/contracts-native-undo-metadata-20261119/summary.json",
+        "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44617727524"
       ],
       "remaining_work": [
         "Expand allow-listed fields and test keyword whitelist, editable source metadata and explicit GPS opt-in policy against independent native fixture exports. Current output excludes GPS."
@@ -2180,8 +2217,8 @@
   "counts": {
     "total": 70,
     "implemented": 9,
-    "partial": 39,
-    "pending": 22
+    "partial": 40,
+    "pending": 21
   },
   "last_reconciled": "2026-11-19",
   "handover": "HANDOVER.md",

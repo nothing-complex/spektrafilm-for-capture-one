@@ -76,7 +76,7 @@ internal static class PngXmp
 
     // WIC accepts a TIFF XMP tag directly. PNG uses the standardized uncompressed iTXt
     // chunk. Insert it before IEND in the private temporary file without copying pixels.
-    internal static void Insert(Stream encodedImage, string packet)
+    internal static void Insert(Stream encodedImage, ReadOnlySpan<byte> packet)
     {
         var end = encodedImage.Length - EndChunk.Length;
         if (end < 8)
@@ -87,16 +87,31 @@ internal static class PngXmp
         if (!endChunk.SequenceEqual(EndChunk))
             throw new InvalidDataException("The PNG encoder did not produce the expected IEND chunk.");
 
-        var text = Encoding.UTF8.GetBytes(packet);
         Span<byte> word = stackalloc byte[4];
         encodedImage.Position = end;
-        BinaryPrimitives.WriteInt32BigEndian(word, checked(TextPrefix.Length - 4 + text.Length));
+        BinaryPrimitives.WriteInt32BigEndian(word, checked(TextPrefix.Length - 4 + packet.Length));
         encodedImage.Write(word);
         encodedImage.Write(TextPrefix);
-        encodedImage.Write(text);
-        BinaryPrimitives.WriteUInt32BigEndian(word, ~UpdateCrc(UpdateCrc(uint.MaxValue, TextPrefix), text));
+        encodedImage.Write(packet);
+        BinaryPrimitives.WriteUInt32BigEndian(word, ~UpdateCrc(UpdateCrc(uint.MaxValue, TextPrefix), packet));
         encodedImage.Write(word);
         encodedImage.Write(endChunk);
+    }
+
+    internal static bool Contains(Stream image, ReadOnlySpan<byte> packet)
+    {
+        var start = image.Length - EndChunk.Length - 4 - packet.Length - TextPrefix.Length - 4;
+        if (start < 8)
+            return false;
+        image.Position = start;
+        Span<byte> word = stackalloc byte[4];
+        image.ReadExactly(word);
+        if (BinaryPrimitives.ReadUInt32BigEndian(word) != TextPrefix.Length - 4 + packet.Length
+            || !EncodedXmp.Matches(image, TextPrefix) || !EncodedXmp.Matches(image, packet))
+            return false;
+        image.ReadExactly(word);
+        return BinaryPrimitives.ReadUInt32BigEndian(word) == ~UpdateCrc(UpdateCrc(uint.MaxValue, TextPrefix), packet)
+            && EncodedXmp.Matches(image, EndChunk);
     }
 
     private static uint UpdateCrc(uint crc, ReadOnlySpan<byte> bytes)
@@ -108,5 +123,63 @@ internal static class PngXmp
                 crc = (crc & 1) == 0 ? crc >> 1 : (crc >> 1) ^ 0xEDB88320u;
         }
         return crc;
+    }
+}
+
+internal static class EncodedXmp
+{
+    internal static bool TiffContains(Stream image, ReadOnlySpan<byte> packet)
+    {
+        image.Position = 0;
+        Span<byte> header = stackalloc byte[8];
+        image.ReadExactly(header);
+        var littleEndian = header[..2].SequenceEqual("II"u8);
+        if ((!littleEndian && !header[..2].SequenceEqual("MM"u8)) || Read16(header[2..]) != 42)
+            return false;
+        var directory = Read32(header[4..]);
+        if (directory < 8 || directory > image.Length - 2)
+            return false;
+
+        image.Position = directory;
+        image.ReadExactly(header[..2]);
+        var tags = Read16(header);
+        if (image.Length - image.Position < tags * 12L)
+            return false;
+        Span<byte> tag = stackalloc byte[12];
+        for (var index = 0; index < tags; index++)
+        {
+            image.ReadExactly(tag);
+            if (Read16(tag) != 700)
+                continue;
+            if (Read16(tag[2..]) is not (1 or 7) || Read32(tag[4..]) != packet.Length)
+                return false;
+            var offset = Read32(tag[8..]);
+            if (offset < 8 || offset > image.Length - packet.Length)
+                return false;
+            image.Position = offset;
+            return Matches(image, packet);
+        }
+        return false;
+
+        ushort Read16(ReadOnlySpan<byte> value) => littleEndian
+            ? BinaryPrimitives.ReadUInt16LittleEndian(value)
+            : BinaryPrimitives.ReadUInt16BigEndian(value);
+        uint Read32(ReadOnlySpan<byte> value) => littleEndian
+            ? BinaryPrimitives.ReadUInt32LittleEndian(value)
+            : BinaryPrimitives.ReadUInt32BigEndian(value);
+    }
+
+    internal static bool Matches(Stream stream, ReadOnlySpan<byte> expected)
+    {
+        Span<byte> block = stackalloc byte[1024];
+        while (!expected.IsEmpty)
+        {
+            var part = block[..Math.Min(block.Length, expected.Length)];
+            stream.ReadExactly(part);
+            if (!part.SequenceEqual(expected[..part.Length]))
+                return false;
+            expected = expected[part.Length..];
+        }
+        return true;
     }
 }

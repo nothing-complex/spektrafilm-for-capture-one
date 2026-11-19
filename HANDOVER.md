@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-19. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 9 bounded primary fixes implemented, 39 partial items and 22 pending items. It includes feasibility investigations and enhancements.
+Updated 2026-11-19. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 9 bounded primary fixes implemented, 40 partial items and 21 pending items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -150,6 +150,16 @@ Logs are in `.test-results/contracts-export-metadata-20261119` and `.test-result
 - [x] Run 12,050 assertions across all seven Windows contract suites, including 150 state assertions and 36 joint backup assertions.
 
 Evidence is under `.test-results/host-grain-receipt-20261119`, `.test-results/contracts-grain-backup-v2-20261119` and `.test-results/legacy-three-entry-state`. Comparing exact grain values cannot detect an unrelated edit that returns them to the same values. Persistent host revision and safe cleanup on variant deletion are open. The installed runtime still identifies `ffc4819`.
+
+## Native look Undo and portable metadata verification checkpoint
+
+- [x] Prove the exact Capture One build accepts named extension actions in its native history. Film drags save every movement and register one completed history entry. Undo and Redo persist the captured variant and refresh its controls.
+- [x] Verify mixed native/film adjustments in actual Undo and Redo order. Test undo for one image while a different image remains selected. The fixture uses the host's NoUndoScope for that selection so the targeted edit is next in history. The production code registers only normal native undo entries.
+- [x] Keep newer external look edits when an older undo entry conflicts. Data replacement checks the expected look, then uses the existing durable writer and failure reporting.
+- [x] Verify TIFF XMP by locating TIFF tag 700. Verify PNG XMP bytes and the iTXt checksum. These checks replace the codec-dependent metadata query that failed on GitHub.
+- [x] Pass 12,056 local contract assertions plus 87 first-launch and 90 restart assertions in a disposable Capture One catalog. The source hash stayed unchanged.
+
+Evidence is under `.test-results/contracts-native-undo-metadata-20261119` and `.test-results/host-undo-raw-metadata-20261119`. Preset/reset histories, pointer and keyboard edge cases, selection during gestures, and broader host builds remain open. The installed runtime still identifies `ffc4819`.
 
 ## Runtime map for the next agent
 

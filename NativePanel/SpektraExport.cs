@@ -47,14 +47,14 @@ internal static class SpektraExport
             Environment.GetFolderPath(Environment.SpecialFolder.System),
             "spool", "drivers", "color", "sRGB Color Space Profile.icm");
         var profile = new ReadOnlyCollection<ColorContext>(new[] { new ColorContext(new Uri(profilePath)) });
-        var xmp = metadata?.CreateXmp(image.PixelWidth, image.PixelHeight);
+        var xmp = metadata is null ? null : Encoding.UTF8.GetBytes(metadata.CreateXmp(image.PixelWidth, image.PixelHeight));
         BitmapMetadata? tiff = null;
         if (!png)
         {
             tiff = new BitmapMetadata("tiff");
             tiff.SetQuery("/ifd/{ushort=274}", (ushort)1);
             if (xmp is not null)
-                tiff.SetQuery("/ifd/{ushort=700}", Encoding.UTF8.GetBytes(xmp));
+                tiff.SetQuery("/ifd/{ushort=700}", xmp);
         }
         encoder.Frames.Add(BitmapFrame.Create(image, null, tiff, profile));
         void Encode(Stream stream)
@@ -71,13 +71,10 @@ internal static class SpektraExport
             var stored = frame.Metadata as BitmapMetadata;
             if (!png && stored?.GetQuery("/ifd/{ushort=274}") is not (ushort)1)
                 throw new InvalidDataException("The TIFF encoder did not preserve the normalized orientation.");
-            if (xmp is not null)
-            {
-                var metadataPath = png ? "/xmp" : "/ifd/xmp";
-                if (stored?.GetQuery(metadataPath) is not BitmapMetadata xmpData
-                    || xmpData.GetQuery("/tiff:Orientation") is not "1")
-                    throw new InvalidDataException("The image encoder did not preserve the normalized export metadata.");
-            }
+            // Windows codec builds expose the same XMP through different query paths.
+            // Verify the stored UTF-8 packet and container encoding directly.
+            if (xmp is not null && !(png ? PngXmp.Contains(stream, xmp) : EncodedXmp.TiffContains(stream, xmp)))
+                throw new InvalidDataException("The encoded image did not preserve the export metadata.");
         }
         if (destination is null)
             PanelFiles.WriteAtomically(path, Encode, beforeCommit: stop.ThrowIfCancellationRequested);

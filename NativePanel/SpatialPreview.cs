@@ -168,6 +168,7 @@ internal sealed class SpatialPreview : IDisposable
     internal FrameworkElement LiveControls { get; }
     internal FrameworkElement ExportControls { get; }
     internal event Action? SettingsChanged;
+    internal event Action<bool>? SliderDragActivity;
     private async void OnRefreshTick(object? sender, EventArgs args)
     {
         try { await RefreshAsync(); }
@@ -584,6 +585,7 @@ internal sealed class SpatialPreview : IDisposable
         if (renderingFinal) pending?.Cancel();
         dragging = true;
         lastDragChange = 0;
+        SliderDragActivity?.Invoke(true);
     }
 
     internal void EndSliderDrag()
@@ -591,6 +593,7 @@ internal sealed class SpatialPreview : IDisposable
         if (!dragging)
             return;
         dragging = false;
+        SliderDragActivity?.Invoke(false);
         if (lastDragChange != 0)
             RequestRefresh();
     }

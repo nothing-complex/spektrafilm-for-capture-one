@@ -116,6 +116,17 @@ internal sealed class VariantLookStore
         }
     }
 
+    internal void ReplaceIfCurrent(Guid variant, VariantLook expected, VariantLook replacement)
+    {
+        lock (session)
+        {
+            if (!Equivalent(Read(variant), expected))
+                throw new InvalidOperationException("The saved look changed since this Spektrafilm history entry. The newer look was kept.");
+            Queue(variant, replacement);
+            FlushPending(variant);
+        }
+    }
+
     internal void Flush() => FlushPending(null);
 
     private void FlushPending(Guid? onlyVariant)
@@ -253,7 +264,7 @@ internal sealed class VariantLookStore
             Selections = new(look.Optics.Selections, StringComparer.Ordinal), Switches = new(look.Optics.Switches, StringComparer.Ordinal) },
     };
     private static string LookHash(VariantLook look) => Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(look)));
-    private static bool Equivalent(VariantLook? first, VariantLook second) => first is not null &&
+    internal static bool Equivalent(VariantLook? first, VariantLook second) => first is not null &&
         JsonNode.DeepEquals(JsonSerializer.SerializeToNode(first), JsonSerializer.SerializeToNode(second));
     private string GetPath(Guid variant) => Path.Combine(directory, variant.ToString("N") + ".json");
     private string GetRecoveryPath(Guid variant) => Path.Combine(recoveryDirectory, variant.ToString("N") + ".pending.json");
