@@ -2,11 +2,63 @@
 function Get-ReleaseRuntimeFiles {
     $paths = @('panel/NativePanel.dll','renderer/SpektraStillRenderer.exe',
         'renderer/SpektraHanatos2025Spectra.f32','renderer/SpektraOutputGamutCompression.f32',
-        'stocks.json','profiles/preview/Linear Rec.2020.icc','profiles/preview/ProPhoto RGB.icc')
+        'stocks.json','capture-one-hosts.json','profiles/preview/Linear Rec.2020.icc','profiles/preview/ProPhoto RGB.icc')
     foreach ($shader in @('Copy','CurveDevelop','Diffusion','Dir','FilmExposure','FormatConvert','Grain','Halation','PrintScan','ScannerPost')) {
         $paths += "renderer/shaders/Spektra$shader.comp.spv"
     }
     return $paths
+}
+
+function Get-CaptureOneHostProfiles([string] $Root) {
+    $path = Join-Path $Root 'capture-one-hosts.json'
+    $file = Get-Item -LiteralPath $path -Force
+    if ($file.PSIsContainer -or ($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $file.Length -gt 64KB) {
+        throw 'The Capture One host compatibility manifest must be a small regular file.'
+    }
+    $profiles = [IO.File]::ReadAllText($file.FullName) | ConvertFrom-Json
+    if ($profiles.SchemaVersion -ne 1 -or @($profiles.Hosts).Count -lt 1 -or @($profiles.Hosts).Count -gt 32) {
+        throw 'The Capture One host compatibility manifest has an unsupported schema.'
+    }
+    $seen = @{}
+    foreach ($profile in $profiles.Hosts) {
+        $key = "$($profile.FileVersion):$($profile.Architecture):$($profile.AssemblySha256)"
+        if ($profile.FileVersion -notmatch '^\d+\.\d+\.\d+\.\d+$' -or $profile.Architecture -cne 'x64' -or
+            $profile.AssemblySha256 -notmatch '^[0-9a-fA-F]{64}$' -or @($profile.Capabilities).Count -lt 1 -or
+            @($profile.Capabilities).Count -gt 20 -or $seen.ContainsKey($key)) {
+            throw 'The Capture One host compatibility manifest contains a malformed or duplicate profile.'
+        }
+        $names = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
+        foreach ($name in $profile.Capabilities) {
+            if ($name -isnot [string] -or [string]::IsNullOrWhiteSpace($name) -or $name.Length -gt 64 -or !$names.Add($name)) {
+                throw 'The Capture One host profile contains an invalid capability list.'
+            }
+        }
+        $seen[$key] = $true
+    }
+    return $profiles.Hosts
+}
+
+function Find-CaptureOneHost($Profiles, [string] $Version, [string] $Architecture, [string] $Sha256) {
+    return $Profiles | Where-Object { $_.FileVersion -ceq $Version -and $_.Architecture -ceq $Architecture -and $_.AssemblySha256 -ieq $Sha256 } |
+        Select-Object -First 1
+}
+
+function Get-WindowsExecutableArchitecture([string] $Path) {
+    $reader = New-Object IO.BinaryReader([IO.File]::OpenRead($Path))
+    try {
+        if ($reader.BaseStream.Length -lt 64 -or $reader.ReadUInt16() -ne 0x5A4D) { return $null }
+        $reader.BaseStream.Position = 0x3c
+        $header = $reader.ReadUInt32()
+        if ($header -lt 64 -or $header -gt $reader.BaseStream.Length - 6) { return $null }
+        $reader.BaseStream.Position = $header
+        if ($reader.ReadUInt32() -ne 0x00004550) { return $null }
+        switch ($reader.ReadUInt16()) {
+            0x8664 { return 'x64' }
+            0x014c { return 'x86' }
+            0xaa64 { return 'arm64' }
+        }
+        return $null
+    } finally { $reader.Dispose() }
 }
 
 function Get-ReleaseFileRecord([string] $Root, [string] $Relative) {
@@ -69,11 +121,16 @@ function Test-ReleaseManifest([string] $Root, [string] $Name = 'build-manifest.j
 function Write-ReleaseBuildManifest([string] $Root, $SourceIdentity, [string] $CaptureOneDirectory, [string] $SmokeStatus, [string] $PythonPath, [string] $VulkanSdkPath) {
     $hostFiles = @('CaptureOne.dll','P1.AppCore.dll','P1.C1.Core.dll','P1.C1.Framework.dll','P1.C1.ImageCoreWrapper.dll','P1.C1.ModelEntities.dll','P1.C1.ViewModels.dll')
     $hostRecords = @($hostFiles | ForEach-Object { Get-ReleaseFileRecord $CaptureOneDirectory $_ })
+    $exe = Join-Path $CaptureOneDirectory 'CaptureOne.exe'
+    $version = (Get-Item -LiteralPath $exe).VersionInfo.FileVersion
+    $profiles = @(Get-CaptureOneHostProfiles $Root)
+    $verified = Find-CaptureOneHost $profiles $version (Get-WindowsExecutableArchitecture $exe) $hostRecords[0].sha256
+    if (!$verified) { throw "Capture One $version does not match a verified host profile. A licensed host matrix is required before staging it." }
     $manifest = [ordered]@{
         schemaVersion=1; kind='build'; createdUtc=[DateTime]::UtcNow.ToString('o'); source=$SourceIdentity
         rendererProtocol=1
         parameterContract=(Get-FileHash -LiteralPath (Join-Path $Root 'upstream-ofx/src/SpektraParameters.h') -Algorithm SHA256).Hash.ToLowerInvariant()
-        host=[ordered]@{ version=(Get-Item -LiteralPath (Join-Path $CaptureOneDirectory 'CaptureOne.exe')).VersionInfo.FileVersion; files=$hostRecords }
+        host=[ordered]@{ version=$version; architecture=$verified.Architecture; capabilities=$verified.Capabilities; files=$hostRecords }
         tools=[ordered]@{ dotnet=(& dotnet --version); cmake=((& cmake --version | Select-Object -First 1)); python=(& $PythonPath --version); vulkanSdk=$VulkanSdkPath }
         validation=[ordered]@{ rendererSmoke=$SmokeStatus; panelBuild='passed' }
         files=@(Get-ReleaseRuntimeFiles | ForEach-Object { Get-ReleaseFileRecord $Root $_ })

@@ -521,6 +521,25 @@
         ],
         "scope": "Same active catalog and palette. Tests discovery/lookups only, without claiming full UI latency."
       }
+    },
+    "host_compatibility_manifest": {
+      "status": "passed",
+      "contracts": {
+        "assertions": 12330,
+        "manifest_assertions": 14,
+        "summary": ".test-results/contracts-host-manifest-20261119/summary.json"
+      },
+      "host": {
+        "first_launch_assertions": 113,
+        "restart_assertions": 116,
+        "source_catalog_unchanged": true,
+        "evidence": ".test-results/host-manifest-gate-20261119/host-smoke.log"
+      },
+      "launcher": {
+        "status": "passed",
+        "evidence": ".test-results/host-compatibility-check-20261119/check-only.log",
+        "scope": "Workspace-staged launcher CheckOnly using the actual 16.4.6.2414 x64 installation and Vulkan helper."
+      }
     }
   },
   "known_limitations": [
@@ -792,15 +811,23 @@
       "id": "HS-12",
       "title": "Version support is a binary gate, not a capability contract",
       "priority": "P1",
-      "status": "pending",
-      "implemented": [],
-      "evidence_paths": [],
+      "status": "partial",
+      "implemented": [
+        "Tracked host compatibility manifest is shared by launch and build verification and embedded in the panel. Profiles bind version, executable architecture, exact assembly hash and declared capabilities.",
+        "Headless tests refuse unknown version, altered hash, different architecture, malformed manifest and duplicate profiles. Compare packaged host-dependency hashes against the exact installed components on launch.",
+        "The exact licensed host loaded and passed the current smoke matrix. Launch CheckOnly verified the installed x64 executable and rendered through the new Vulkan worker."
+      ],
+      "evidence_paths": [
+        "capture-one-hosts.json",
+        "NativePanel/HostCompatibility.cs",
+        "ReleaseManifest.ps1",
+        ".test-results/host-manifest-gate-20261119/host-smoke.log",
+        ".test-results/contracts-host-manifest-20261119/summary.json",
+        ".test-results/host-compatibility-check-20261119/check-only.log"
+      ],
       "remaining_work": [
-        "separate bootstrap with minimal dependencies from version-specific host adapter",
-        "declare/probe member signatures and semantics for catalog/selection, palette, viewer geometry, source precision, export and undo",
-        "emit deterministic compatibility report before attachment/mutation",
-        "feature matrix with tested host build+assembly fingerprints",
-        "unsupported optional feature degrades independently while required source/export contract fails closed. Gate is removed only for a fully tested adapter, never just because reflection found a name."
+        "Turn declared capability names into observed live lifecycle diagnostics and collect independent evidence for every surface.",
+        "Test the exact 16.7 adapter against an installed licensed build, including host version and assembly fingerprints, high-depth develop, native Export, undo, floating and teardown."
       ],
       "original_acceptance_tests": [
         "mock signature drift plus exact installed supported host integration test on copied catalog",
@@ -2531,8 +2558,8 @@
   "counts": {
     "total": 70,
     "implemented": 12,
-    "partial": 40,
-    "pending": 18
+    "partial": 41,
+    "pending": 17
   },
   "last_reconciled": "2026-11-19",
   "handover": "HANDOVER.md",

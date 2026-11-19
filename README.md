@@ -4,7 +4,7 @@
 
 An independent Windows tool that brings the spektrafilm film and print simulation into Capture One. Develop your RAW in Capture One, adjust the film look in a docked or floating panel, and export the result as a 16-bit image.
 
-**Supported host: Capture One 16.4.6.2414 on Windows x64.** You'll also need a GPU and driver that support Vulkan. The launcher checks the exact Capture One build because the panel uses internal interfaces. This build works with catalogs (`.cocatalogdb`). Start with a test catalog when trying the integration.
+**Supported host: Capture One 16.4.6.2414 on Windows x64.** You'll also need a GPU and driver that support Vulkan. The launcher and panel share the exact host compatibility manifest. A different Capture One build needs its own verified capabilities before the film tool can attach. This build works with catalogs (`.cocatalogdb`). Start with a test catalog when trying the integration.
 
 Capture One provides older installers in your account when your license supports them. [Capture One download guide](https://support.captureone.com/hc/en-us/articles/14996282988957-Download-an-Older-Version-of-Capture-One)
 
@@ -96,6 +96,9 @@ Add `-Gpu -PythonPath $python` after staging a renderer to run the Vulkan smoke 
 For ongoing development, start with the [handover](HANDOVER.md) and [current audit task status](qa/AUDIT-FIX-STATUS.json). They distinguish completed delivery steps, remaining acceptance work and the tested/installed runtime revision.
 
 Changes for newer Capture One builds can be submitted from a fork. Push your fix to your fork, then open a pull request against `experimental/unchecked-capture-one`. [Fork and pull request instructions](https://github.com/nothing-complex/spektrafilm-for-capture-one/tree/experimental/unchecked-capture-one#contribute-a-compatibility-fix)
+
+A host compatibility patch should include the exact executable build, the `CaptureOne.dll` SHA-256 and disposable-catalog results for attachment, high-depth development, export, Undo and teardown. The supported entries live in `capture-one-hosts.json`. [GitHub fork pull requests](https://docs.github.com/en/pull-requests/how-tos/create-pull-requests/creating-a-pull-request-from-a-fork)
+
 
 ## Support development
 

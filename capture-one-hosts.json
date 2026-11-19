@@ -1,0 +1,19 @@
+{
+  "SchemaVersion": 1,
+  "Hosts": [
+    {
+      "FileVersion": "16.4.6.2414",
+      "Architecture": "x64",
+      "AssemblySha256": "4E17B2AB68CB60CCE18BB92CF0C829A93A62024B15354136FD30A3F9EED2E342",
+      "Capabilities": [
+        "catalog-tool",
+        "viewer-overlay",
+        "high-depth-development",
+        "native-export",
+        "native-grain",
+        "native-undo",
+        "floating-tool"
+      ]
+    }
+  ]
+}

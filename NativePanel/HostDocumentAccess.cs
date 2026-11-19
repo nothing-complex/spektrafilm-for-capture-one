@@ -22,7 +22,10 @@ internal static class HostDocumentAccess
     internal static Manager? Current()
     {
         if (ReadManager() is not { } instance)
+        {
+            cachedManager = null;
             return null;
+        }
         if (cachedManager is not { } cached || !ReferenceEquals(cached.Instance, instance))
             cachedManager = cached = new Manager(instance);
         return cached;

@@ -217,6 +217,23 @@ Throws<InvalidDataException>("size guard", () => PanelFiles.ReadPreset<object>(t
 Throws<InvalidDataException>("write size guard", () => PanelFiles.WritePreset(stateFile, new string('x', 65536)));
 Check("oversized write preserves previous committed value", PanelFiles.ReadPreset<VariantLook>(stateFile).Look.Exposure == 1.2);
 
+const string verifiedHostHash = "4E17B2AB68CB60CCE18BB92CF0C829A93A62024B15354136FD30A3F9EED2E342";
+var supportedHost = HostCompatibility.Match("16.4.6.2414", "x64", verifiedHostHash);
+Check("verified native build and capability list are embedded", supportedHost is not null
+    && supportedHost.Capabilities.Contains("native-export") && supportedHost.Capabilities.Contains("viewer-overlay"));
+Check("unverified Capture One version cannot use the verified adapter",
+    HostCompatibility.Match("16.7.0.0", "x64", verifiedHostHash) is null);
+Check("an altered assembly and a different process architecture are separately refused",
+    HostCompatibility.Match("16.4.6.2414", "x64", new string('a', 64)) is null
+    && HostCompatibility.Match("16.4.6.2414", "arm64", verifiedHostHash) is null);
+foreach (var profiles in new[] { Array.Empty<CaptureOneHost>(), new[] { supportedHost!, supportedHost! },
+    new[] { supportedHost! with { Capabilities = new[] { "duplicate", "duplicate" } } } })
+    Throws<InvalidDataException>("bad compatibility list is rejected", () =>
+    {
+        using var stream = new MemoryStream(JsonSerializer.SerializeToUtf8Bytes(new { SchemaVersion = 1, Hosts = profiles }));
+        HostCompatibility.Parse(stream);
+    });
+
 var presetSource = Sample(1.3) with { Enabled = false, Grain = new GrainControls(4, 18, 62) };
 var presetPath = Path.Combine(scratch, "all-controls.spektra.json");
 PanelFiles.WritePreset(presetPath, LookPreset.From(presetSource));

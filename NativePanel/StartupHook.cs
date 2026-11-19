@@ -1,4 +1,6 @@
 using System;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
@@ -15,7 +17,6 @@ internal static class StartupHook
 {
     internal const string ProductName = "Spektrafilm for Capture One";
     internal const string BrandName = "Spektrafilm";
-    private const string SupportedHostHash = "4E17B2AB68CB60CCE18BB92CF0C829A93A62024B15354136FD30A3F9EED2E342";
     private static readonly string[] CustomTabIds = Enumerable.Range(1, 18)
         .Select(index => $"Custom{index}PaletteTab").ToArray();
 
@@ -39,13 +40,16 @@ internal static class StartupHook
 
             var hostPath = Path.Combine(Path.GetDirectoryName(exe)!, "CaptureOne.dll");
             using var host = File.OpenRead(hostPath);
-            if (Convert.ToHexString(SHA256.HashData(host)) != SupportedHostHash)
+            var version = FileVersionInfo.GetVersionInfo(exe).FileVersion;
+            var architecture = RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant();
+            var verified = HostCompatibility.Match(version, architecture, Convert.ToHexString(SHA256.HashData(host)));
+            if (verified is null)
             {
-                Log($"{ProductName} requires the inspected Windows Capture One 16.4.6.2414 build.");
+                Log($"{ProductName} supports verified Windows Capture One builds {HostCompatibility.SupportedVersions}. Rejected {version} ({architecture}).");
                 return;
             }
 
-            Log($"{ProductName} startup hook loaded.");
+            Log($"{ProductName} startup hook loaded for Capture One {verified.FileVersion} ({verified.Architecture}).");
             // Wait for Capture One's own WinForms message loop before accessing its WPF palette.
             Forms.Application.Idle += OnApplicationIdle;
             Forms.Application.ApplicationExit += OnApplicationExit;

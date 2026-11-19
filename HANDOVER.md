@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-19. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 12 bounded primary fixes implemented, 40 partial items and 18 pending items. It includes feasibility investigations and enhancements.
+Updated 2026-11-19. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 12 bounded primary fixes implemented, 41 partial items and 17 pending items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -227,6 +227,15 @@ Evidence is under `.test-results/contracts-large-export-final-20261119`, `.test-
 - [x] Both public Windows 2022 and 2025 jobs passed on the larger exact export checkpoint. [Windows contracts](https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44626037770)
 
 Evidence is under `.test-results/host-cached-identity-20261119`. An event-led form/workspace lifecycle and unavailable-network startup fixtures remain open. The installed runtime still identifies `ffc4819`.
+
+## Exact host compatibility manifest checkpoint
+
+- [x] Make one tracked manifest the source for launcher, staged build and the panel's embedded compatibility gate. Each entry binds version, architecture, assembly hash and declared capabilities. The verify command checks the executable's PE machine and release component fingerprints.
+- [x] Verify the known host and reject an architecture, binary or version mismatch in shell and managed tests. Restore and installer fixtures include the manifest.
+- [x] Run 12,330 local contracts, including 14 manifest assertions. Pass the workspace-staged launcher CheckOnly with the supported installation and actual Vulkan. Capture One passes 113 first-launch and 116 restart assertions. The source catalog hash stayed unchanged.
+- [ ] Complete an independent 16.7 adapter and host matrix on a licensed installation. Per-surface readiness reporting is a separate follow-up to the manifest.
+
+Evidence is under `.test-results/host-manifest-gate-20261119`, `.test-results/contracts-host-manifest-20261119` and `.test-results/host-compatibility-check-20261119`. The installed runtime still identifies `ffc4819`.
 
 ## Runtime map for the next agent
 

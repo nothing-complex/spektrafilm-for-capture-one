@@ -43,4 +43,33 @@ Assert-Rejected {Get-ReleaseFileRecord $root 'C:\Windows\notepad.exe'} 'Absolute
 Assert-Rejected {Get-ReleaseFileRecord $root 'stocks.json:stream'} 'Alternate data stream'
 $manifest.files[0].sha256='not-a-hash'; Save-Manifest
 Assert-Rejected {Test-ReleaseManifest $root} 'Invalid hash'
+$profiles = @(Get-CaptureOneHostProfiles $repo)
+$known = Find-CaptureOneHost $profiles '16.4.6.2414' 'x64' '4E17B2AB68CB60CCE18BB92CF0C829A93A62024B15354136FD30A3F9EED2E342'
+if (!$known -or 'native-export' -notin $known.Capabilities) { throw 'FAIL: verified profile or capability missing' }
+$count++
+if ((Find-CaptureOneHost $profiles '16.7.0.0' 'x64' $known.AssemblySha256) -or
+    (Find-CaptureOneHost $profiles $known.FileVersion 'arm64' $known.AssemblySha256) -or
+    (Find-CaptureOneHost $profiles $known.FileVersion 'x64' ('a'*64))) {
+    throw 'FAIL: mismatched host was accepted'
+}
+$count++
+$profilePath = Join-Path $root 'capture-one-hosts.json'
+[IO.File]::WriteAllText($profilePath, (@{SchemaVersion=1;Hosts=@($known,$known)} | ConvertTo-Json -Depth 5))
+Assert-Rejected {Get-CaptureOneHostProfiles $root} 'Duplicate verified host profile'
+$peFixture = Join-Path $root 'synthetic-pe.exe'
+$pe = New-Object byte[] 128
+$pe[0] = 0x4d
+$pe[1] = 0x5a
+$pe[0x3c] = 64
+$pe[64] = 0x50
+$pe[65] = 0x45
+$pe[68] = 0x64
+$pe[69] = 0x86
+[IO.File]::WriteAllBytes($peFixture, $pe)
+if ((Get-WindowsExecutableArchitecture $peFixture) -ne 'x64') { throw 'FAIL: x64 PE header' }
+$count++
+$pe[0x3c] = 127
+[IO.File]::WriteAllBytes($peFixture, $pe)
+if (Get-WindowsExecutableArchitecture $peFixture) { throw 'FAIL: truncated PE accepted' }
+$count++
 Write-Output "PASS: $count manifest assertions. Evidence: $root"

@@ -9,8 +9,6 @@ param(
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'CatalogIntegrity.ps1')
 $appName = 'Spektrafilm for Capture One'
-$appVersion = '16.4.6.2414'
-$assemblyHash = '4E17B2AB68CB60CCE18BB92CF0C829A93A62024B15354136FD30A3F9EED2E342'
 $userData = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'FilmToolsForCaptureOne'
 
 function Get-CaptureOneExecutable {
@@ -34,7 +32,7 @@ function Get-CaptureOneExecutable {
             return (Get-Item -LiteralPath $candidate).FullName
         }
     }
-    if ($CaptureOnePath -or $CheckOnly) { throw "Capture One $appVersion could not be found. Pass -CaptureOnePath with the path to CaptureOne.exe." }
+    if ($CaptureOnePath -or $CheckOnly) { throw "Capture One could not be found. Pass -CaptureOnePath with the path to CaptureOne.exe." }
     return Select-ExistingFile 'Locate CaptureOne.exe' 'Capture One executable|CaptureOne.exe'
 }
 
@@ -264,29 +262,32 @@ function Confirm-VulkanRenderer([string] $renderer) {
 
 try {
     if (![Environment]::Is64BitOperatingSystem) { throw "$appName requires 64-bit Windows." }
+    . (Join-Path $PSScriptRoot 'ReleaseManifest.ps1')
+    $hostProfiles = @(Get-CaptureOneHostProfiles $PSScriptRoot)
     if ((Test-Path -LiteralPath (Join-Path $PSScriptRoot 'runtime-manifest.required')) -and
         !(Test-Path -LiteralPath (Join-Path $PSScriptRoot 'build-manifest.json'))) {
         throw 'The staged runtime is incomplete. Rebuild or extract the complete release before launching.'
     }
     if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'build-manifest.json')) {
-        . (Join-Path $PSScriptRoot 'ReleaseManifest.ps1')
         $buildManifest = Test-ReleaseManifest $PSScriptRoot
     }
     $app = Get-CaptureOneExecutable
     if (!$app) { return }
     if ([IO.Path]::GetFileName($app) -ine 'CaptureOne.exe') { throw 'Select CaptureOne.exe from the Capture One installation.' }
     $appDirectory = Split-Path -LiteralPath $app
+    $appVersion = (Get-Item -LiteralPath $app).VersionInfo.FileVersion
+    $architecture = Get-WindowsExecutableArchitecture $app
+    $appAssembly = Get-ReleaseFileRecord $appDirectory 'CaptureOne.dll'
+    $verified = Find-CaptureOneHost $hostProfiles $appVersion $architecture $appAssembly.sha256
+    if (!$verified) {
+        $versions = (@($hostProfiles.FileVersion | Sort-Object -Unique) -join ', ')
+        throw "$appName supports verified Capture One builds $versions (Windows x64). The selected installation ($appVersion) does not match."
+    }
     if ($buildManifest) {
         foreach ($dependency in $buildManifest.host.files) {
-            $actual = Get-ReleaseFileRecord $appDirectory $dependency.path
+            $actual = if ($dependency.path -ieq 'CaptureOne.dll') { $appAssembly } else { Get-ReleaseFileRecord $appDirectory $dependency.path }
             if ($actual.sha256 -ne $dependency.sha256) { throw "The panel was built against different Capture One components ($($dependency.path)). Rebuild against this supported installation." }
         }
-    }
-    $appAssembly = Join-Path $appDirectory 'CaptureOne.dll'
-    if (!(Test-Path -LiteralPath $appAssembly -PathType Leaf) -or
-        (Get-FileHash -LiteralPath $appAssembly -Algorithm SHA256).Hash -ne $assemblyHash -or
-        (Get-Item -LiteralPath $app).VersionInfo.FileVersion -ne $appVersion) {
-        throw "$appName supports Capture One $appVersion (Windows x64). The selected installation does not match the verified build."
     }
 
     $hook = Join-Path $PSScriptRoot 'panel\NativePanel.dll'
@@ -305,7 +306,8 @@ try {
     if (!(Test-Path -LiteralPath $python -PathType Leaf)) { $python = $null }
     if ($CheckOnly) {
         Confirm-VulkanRenderer $renderer
-        Write-Output "Capture One $appVersion matches the supported build. Release files and Vulkan render passed."
+        Write-Output "Capture One $appVersion ($architecture) matches the supported build. Release files and Vulkan render passed."
+        Write-Output ("Verified host capabilities: " + ($verified.Capabilities -join ', '))
         if ($python) { Write-Output "Optional reference/developer Python found at $python" }
         else { Write-Output 'Optional reference/developer Python is not installed; panel and LUT use do not require it.' }
         return
