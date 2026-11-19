@@ -17,5 +17,6 @@
     <Compile Include="../../NativePanel/RenderCoordination.cs" Link="RenderCoordination.cs" />
     <Compile Include="../../NativePanel/ExportOperation.cs" Link="ExportOperation.cs" />
     <Compile Include="../../NativePanel/ExportResolution.cs" Link="ExportResolution.cs" />
+    <Compile Include="../../NativePanel/ExportMetadata.cs" Link="ExportMetadata.cs" />
   </ItemGroup>
 </Project>

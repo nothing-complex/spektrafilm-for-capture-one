@@ -193,13 +193,14 @@ internal static class StartupHook
         try
         {
             exportHook = new ExportHook(form, () => hosted.IsSpektraExportActive,
-                () => hosted.ExportAsync(exportHook?.Dialog));
+                () => hosted.ExportAsync(exportHook?.Dialog),
+                detail => hosted.SetExportBridgeStatus(ExportBridgeState.Unavailable, detail));
             hosted.SetExportBridgeStatus(ExportBridgeState.Connected);
         }
         catch (Exception error)
         {
             hosted.SetExportBridgeStatus(ExportBridgeState.Unavailable, error.GetBaseException().Message);
-            Log($"{BrandName} could not bind the native Export command: {error}");
+            Log($"{BrandName} could not bind the native Export command [document-commands]: {error}");
         }
     }
 

@@ -132,6 +132,16 @@ Logs live under `.test-results/contracts-audit-integrity-20261119`, `.test-resul
 
 Evidence is under `.test-results/contracts-backup-layout-20261119`, `.test-results/restored-real-catalog-20261119`, and `.test-results/host-restore-geometry-20261119`. The installed runtime still identifies `ffc4819`.
 
+## Native export commands and recipe metadata checkpoint
+
+- [x] Invoke the real confirmation command in a visible Capture One Export dialog with a deterministic Save destination. Cancel keeps the dialog open; success writes a 16-bit TIFF and closes its owner. Export with Previous Settings writes a 16-bit PNG through the same bridge.
+- [x] Surface confirmation-adapter failures in the persistent Export warning. The disposable host checked missing and wrong-type closure fields and a clean reattach after each fault.
+- [x] Capture recipe-permitted copyright, creator, title, date, rating and all-keyword selections before Save. Use fresh TIFF or PNG XMP with normalized output orientation and actual dimensions. GPS, whitelist mode and non-allow-listed metadata stay excluded. Profile choice remains sRGB.
+- [x] Check original 16-bit codes, ICC and non-square DPI in both codecs. Read Unicode field values and exact orientation/dimensions back. Check PNG chunk checksums independently. Reopen the temporary encoded image before commit and refuse invalid output.
+- [x] Run 12,032 local contract assertions and 68 first-launch plus 70 restart assertions in a disposable catalog. Its source hash stayed unchanged. The host exposed a null keyword list for the untagged fixture; the passing run verifies the empty-list handling.
+
+Logs are in `.test-results/contracts-export-metadata-20261119` and `.test-results/host-export-meta-adapter-20261119`. The installed runtime still identifies `ffc4819`.
+
 ## Runtime map for the next agent
 
 | Responsibility | Main files and contracts |
@@ -153,7 +163,7 @@ Consult the detailed JSON before implementation. Useful next bounded packets are
 
 1. Finish host fault and race coverage for `FIX-03`, `HS-03`, `HS-04`, `HS-19`, `VE-01`, `VE-05`, and `HS-15`. Check active document closure, adjustment revision races, delayed teardown callbacks and live-host state or grain failures. Build on the validated startup warning and real selection transitions described above.
 2. Agree model/parameter/capability contracts (`HS-18`, `HS-11`, `HS-12`, `RC-07`) before native undo, copy/apply/clone (`HS-05`, `HS-06`) or broader host compatibility. One owner should edit each shared UI/scheduler region.
-3. Complete export policy (`VE-02`, `VE-03`), including ICC intent, metadata, naming, crop and orientation edge cases, and explicit handling of unsupported recipes. Current output is 16-bit sRGB TIFF/PNG. Recipe exports use its print resolution, and direct exports use 96 DPI. Native-dialog interaction still needs verification.
+3. Complete export policy (`VE-02`, `VE-03`), including ICC intent, metadata, naming, crop and orientation edge cases, and explicit handling of unsupported recipes. Current output is 16-bit sRGB TIFF/PNG. Recipe exports use its print resolution, and direct exports use 96 DPI. The host has exercised confirmation and previous-settings commands. The real OS Save picker and broader recipe matrix are still open.
 4. Add measured resource admission and generation-aware scheduling (`RC-11`, `VE-09`, `VE-07`, `VE-08`, `VE-17`, `RQ-09`) before increasing output limits. Current export cap is 32 MP / 8192 px per side; native viewer cap is 100 MP / 16384 px; synthesis has its own 32 MP constraints.
 5. Solve portable catalog identity/restore (`HS-02`, `RQ-04`) and native grain restore ownership across restarts (`HS-08`). Verified joint restore rebases saved looks to the chosen path. Moving a catalog outside that flow still changes its path-based state key.
 6. Treat histogram/proofing/native pixel hooks (`VE-10`, `VE-11`), multi-view and sessions as exact-build feasibility work. An overlay does not prove native analysis tools describe the processed image.

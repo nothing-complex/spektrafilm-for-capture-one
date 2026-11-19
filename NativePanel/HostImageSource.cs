@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
@@ -49,7 +50,7 @@ internal static class HostImageSource
     internal sealed record RecipeInfo(string Name, string FormatId, string ColorProfileName, string ColorProfilePath,
         string CropMode, string RootFolderMode, string CustomRootFolder, string Subfolder, string Filename,
         string Suffix, int TiffBits, int JpegQuality, int Width, int Height, double Scale, bool IgnoreCrop,
-        double Resolution, string ResolutionUnit);
+        double Resolution, string ResolutionUnit, ExportMetadata Metadata);
 
     internal static (Guid VariantId, Revision AdjustmentKey) GetSelectedRevision(object window)
     {
@@ -110,10 +111,20 @@ internal static class HostImageSource
         var geometry = VariantGeometryTransformer.FromProcessSettings(ref settings);
         var scale = ScaleCalcHelpers.CreateScaleCalcTakingQuickProofIntoAccount(geometry, selection.Variant.CoreImage,
             recipe, ApplicationSettings.Default.PreviewSizeInPx, ignoreCrop);
+        var variant = selection.Variant;
+        var metadata = new ExportMetadata(
+            recipe.MetadataIncludeCopyright ? variant.IptcCopyrightNotice : null,
+            recipe.MetadataIncludeAllOther ? variant.IptcCreator : null,
+            recipe.MetadataIncludeAllOther ? variant.IptcHeadline : null,
+            recipe.MetadataIncludeCameraData ? variant.CoreImage.DateTaken : null,
+            recipe.MetadataIncludeRating ? variant.Rating : null,
+            recipe.MetadataIncludeKeywords == MetadataIncludeKeywordsMode.All && variant.Keywords is { } keywords
+                ? keywords.ToArray()
+                : Array.Empty<string>());
         return new RecipeInfo(recipe.Name, recipe.FileType.ToString(), recipe.ColorProfileName, recipe.ColorProfilePath,
             recipe.CropExportMethod.ToString(), recipe.DestinationRootFolder.ToString(), recipe.DestinationCustomRootFolder,
             recipe.DestinationSubFolder, recipe.DestinationFilename, recipe.DestinationSubName, recipe.TiffBits, recipe.JpegQuality,
-            scale.ScaledPixelWidth, scale.ScaledPixelHeight, scale.Scale, ignoreCrop, recipe.Resolution, recipe.ResolutionUnit.ToString());
+            scale.ScaledPixelWidth, scale.ScaledPixelHeight, scale.Scale, ignoreCrop, recipe.Resolution, recipe.ResolutionUnit.ToString(), metadata);
     }
 
     private static HostProfile.Selection RequireSelection(object window, Guid variantId)

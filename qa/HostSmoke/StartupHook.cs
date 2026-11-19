@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
@@ -146,6 +147,7 @@ public static class StartupHook
             var recipe = host.GetMethod("ActiveRecipe", Flags)!.Invoke(null, new[] { window });
             File.AppendAllText(Path.Combine(folder,"host-smoke.log"), "RECIPE " + recipe + Environment.NewLine);
             await TestRecipeExport(panel, spatial, recipe!, variant, toggle);
+            await TestNativeExportCommands(hookField, hosted, panel, spatial, window);
             await TestDetach(hook, hosted, panel, spatial, window, toggle);
             Check(Prop(Call(store, "Read", variant)!, "Enabled") is false, "master switch persisted after all tests");
             if (!restart) File.WriteAllText(Path.Combine(folder, "restart.expected"), "1.2 disabled");
@@ -340,6 +342,161 @@ public static class StartupHook
             if (ReferenceEquals(slot.GetValue(window), other)) slot.SetValue(window, null);
             other.Close();
         }
+    }
+
+    static async Task TestNativeExportCommands(FieldInfo hookField, object hosted, object panel, object spatial, object window)
+    {
+        var original = (IDisposable)hookField.GetValue(null)!;
+        original.Dispose();
+        hookField.SetValue(null, null);
+        var routed = 0;
+        var destination = Path.Combine(folder, "native-confirmation-export.tif");
+        var previousDestination = Path.Combine(folder, "native-previous-export.png");
+        Task<bool>? lastExport = null;
+        object? bridge = null;
+        try
+        {
+            Task<bool> Start()
+            {
+                var pick = ++routed;
+                var dialog = (Window?)Prop(bridge!, "Dialog");
+                lastExport = (Task<bool>)Call(spatial, "ExportWithDestinationAsync", true, dialog,
+                    (Func<SaveFileDialog, Window?, string?>)((_, _) => pick switch { 1 => null, 2 => destination, _ => previousDestination }))!;
+                return lastExport;
+            }
+
+            bridge = Activator.CreateInstance(original.GetType(), Flags, null,
+                new object[] { window, (Func<bool>)(() => Prop(panel, "IsSpektraExportActive") is true), (Func<Task<bool>>)Start,
+                    (Action<string>)(message => Call(panel, "SetExportBridgeStatus", Prop(panel, "ExportBridgeStatus")!.GetType()
+                        .GetField("Unavailable")!.GetValue(null), message)) }, null)!;
+            var destinations = ((Delegate)Field(bridge, "destinations")!).DynamicInvoke()!;
+            var enabled = ((IEnumerable)Prop(destinations, "EnabledDestinations")!).Cast<object>().ToArray();
+            Check(enabled.Length == 1 && Equals(Prop(enabled[0], "Name"), Prop(Prop(destinations, "SelectedDestination")!, "Name")),
+                "native command fixture has one enabled and selected recipe");
+
+            var factory = Call(bridge, "PrepareDialog", false)!;
+            var confirmation = (ICommand)Prop(Prop(factory, "DialogVM")!, "ExportCommand")!;
+            var owner = (Window)Prop(bridge, "Dialog")!;
+            Exception? dialogError = null;
+            using var timeLimit = new Forms.Timer { Interval = 60_000 };
+            timeLimit.Tick += (_, _) =>
+            {
+                timeLimit.Stop();
+                dialogError = new TimeoutException("Native Export confirmation did not close the dialog.");
+                owner.Close();
+            };
+            owner.Loaded += (_, _) =>
+            {
+                _ = owner.Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        Check(confirmation.CanExecute(null) && owner.IsVisible, "real native Export confirmation is available in the visible dialog");
+                        confirmation.Execute(null);
+                        Check(routed == 1 && lastExport is { IsCompletedSuccessfully: true, Result: false } && owner.IsVisible,
+                            "canceling Save leaves native Export dialog open");
+                        confirmation.Execute(null);
+                    }
+                    catch (Exception error)
+                    {
+                        dialogError = error;
+                        owner.Close();
+                    }
+                }), DispatcherPriority.ApplicationIdle);
+            };
+            try
+            {
+                timeLimit.Start();
+                Call(factory, "Show", window);
+                if (dialogError is not null)
+                    throw dialogError;
+                Check(routed == 2 && lastExport is { IsCompletedSuccessfully: true, Result: true } && !owner.IsVisible,
+                    "successful Export confirmation closes the real native dialog");
+                Check(File.Exists(destination), "native confirmation produced a Spektrafilm file");
+            }
+            finally
+            {
+                timeLimit.Stop();
+                try { Call(bridge, "ReleaseDialog"); }
+                finally { if (owner.IsVisible) owner.Close(); }
+            }
+
+            var previous = Field(Field(bridge, "previous")!, "command")!;
+            if (previous is ICommand command)
+            {
+                Check(command.CanExecute(null), "native Export with Previous Settings command is available");
+                command.Execute(null);
+            }
+            else
+            {
+                var execute = previous.GetType().GetMethod("Execute", Flags, null, new[] { typeof(bool) }, null)
+                    ?? throw new MissingMethodException(previous.GetType().FullName, "Execute(Boolean)");
+                execute.Invoke(previous, new object[] { false });
+            }
+            Check(routed == 3 && lastExport is not null && await lastExport,
+                "native Export with Previous Settings routed through the same high-depth pipeline");
+            foreach (var (file, format, query) in new[]
+            {
+                (destination, PixelFormats.Rgb48, "/ifd/xmp"),
+                (previousDestination, PixelFormats.Rgba64, "/xmp"),
+            })
+            {
+                using var output = File.OpenRead(file);
+                var decoded = BitmapDecoder.Create(output, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad).Frames[0];
+                Check(decoded.Format == format, "native command output reopens as 16-bit " + format);
+                var metadata = ((BitmapMetadata)decoded.Metadata).GetQuery(query) as BitmapMetadata;
+                Check(metadata?.GetQuery("/tiff:Orientation") is "1", "native command output includes the normalized XMP orientation");
+            }
+
+            foreach (var (invalidCommand, name) in new (ICommand, string)[]
+            {
+                (new FixtureCommand(new Func<bool>(new MissingClosureField().Execute)), "missing closure field"),
+                (new FixtureCommand(new Func<bool>(new WrongClosureField().Execute)), "wrong closure field type"),
+            })
+            {
+                try
+                {
+                    Call(bridge, "BindConfirmation", invalidCommand, false);
+                    throw new InvalidOperationException("The confirmation adapter accepted an invalid command.");
+                }
+                catch (TargetInvocationException error) when (error.InnerException is InvalidOperationException)
+                {
+                    Check(Prop(panel, "ExportBridgeStatus")?.ToString() == "Unavailable"
+                        && Prop(panel, "IsSpektraExportActive") is true
+                        && ((TextBlock)Field(panel, "exportBridgeStatus")!).Visibility == Visibility.Visible,
+                        name + " reports unavailable native Export while keeping direct export active");
+                    Check(routed == 3 && Prop(window, "ExportDialogWindow") is null,
+                        name + " did not route a job or retain a dialog owner");
+                }
+            }
+        }
+        finally
+        {
+            try { (bridge as IDisposable)?.Dispose(); }
+            finally { hookField.DeclaringType!.GetMethod("AttachExport", Flags)!.Invoke(null, new[] { window, hosted }); }
+        }
+        Check(Prop(panel, "ExportBridgeStatus")?.ToString() == "Connected", "a clean reattach recovers from a confirmation-adapter failure");
+    }
+
+    private class FixtureCommandBase(Delegate action) : ICommand
+    {
+        protected readonly Delegate m_actionToExecute = action;
+        public event EventHandler? CanExecuteChanged { add { } remove { } }
+        public bool CanExecute(object? _) => true;
+        public void Execute(object? _) => m_actionToExecute.DynamicInvoke();
+    }
+
+    private sealed class FixtureCommand(Delegate action) : FixtureCommandBase(action);
+
+    private sealed class MissingClosureField
+    {
+        public bool Execute() => false;
+    }
+
+    private sealed class WrongClosureField
+    {
+        public readonly string argExportAction = "unexpected value";
+        public bool Execute() => false;
     }
 
     static async Task TestRecipeExport(object panel, object spatial, object recipe, Guid variant, CheckBox toggle)

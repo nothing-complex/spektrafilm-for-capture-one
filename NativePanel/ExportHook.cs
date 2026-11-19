@@ -26,18 +26,21 @@ internal sealed class ExportHook : IDisposable
     private readonly Func<IDestinationDocumentManager> destinations;
     private readonly Func<bool> isActive;
     private readonly Func<Task<bool>> export;
+    private readonly Action<string> reportUnavailable;
     private readonly CommandBinding normal;
     private readonly CommandBinding previous;
     private ExportDialog? dialog;
     private IDisposable? confirmation;
     private bool busy;
+    private string? confirmationError;
     private bool disposed;
 
-    internal ExportHook(Forms.Form window, Func<bool> isActive, Func<Task<bool>> export)
+    internal ExportHook(Forms.Form window, Func<bool> isActive, Func<Task<bool>> export, Action<string> reportUnavailable)
     {
         this.window = window;
         this.isActive = isActive;
         this.export = export;
+        this.reportUnavailable = reportUnavailable;
         var program = window.GetType().Assembly.GetType("P1.C1.Program", throwOnError: true)!;
         manager = program.GetProperty("DocumentManager", BindingFlags.Public | BindingFlags.Static)?.GetValue(null)
             ?? throw new InvalidOperationException("Capture One’s document manager is unavailable.");
@@ -87,7 +90,7 @@ internal sealed class ExportHook : IDisposable
                 normal.Original(command, editMultiple);
                 return;
             }
-            if (busy || dialog is not null)
+            if (busy || dialog is not null || !CheckConfirmationSupport())
                 return;
             if (!HasSingleSelection(editMultiple))
             {
@@ -144,7 +147,7 @@ internal sealed class ExportHook : IDisposable
                 Warn("Select one variant to export with Spektrafilm.");
                 return;
             }
-            if (!busy && dialog is null && CheckRecipe())
+            if (!busy && dialog is null && CheckConfirmationSupport() && CheckRecipe())
                 _ = ExportAsync();
         }
         catch (Exception error)
@@ -156,6 +159,26 @@ internal sealed class ExportHook : IDisposable
     private bool HasSingleSelection(bool editMultiple) =>
         document is ISelectedCollectionsProvider { PrimarySelectedCollectionSelection: { PrimaryVariant: not null } selection }
         && (!editMultiple || selection.SelectedVariants?.Count == 1);
+
+    private bool CheckConfirmationSupport()
+    {
+        if (confirmationError is null)
+            return true;
+        Warn(confirmationError);
+        return false;
+    }
+
+    private IDisposable BindConfirmation(System.Windows.Input.ICommand command, bool editMultiple)
+    {
+        try { return ConfirmationBinding.Attach(command, native => Confirm(native, editMultiple)); }
+        catch (Exception error)
+        {
+            confirmationError = "Capture One's Export confirmation is unavailable. Use Export with Spektrafilm in the tool panel.";
+            reportUnavailable("The Export confirmation could not be connected.");
+            StartupHook.Log($"Native Export unsupported [confirmation-adapter]: {error}");
+            throw new InvalidOperationException(confirmationError, error);
+        }
+    }
 
     private bool CheckRecipe()
     {
@@ -174,7 +197,7 @@ internal sealed class ExportHook : IDisposable
         var factory = new ExportDialogFactory(document, MessageBusProvider.DefaultInstance, editMultiple);
         try
         {
-            confirmation = ConfirmationBinding.Attach(factory.DialogVM.ExportCommand, native => Confirm(native, editMultiple));
+            confirmation = BindConfirmation(factory.DialogVM.ExportCommand, editMultiple);
             dialog = factory.ExportDialogWindow;
             dialog.Title += " – " + StartupHook.ProductName;
             exportWindow.SetValue(window, dialog);

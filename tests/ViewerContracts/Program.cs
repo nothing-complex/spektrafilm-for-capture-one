@@ -38,6 +38,7 @@ internal static class Program
         TestGeometry();
         TestDraft();
         TestExport(folder);
+        TestExportMetadata(folder);
         TestExportResolution();
         TestColorSampling();
         TestFractionalColorSampling();
@@ -429,6 +430,68 @@ internal static class Program
             Check(Math.Abs(decoded.DpiX - 150) < 0.03 && Math.Abs(decoded.DpiY - 200) < 0.03, "Encoder changed supplied non-square resolution");
             Console.WriteLine($"Export {suffix}: {decoded.Format}, exact samples, ICC, resolution and canceled/rejected writes passed.");
         }
+    }
+
+    private static void TestExportMetadata(string folder)
+    {
+        var original = Path.Combine(folder, "metadata-input.raw");
+        File.WriteAllBytes(original, new byte[] { 1, 2, 3 });
+        var metadata = new ExportMetadata("Rights \u00A9 2026", "Luka \u017D", "K\u00F8benhavn \u65E5 & portrait",
+            new DateTime(2025, 3, 14, 13, 27, 6), 4, new[] { "street", "L\u00FCbecker", "street" });
+        foreach (var extension in new[] { ".tif", ".png" })
+        {
+            var path = Path.Combine(folder, "metadata-output" + extension);
+            var format = SpektraExport.PixelFormatFor(path);
+            const int width = 3, height = 2;
+            var stride = width * format.BitsPerPixel / 8;
+            var pixels = Enumerable.Range(0, height * stride).Select(index => (byte)index).ToArray();
+            var image = BitmapSource.Create(width, height, 300, 150, format, null, pixels, stride);
+            SpektraExport.SaveApproved(OutputPathGuard.Approve(path, original), image, CancellationToken.None, metadata);
+            using var file = File.OpenRead(path);
+            var frame = BitmapDecoder.Create(file, BitmapCreateOptions.PreservePixelFormat | BitmapCreateOptions.IgnoreColorProfile,
+                BitmapCacheOption.OnLoad).Frames[0];
+            var data = (BitmapMetadata)frame.Metadata;
+            Check(frame.Format == format && frame.PixelWidth == width && frame.PixelHeight == height,
+                "Metadata changed pixel format or dimensions");
+            var decodedPixels = new byte[pixels.Length];
+            frame.CopyPixels(decodedPixels, stride, 0);
+            Check(decodedPixels.SequenceEqual(pixels) && frame.ColorContexts?.Count > 0, "Metadata changed 16-bit samples or pixel ICC");
+            Check(Math.Abs(frame.DpiX - 300) < 0.03 && Math.Abs(frame.DpiY - 150) < 0.03, "Metadata changed resolution");
+
+            if (extension == ".tif")
+                Check(data.GetQuery("/ifd/{ushort=274}") is (ushort)1, "TIFF orientation is not normalized");
+            var metadataPath = extension == ".png" ? "/xmp" : "/ifd/xmp";
+            Check(data.GetQuery(metadataPath) is BitmapMetadata stored
+                && stored.GetQuery("/xmp:Rating") is "4", "XMP rating did not round trip");
+            var bytes = File.ReadAllBytes(path);
+            var start = bytes.AsSpan().IndexOf("<?xpacket begin="u8);
+            Check(start >= 0, "XMP packet missing");
+            var endMessage = "<?xpacket end=\"w\"?>"u8;
+            var end = bytes.AsSpan(start).IndexOf(endMessage);
+            Check(end > 0, "XMP packet was truncated");
+            var packet = System.Text.Encoding.UTF8.GetString(bytes, start, end + endMessage.Length);
+            var xml = System.Xml.Linq.XDocument.Parse(packet);
+            var fields = xml.Descendants().Single(element => element.Name.LocalName == "Description");
+            Check(fields.Elements().Single(element => element.Name.LocalName == "title").Value == metadata.Title,
+                "Unicode title or XML special character changed");
+            Check(fields.Elements().Single(element => element.Name.LocalName == "rights").Value == metadata.Copyright,
+                "Unicode rights changed");
+            Check(fields.Elements().Single(element => element.Name.LocalName == "creator").Value == metadata.Creator,
+                "Creator changed");
+            Check(fields.Elements().Single(element => element.Name.LocalName == "subject").Descendants()
+                .Where(element => element.Name.LocalName == "li").Select(element => element.Value)
+                .SequenceEqual(new[] { "street", "L\u00FCbecker" }), "Keyword list changed");
+            var properties = fields.Attributes().ToDictionary(attribute => (attribute.Name.NamespaceName, attribute.Name.LocalName),
+                attribute => attribute.Value);
+            const string tiff = "http://ns.adobe.com/tiff/1.0/", exif = "http://ns.adobe.com/exif/1.0/";
+            Check(properties[(tiff, "Orientation")] == "1" && properties[(tiff, "ImageWidth")] == "3"
+                && properties[(tiff, "ImageLength")] == "2" && properties[(exif, "PixelXDimension")] == "3"
+                && properties[(exif, "PixelYDimension")] == "2", "Normalized orientation or dimensions missing");
+            Check(properties[(exif, "DateTimeOriginal")] == "2025-03-14T13:27:06"
+                && !properties.Keys.Any(key => key.LocalName.StartsWith("GPS", StringComparison.Ordinal)), "Capture date or GPS policy changed");
+        }
+        Check(File.ReadAllBytes(original).SequenceEqual(new byte[] { 1, 2, 3 }), "Metadata output changed source bytes");
+        Console.WriteLine("Export metadata: Unicode XMP, normalized dimensions and orientation, ICC, DPI and exact 16-bit samples passed.");
     }
 
     private static void TestExportResolution()

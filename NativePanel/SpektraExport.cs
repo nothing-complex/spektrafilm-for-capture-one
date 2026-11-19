@@ -1,6 +1,7 @@
 using System;
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Text;
 using System.Threading;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -28,29 +29,55 @@ internal static class SpektraExport
         SaveImage(path, image, stop, originalPath is null ? null : OutputPathGuard.Approve(path, originalPath));
     }
 
-    internal static void SaveApproved(OutputPathGuard.ApprovedDestination destination, BitmapSource image, CancellationToken stop) =>
-        SaveImage(destination.Path, image, stop, destination);
+    internal static void SaveApproved(OutputPathGuard.ApprovedDestination destination, BitmapSource image, CancellationToken stop,
+        ExportMetadata? metadata = null) => SaveImage(destination.Path, image, stop, destination, metadata);
 
-    private static void SaveImage(string path, BitmapSource image, CancellationToken stop, OutputPathGuard.ApprovedDestination? destination)
+    private static void SaveImage(string path, BitmapSource image, CancellationToken stop, OutputPathGuard.ApprovedDestination? destination, ExportMetadata? metadata = null)
     {
         stop.ThrowIfCancellationRequested();
         var format = PixelFormatFor(path);
         if (image.Format != format)
             throw new InvalidDataException($"Spektrafilm export requires unpremultiplied {format} pixels.");
 
-        BitmapEncoder encoder = format == PixelFormats.Rgba64
+        var png = format == PixelFormats.Rgba64;
+        BitmapEncoder encoder = png
             ? new PngBitmapEncoder()
             : new TiffBitmapEncoder { Compression = TiffCompressOption.Zip };
         var profilePath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.System),
             "spool", "drivers", "color", "sRGB Color Space Profile.icm");
         var profile = new ReadOnlyCollection<ColorContext>(new[] { new ColorContext(new Uri(profilePath)) });
-        encoder.Frames.Add(BitmapFrame.Create(image, null, null, profile));
+        var xmp = metadata?.CreateXmp(image.PixelWidth, image.PixelHeight);
+        BitmapMetadata? tiff = null;
+        if (!png)
+        {
+            tiff = new BitmapMetadata("tiff");
+            tiff.SetQuery("/ifd/{ushort=274}", (ushort)1);
+            if (xmp is not null)
+                tiff.SetQuery("/ifd/{ushort=700}", Encoding.UTF8.GetBytes(xmp));
+        }
+        encoder.Frames.Add(BitmapFrame.Create(image, null, tiff, profile));
         void Encode(Stream stream)
         {
             stop.ThrowIfCancellationRequested();
             encoder.Save(stream);
             stop.ThrowIfCancellationRequested();
+            if (png && xmp is not null)
+                PngXmp.Insert(stream, xmp);
+            stream.Position = 0;
+            var frame = BitmapDecoder.Create(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnDemand).Frames[0];
+            if (frame.Format != format || frame.PixelWidth != image.PixelWidth || frame.PixelHeight != image.PixelHeight)
+                throw new InvalidDataException("The encoded image lost its pixel dimensions or 16-bit format.");
+            var stored = frame.Metadata as BitmapMetadata;
+            if (!png && stored?.GetQuery("/ifd/{ushort=274}") is not (ushort)1)
+                throw new InvalidDataException("The TIFF encoder did not preserve the normalized orientation.");
+            if (xmp is not null)
+            {
+                var metadataPath = png ? "/xmp" : "/ifd/xmp";
+                if (stored?.GetQuery(metadataPath) is not BitmapMetadata xmpData
+                    || xmpData.GetQuery("/tiff:Orientation") is not "1")
+                    throw new InvalidDataException("The image encoder did not preserve the normalized export metadata.");
+            }
         }
         if (destination is null)
             PanelFiles.WriteAtomically(path, Encode, beforeCommit: stop.ThrowIfCancellationRequested);

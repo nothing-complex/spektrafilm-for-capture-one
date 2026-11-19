@@ -572,7 +572,7 @@ internal static class SpektraFilmTool
             export.Children.Add(Button("Export 33-point LUT…", () => ExportLutAsync(33)));
             export.Children.Add(Button("Export 65-point LUT…", () => ExportLutAsync(65)));
             section.Children.Add(export);
-            section.Children.Add(new TextBlock { Text = "Image export saves 16-bit sRGB TIFF or PNG. With Capture One Export, the recipe supplies size, crop and resolution. Use the save dialog to name the file. Recipe profiles, metadata and watermarks are omitted.",
+            section.Children.Add(new TextBlock { Text = "Image export saves 16-bit sRGB TIFF or PNG. With Capture One Export, the recipe supplies size, crop and resolution. Use the save dialog to name the file. Permitted credits, title, capture date, rating and all-keyword selections carry over. Recipe profiles, GPS and watermarks are omitted.",
                 TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 5, 0, 0) });
             return Section("presets-and-lut", "Presets and LUT export", section);
         }

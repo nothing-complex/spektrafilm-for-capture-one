@@ -239,6 +239,29 @@
         "scope": "Exact installed host 16.4.6.2414, a disposable copy of the restored catalog; sampled rotate, flip and keystone plus previous state/export/detach checks.",
         "evidence": ".test-results/host-restore-geometry-20261119/host-smoke.log"
       }
+    },
+    "native_export_commands_and_metadata": {
+      "contracts": {
+        "status": "passed",
+        "assertions": 12032,
+        "summary": ".test-results/contracts-export-metadata-20261119/summary.json",
+        "skipped": [
+          "Local symbolic-file-link creation lacks Windows privilege."
+        ]
+      },
+      "host": {
+        "status": "passed",
+        "first_launch_assertions": 68,
+        "restart_assertions": 70,
+        "source_catalog_unchanged": true,
+        "evidence": ".test-results/host-export-meta-adapter-20261119/host-smoke.log",
+        "scope": "Exact installed host, real native confirmation command in visible export dialog and previous-settings command with a deterministic Save destination. TIFF RGB48 and PNG RGBA64 reopened and checked with both export adapters. Malformed closure field/type warning and rebind verified."
+      },
+      "png_independent": {
+        "status": "passed",
+        "scope": "Independent Python zlib validated every chunk CRC and the PNG iTXt payload for an encoded XMP sample."
+      },
+      "first_host_failure_fixed": "The real host can return null for an untagged variant even when the active recipe says All keywords. Treat null as an empty list."
     }
   },
   "known_limitations": [
@@ -645,16 +668,20 @@
       "status": "partial",
       "implemented": [
         "An export bind failure is visible and explicit plugin export remains distinct; actual supported-host binding was observed.",
-        "Startup binding now exposes a typed Checking/Connected/Unavailable/Detached state. Real first/second command failures leave the warning visible after edits and direct export available."
+        "Startup binding now exposes a typed Checking/Connected/Unavailable/Detached state. Real first/second command failures leave the warning visible after edits and direct export available.",
+        "Native confirmation commands in a visible Export dialog route through actual Spektrafilm TIFF/PNG output; cancel keeps the dialog open, success closes it, and Export with Previous Settings uses the same pipeline. Two broken closure shapes raise a persistent capability warning, preserve direct export availability and unwind on a clean reattach."
       ],
       "evidence_paths": [
         "NativePanel/StartupHook.cs",
         "NativePanel/SpektraFilmTool.cs",
         "qa/HostSmoke",
-        ".test-results/host-audit-state-selection-20261119/host-smoke.log"
+        ".test-results/host-audit-state-selection-20261119/host-smoke.log",
+        ".test-results/host-export-meta-adapter-20261119/host-smoke.log",
+        "NativePanel/ExportHook.cs"
       ],
       "remaining_work": [
-        "Complete structured compatibility diagnostics and confirmation-adapter fault injection. Verify native Export, Export With Previous and actual confirmation actions through detach/reattach."
+        "Exercise the changed native callback name and detached/reattached command invocation with full native queue ownership.",
+        "Include confirmation-stage diagnostics in the cross-version capability contract."
       ],
       "original_acceptance_tests": [
         "Inject missing first command, missing second command, wrong closure field/type and changed method name; assert original delegates restored exactly once and capability unavailable.",
@@ -921,16 +948,19 @@
       "status": "partial",
       "implemented": [
         "Panel/export dialog now explicitly disclose fixed 16-bit sRGB TIFF/PNG output and unsupported recipe fields.",
-        "Recipe print resolution now reaches the encoder. The selector and help text state the 16-bit sRGB TIFF/PNG output policy and which recipe settings carry over."
+        "Recipe print resolution now reaches the encoder. The selector and help text state the 16-bit sRGB TIFF/PNG output policy and which recipe settings carry over.",
+        "Recipe metadata flags now gate the explicit supported metadata subset captured before Save. Both native command paths produce a verified 16-bit image with explicit sRGB and normalized orientation under the fixed-output policy."
       ],
       "evidence_paths": [
         "NativePanel/SpektraFilmTool.cs",
         "NativePanel/SpatialPreview.cs",
         "README.md",
-        ".test-results/host-audit-resolution-20261119/host-smoke.log"
+        ".test-results/host-audit-resolution-20261119/host-smoke.log",
+        ".test-results/host-export-meta-adapter-20261119/host-smoke.log",
+        "NativePanel/ExportMetadata.cs"
       ],
       "remaining_work": [
-        "Implement final destination ICC, format/quality and naming policy, and independent reference exports. Current recipe support is size, crop and resolution."
+        "Implement and compare supported recipe ICC, format/quality and naming policies against independent native reference exports. Keep unsupported recipe settings explicit."
       ],
       "original_acceptance_tests": [
         "Table-driven JPEG, PNG, TIFF 8/16-bit, unknown-format, custom ICC, image-folder/custom-folder/subfolder/token/suffix and duplicate-name cases.",
@@ -1592,15 +1622,20 @@
       "priority": "P2",
       "status": "partial",
       "implemented": [
-        "Capture One recipe density in inches, centimeters or millimeters is converted to DPI. The disposable-host TIFF reopened with the fixture recipe at 300 × 300 DPI, and TIFF/PNG codec contracts cover independent X/Y densities."
+        "Capture One recipe density in inches, centimeters or millimeters is converted to DPI. The disposable-host TIFF reopened with the fixture recipe at 300 × 300 DPI, and TIFF/PNG codec contracts cover independent X/Y densities.",
+        "Reopened a TIFF XMP tag and PNG iTXt XMP chunk with Unicode rights, title, creator and keywords, capture date, rating, actual dimensions and normalized orientation. Verified retained high-depth samples, ICC and non-square DPI. Runtime reopens the temporary file before replacing the approved destination."
       ],
       "evidence_paths": [
         ".test-results/host-audit-resolution-20261119/host-smoke.log",
         "NativePanel/ExportResolution.cs",
-        "tests/ViewerContracts/Program.cs"
+        "tests/ViewerContracts/Program.cs",
+        ".test-results/host-export-meta-adapter-20261119/host-smoke.log",
+        ".test-results/contracts-export-metadata-20261119/summary.json",
+        "NativePanel/ExportMetadata.cs",
+        "NativePanel/SpektraExport.cs"
       ],
       "remaining_work": [
-        "Add recipe-approved metadata snapshot, explicit normalized orientation/dimension tags, temporary file verification and TIFF/PNG EXIF/IPTC/XMP privacy fixtures."
+        "Expand allow-listed fields and test keyword whitelist, editable source metadata and explicit GPS opt-in policy against independent native fixture exports. Current output excludes GPS."
       ],
       "original_acceptance_tests": [
         "Synthetic EXIF/XMP/IPTC fixture: date, copyright, title, keywords, GPS opt-out, rotated source; compare expected tags after TIFF/PNG reopen.",

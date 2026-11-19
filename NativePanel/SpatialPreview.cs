@@ -637,7 +637,7 @@ internal sealed class SpatialPreview : IDisposable
             {
                 Title = recipe is null
                     ? "Save 16-bit Spektrafilm export (sRGB)"
-                    : "Save 16-bit sRGB TIFF or PNG using recipe size, crop and resolution",
+                    : "Save 16-bit sRGB TIFF or PNG using recipe geometry and supported metadata",
                 Filter = SpektraExport.FileFilter,
                 FilterIndex = extension == ".png" ? 2 : 1,
                 FileName = Path.GetFileNameWithoutExtension(target.SourcePath) + "-Spektrafilm",
@@ -679,7 +679,7 @@ internal sealed class SpatialPreview : IDisposable
                         : null;
                     work.Token.ThrowIfCancellationRequested();
                     var output = DecodeExport(source, pixels, look.Strength, input.Space, encoding, outputFormat, rendered.Crop, work.Token, dpi);
-                    SpektraExport.SaveApproved(approved, output, work.Token);
+                    SpektraExport.SaveApproved(approved, output, work.Token, recipe?.Metadata);
                     return (output.PixelWidth, output.PixelHeight);
                 }, work.Token);
                 if (!disposed)
