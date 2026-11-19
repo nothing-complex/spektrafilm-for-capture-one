@@ -609,6 +609,8 @@ public static class StartupHook
 
         var spatial = Field(panel, "opticalPreview")!;
         var options = Field(panel, "options")!;
+        var rendererManifest = assembly.GetType("RendererParameters")!.GetMethod("Read", Flags)!.Invoke(null,
+            new[] { Environment.GetEnvironmentVariable("SPEKTRAFILM_ROOT")! })!;
         var modes = ((IEnumerable)Prop(options, "Modes")!).Cast<object>();
         foreach (var mode in modes)
         {
@@ -638,10 +640,53 @@ public static class StartupHook
                     && JsonNode.DeepEquals(captured["Grain"], exhaustive["Grain"])
                     && JsonNode.DeepEquals(captured["Enabled"], exhaustive["Enabled"]),
                     $"{modeName} preserves every serialized control at the {boundary.ToLowerInvariant()} boundary");
+                var renderable = captured["Look"]!.DeepClone();
+                renderable["Development"]!["print_exhaustion"] = 0;
+                var supported = JsonSerializer.Deserialize(renderable.ToJsonString(), Prop(baseline, "Look")!.GetType());
+                var arguments = (string[])Call(spatial, "RendererOptions", supported, "srgb", "srgb", false, false)!;
+                Call(rendererManifest, "VerifyArguments", (object)arguments);
+                Check(arguments.Length != 0, $"{modeName} {boundary.ToLowerInvariant()} controls map to the compiled renderer description");
                 revert.Invoke(undo, new object[] { false });
             }
         }
         Check(SameLook(Saved()) && originalGrain.Equals(NativeGrain()), "every-mode preset probes restore the original state and native grain");
+
+        var legacy = json.DeepClone().AsObject();
+        legacy.Remove("SchemaVersion");
+        legacy.Remove("Enabled");
+        legacy.Remove("Grain");
+        legacy["Look"]!["Development"]!["print_exhaustion"] = .4;
+        var legacyPath = Path.Combine(folder, "legacy-exhaustion.spektra.json");
+        var legacyText = legacy.ToJsonString();
+        File.WriteAllText(legacyPath, legacyText);
+        var legacyPreset = JsonSerializer.Deserialize(File.ReadAllText(legacyPath), presetType)!;
+        var printPanel = (StackPanel)Field(panel, "printing")!;
+        var clear = printPanel.Children.OfType<Button>().Single(button => Equals(button.Content, "Clear unsupported developer exhaustion"));
+        var legacyEntry = ((IDictionary)Field(panel, "development")!)["print_exhaustion"]!;
+        var exhaustion = (FrameworkElement)Field(legacyEntry, "Item1")!;
+        double SavedExhaustion() => ((IDictionary)Prop(Prop(Saved(), "Look")!, "Development")!)["print_exhaustion"] is double value
+            ? value : throw new InvalidOperationException("Missing saved exhaustion value.");
+        Check(Call(panel, "ApplyPreset", variant, legacyPreset) is true && SavedExhaustion() == .4
+            && clear.Visibility == Visibility.Visible && exhaustion.IsEnabled == false, "legacy developer exhaustion stays saved and has an explicit clear action");
+        try
+        {
+            Call(spatial, "RendererOptions", Prop(Saved(), "Look"), "srgb", "srgb", false, false);
+            throw new InvalidOperationException("Unsupported exhaustion was sent to the renderer.");
+        }
+        catch (TargetInvocationException error) when (error.InnerException is InvalidOperationException invalid
+            && invalid.Message.Contains("Developer exhaustion", StringComparison.Ordinal))
+        {
+            Check(Field(spatial, "frameCurrent") is false, "legacy exhaustion is refused before worker creation without presenting a current stale frame");
+        }
+        clear.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, clear));
+        Check(SavedExhaustion() == 0 && clear.Visibility == Visibility.Collapsed && File.ReadAllText(legacyPath) == legacyText,
+            "Clear commits only the variant setting and preserves the original legacy preset");
+        var restoredArguments = (string[])Call(spatial, "RendererOptions", Prop(Saved(), "Look"), "srgb", "srgb", false, false)!;
+        Call(rendererManifest, "VerifyArguments", (object)restoredArguments);
+        Check(restoredArguments.Length != 0, "clearing legacy exhaustion restores a supported renderer request");
+        revert.Invoke(undo, new object[] { false });
+        revert.Invoke(undo, new object[] { false });
+        Check(SameLook(Saved()), "native Undo restores the look before the legacy exhaustion fixture");
 
         var fileControls = (DependencyObject)Field(panel, "fileControls")!;
         var controls = Descendants(fileControls).OfType<ContentControl>().ToArray();

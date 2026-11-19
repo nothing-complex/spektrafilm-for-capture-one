@@ -1,7 +1,7 @@
 # Shared build/package integrity checks. Compatible with Windows PowerShell 5.1.
 function Get-ReleaseRuntimeFiles {
     $paths = @('panel/NativePanel.dll','renderer/SpektraStillRenderer.exe',
-        'renderer/SpektraHanatos2025Spectra.f32','renderer/SpektraOutputGamutCompression.f32',
+        'renderer/SpektraHanatos2025Spectra.f32','renderer/SpektraOutputGamutCompression.f32','renderer/parameter-capabilities.json',
         'stocks.json','capture-one-hosts.json','profiles/preview/Linear Rec.2020.icc','profiles/preview/ProPhoto RGB.icc')
     foreach ($shader in @('Copy','CurveDevelop','Diffusion','Dir','FilmExposure','FormatConvert','Grain','Halation','PrintScan','ScannerPost')) {
         $paths += "renderer/shaders/Spektra$shader.comp.spv"

@@ -52,6 +52,8 @@ Choose a 33- or 65-point LUT from **Presets and LUT export**. The LUT uses the s
 
 The Python setup scripts remain available for reference/development workflows; they are not required for ordinary panel or LUT use.
 
+The bundled renderer describes its supported settings in `renderer/parameter-capabilities.json`. The panel checks that description before loading its controls. Hanatos 2026 is offered when the renderer includes the calibrated film data. The Windows still workflow exposes Print Simulation and Scan Film, including scan inversion.
+
 ## Troubleshooting and uninstall
 
 | Symptom | What to do |

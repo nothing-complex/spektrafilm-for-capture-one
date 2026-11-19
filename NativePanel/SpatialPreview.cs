@@ -198,6 +198,14 @@ internal sealed class SpatialPreview : IDisposable
     internal static SpatialPreview BuildForPanel(object window, Func<LookSettings?> getSettings, Func<Guid, bool> useSelectedLook) =>
         new(window, getSettings, useSelectedLook);
 
+    internal void VerifyRendererOptions(RendererParameters renderer)
+    {
+        renderer.VerifyOptions("input-color", InputSpaces.Select(choice => choice.Id));
+        renderer.VerifyOptions("output-color", OutputSpaces.Select(choice => choice.Id));
+        foreach (var (key, selector) in choices)
+            renderer.VerifyOptions(key, ((Choice[])selector.ItemsSource).Select(choice => choice.Id));
+    }
+
     internal Settings CaptureSettings()
     {
         var numbers = new Dictionary<string, double>();

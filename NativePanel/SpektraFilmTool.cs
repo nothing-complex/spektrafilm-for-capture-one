@@ -96,7 +96,7 @@ internal static class SpektraFilmTool
             panel.RefreshNativeGrain(force: false);
         }
         internal void ReportLaunchHealth() => LaunchHealth.Report(
-            panel.StocksReady ? LaunchPhase.Ready : LaunchPhase.LoadingControls, panel.ExportBridgeStatus, panel.ViewerStatus);
+            panel.ControlsLoadPhase, panel.ExportBridgeStatus, panel.ViewerStatus);
         internal Task<bool> ExportAsync(Window? owner) => panel.ExportAsync(useRecipeSize: true, owner);
         internal void SetExportBridgeStatus(ExportBridgeState state, string? detail = null) => panel.SetExportBridgeStatus(state, detail);
         internal InspectorToolHeaderViewModel CreateDockedHeader(ILifeCycleRegistrationService registration) =>
@@ -329,6 +329,7 @@ internal static class SpektraFilmTool
         private long? retryLookReadAt;
         private DispatcherOperation? selectionSync;
         private LookOptions? options;
+        private bool controlsLoadFailed;
         private bool settingValues;
         private bool disposed;
 
@@ -678,6 +679,8 @@ internal static class SpektraFilmTool
         internal Task<bool> ExportAsync(bool useRecipeSize, Window? owner = null) =>
             IsSpektraExportActive ? opticalPreview.ExportAsync(useRecipeSize, owner) : Task.FromResult(false);
         internal bool StocksReady => !disposed && options is not null;
+        internal LaunchPhase ControlsLoadPhase => controlsLoadFailed ? LaunchPhase.Failed
+            : StocksReady ? LaunchPhase.Ready : LaunchPhase.LoadingControls;
         internal ViewerHealth ViewerStatus => opticalPreview.Health;
 
         private async Task SavePresetAsync()
@@ -1198,13 +1201,24 @@ internal static class SpektraFilmTool
                     ?? throw new InvalidOperationException("Start Capture One from the Spektrafilm launcher.");
                 var available = System.Text.Json.JsonSerializer.Deserialize<LookOptions>(File.ReadAllText(Path.Combine(root, "stocks.json")))
                     ?? throw new InvalidDataException("Spektrafilm stock data is missing.");
+                var renderer = RendererParameters.Read(root);
+                renderer.VerifyOptions("stock", available.Films.Select(stock => stock.Id));
+                renderer.VerifyOptions("paper", available.Papers.Select(stock => stock.Id));
+                renderer.VerifyOptions("mode", available.Modes.Select(mode => mode.Id));
+                if (!renderer.SupportsChoice("spectral-method", "hanatos2026")
+                    || !available.Films.All(stock => renderer.SupportsHanatos2026(stock.Id)))
+                    available = available with { SpectralMethods = available.SpectralMethods.Where(method => method.Id != "hanatos2026").ToArray() };
+                renderer.VerifyOptions("spectral-method", available.SpectralMethods.Select(method => method.Id));
+                opticalPreview.VerifyRendererOptions(renderer);
                 options = available with { Films = Sort(available.Films), Papers = Sort(available.Papers) };
                 SetDefaults();
+                controlsLoadFailed = false;
                 SyncSelection();
             }
             catch (Exception error)
             {
                 options = null;
+                controlsLoadFailed = true;
                 controls.IsEnabled = false;
                 Report(error);
             }

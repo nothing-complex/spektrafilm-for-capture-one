@@ -29,10 +29,17 @@ $old=[IO.File]::ReadAllText($renderer)
 [IO.File]::WriteAllText($renderer,'mixed runtime')
 Assert-Rejected {Test-ReleaseManifest $root} 'Mixed binary'
 [IO.File]::WriteAllText($renderer,$old)
+$description=Join-Path $root 'renderer/parameter-capabilities.json'
+$originalDescription=[IO.File]::ReadAllText($description)
+[IO.File]::WriteAllText($description,'different renderer description')
+Assert-Rejected {Test-ReleaseManifest $root} 'Changed compiled parameter description'
+[IO.File]::WriteAllText($description,$originalDescription)
 $manifest.rendererProtocol=2; Save-Manifest
 Assert-Rejected {Test-ReleaseManifest $root} 'Protocol mismatch'
 $manifest.rendererProtocol=1
 $files=$manifest.files
+$manifest.files=@($files | Where-Object path -ne 'renderer/parameter-capabilities.json'); Save-Manifest
+Assert-Rejected {Test-ReleaseManifest $root} 'Missing compiled parameter description'
 $manifest.files=@($files|Select-Object -Skip 1); Save-Manifest
 Assert-Rejected {Test-ReleaseManifest $root} 'Missing required panel entry'
 $manifest.files=@($files)+@($files[0]); Save-Manifest

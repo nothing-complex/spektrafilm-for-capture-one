@@ -310,13 +310,67 @@ def check_spectral_stock_matrix(exe):
     print(f"PASS: {count} Vulkan spectral renders and {len(stocks)} explicit Hanatos 2026 calibrations.")
 
 
+def check_parameter_description(exe):
+    raw = subprocess.check_output([str(exe), "--describe"], timeout=15)
+    manifest = json.loads(raw)
+    assert manifest["schemaVersion"] == 1 and len(manifest["parameterContract"]) == 64
+    assert raw == subprocess.check_output([str(exe), "--describe"], timeout=15), "Manifest bytes changed between runs"
+    parameters = manifest["parameters"]
+    assert len({parameter["key"] for parameter in parameters}) == len(parameters)
+    root = Path(__file__).resolve().parents[1]
+    panel = json.loads((root / "stocks.json").read_text(encoding="utf-8"))
+    by_key = {parameter["key"]: parameter for parameter in parameters}
+    for panel_key, renderer_key in (("Films", "stock"), ("Papers", "paper"), ("SpectralMethods", "spectral-method"), ("Modes", "mode")):
+        assert {value["Id"] for value in panel[panel_key]}.issubset(by_key[renderer_key]["choices"]), panel_key
+    assert all(film["hanatos2025"] and film["hanatos2026"] for film in manifest["scientific"]["films"])
+
+    frame = source_frame(None)[::64, ::96].copy()
+    base = "--stock kodak_portra_400 --paper kodak_portra_endura --grain-model off --grain-synthesis-samples 2"
+    cases = []
+    for option in parameters:
+        key, kind = option["key"], option["kind"]
+        if kind in ("number", "integer"):
+            minimum, maximum, initial = option["minimum"], option["maximum"], option["default"]
+            assert minimum <= initial <= maximum, option
+            valid = (minimum, initial, maximum)
+            invalid = minimum - 1
+        elif kind == "boolean":
+            assert isinstance(option["default"], bool), option
+            valid = ("true", "false")
+            invalid = "unknown"
+        else:
+            assert kind == "choice" and option["default"] in option["choices"], option
+            valid = option["choices"]
+            invalid = "unknown"
+        for value in dict.fromkeys(valid):
+            unavailable = key == "mode" and value == "process_negative" and not manifest["scientific"]["academyPrinterDensity"]
+            cases.append((key, value, not unavailable))
+        cases.append((key, invalid, False))
+
+    request = b"".join(frame_request(frame, f"{base} --{key} {value}") for key, value, _ in cases)
+    replies = run_stream(exe, request + b"QUIT\n", mode="--native-preview-stream", timeout=120)
+    assert len(replies) == len(cases) + 1 and replies[-1] == (0, b"")
+    for case, (status, payload) in zip(cases, replies):
+        key, value, valid = case
+        assert status == (0 if valid else 1), (case, status, payload[:200])
+        if valid:
+            assert len(payload) == frame.nbytes and np.isfinite(np.frombuffer(payload, dtype="<f4")).all(), case
+        if key == "mode" and value == "process_negative" and not valid:
+            assert b"Academy Printer Density calibration" in payload
+    print(f"PASS: {len(parameters)} compiled parameter descriptions and {len(cases)} renderer range/choice/availability probes.")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--image", type=Path, help="Optional photograph. Defaults to a synthetic image.")
     parser.add_argument("--exe", type=Path, default=Path(__file__).resolve().parents[1]
                         / "build-ofx-still" / "Release" / "SpektraStillRenderer.exe")
     parser.add_argument("--spectral-stock-matrix", action="store_true", help="Check stock calibration and all spectral methods across input spaces.")
+    parser.add_argument("--parameter-matrix", action="store_true", help="Check the compiled parameter descriptions against the Vulkan parser and renderer.")
     args = parser.parse_args()
+    if args.parameter_matrix:
+        check_parameter_description(args.exe)
+        return
     if args.spectral_stock_matrix:
         check_spectral_stock_matrix(args.exe)
         return

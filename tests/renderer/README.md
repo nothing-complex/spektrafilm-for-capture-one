@@ -17,4 +17,13 @@ python ofx-still-renderer/smoke.py --exe C:\path\to\Spektrafilm\renderer\Spektra
 
 The GPU contracts call the production managed client. They check negotiated diagnostics, unchanged-request cache reuse, byte-identical production output with an inherited `SPEKTRAFILM_VULKAN_COPY_PASS=1`, and 33/65-point LUT samples against a separate rendering of the same colour-only grid. The smoke suite covers persistent streams, invalid requests, export limits, output transfer functions and spatial/development effects. These synthetic probes do not establish camera/input-profile fidelity or performance on another GPU.
 
+The compiled renderer also exposes `--describe` without rendering a frame. `Build-Windows.ps1` saves that JSON with the runtime and checks its parameter header hash. Both package and build manifests verify the description file. The panel uses it to verify its stock, mode and colour choices and to check Hanatos 2026 calibration.
+
+```powershell
+python ofx-still-renderer/smoke.py --parameter-matrix --exe build/still-renderer/Release/SpektraStillRenderer.exe
+python ofx-still-renderer/smoke.py --spectral-stock-matrix --exe build/still-renderer/Release/SpektraStillRenderer.exe
+```
+
+The parameter matrix covers advertised defaults, both numeric limits, supported choices, invalid input and the Academy Printer Density calibration gate. The spectral matrix checks each bundled film in Print and Scan with the three spectral methods and four input encodings.
+
 Protocol 1 uses little-endian eight-byte status/payload-length headers. `HELLO 1` replies with bounded UTF-8 JSON identifying float32 RGBA, byte order, dimensions, packed-display availability, and SHA-256 of the parameter header. `METRICS` replies with diagnostics schema 1. Neither command starts the Vulkan device. Legacy frame commands remain accepted by the native worker, but the current panel requires negotiation so mismatched installations fail before rendering. Packaged launchers additionally verify resource file hashes; a parameter-header fingerprint alone does not identify the entire renderer/resource build.

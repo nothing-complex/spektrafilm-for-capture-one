@@ -8,8 +8,12 @@
 #include <cstring>
 #include <emmintrin.h>
 #include <fcntl.h>
+#include <iomanip>
 #include <io.h>
 #include <iostream>
+#include <iterator>
+#include <limits>
+#include <locale>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
@@ -160,6 +164,20 @@ constexpr BooleanOption kBooleanOptions[] = {
     {"scanner-black", &RenderParams::scannerBlackCorrection},
 };
 
+struct IntegerOption {
+    std::string_view name;
+    int32_t RenderParams::*member;
+    int min;
+    int max;
+};
+
+constexpr IntegerOption kIntegerOptions[] = {
+    {"grain-sublayer-count", &RenderParams::grainSubLayerCount, 1, 8},
+    {"grain-synthesis-samples", &RenderParams::grainSynthesisSamples, 1, 2048},
+    {"grain-synthesis-cell-cap", &RenderParams::grainSynthesisMaxGrainsPerCell, 1, 128},
+};
+constexpr int kMaximumGrainSeed = std::numeric_limits<int32_t>::max();
+
 float number(const std::string &value, float low, float high) {
     std::size_t used = 0;
     const float result = std::stof(value, &used);
@@ -234,6 +252,14 @@ constexpr Option<ProcessMode> kProcesses[] = {
     {"scan_inverted", ProcessMode::ScanNegative}, {"process_negative", ProcessMode::ProcessNegative},
 };
 
+constexpr Option<PushPullMode> kPushPullModes[] = {
+    {"standard", PushPullMode::Standard}, {"experimental", PushPullMode::Experimental},
+};
+
+constexpr Option<AutoExposureMethod> kMeteringMethods[] = {
+    {"center_weighted", AutoExposureMethod::CenterWeighted}, {"median", AutoExposureMethod::Median},
+};
+
 int stockIndex(const std::string &id, bool film) {
     const auto count = film ? kSpektraFilmCount : kSpektraPaperCount;
     for (uint32_t index = 0; index < count; ++index) {
@@ -280,6 +306,12 @@ void configure(RenderParams &p, std::string_view key, const std::string &value) 
             return;
         }
     }
+    for (const auto &option : kIntegerOptions) {
+        if (key == option.name) {
+            p.*option.member = integer(value, option.min, option.max);
+            return;
+        }
+    }
     if (key == "stock" || key == "paper") return;
     if (key == "input-color") p.inputColorSpace = select(value, kInputColorSpaces);
     else if (key == "output-color") p.outputColorSpace = select(value, kOutputColorSpaces);
@@ -288,17 +320,9 @@ void configure(RenderParams &p, std::string_view key, const std::string &value) 
         p.process = select(value, kProcesses);
         p.scanNegativeInvert = value == "scan_inverted";
     } else if (key == "film-format") p.filmFormat = select(value, kFormats);
-    else if (key == "film-push-pull-mode") {
-        constexpr Option<PushPullMode> modes[] = {
-            {"standard", PushPullMode::Standard}, {"experimental", PushPullMode::Experimental},
-        };
-        p.filmPushPullMode = select(value, modes);
-    } else if (key == "auto-exposure-meter") {
-        constexpr Option<AutoExposureMethod> modes[] = {
-            {"center_weighted", AutoExposureMethod::CenterWeighted}, {"median", AutoExposureMethod::Median},
-        };
-        p.autoExposureMethod = select(value, modes);
-    } else if (key == "camera-diffusion-family") {
+    else if (key == "film-push-pull-mode") p.filmPushPullMode = select(value, kPushPullModes);
+    else if (key == "auto-exposure-meter") p.autoExposureMethod = select(value, kMeteringMethods);
+    else if (key == "camera-diffusion-family") {
         p.cameraDiffusionEnabled = value != "off";
         if (p.cameraDiffusionEnabled) p.cameraDiffusionFamily = select(value, kDiffusion);
     } else if (key == "print-diffusion-family") {
@@ -307,10 +331,7 @@ void configure(RenderParams &p, std::string_view key, const std::string &value) 
     } else if (key == "grain-model") {
         p.grainEnabled = value != "off";
         if (p.grainEnabled) p.grainModel = select(value, kGrain);
-    } else if (key == "grain-seed") p.grainSeed = integer(value, 0, 2147483647);
-    else if (key == "grain-sublayer-count") p.grainSubLayerCount = integer(value, 1, 8);
-    else if (key == "grain-synthesis-samples") p.grainSynthesisSamples = integer(value, 1, 2048);
-    else if (key == "grain-synthesis-cell-cap") p.grainSynthesisMaxGrainsPerCell = integer(value, 1, 128);
+    } else if (key == "grain-seed") p.grainSeed = integer(value, 0, kMaximumGrainSeed);
     else throw std::invalid_argument("Unknown setting: --" + std::string(key));
 }
 
@@ -346,6 +367,8 @@ RenderParams readParameters(const std::vector<std::string> &args) {
         params.enlargerOffsetYPercent = 0;
     }
     if (params.process == ProcessMode::ProcessNegative) {
+        if (!kSpektraAcademyPrinterDensityEnabled || !academyPrinterDensityData())
+            throw std::invalid_argument("Process Negative requires compiled Academy Printer Density calibration.");
         params.rgbToRawMethod = RgbToRawMethod::Hanatos2026;
         params.film = kSpektraDefaultFilmIndex;
         params.filmFormat = FilmFormat::Standard35;
@@ -367,6 +390,86 @@ RenderParams readParameters(const std::vector<std::string> &args) {
         params.enlargerOffsetYPercent = 0;
     }
     return params;
+}
+
+template <typename Choice, std::size_t N>
+void writeChoice(std::ostream &out, std::string_view key, const Option<Choice> (&options)[N], Choice selected,
+    bool canDisable = false, bool disabled = false) {
+    std::string_view defaultValue = "off";
+    if (!disabled) {
+        const auto found = std::find_if(std::begin(options), std::end(options), [&](const auto &option) {
+            return option.value == selected;
+        });
+        if (found == std::end(options)) throw std::logic_error("Renderer default is not listed: " + std::string(key));
+        defaultValue = found->name;
+    }
+    out << "{\"key\":" << std::quoted(key) << ",\"kind\":\"choice\",\"default\":" << std::quoted(defaultValue)
+        << ",\"choices\":[";
+    if (canDisable) out << "\"off\",";
+    for (std::size_t index = 0; index < N; ++index) {
+        if (index != 0) out << ',';
+        out << std::quoted(options[index].name);
+    }
+    out << "]}";
+}
+
+void writeStockChoices(std::ostream &out, bool film, int32_t defaultIndex) {
+    const auto *selected = film ? filmProfileCurves(defaultIndex) : paperProfileCurves(defaultIndex);
+    if (!selected || !selected->stock) throw std::logic_error("Missing default renderer stock.");
+    out << "{\"key\":\"" << (film ? "stock" : "paper") << "\",\"kind\":\"choice\",\"default\":"
+        << std::quoted(selected->stock) << ",\"choices\":[";
+    const auto count = film ? kSpektraFilmCount : kSpektraPaperCount;
+    for (uint32_t index = 0; index < count; ++index) {
+        const auto *profile = film ? filmProfileCurves(index) : paperProfileCurves(index);
+        if (!profile || !profile->stock) throw std::logic_error("Missing compiled renderer stock.");
+        if (index != 0) out << ',';
+        out << std::quoted(profile->stock);
+    }
+    out << "]}";
+}
+
+void describeParameters() {
+    const auto defaults = readParameters({});
+    auto &out = std::cout;
+    out.imbue(std::locale::classic());
+    out << std::boolalpha << std::setprecision(std::numeric_limits<float>::max_digits10)
+        << "{\"schemaVersion\":1,\"parameterContract\":\"" << SPEKTRA_PARAMETER_CONTRACT
+        << "\",\"parameters\":[";
+    for (const auto &option : kNumericOptions)
+        out << "{\"key\":" << std::quoted(option.name) << ",\"kind\":\"number\",\"minimum\":" << option.min
+            << ",\"maximum\":" << option.max << ",\"default\":" << defaults.*option.member << "},";
+    for (const auto &option : kIntegerOptions)
+        out << "{\"key\":" << std::quoted(option.name) << ",\"kind\":\"integer\",\"minimum\":" << option.min
+            << ",\"maximum\":" << option.max << ",\"default\":" << defaults.*option.member << "},";
+    out << "{\"key\":\"grain-seed\",\"kind\":\"integer\",\"minimum\":0,\"maximum\":" << kMaximumGrainSeed
+        << ",\"default\":" << defaults.grainSeed << "},";
+    for (const auto &option : kBooleanOptions)
+        out << "{\"key\":" << std::quoted(option.name) << ",\"kind\":\"boolean\",\"default\":" << defaults.*option.member << "},";
+    writeChoice(out, "input-color", kInputColorSpaces, defaults.inputColorSpace); out << ',';
+    writeChoice(out, "output-color", kOutputColorSpaces, defaults.outputColorSpace); out << ',';
+    writeChoice(out, "spectral-method", kUpsampling, defaults.rgbToRawMethod); out << ',';
+    writeChoice(out, "mode", kProcesses, defaults.process); out << ',';
+    writeChoice(out, "film-format", kFormats, defaults.filmFormat); out << ',';
+    writeChoice(out, "film-push-pull-mode", kPushPullModes, defaults.filmPushPullMode); out << ',';
+    writeChoice(out, "auto-exposure-meter", kMeteringMethods, defaults.autoExposureMethod); out << ',';
+    writeChoice(out, "camera-diffusion-family", kDiffusion, defaults.cameraDiffusionFamily, true, !defaults.cameraDiffusionEnabled); out << ',';
+    writeChoice(out, "print-diffusion-family", kDiffusion, defaults.printDiffusionFamily, true, !defaults.printDiffusionEnabled); out << ',';
+    writeChoice(out, "grain-model", kGrain, defaults.grainModel, true, !defaults.grainEnabled); out << ',';
+    writeStockChoices(out, true, defaults.film); out << ',';
+    writeStockChoices(out, false, defaults.paper);
+
+    out << "],\"scientific\":{\"academyPrinterDensity\":"
+        << (kSpektraAcademyPrinterDensityEnabled && academyPrinterDensityData() != nullptr) << ",\"films\":[";
+    for (uint32_t index = 0; index < kSpektraFilmCount; ++index) {
+        const auto &profile = *filmProfileCurves(index);
+        const auto *window = profile.hanatos2026WindowParams;
+        const bool calibrated2026 = window && profile.wavelengths && profile.referenceIlluminantSpectrum
+            && std::all_of(window, window + 4, [](float value) { return std::isfinite(value) && value > 0; });
+        if (index != 0) out << ',';
+        out << "{\"id\":" << std::quoted(profile.stock) << ",\"hanatos2025\":" << (profile.bandpassHanatos2025 != nullptr)
+            << ",\"hanatos2026\":" << calibrated2026 << '}';
+    }
+    out << "]}}\n";
 }
 
 // The public Vulkan renderer uses this transform for film coordinates but does
@@ -832,6 +935,7 @@ int main(int argc, char **argv) {
         if (mode == "--stream") processStream(kPreviewLimit);
         else if (mode == "--export-stream") processStream(kExportLimit);
         else if (mode == "--native-preview-stream") processStream(kNativePreviewLimit);
+        else if (mode == "--describe") describeParameters();
         else process(argc, argv);
         return 0;
     } catch (const std::exception &error) {

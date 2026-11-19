@@ -40,6 +40,10 @@ function Clear-TestCrashMarkers([datetime] $started,[string] $phase) {
 $source=(Get-Item -LiteralPath $SourceCatalog).FullName
 if([IO.Path]::GetExtension($source) -ine '.cocatalogdb'){throw 'A catalog database is required.'}
 foreach($suffix in '-wal','-shm','-journal'){if(Test-Path -LiteralPath ($source+$suffix)){throw 'Source catalog has transaction sidecars; close it cleanly first.'}}
+$rendererBuild=Join-Path $root 'build\still-renderer\Release'
+if(!(Test-Path -LiteralPath (Join-Path $rendererBuild 'parameter-capabilities.json') -PathType Leaf)){
+    throw 'Run Build-Windows.ps1 to build the renderer and generate its parameter capabilities before testing the host.'
+}
 if(!$ResultsDirectory){$ResultsDirectory=Join-Path $root ('.test-results\host-'+[guid]::NewGuid().ToString('N'))}
 $folder=[IO.Path]::GetFullPath($ResultsDirectory)
 if(Test-Path -LiteralPath $folder){throw 'Use a new empty results directory.'}
@@ -52,7 +56,7 @@ $runtime=Join-Path $folder 'runtime'
 [void][IO.Directory]::CreateDirectory($runtime)
 Copy-Item -LiteralPath (Join-Path $root 'stocks.json') -Destination $runtime
 Copy-Item -LiteralPath (Join-Path $root 'profiles') -Destination $runtime -Recurse
-Copy-Item -LiteralPath (Join-Path $root 'build\still-renderer\Release') -Destination (Join-Path $runtime 'renderer') -Recurse
+Copy-Item -LiteralPath $rendererBuild -Destination (Join-Path $runtime 'renderer') -Recurse
 Copy-Item -LiteralPath (Join-Path $root 'NativePanel\bin\Release\net8.0-windows\NativePanel.dll') -Destination $runtime
 $testHook=$TestHookPath
 if(!(Test-Path -LiteralPath $testHook)){throw 'Build qa/HostSmoke and NativePanel first.'}

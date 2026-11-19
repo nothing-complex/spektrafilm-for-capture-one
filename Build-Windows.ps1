@@ -70,11 +70,21 @@ try {
 
 $output = Join-Path $helper 'Release'
 $executable = Join-Path $output 'SpektraStillRenderer.exe'
+$description = & $executable --describe
+if ($LASTEXITCODE -ne 0 -or @($description).Count -ne 1) { throw 'The renderer did not return its compiled parameter description.' }
+$parameterManifest = $description | ConvertFrom-Json
+$parameterHash = (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot 'upstream-ofx\src\SpektraParameters.h') -Algorithm SHA256).Hash
+if ($parameterManifest.schemaVersion -ne 1 -or $parameterManifest.parameterContract -notmatch '^[0-9a-fA-F]{64}$' -or
+    $parameterManifest.parameterContract -ne $parameterHash -or
+    @($parameterManifest.parameters).Count -lt 1 -or @($parameterManifest.parameters).Count -gt 256) {
+    throw 'The renderer returned an unsupported parameter description.'
+}
+[IO.File]::WriteAllText((Join-Path $output 'parameter-capabilities.json'), $description + "`n", [Text.UTF8Encoding]::new($false))
 if (!$SkipSmoke) {
     Invoke-Checked $PythonPath @((Join-Path $PSScriptRoot 'ofx-still-renderer\smoke.py'), '--exe', $executable)
 }
 
-$files = @('SpektraStillRenderer.exe', 'SpektraHanatos2025Spectra.f32', 'SpektraOutputGamutCompression.f32')
+$files = @('SpektraStillRenderer.exe', 'SpektraHanatos2025Spectra.f32', 'SpektraOutputGamutCompression.f32', 'parameter-capabilities.json')
 $shaders = 'Copy', 'FormatConvert', 'FilmExposure', 'CurveDevelop', 'PrintScan', 'Halation', 'Diffusion', 'Dir', 'ScannerPost', 'Grain'
 $files += $shaders | ForEach-Object { "shaders\Spektra$_.comp.spv" }
 $runtime = Join-Path $PSScriptRoot 'renderer'

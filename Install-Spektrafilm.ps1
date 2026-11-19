@@ -235,7 +235,8 @@ try {
         'Start Spektrafilm for Capture One.cmd', 'Start-Spektrafilm.ps1', 'CatalogIntegrity.ps1', 'Restore-SpektrafilmCatalog.ps1',
         'capture-one-hosts.json','stocks.json', 'panel\NativePanel.dll', 'assets\Spektrafilm.ico',
         'profiles\preview\Linear Rec.2020.icc', 'profiles\preview\ProPhoto RGB.icc',
-        'renderer\SpektraStillRenderer.exe', 'renderer\SpektraHanatos2025Spectra.f32', 'renderer\SpektraOutputGamutCompression.f32'
+        'renderer\SpektraStillRenderer.exe', 'renderer\SpektraHanatos2025Spectra.f32', 'renderer\SpektraOutputGamutCompression.f32',
+        'renderer\parameter-capabilities.json'
     )
     foreach ($shader in @('Copy','CurveDevelop','Diffusion','Dir','FilmExposure','FormatConvert','Grain','Halation','PrintScan','ScannerPost')) {
         $required += "renderer\shaders\Spektra$shader.comp.spv"

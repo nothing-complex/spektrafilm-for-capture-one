@@ -271,6 +271,39 @@ foreach (var profiles in new[] { Array.Empty<CaptureOneHost>(), new[] { supporte
     });
 
 var presetSource = Sample(1.3) with { Enabled = false, Grain = new GrainControls(4, 18, 62) };
+
+var rendererFixture = Path.Combine(scratch, "renderer");
+Directory.CreateDirectory(rendererFixture);
+var rendererManifestPath = Path.Combine(rendererFixture, "parameter-capabilities.json");
+var modeOption = new { key = "mode", kind = "choice", @default = "print", choices = new[] { "print", "scan", "process_negative" } };
+var fixtureOptions = new object[]
+{
+    modeOption,
+    new { key = "film-gamma", kind = "number", minimum = 0.100000001, maximum = 2d, @default = 1d },
+    new { key = "grain-seed", kind = "integer", minimum = 0, maximum = int.MaxValue, @default = 1 },
+};
+void WriteRendererFixture(bool academyPrinterDensity, object[] parameters) => PanelFiles.WriteCompactPreset(rendererManifestPath, new
+{
+    schemaVersion = 1, parameterContract = new string('a', 64), parameters,
+    scientific = new { academyPrinterDensity, films = new[] { new { id = "kodak_portra_400", hanatos2025 = true, hanatos2026 = true } } },
+});
+WriteRendererFixture(false, fixtureOptions);
+var capabilities = RendererParameters.Read(scratch);
+capabilities.VerifyArguments(new[] { "--mode", "print", "--film-gamma", "0.1", "--grain-seed", "2147483647" });
+Check("renderer manifest respects float32 boundaries and calibrated method advertisements",
+    capabilities.SupportsHanatos2026("kodak_portra_400") && !capabilities.SupportsHanatos2026("missing"));
+Check("an uncalibrated APD mode is hidden even if the parser knows its name",
+    !capabilities.SupportsChoice("mode", "process_negative") && capabilities.SupportsChoice("mode", "scan"));
+Throws<InvalidDataException>("unsupported calibrated mode is refused in assembled arguments",
+    () => capabilities.VerifyArguments(new[] { "--mode", "process_negative" }));
+Throws<InvalidDataException>("manifest rejects a nonfinite setting", () => capabilities.VerifyArguments(new[] { "--film-gamma", "NaN" }));
+Throws<InvalidDataException>("manifest rejects an out-of-range int", () => capabilities.VerifyArguments(new[] { "--grain-seed", "2147483648" }));
+Throws<InvalidDataException>("manifest rejects unknown keys", () => capabilities.VerifyArguments(new[] { "--unknown", "0" }));
+WriteRendererFixture(false, new object[] { modeOption, modeOption });
+Throws<InvalidDataException>("manifest refuses duplicate renderer parameters", () => RendererParameters.Read(scratch));
+WriteRendererFixture(true, fixtureOptions);
+Check("compiled APD data enables the declared mode", RendererParameters.Read(scratch).SupportsChoice("mode", "process_negative"));
+
 var presetPath = Path.Combine(scratch, "all-controls.spektra.json");
 PanelFiles.WritePreset(presetPath, LookPreset.From(presetSource));
 var presetCopy = PanelFiles.ReadPreset<LookPreset>(presetPath);

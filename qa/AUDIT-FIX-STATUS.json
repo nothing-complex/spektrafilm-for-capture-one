@@ -604,15 +604,15 @@
       "priority": "P1",
       "status": "implemented",
       "implemented": [
-        "Developer exhaustion is disabled; saved nonzero values are retained and a separate explicit clear action is available."
+        "Developer exhaustion is disabled; saved nonzero values are retained and a separate explicit clear action is available.",
+        "A real older preset with nonzero exhaustion used the disabled slider and an explicit Clear action. Renderer request construction refused it before worker creation. Clear saved the variant, preserved the original preset and restored a valid request. Native Undo returned to the preceding state."
       ],
       "evidence_paths": [
         "NativePanel/SpektraFilmTool.cs",
-        "NativePanel/SpatialPreview.cs"
+        "NativePanel/SpatialPreview.cs",
+        ".test-results/host-compiled-controls-20261120/host-smoke.log"
       ],
-      "remaining_work": [
-        "Run an automated host interaction for a nonzero legacy exhaustion preset and its explicit reset; no scientific exhaustion implementation is claimed."
-      ],
+      "remaining_work": [],
       "original_acceptance_tests": [
         "Default editing remains functional; unsupported control cannot emit a failing new native request.",
         "Nonzero legacy preset gives a clear unsupported-look state and preserves the original preset/state."
@@ -1046,17 +1046,21 @@
       "priority": "P2",
       "status": "partial",
       "implemented": [
-        "Saved look/preset dictionaries, types, ranges, unknown fields and UI enum options are validated before application; parameter header is fingerprinted."
+        "Saved look/preset dictionaries, types, ranges, unknown fields and UI enum options are validated before application; parameter header is fingerprinted.",
+        "The panel reads a bounded compiled parameter manifest and validates available options against its runtime. The licensed-host fixture checked the actual arguments from the full Print and Scan slider boundary presets."
       ],
       "evidence_paths": [
         "NativePanel/LookStateValidation.cs",
         "NativePanel/PanelFiles.cs",
         "NativePanel/SpektraFilmTool.cs",
         "NativePanel/SpatialPreview.cs",
-        "tests/state"
+        "tests/state",
+        "NativePanel/RendererParameters.cs",
+        ".test-results/contracts-compilercaps-20261120/summary.json",
+        ".test-results/host-compiled-controls-20261120/host-smoke.log"
       ],
       "remaining_work": [
-        "A canonical generated parameter schema with migrations, dependencies, capability parity and upstream enumeration remains unimplemented."
+        "Drive managed units, ranges, defaults, dependency groups and schema migrations from the canonical description. Add malformed/bounded property-based validation beyond the current exact fixtures."
       ],
       "original_acceptance_tests": [
         "enumerate all upstream exposed controls and exact wire mappings",
@@ -1425,7 +1429,10 @@
       "implemented": [
         "Expose Hanatos 2026 as an explicit Optics reconstruction choice while keeping Hanatos 2025 as the default and preserving its existing saved method ID.",
         "The 20 advertised negative stocks have explicit positive four-value Hanatos 2026 adaptation calibration. All 480 stock/mode/method and source-encoding combinations produced finite GPU frames with exact source alpha. Each Hanatos 2026 output was distinct from the same stock/mode with Hanatos 2025.",
-        "The licensed host loaded an existing Hanatos 2025 look without changing its method, then persisted a selected 2026 look and rendered it from real 16-bit Capture One development. This passed on both first launch and restart."
+        "The licensed host loaded an existing Hanatos 2025 look without changing its method, then persisted a selected 2026 look and rendered it from real 16-bit Capture One development. This passed on both first launch and restart.",
+        "The compiled renderer emits a versioned parameter description from its actual numeric limits, choices, defaults and generated film data. Builds verify its parameter header hash and package the description as a required fingerprinted runtime file.",
+        "Panel startup validates its advertised stocks, modes, spectral choices and optics colour/enum choices. A renderer missing the 2026 method or calibration for any advertised stock does not expose the 2026 option. The compiled CLI and managed verifier both reject unavailable Process Negative.",
+        "The licensed host validated generated requests for Print and Scan at the managed slider boundaries. The standalone GPU matrix verifies every described renderer key and rejects invalid values, including missing APD calibration."
       ],
       "evidence_paths": [
         "stocks.json",
@@ -1433,11 +1440,17 @@
         "qa/HostSmoke/StartupHook.cs",
         "ofx-still-renderer/smoke.py",
         ".test-results/spectral-stock-matrix-20261120.log",
-        ".test-results/host-hanatos-2026-20261120/host-smoke.log"
+        ".test-results/host-hanatos-2026-20261120/host-smoke.log",
+        "NativePanel/RendererParameters.cs",
+        "Build-Windows.ps1",
+        "ReleaseManifest.ps1",
+        ".test-results/contracts-compilercaps-20261120/summary.json",
+        ".test-results/renderer-parameter-matrix-20261120.log",
+        ".test-results/host-compiled-controls-20261120/host-smoke.log"
       ],
       "remaining_work": [
-        "Generate a canonical renderer parameter schema from the compiled bridge and match every managed control, default, unit and dependency against it.",
-        "Negotiate capability prerequisites, especially APD calibration and exact native support for input encodings. Keep unsupported still controls classified and hidden or explicitly unavailable."
+        "Extend schema coverage with managed labels, units, dependency groups, conditional parameter capabilities and explicit defaults/migration applied by the panel. The authored WPF style and units still live in C#.",
+        "Check host colour generation against native reference probes on each supported host; a worker accepting an encoding does not prove the exact native RAW transform."
       ],
       "original_acceptance_tests": [
         "Mapping completeness and min/default/max round trip",
@@ -1675,17 +1688,21 @@
       "id": "RC-06",
       "title": "Gate unsupported Developer exhaustion and mode controls before rendering",
       "priority": "P1",
-      "status": "partial",
+      "status": "implemented",
       "implemented": [
-        "Developer exhaustion is visibly unavailable with explicit reset and no silent artistic-value rewrite."
+        "Developer exhaustion is visibly unavailable with explicit reset and no silent artistic-value rewrite.",
+        "Reject Process Negative at worker request validation when Academy Printer Density data was not compiled. The current still-host UI exposes Print and Scan and retains its own explicit encoded-negative gate.",
+        "Verified 137 renderer parameters and 558 GPU range, default, enum and invalid-input probes. The Capture One fixture assembled and checked actual arguments from both supported modes at each supported numeric limit and verified the disabled legacy control separately."
       ],
       "evidence_paths": [
         "NativePanel/SpektraFilmTool.cs",
-        "NativePanel/SpatialPreview.cs"
+        "NativePanel/SpatialPreview.cs",
+        "ofx-still-renderer/main.cpp",
+        "NativePanel/RendererParameters.cs",
+        ".test-results/host-compiled-controls-20261120/host-smoke.log",
+        ".test-results/renderer-parameter-matrix-20261120.log"
       ],
-      "remaining_work": [
-        "General mode/backend capability schema and every-control parameter sweep remain pending; scientific developer exhaustion is not implemented."
-      ],
+      "remaining_work": [],
       "original_acceptance_tests": [
         "Every visible slider min/default/max either renders or is disabled before action",
         "Old presets with exhaustion restored without losing values or surprise render error",
@@ -1948,7 +1965,8 @@
       "status": "partial",
       "implemented": [
         "Protocol verifies parameter-header SHA and float layout; build/package manifests fingerprint runtime files and launcher validates them; LUT embeds parameter contract.",
-        "Fresh complete source build/package at clean ffc4819 verified runtime/resources and host dependency hashes; extracted and installed checks passed."
+        "Fresh complete source build/package at clean ffc4819 verified runtime/resources and host dependency hashes; extracted and installed checks passed.",
+        "The package and build manifests now fingerprint the renderer-emitted parameter capabilities file. Manifest fixtures reject missing or changed metadata; the renderer produces byte-stable descriptor output in repeat calls."
       ],
       "evidence_paths": [
         "NativePanel/OpticalRenderer.cs",
@@ -1956,7 +1974,10 @@
         "ofx-still-renderer/main.cpp",
         "ReleaseManifest.ps1",
         "Build-Windows.ps1",
-        "Package-Windows.ps1"
+        "Package-Windows.ps1",
+        "NativePanel/RendererParameters.cs",
+        "tests/installer/Test-Manifest.ps1",
+        ".test-results/renderer-parameter-matrix-20261120.log"
       ],
       "remaining_work": [
         "Complete remaining tamper matrix; presets/metrics do not yet carry complete build identity; legacy developer layouts allow missing manifest."
@@ -2329,14 +2350,17 @@
       "priority": "P2",
       "status": "partial",
       "implemented": [
-        "The known unsupported developer-exhaustion control is disabled with retained legacy data and explicit clear action."
+        "The known unsupported developer-exhaustion control is disabled with retained legacy data and explicit clear action.",
+        "A real older preset with nonzero exhaustion used the disabled slider and an explicit Clear action. Renderer request construction refused it before worker creation. Clear saved the variant, preserved the original preset and restored a valid request. Native Undo returned to the preceding state."
       ],
       "evidence_paths": [
         "NativePanel/SpektraFilmTool.cs",
-        "NativePanel/SpatialPreview.cs"
+        "NativePanel/SpatialPreview.cs",
+        ".test-results/host-compiled-controls-20261120/host-smoke.log",
+        ".test-results/renderer-parameter-matrix-20261120.log"
       ],
       "remaining_work": [
-        "General manifest-driven runtime/mode support and complete enabled-control sweeps remain pending."
+        "Verify cross-control interactions and each upstream backend availability condition. Confirm UI gating for optional dependencies rather than only the single-setting request matrix."
       ],
       "original_acceptance_tests": [
         "every enabled control has a successful parameter sweep or explicitly supported validation outcome",
@@ -2573,12 +2597,16 @@
       "priority": "P2",
       "status": "partial",
       "implemented": [
-        "README and UI now disclose export, precision, state, host and LUT constraints and tracked testing paths."
+        "README and UI now disclose export, precision, state, host and LUT constraints and tracked testing paths.",
+        "Document the packaged compiled renderer option description and the executable parameter and calibration matrices. Build and package verification require the described capabilities as a fingerprinted runtime asset."
       ],
       "evidence_paths": [
         "README.md",
         "tests/renderer/README.md",
-        "NativePanel/SpektraFilmTool.cs"
+        "NativePanel/SpektraFilmTool.cs",
+        "Build-Windows.ps1",
+        "tests/renderer/README.md",
+        ".test-results/contracts-compilercaps-20261120/summary.json"
       ],
       "remaining_work": [
         "Generate capability/feature tables from schemas/manifests and verify documentation/release artifacts automatically; no16.7 support claim."
@@ -2653,8 +2681,8 @@
   ],
   "counts": {
     "total": 70,
-    "implemented": 16,
-    "partial": 41,
+    "implemented": 17,
+    "partial": 40,
     "pending": 13
   },
   "last_reconciled": "2026-11-20",

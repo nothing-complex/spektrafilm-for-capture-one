@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 16 bounded primary fixes implemented, 41 partial items and 13 pending items. It includes feasibility investigations and enhancements.
+Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 17 bounded primary fixes implemented, 40 partial items and 13 pending items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -343,6 +343,16 @@ Evidence is under `.test-results/host-auto-viewport-quality-20261120` and `.test
 - [x] Pass 152 first-launch and 156 restart checks. The actual panel persisted 2026 when selected and rendered the selected photo from a 16-bit Capture One source. The source catalog hash remained unchanged.
 
 GPU evidence is in `.test-results/spectral-stock-matrix-20261120.log`. Repeat with `python ofx-still-renderer/smoke.py --spectral-stock-matrix --exe build/still-renderer/Release/SpektraStillRenderer.exe`. The licensed-host log is under `.test-results/host-hanatos-2026-20261120`. Canonical control and backend capability documentation remains open.
+
+## Compiled renderer capabilities checkpoint
+
+- [x] Generate and fingerprint `renderer/parameter-capabilities.json` from the renderer’s option tables, defaults and compiled calibration. The panel checks it before exposing choices. A build without Academy Printer Density rejects Process Negative.
+- [x] Test all 137 described parameters and 558 parser and GPU cases. Include defaults, numeric bounds, every enum choice, rejected values and the APD prerequisite. Also verify every actual Print and Scan argument assembled from Capture One’s slider boundary presets.
+- [x] In the licensed host, load a legacy look with Developer exhaustion, keep the value and original preset, refuse the request before starting the worker, clear the saved value explicitly, and verify native Undo.
+- [x] Pass 12,523 ordinary contracts and 161 first-launch plus 165 restart assertions. The original database hash remained unchanged.
+- [ ] Generate the expanded control and release documentation from the schema. Units, dependencies and exact host colour acceptance remain open. Runtime package provenance for this checkpoint is separate from the earlier development ZIP.
+
+Evidence is under `.test-results/contracts-compilercaps-20261120`, `.test-results/renderer-parameter-matrix-20261120.log` and `.test-results/host-compiled-controls-20261120`. Run `Build-Windows.ps1` before HostSmoke to generate the required description.
 
 ## Status maintenance
 
