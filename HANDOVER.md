@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-19. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 10 bounded primary fixes implemented, 41 partial items and 19 pending items. It includes feasibility investigations and enhancements.
+Updated 2026-11-19. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 11 bounded primary fixes implemented, 40 partial items and 19 pending items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -198,6 +198,16 @@ Evidence is under `.test-results/renderer-benchmark-color-optics-20261119.json` 
 - [x] Fix the worker-shutdown EOF/cancellation race exposed by Windows Server 2025. The preceding matrix passed on Server 2022. Verify the updated matrix run on both images. [Initial matrix](https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44622033511)
 
 Evidence is under `.test-results/contracts-memory-admission-20261119`, `.test-results/host-memory-admission-20261119` and `.test-results/gpu-tiled-parity-20261119.log`. The installed runtime still identifies `ffc4819`.
+
+## Vulkan memory admission checkpoint
+
+- [x] Read device-local budget and usage on the selected Vulkan adapter. Use a conservative heap-derived budget where the extension is unavailable. Estimate graph memory and choose full-size tiling when needed. Keep the full-frame synthesis requirement explicit. [Vulkan memory budget](https://registry.khronos.org/VulkanSC/specs/1.0-extensions/man/html/VkPhysicalDeviceMemoryBudgetPropertiesEXT.html)
+- [x] Test a 128 MiB simulated cap, correct tile selection and pixel parity, and recovery after refused synthesis and source-buffer requests. The previous accepted source survives both.
+- [x] Run the 6000 × 4000 optics case at 2/3/4 GiB simulated allocator caps. It used 845 MiB reported Vulkan allocations compared with 4,033 MiB full-frame. Warm median was 1.79–1.85 s tiled and 0.51 s full-frame on this RTX 3090. Requested dimensions stayed the same.
+- [x] Rebuild the helper and pass 106 first-launch and 109 restart assertions in Capture One with the new GPU metrics. The source catalog hash stayed unchanged.
+- [x] Both public Windows CI images passed 12,297 assertions, including DPI and the symbolic-link fixture. [Windows contracts](https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44623654332)
+
+Evidence is under `.test-results/gpu-memory-adaptive-20261119.log`, `.test-results/renderer-gpu-budget-*-20261119.json` and `.test-results/host-adaptive-vram-20261119`. Physical low-VRAM devices, multiple concurrent host windows and larger exact exports remain open. The installed runtime still identifies `ffc4819`.
 
 ## Runtime map for the next agent
 

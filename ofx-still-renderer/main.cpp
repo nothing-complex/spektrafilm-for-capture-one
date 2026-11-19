@@ -1,5 +1,5 @@
 #include "SpektraProfileCurves.h"
-#include "SpektraRenderer.h"
+#include "SpektraVulkanRenderer.h"
 
 #include <algorithm>
 #include <array>
@@ -498,7 +498,48 @@ std::unique_ptr<Renderer> startRenderer() {
     return renderer;
 }
 
-void renderFrame(Renderer &renderer, const InputFrame &input, const RenderParams &params, std::vector<float> &output) {
+struct FrameMemoryPlan {
+    uint64_t fullFrameBytes = 0;
+    uint64_t budgetBytes = 0;
+    bool dynamicBudget = false;
+    bool selectedTiling = false;
+};
+
+FrameMemoryPlan planGpuMemory(Renderer &renderer, FrameSize size, RenderParams &params) {
+    constexpr uint64_t mebibyte = 1024ull * 1024ull;
+    const auto *vulkan = dynamic_cast<const VulkanRenderer *>(&renderer);
+    if (!vulkan) return {};
+    const auto budget = vulkan->availableDeviceLocalMemory();
+    const auto pixels = static_cast<uint64_t>(size.width) * static_cast<uint64_t>(size.height);
+    uint64_t perPixel = 112; // Packed color alone used about 96 B/px in the benchmark.
+    if (params.halationEnabled) perPixel += 80;
+    if (params.cameraDiffusionEnabled) perPixel += 64;
+    if (params.printDiffusionEnabled) perPixel += 64;
+    if (params.dirCouplersAmount > 1.0f) perPixel += 24;
+    if (params.scannerEnabled) perPixel += 32;
+    const bool synthesis = params.grainEnabled && params.grainModel == GrainModel::GrainSynthesis;
+    if (params.grainEnabled) perPixel += synthesis ? 160 : 32;
+    const auto estimate = 64 * mebibyte + pixels * perPixel;
+    const auto headroom = budget.bytes - budget.bytes / 8;
+    FrameMemoryPlan plan{estimate, headroom, budget.dynamic, false};
+    if (headroom == 0 && !budget.dynamic) return plan;
+    if (params.gpuRenderTiling == GpuRenderTilingMode::Tiled || estimate > headroom) {
+        if (synthesis)
+            throw std::runtime_error("Grain Synthesis needs more GPU memory for this full frame. Choose a smaller resolution or a different grain model.");
+        // Tiling still needs two full-size source buffers plus tile scratch.
+        // This is a minimum; overlap requirements vary with optical parameters.
+        if (64 * mebibyte + pixels * 32 > headroom)
+            throw std::runtime_error("This frame needs more GPU memory for the source buffers. Free GPU memory or choose a smaller resolution.");
+        if (renderer.lastDiagnostics().transientCachedBytes != 0 && !renderer.lastDiagnostics().tiledRendering)
+            renderer.releaseTransientResources();
+        plan.selectedTiling = params.gpuRenderTiling != GpuRenderTilingMode::Tiled;
+        params.gpuRenderTiling = GpuRenderTilingMode::Tiled;
+    }
+    return plan;
+}
+
+FrameMemoryPlan renderFrame(Renderer &renderer, const InputFrame &input, RenderParams params, std::vector<float> &output) {
+    const auto memory = planGpuMemory(renderer, input.size, params);
     const auto width = input.size.width;
     const auto height = input.size.height;
     const auto *pixels = input.pixels.data();
@@ -520,6 +561,7 @@ void renderFrame(Renderer &renderer, const InputFrame &input, const RenderParams
         throw std::runtime_error(renderer.lastError());
     for (const float component : output)
         if (!std::isfinite(component)) throw std::runtime_error("Renderer produced a non-finite pixel.");
+    return memory;
 }
 
 void process(int argc, char **argv) {
@@ -636,7 +678,7 @@ void writeCapabilities(const FrameLimit &limit) {
     writeReply(0, text.data(), static_cast<uint32_t>(text.size()));
 }
 
-void writeMetrics(const Renderer *renderer, uint64_t renderSequence, const InputFrame &input) {
+void writeMetrics(const Renderer *renderer, uint64_t renderSequence, const InputFrame &input, const FrameMemoryPlan &memory) {
     const RendererDiagnostics empty{};
     const auto &d = renderer ? renderer->lastDiagnostics() : empty;
     std::ostringstream json;
@@ -657,7 +699,11 @@ void writeMetrics(const Renderer *renderer, uint64_t renderSequence, const Input
          << ",\"transientBudgetBytes\":" << d.transientBudgetBytes
          << ",\"passCount\":" << d.passCount
          << ",\"tiled\":" << (d.tiledRendering ? "true" : "false")
-         << ",\"tileCount\":" << d.tileCount << '}';
+         << ",\"tileCount\":" << d.tileCount
+         << ",\"estimatedFullFrameGpuBytes\":" << memory.fullFrameBytes
+         << ",\"gpuMemoryBudgetBytes\":" << memory.budgetBytes
+         << ",\"dynamicGpuBudget\":" << (memory.dynamicBudget ? "true" : "false")
+         << ",\"budgetSelectedTiling\":" << (memory.selectedTiling ? "true" : "false") << '}';
     const auto text = json.str();
     writeReply(0, text.data(), static_cast<uint32_t>(text.size()));
 }
@@ -680,6 +726,7 @@ void processStream(const FrameLimit &limit) {
     const bool nativePreview = &limit == &kNativePreviewLimit;
     uint64_t nextRevision = 0;
     uint64_t renderSequence = 0;
+    FrameMemoryPlan memory{};
     std::string line;
     try {
         while (readCommand(line)) {
@@ -698,7 +745,7 @@ void processStream(const FrameLimit &limit) {
             if (verb == "METRICS") {
                 std::string extra;
                 if (command >> extra) writeError("METRICS does not take arguments.");
-                else writeMetrics(renderer.get(), renderSequence, input);
+                else writeMetrics(renderer.get(), renderSequence, input, memory);
                 continue;
             }
             if (verb == "QUIT") {
@@ -753,7 +800,7 @@ void processStream(const FrameLimit &limit) {
                 renderedArguments.reset();
                 try {
                     if (!renderer) renderer = startRenderer();
-                    renderFrame(*renderer, replacesInput ? replacement : input, params, output);
+                    memory = renderFrame(*renderer, replacesInput ? replacement : input, params, output);
                     ++renderSequence;
                 } catch (const std::exception &error) {
                     renderer.reset();

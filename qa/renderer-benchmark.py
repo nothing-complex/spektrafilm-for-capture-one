@@ -88,13 +88,15 @@ def command_json(child, command):
     return json.loads(read_exact(child.stdout, size))
 
 
-def run_case(executable, shape, scene, route, repetitions, timeout):
+def run_case(executable, shape, scene, route, repetitions, timeout, simulated_cap_mib):
     packed = route == "viewer"
     width, height = shape
     pixels = width * height
     args = "--native-preview-stream" if packed else "--export-stream"
     env = {key: value for key, value in os.environ.items()
            if not key.upper().startswith("SPEKTRAFILM_") and key.upper() != "DOTNET_STARTUP_HOOKS"}
+    if simulated_cap_mib is not None:
+        env["SPEKTRAFILM_VULKAN_TRANSIENT_BUDGET_MB"] = str(simulated_cap_mib)
     child = subprocess.Popen([str(executable), args], cwd=executable.parent, env=env,
                              stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     # An unresponsive renderer cannot leave a benchmark child or blocked pipe behind.
@@ -192,14 +194,18 @@ def main():
     parser.add_argument("--scene", action="append", choices=SCENES)
     parser.add_argument("--repetitions", type=int, default=5)
     parser.add_argument("--case-timeout", type=int, default=180)
+    parser.add_argument("--simulate-gpu-cap-mib", type=int, help="Test-only cap for the renderer allocator. Does not change physical VRAM.")
     args = parser.parse_args()
     if os.name != "nt" or args.repetitions < 1 or args.case_timeout < 1:
         parser.error("Use Windows and positive repetition and timeout values.")
+    if args.simulate_gpu_cap_mib is not None and args.simulate_gpu_cap_mib < 1:
+        parser.error("The simulated GPU allocator cap must be positive.")
     executable = args.renderer.resolve(strict=True)
     if args.output.exists():
         parser.error("Choose a new output JSON path.")
     result = {
         "schema": 1,
+        "simulatedGpuAllocatorCapMiB": args.simulate_gpu_cap_mib,
         "timingScope": "Worker request and reply. The first request transfers input; later requests re-render edited parameters.",
         "memoryScope": "Worker process and renderer diagnostics. Driver workspace and Capture One host memory are outside this report.",
         "cases": [],
@@ -213,7 +219,7 @@ def main():
         for scene in args.scene or ("color",):
             for shape in args.size or ((1200, 800), (3000, 2000), (6000, 4000)):
                 try:
-                    case = run_case(executable, shape, scene, route, args.repetitions, args.case_timeout)
+                    case = run_case(executable, shape, scene, route, args.repetitions, args.case_timeout, args.simulate_gpu_cap_mib)
                 except Exception as error:
                     result["failure"] = {"route": route, "scene": scene, "size": shape, "reason": str(error)}
                     update_result(result, args.output)

@@ -238,6 +238,38 @@ def check_tiled_parity(exe, base):
         print(f"Tile parity {label}: max code difference {np.max(np.abs(pictures[0] - pictures[1])):.8g}")
 
 
+def check_gpu_budget(exe, base):
+    environment = {key: value for key, value in os.environ.items()
+                   if not key.upper().startswith("SPEKTRAFILM_") and key.upper() != "DOTNET_STARTUP_HOOKS"}
+    pressure = {**environment, "SPEKTRAFILM_VULKAN_TRANSIENT_BUDGET_MB": "128"}
+    frame = np.tile(source_frame(None), (4, 3, 1))[:769, :1027].copy()
+    large = np.tile(source_frame(None), (5, 5, 1))[:1200, :1800].copy()
+    options = f"{base} --grain-model off"
+    request = frame_request(frame, options) + b"METRICS\n"
+    reference = run_stream(exe, request, mode="--export-stream", env=environment)
+    assert all(status == 0 for status, _ in reference)
+    original = np.frombuffer(reference[0][1], dtype="<f4")
+
+    request += (
+        frame_request(frame, f"{base} --grain-model synthesis --grain-synthesis-samples 2")
+        + frame_request(large, options)
+        + f"REUSE {options}\nMETRICS\nQUIT\n".encode("ascii")
+    )
+    replies = run_stream(exe, request, mode="--export-stream", env=pressure)
+    assert [status for status, _ in replies] == [0, 0, 1, 1, 0, 0, 0], [status for status, _ in replies]
+    metrics = json.loads(replies[1][1])
+    assert metrics["tiled"] and metrics["tileCount"] > 1 and metrics["budgetSelectedTiling"]
+    assert metrics["estimatedFullFrameGpuBytes"] > metrics["gpuMemoryBudgetBytes"] > 0
+    assert b"Grain Synthesis needs more GPU memory" in replies[2][1]
+    assert b"more GPU memory for the source buffers" in replies[3][1]
+    assert len(replies[0][1]) == frame.nbytes == len(replies[4][1])
+    np.testing.assert_allclose(np.frombuffer(replies[0][1], dtype="<f4"), original, rtol=0, atol=2e-6)
+    assert replies[0][1] == replies[4][1], "memory rejection must preserve the previously accepted source"
+    assert json.loads(replies[5][1])["renderSequence"] == 2
+    print(f"GPU memory guard: simulated 128 MiB cap selected {metrics['tileCount']} tiles, "
+          "preserved requested size, and recovered after two refused renders.")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--image", type=Path, help="Optional photograph. Defaults to a synthetic image.")
@@ -250,6 +282,7 @@ def main():
     check_export_stream(args.exe, frame, base)
     check_output_transfers(args.exe, frame, base)
     check_tiled_parity(args.exe, base)
+    check_gpu_budget(args.exe, base)
     baseline, seconds = render(args.exe, frame, base)
     print(f"Baseline {frame.shape[1]}×{frame.shape[0]} in {seconds * 1000:.0f} ms")
 

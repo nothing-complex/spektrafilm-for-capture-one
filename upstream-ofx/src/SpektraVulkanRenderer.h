@@ -10,6 +10,11 @@ namespace spektrafilm {
 using VulkanPassDiagnostics = RendererPassDiagnostics;
 using VulkanRenderDiagnostics = RendererDiagnostics;
 
+struct VulkanMemoryBudget {
+  uint64_t bytes = 0;
+  bool dynamic = false;
+};
+
 class VulkanRenderer final : public Renderer {
 public:
   VulkanRenderer();
@@ -22,6 +27,7 @@ public:
   const VulkanRenderDiagnostics &lastDiagnostics() const override;
   const std::string &lastError() const override;
   void releaseTransientResources() override;
+  VulkanMemoryBudget availableDeviceLocalMemory() const;
 
   bool render(
     const ImageView &source,

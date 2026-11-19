@@ -133,6 +133,11 @@ public static class StartupHook
                 var renderTask = (Task<byte[]>)Call(renderer,"RenderAsync",width,height,Prop(lastFrame!,"FloatBytes"),renderArgs,CancellationToken.None,false)!;
                 var pixels = await renderTask;
                 Check(pixels.Length == width * height * 16,"native source rendered through float32 GPU export transport");
+                var diagnostic = await (Task<JsonElement?>)Call(renderer, "ReadDiagnosticsAsync", CancellationToken.None)!;
+                Check(diagnostic?.GetProperty("gpuMemoryBudgetBytes").GetInt64() > 0
+                    && diagnostic?.GetProperty("estimatedFullFrameGpuBytes").GetInt64() > 0,
+                    "Vulkan budget and frame estimate available on the real host export worker");
+
                 var bitmap = (BitmapSource)spatial.GetType().GetMethod("DecodeExport",Flags)!.Invoke(null,new object[] {
                     lastFrame!,pixels,1d,space,"srgb",PixelFormats.Rgb48,new System.Drawing.Rectangle(0,0,width,height),CancellationToken.None,96d })!;
                 var output = Path.Combine(folder,"host-export.tif");

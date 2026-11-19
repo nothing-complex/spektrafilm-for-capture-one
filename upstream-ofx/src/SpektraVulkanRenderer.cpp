@@ -1,6 +1,7 @@
 #include "SpektraVulkanRenderer.h"
 #include "SpektraProfileCurves.h"
 
+#include <string_view>
 #include <vulkan/vulkan.h>
 
 #if defined(_WIN32)
@@ -1494,6 +1495,7 @@ struct VulkanSharedBackend {
   VkPipeline scannerPostPipeline = VK_NULL_HANDLE;
   VkPipeline grainPipeline = VK_NULL_HANDLE;
   uint64_t transientBudgetBytes = 0;
+  bool supportsMemoryBudget = false;
 
   explicit VulkanSharedBackend(uint32_t backendGeneration) : generation(backendGeneration) {
     initialize();
@@ -1537,6 +1539,38 @@ struct VulkanSharedBackend {
 
   void markLost() {
     poisoned.store(true);
+  }
+
+  VulkanMemoryBudget availableDeviceLocalMemory(uint64_t cached) const {
+    if (!supportsMemoryBudget) {
+      return {transientBudgetBytes, false};
+    }
+    VkPhysicalDeviceMemoryBudgetPropertiesEXT budget{};
+    budget.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT;
+    VkPhysicalDeviceMemoryProperties2 properties{};
+    properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2;
+    properties.pNext = &budget;
+    vkGetPhysicalDeviceMemoryProperties2(physicalDevice, &properties);
+    const auto &memory = properties.memoryProperties;
+    int largestLocalHeap = -1;
+    VkDeviceSize capacity = 0;
+    for (uint32_t i = 0; i < memory.memoryHeapCount; ++i) {
+      if ((memory.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) != 0 &&
+          memory.memoryHeaps[i].size > capacity && budget.heapBudget[i] > 0) {
+        largestLocalHeap = static_cast<int>(i);
+        capacity = memory.memoryHeaps[i].size;
+      }
+    }
+    if (largestLocalHeap < 0) {
+      return {transientBudgetBytes, false};
+    }
+    const auto limit = budget.heapBudget[largestLocalHeap];
+    const auto usage = budget.heapUsage[largestLocalHeap];
+    // Cached buffers are available to reuse or reclaim; keep other Vulkan
+    // allocations (and any driver overhead reported in usage) charged.
+    const auto committed = usage - std::min<uint64_t>(cached, usage);
+    const uint64_t free = committed < limit ? limit - committed : 0;
+    return {std::min(transientBudgetBytes, free), true};
   }
 
 private:
@@ -1593,6 +1627,16 @@ private:
     }
 
     transientBudgetBytes = computeTransientBudgetBytes();
+    uint32_t extensionCount = 0;
+    if (physicalDeviceProperties.apiVersion >= VK_API_VERSION_1_1 &&
+        vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extensionCount, nullptr) == VK_SUCCESS) {
+      std::vector<VkExtensionProperties> extensions(extensionCount);
+      if (vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extensionCount, extensions.data()) == VK_SUCCESS) {
+        supportsMemoryBudget = std::any_of(extensions.begin(), extensions.end(), [](const VkExtensionProperties &extension) {
+          return std::string_view(extension.extensionName) == VK_EXT_MEMORY_BUDGET_EXTENSION_NAME;
+        });
+      }
+    }
     available = true;
   }
 
@@ -7821,6 +7865,14 @@ void VulkanRenderer::releaseTransientResources() {
   if (impl_) {
     impl_->releaseTransientResources();
   }
+}
+
+VulkanMemoryBudget VulkanRenderer::availableDeviceLocalMemory() const {
+  if (!impl_ || !impl_->backend) {
+    return {};
+  }
+  std::lock_guard<std::recursive_mutex> lock(impl_->renderMutex);
+  return impl_->backend->availableDeviceLocalMemory(impl_->diagnostics.transientCachedBytes);
 }
 
 bool VulkanRenderer::render(

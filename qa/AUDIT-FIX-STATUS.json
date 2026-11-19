@@ -411,6 +411,47 @@
         "windows-2022": "passed",
         "windows-2025": "failed",
         "scope": "Windows worker shutdown returned EOF before cancellation. Fixed here; validate rerun on both images."
+      },
+      "github": {
+        "status": "passed",
+        "run_id": 44623654332,
+        "url": "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44623654332",
+        "windows-2022_assertions": 12297,
+        "windows-2025_assertions": 12297
+      }
+    },
+    "adaptive_gpu_memory": {
+      "status": "passed",
+      "host": {
+        "first_launch_assertions": 106,
+        "restart_assertions": 109,
+        "source_catalog_unchanged": true,
+        "evidence": ".test-results/host-adaptive-vram-20261119/host-smoke.log"
+      },
+      "gpu": {
+        "renderer_sha256": "c56d95493b59a580c08b81ab27778c7017af7178095d6d01833d3bca376e3d51",
+        "evidence": ".test-results/gpu-memory-adaptive-20261119.log",
+        "benchmark_reports": [
+          ".test-results/renderer-gpu-budget-native-20261119.json",
+          ".test-results/renderer-gpu-budget-2048-20261119.json",
+          ".test-results/renderer-gpu-budget-3072-20261119.json",
+          ".test-results/renderer-gpu-budget-4096-20261119.json"
+        ],
+        "actual_gpu": "RTX 3090",
+        "simulated_allocator_caps_mib": [
+          128,
+          2048,
+          3072,
+          4096
+        ],
+        "uncapped_reported_allocations_mib": 4032.5,
+        "capped_reported_allocations_mib": 844.6,
+        "uncapped_warm_median_ms": 514.3,
+        "capped_warm_median_ms_range": [
+          1788.2,
+          1852.1
+        ],
+        "scope": "Exact size, measured estimates and process-local Vulkan budget. Simulations impose allocator caps on the RTX 3090; hardware with lower physical VRAM is a separate test."
       }
     }
   },
@@ -643,13 +684,14 @@
       "id": "VE-16",
       "title": "Commit host-independent geometry and high-depth output contract tests",
       "priority": "P2",
-      "status": "partial",
+      "status": "implemented",
       "implemented": [
         "Tracked pure tests verify affine geometry, exact 16-bit TIFF/PNG samples, ICC, atomic-write preservation, draft filtering and cancellation.",
         "A separate overlap integral validates nonconstant color and alpha on fractional sampling footprints in all four transfer spaces and five output sizes.",
         "Actual Capture One native development from a restored catalog uses 16-bit input with correctly sampled quarter-turn and horizontal mirroring. Keystone correction changes the developed pixels.",
         "Unscaled actual DNG export reopened as 6000 by 4000 RGB48 with embedded ICC and 96 DPI. A decoded sample contained codes between 8-bit steps. Recipe/geometry and export tiers remain separate.",
-        "Paint and clip the corresponding physical pixels in an actual WPF target at 100%, 150% and 200% DPI with a modeled native painter transform. Test subpixel closure/degeneracy and crop rounding at right and bottom edges."
+        "Paint and clip the corresponding physical pixels in an actual WPF target at 100%, 150% and 200% DPI with a modeled native painter transform. Test subpixel closure/degeneracy and crop rounding at right and bottom edges.",
+        "Both Windows CI images passed the headless high-DPI, crop and high-depth contracts. Native geometry remains separately verified in the licensed host tier."
       ],
       "evidence_paths": [
         "tests/ViewerContracts",
@@ -659,18 +701,20 @@
         ".test-results/host-restore-geometry-20261119/host-smoke.log",
         ".test-results/host-full-raw-24mp-20261119/host-smoke.log",
         ".test-results/contracts-memory-admission-20261119/summary.json",
-        ".test-results/host-memory-admission-20261119/host-smoke.log"
+        ".test-results/host-memory-admission-20261119/host-smoke.log",
+        "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44623654332"
       ],
-      "remaining_work": [
-        "Observe both updated CI matrix jobs and retain separate physical monitor/host UI evidence for placement."
-      ],
+      "remaining_work": [],
       "original_acceptance_tests": [
         "Run CI Windows matrix on supported .NET target without installed Capture One for pure tests.",
         "TIFF RGB48 and PNG RGBA64 samples include differences smaller than 1/255; wrong input format and canceled write retain destination.",
         "Geometry degeneracy, epsilon closure, offscreen clip, mirrored winding, quarter-turn, high DPI coordinate contract.",
         "Record host-dependent cases separately and never treat skipped host checks as pass."
       ],
-      "dependencies": []
+      "dependencies": [],
+      "implementation_limits": [
+        "Physical monitor and workspace placement remain under HS-14 and VE-10."
+      ]
     },
     {
       "id": "HS-12",
@@ -811,7 +855,8 @@
       "status": "partial",
       "implemented": [
         "Measure peak worker working set and Vulkan allocation counters at 0.96, 6 and 24 MP for color and optics in packed Viewer and float export routes. Separate benchmark measured 2-sample draft synthesis and renderer-default synthesis.",
-        "Shared system RAM admission estimates and reserves physical/commit headroom for native development, worker transport, and output encoding. Verified reusable reservations and pressure in synthetic 4/6/8 GiB system headroom cases, plus an actual full 24 MP export under guard."
+        "Shared system RAM admission estimates and reserves physical/commit headroom for native development, worker transport, and output encoding. Verified reusable reservations and pressure in synthetic 4/6/8 GiB system headroom cases, plus an actual full 24 MP export under guard.",
+        "Query VK_EXT_memory_budget on the selected adapter where available and fall back to the conservative heap-based allocator budget. Use estimated graph bytes and reserved headroom to choose full-size tiling or refuse an infeasible frame. Grain synthesis retains the full-frame requirement."
       ],
       "evidence_paths": [
         "qa/renderer-benchmark.py",
@@ -819,11 +864,17 @@
         ".test-results/renderer-benchmark-grain-quality-20261119.json",
         "NativePanel/RenderMemoryBudget.cs",
         ".test-results/contracts-memory-admission-20261119/summary.json",
-        ".test-results/host-memory-admission-20261119/host-smoke.log"
+        ".test-results/host-memory-admission-20261119/host-smoke.log",
+        ".test-results/gpu-memory-adaptive-20261119.log",
+        ".test-results/host-adaptive-vram-20261119/host-smoke.log",
+        ".test-results/renderer-gpu-budget-native-20261119.json",
+        ".test-results/renderer-gpu-budget-2048-20261119.json",
+        ".test-results/renderer-gpu-budget-3072-20261119.json",
+        ".test-results/renderer-gpu-budget-4096-20261119.json"
       ],
       "remaining_work": [
-        "Compare Capture One and worker peak to current conservative system estimates under real pressure. Account for cached frame lifetimes and cross-process reservations.",
-        "Use actual adapter-local free budget and graph-specific tiling for GPU admission. Test 4/6/8 GB VRAM and OOM recovery."
+        "Calibrate all optics graphs, shared GPU activity and system memory on real 4/6/8 GB hardware from different vendors.",
+        "Add process-wide adapter-aware admission for two Viewer contexts; explicitly release idle buffers by ownership and model allocator overlap at each tile."
       ],
       "original_acceptance_tests": [
         "4/6/8GB GPU scenarios and100MP source sizing",
@@ -1867,15 +1918,22 @@
       "priority": "P2",
       "status": "partial",
       "implemented": [
-        "Export checks measured system memory estimates at successive stages, preserves exact requested canvas or refuses it explicitly, and passes a real 24 MP run. Tiled/full parity passed six representative GPU scenes without format reduction."
+        "Export checks measured system memory estimates at successive stages, preserves exact requested canvas or refuses it explicitly, and passes a real 24 MP run. Tiled/full parity passed six representative GPU scenes without format reduction.",
+        "Rebuilt Vulkan helper selected tiling for all three simulated cache caps at exact 6000 by 4000 output. Reported Vulkan allocations fell from 4033 to 845 MiB for the tested optics graph. Impossible source and synthesis requests preserve the existing accepted frame and report the limitation."
       ],
       "evidence_paths": [
         ".test-results/host-memory-admission-20261119/host-smoke.log",
         ".test-results/gpu-tiled-parity-20261119.log",
-        "NativePanel/RenderMemoryBudget.cs"
+        "NativePanel/RenderMemoryBudget.cs",
+        ".test-results/gpu-memory-adaptive-20261119.log",
+        ".test-results/host-adaptive-vram-20261119/host-smoke.log",
+        ".test-results/renderer-gpu-budget-native-20261119.json",
+        ".test-results/renderer-gpu-budget-2048-20261119.json",
+        ".test-results/renderer-gpu-budget-3072-20261119.json",
+        ".test-results/renderer-gpu-budget-4096-20261119.json"
       ],
       "remaining_work": [
-        "Prove real low-VRAM budgeting, bounded tiled export and support beyond the current 32 MP and 8192 edge limits. Test tighter host-memory conditions and failure during export."
+        "Extend exact export support beyond 32 MP and 8192 px, validate synthetic 45/61/>100 MP preflight, test held prior output at injected OOM, and repeat on actual low-VRAM adapters."
       ],
       "original_acceptance_tests": [
         "Synthetic 30MP, 45MP, 61MP and >100MP preflight tests plus long-thin frames; allocate huge frames only on controlled memory fixtures.",
@@ -2243,18 +2301,19 @@
       "implemented": [
         "Least-permission Windows public contract workflow and separate opt-in host/GPU paths are tracked.",
         "Observed GitHub Windows contracts success run43916882324 on ffc4819; no secrets or licensed host binaries are required.",
-        "Public Windows contracts now run on separate Server 2022 and Server 2025 runners with read-only permissions and no persisted checkout credentials."
+        "Public Windows contracts now run on separate Server 2022 and Server 2025 runners with read-only permissions and no persisted checkout credentials.",
+        "Both CI images passed 12,297 fixture assertions after normalizing the worker EOF/cancellation race. Both ran the symbolic-link fixture."
       ],
       "evidence_paths": [
         ".github/workflows/contracts.yml",
         "Test-Windows.ps1",
         "tests",
         "qa/HostSmoke",
-        ".github/workflows/contracts.yml"
+        ".github/workflows/contracts.yml",
+        "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44623654332"
       ],
       "remaining_work": [
-        "Verify actual outside-fork PR behavior; complete automated release gating and exact host capability matrix. Never automatically run fork code on privileged desktop runners.",
-        "Verify both CI jobs on the matrix commit and retain separate approved licensed host gating."
+        "Verify a real outside-fork PR. Finish automated release gating through tagged build provenance and retain a separate exact licensed-host matrix."
       ],
       "original_acceptance_tests": [
         "Fork PR can run pure tests without upstream write access or secrets.",
@@ -2379,8 +2438,8 @@
   ],
   "counts": {
     "total": 70,
-    "implemented": 10,
-    "partial": 41,
+    "implemented": 11,
+    "partial": 40,
     "pending": 19
   },
   "last_reconciled": "2026-11-19",
