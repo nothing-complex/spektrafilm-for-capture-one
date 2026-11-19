@@ -10,24 +10,27 @@ internal sealed class RenderMemoryBudget(Func<long?> availableBytes)
     private long reserved;
     private const long MiB = 1024L * 1024L;
     internal static RenderMemoryBudget SystemMemory { get; } = new(ReadAvailableMemory);
+    internal long? AvailableForNewAllocation { get { lock (sync) return RemainingBudget(); } }
 
     internal IDisposable Reserve(RenderAllocation stage, long pixels, string resolutionAction)
     {
         var estimate = EstimateBytes(stage, pixels);
         lock (sync)
         {
-            if (availableBytes() is long available)
-            {
-                // Keep one eighth of current headroom for Capture One and the OS.
-                var budget = Math.Max(available, 0);
-                budget -= budget / 8;
-                if (estimate > budget - reserved)
-                    throw new InsufficientMemoryException(
-                        $"Spektrafilm needs about {Math.Ceiling(estimate / (double)MiB):F0} MiB of system memory for this frame. {resolutionAction}");
-            }
+            if (RemainingBudget() is long available && estimate > available)
+                throw new InsufficientMemoryException(
+                    $"Spektrafilm needs about {Math.Ceiling(estimate / (double)MiB):F0} MiB of system memory for this frame. {resolutionAction}");
             reserved += estimate;
         }
         return new Reservation(this, estimate);
+    }
+
+    private long? RemainingBudget()
+    {
+        if (availableBytes() is not long available) return null;
+        // Keep one eighth of current headroom for Capture One and the OS.
+        var budget = Math.Max(available, 0);
+        return budget - budget / 8 - reserved;
     }
 
     internal static long EstimateBytes(RenderAllocation stage, long pixels)

@@ -3,7 +3,7 @@ using System.Drawing;
 using System.Windows;
 using System.Windows.Media;
 
-internal readonly record struct ViewerGeometry(Rect Clip, Matrix Transform)
+internal readonly record struct ViewerGeometry(Rect Clip, Matrix Transform, double ProjectedLongEdge)
 {
     internal static bool TryCreate(RectangleF clip, ReadOnlySpan<PointF> corners, int width, int height,
         out ViewerGeometry geometry)
@@ -25,14 +25,15 @@ internal readonly record struct ViewerGeometry(Rect Clip, Matrix Transform)
         var expected = new System.Windows.Point(origin.X + x.X + y.X, origin.Y + x.Y + y.Y);
         // The native corners are single-precision physical pixels. Accept subpixel
         // rounding, but require the fourth corner to close the same parallelogram.
-        var tolerance = Math.Max(0.5, Math.Max(x.Length, y.Length) * 0.00001);
+        var projectedLongEdge = Math.Max(x.Length, y.Length);
+        var tolerance = Math.Max(0.5, projectedLongEdge * 0.00001);
         if (Math.Abs(expected.X - corners[2].X) > tolerance || Math.Abs(expected.Y - corners[2].Y) > tolerance)
             return false;
 
         // A frame with less than one column or row in the Viewer cannot be
         // displayed usefully. The area test also rejects near-collinear edges.
         var area = Math.Abs(Vector.CrossProduct(x, y));
-        if (area < Math.Max(x.Length, y.Length) || area == 0)
+        if (area < projectedLongEdge || area == 0)
             return false;
 
         var minX = Math.Min(Math.Min(corners[0].X, corners[1].X), Math.Min(corners[2].X, corners[3].X));
@@ -45,7 +46,7 @@ internal readonly record struct ViewerGeometry(Rect Clip, Matrix Transform)
         var matrix = new Matrix(x.X / width, x.Y / width, y.X / height, y.Y / height, origin.X, origin.Y);
         if (!matrix.HasInverse)
             return false;
-        geometry = new ViewerGeometry(new Rect(clip.Left, clip.Top, clip.Width, clip.Height), matrix);
+        geometry = new ViewerGeometry(new Rect(clip.Left, clip.Top, clip.Width, clip.Height), matrix, projectedLongEdge);
         return true;
     }
 

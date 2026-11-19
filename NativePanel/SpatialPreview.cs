@@ -34,7 +34,8 @@ internal sealed class SpatialPreview : IDisposable
     };
     private static readonly Choice[] PreviewSizes =
     {
-        new("native", "Native resolution"), new("4096", "4096 px"), new("3072", "3072 px"), new("2560", "2560 px"),
+        new("native", "Native resolution"), new("auto", "Auto (up to 4096 px)"), new("4096", "4096 px"),
+        new("3072", "3072 px"), new("2560", "2560 px"),
         new("2048", "2048 px"), new("1600", "1600 px"), new("1200", "1200 px"), new("900", "900 px"), new("720", "720 px"),
     };
     private static readonly DragSize[] DragSizes =
@@ -58,6 +59,7 @@ internal sealed class SpatialPreview : IDisposable
     private readonly TextBlock status = new() { Margin = new Thickness(0, 5, 0, 3), TextWrapping = TextWrapping.Wrap };
     private readonly DispatcherTimer refresh = new() { Interval = TimeSpan.FromMilliseconds(33) };
     private readonly ViewerPreview viewer;
+    private readonly ViewportQuality viewportQuality = new();
     private OpticalRenderer? renderer;
     private bool rendererUsesHighDepthPreview;
     private CancellationTokenSource? pending;
@@ -775,6 +777,7 @@ internal sealed class SpatialPreview : IDisposable
     private void ResetSource(bool keepDraftRenderer = false)
     {
         ResetDraft(keepRenderer: keepDraftRenderer);
+        viewportQuality.Reset();
         source = null;
         sourceRevision = null;
         sourceSpace = null;
@@ -839,7 +842,15 @@ internal sealed class SpatialPreview : IDisposable
         var selectedSpace = (InputChoice)inputSpace.SelectedItem;
         var space = selectedSpace.Space;
         var encoding = (Choice)outputSpace.SelectedItem;
-        var size = ((Choice)previewSize.SelectedItem).Id;
+        var automatic = ((Choice)previewSize.SelectedItem).Id == "auto";
+        if (automatic && pending is null && pendingDraft is null && !dragging)
+        {
+            var ratio = source is { } frame ? Math.Min(frame.Width, frame.Height) / (double)Math.Max(frame.Width, frame.Height) : 1;
+            if (viewportQuality.Update(viewer.ProjectedLongEdge(selectedVariant), ratio,
+                RenderMemoryBudget.SystemMemory.AvailableForNewAllocation, Environment.TickCount64))
+                RequestRefresh();
+        }
+        var size = ViewerRenderSize;
         var nativeSize = size == "native";
         var longEdge = nativeSize ? 0 : int.Parse(size, CultureInfo.InvariantCulture);
         // Resolution is a sampling choice, never a silent bit-depth/source change.
@@ -997,7 +1008,7 @@ internal sealed class SpatialPreview : IDisposable
             viewerFrame = output;
             frameCurrent = true;
             showSource.IsEnabled = true;
-            previewDetail = comparing ? "Source preview" : "Live Viewer";
+            previewDetail = comparing ? "Source preview" : automatic ? "Auto Viewer" : "Live Viewer";
             ShowFrame(selectedVariant, output);
             StartupHook.Log($"Live Viewer frame {input.Width} × {input.Height} in {Stopwatch.GetElapsedTime(started).TotalMilliseconds:F0} ms. {DescribeRender(args)}");
         }
@@ -1068,7 +1079,7 @@ internal sealed class SpatialPreview : IDisposable
                 return;
             viewerFrame = display;
             frameCurrent = false;
-            previewDetail = "Loading native resolution";
+            previewDetail = "Loading Viewer preview";
             ShowFrame(variant, display);
             StartupHook.Log($"Initial Viewer preview {frame.Width} × {frame.Height} in {Stopwatch.GetElapsedTime(started).TotalMilliseconds:F0} ms.");
         }
@@ -1124,7 +1135,7 @@ internal sealed class SpatialPreview : IDisposable
             job.Token.ThrowIfCancellationRequested();
             if (!WantsDragPreview || OutputRenderActive || activeVariant != selectedVariant || !ReferenceEquals(source, input)
                 || !ReferenceEquals(inputSpace.SelectedItem, inputColor) || !ReferenceEquals(outputSpace.SelectedItem, encoding)
-                || ((Choice)previewSize.SelectedItem).Id != viewerSize || DragLongEdge != dragEdge
+                || ViewerRenderSize != viewerSize || DragLongEdge != dragEdge
                 || HostImageSource.GetRevision(window, selectedVariant) != revision)
                 return;
 
@@ -1153,6 +1164,12 @@ internal sealed class SpatialPreview : IDisposable
         RetirePreviewWorker(draftRenderer);
         draftRenderer = null;
     }
+
+    private string ViewerRenderSize => ((Choice)previewSize.SelectedItem).Id switch
+    {
+        "auto" => viewportQuality.SizeId,
+        var manual => manual,
+    };
 
     private void RetirePreviewWorker(OpticalRenderer? worker)
     {

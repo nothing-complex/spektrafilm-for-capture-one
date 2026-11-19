@@ -99,6 +99,7 @@ public static class StartupHook
             }
             TestProductionUndo(panel, spatial, window, store, variant, exposure);
             TestPresetHistory(panel, window, store, variant, exposure, toggle);
+            await TestViewportQuality(spatial, variant);
             await TestLockedLook(panel, store, variant, exposure, toggle);
             var optics = Call(spatial, "CaptureSettings")!;
             Call(spatial, "ValidateSettings", optics);
@@ -242,6 +243,57 @@ public static class StartupHook
             toggle.IsChecked = originalEnabled;
             Call(spatial, "SetEnabled", originalEnabled == true);
         }
+    }
+
+    static async Task TestViewportQuality(object spatial, Guid variant)
+    {
+        var picker = (ComboBox)Field(spatial, "previewSize")!;
+        var options = picker.ItemsSource.Cast<object>().ToArray();
+        var previous = picker.SelectedItem;
+        var setLoading = spatial.GetType().GetField("loading", Flags)!;
+        var preferences = spatial.GetType().Assembly.GetType("PanelPreferences")!.GetProperty("Current", Flags)!;
+        var savedPreferences = preferences.GetValue(null);
+        void Select(object item)
+        {
+            // The test changes this disposable control without writing the user's preference.
+            setLoading.SetValue(spatial, true);
+            try { picker.SelectedItem = item; }
+            finally { setLoading.SetValue(spatial, false); }
+            Call(spatial, "RequestRefresh");
+        }
+        var view = Field(spatial, "viewer")!;
+        async Task<object> WaitForSource(Func<bool> expected)
+        {
+            var deadline = DateTime.UtcNow.AddSeconds(25);
+            while (DateTime.UtcNow < deadline)
+            {
+                if (Field(spatial, "source") is { } result && Field(spatial, "frameCurrent") is true && expected())
+                    return result;
+                await Task.Delay(100);
+            }
+            throw new InvalidOperationException("The disposable Viewer did not reach its requested settled quality.");
+        }
+
+        try
+        {
+            Call(spatial, "SetEnabled", false);
+            Select(options.Single(item => Prop(item, "Id") is "auto"));
+            Call(spatial, "SetEnabled", true);
+            await WaitForSource(() => Call(view, "ProjectedLongEdge", variant) is double edge && edge > 0);
+            await Task.Delay(1400);
+            var automatic = await WaitForSource(() => Field(spatial, "sourceSize") is string size
+                && Equals(Prop(spatial, "ViewerRenderSize"), size));
+            var projection = (double)Call(view, "ProjectedLongEdge", variant)!;
+            var automaticEdge = Math.Max((int)Prop(automatic, "Width")!, (int)Prop(automatic, "Height")!);
+            Check(automaticEdge is >= 720 and <= 4096 && (int)Prop(automatic, "BitDepth")! == 16,
+                $"auto uses the actual {projection:F0} px Viewer geometry and settles at {automaticEdge} px high-depth source");
+            Select(options.Single(item => Prop(item, "Id") is "2048"));
+            var manual = await WaitForSource(() => Field(spatial, "sourceSize") is "2048");
+            Check(Math.Max((int)Prop(manual, "Width")!, (int)Prop(manual, "Height")!) == 2048 && (int)Prop(manual, "BitDepth")! == 16,
+                "manual quality applies its exact high-depth resolution after Auto");
+            Check(ReferenceEquals(savedPreferences, preferences.GetValue(null)), "fixture quality changes leave the user's stored preference unchanged");
+        }
+        finally { Select(previous); }
     }
 
     static void TestHostLookups(Assembly panelAssembly, object panel, Forms.Form window)

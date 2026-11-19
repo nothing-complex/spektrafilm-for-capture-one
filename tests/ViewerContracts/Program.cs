@@ -44,6 +44,7 @@ internal static class Program
         Directory.CreateDirectory(folder);
         TestGeometry();
         TestDpiAndCropGeometry();
+        TestViewportQuality();
         TestDraft();
         TestExport(folder);
         TestExportMetadata(folder);
@@ -59,6 +60,40 @@ internal static class Program
         TestMemoryAdmission();
         TestExportFrameLimits();
         Console.WriteLine($"PASS: {assertions} assertions. Pure current-source probes only; no Capture One process used.");
+    }
+
+    private static void TestViewportQuality()
+    {
+        var quality = new ViewportQuality();
+        Check(quality.LongEdge == 1600 && quality.SizeId == "1600", "automatic quality starts at a bounded initial size");
+        Check(!quality.Update(null, 1, null, 0), "missing geometry holds the initial size");
+        Check(!quality.Update(3000, 1, null, 100) && !quality.Update(3000, 1, null, 349), "an upgrade requires sustained demand");
+        Check(quality.Update(3000, 1, null, 350) && quality.LongEdge == 4096, "stable zoom raises the cap without native-size rendering");
+        for (var i = 0; i < 100; i++)
+            Check(!quality.Update(2870 + i % 2 * 20, 1, null, 500 + i * 10), "zoom jitter near the threshold keeps the current cap");
+        Check(!quality.Update(2000, 1, null, 2000) && !quality.Update(2000, 1, null, 2799), "downgrade waits for the viewport to settle");
+        Check(quality.Update(2000, 1, null, 2800) && quality.LongEdge == 2560, "a stable smaller viewport reduces source work");
+        Check(quality.Update(4000, 1, 320 * 1024L * 1024, 2900) && quality.LongEdge == 1200, "low system memory immediately reduces automatic demand");
+        Check(!quality.Update(4000, 1, 330 * 1024L * 1024, 3200) && !quality.Update(4000, 1, 330 * 1024L * 1024, 4000),
+            "a small budget rebound does not trigger a new large allocation");
+        Check(!quality.Update(4000, 1, 3 * 1024L * 1024 * 1024, 4300)
+            && quality.Update(4000, 1, 3 * 1024L * 1024 * 1024, 4600) && quality.LongEdge == 4096,
+            "sustained demand recovers after memory pressure clears");
+        Check(!quality.Update(double.NaN, .75, null, 8000) && quality.LongEdge == 4096, "temporarily hidden or invalid geometry does not drop a usable frame");
+        quality.Reset();
+        Check(quality.LongEdge == 1600 && !quality.Update(3200, .75, null, 10000), "navigation resets demand without changing the preference");
+
+        var points = new[] { new PointF(5, 9), new PointF(1005, 9), new PointF(1005, 759), new PointF(5, 759) };
+        var panned = points.Select(point => new PointF(point.X - 400, point.Y + 20)).ToArray();
+        var clip = new RectangleF(0, 0, 1500, 900);
+        Check(ViewerGeometry.TryCreate(clip, points, 200, 150, out var centered)
+            && ViewerGeometry.TryCreate(clip, panned, 200, 150, out var translated)
+            && centered.ProjectedLongEdge == 1000 && centered.ProjectedLongEdge == translated.ProjectedLongEdge,
+            "panning and clip translation alone preserve the estimated full image resolution");
+        var zoomed = points.Select(point => new PointF(point.X * 1.5f, point.Y * 1.5f)).ToArray();
+        Check(ViewerGeometry.TryCreate(clip, zoomed, 200, 150, out var enlarged) && enlarged.ProjectedLongEdge == 1500,
+            "quality uses the native physical geometry after a zoom or display scaling change");
+        Console.WriteLine("Viewer Auto quality: bounded size, physical geometry, hysteresis and memory pressure passed.");
     }
 
     private static void TestLookStrengthDelivery()

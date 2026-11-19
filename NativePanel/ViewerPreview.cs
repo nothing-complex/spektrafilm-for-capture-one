@@ -30,6 +30,9 @@ internal sealed class ViewerPreview : IDisposable
     internal bool HasPainted => UnavailableReason is null && attachment is { HasDrawn: true };
     internal event Action? StatusChanged;
 
+    internal double? ProjectedLongEdge(Guid variant) => attachment is { HasDrawn: true, PaintUnavailable: null } current
+        && current.VariantId == variant ? current.ProjectedLongEdge : null;
+
     internal bool Show(Guid variantId, BitmapSource bitmap)
     {
         if (disposed)
@@ -212,6 +215,7 @@ internal sealed class ViewerPreview : IDisposable
                 StartupHook.Log($"Viewer preview painted on {current.Painter.GetType().FullName} for {current.VariantId:D} at {width}x{height}.");
             }
             current.PaintUnavailable = null;
+            current.ProjectedLongEdge = geometry.ProjectedLongEdge;
             SetStatus(null);
         }
         catch (Exception error)
@@ -361,6 +365,7 @@ internal sealed class ViewerPreview : IDisposable
         internal required BitmapSource Bitmap { get; set; }
         internal string? PaintUnavailable { get; set; }
         internal bool HasDrawn { get; set; }
+        internal double ProjectedLongEdge { get; set; }
         internal RectangleGeometry? Clip { get; set; }
         internal MatrixTransform? Transform { get; set; }
     }

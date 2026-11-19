@@ -2344,16 +2344,25 @@
       "id": "NI-01",
       "title": "Add viewport-aware automatic quality with predictable manual overrides",
       "priority": "P2",
-      "status": "pending",
-      "implemented": [],
-      "evidence_paths": [],
+      "status": "partial",
+      "implemented": [
+        "Added optional Auto Viewer resolution up to 4096 px, selected from actual native physical image corners and known process memory headroom. The preference stays global; Native and each manual cap keep their exact semantics.",
+        "Hold size through small zoom changes and transient geometry loss. A stable zoom can increase the cap; sustained reduction or memory pressure can reduce it. Pan translation does not change the projected long edge. Reset the automatic estimate on image changes.",
+        "Host-independent tests cover threshold jitter, DPI/zoom geometry, memory pressure, navigation and restoration. Real Capture One projected 2934 physical px and selected a 4096 px 16-bit RAW source. Switching to manual 2048 produced exactly 2048 px without modifying the stored preference.",
+        "Passed 12,513 public local assertions and 149 first-launch plus 153 restart assertions. The source catalog hash stayed unchanged."
+      ],
+      "evidence_paths": [
+        "NativePanel/ViewportQuality.cs",
+        "NativePanel/SpatialPreview.cs",
+        "NativePanel/ViewerGeometry.cs",
+        "tests/ViewerContracts/Program.cs",
+        ".test-results/host-auto-viewport-quality-20261120/host-smoke.log",
+        ".test-results/contracts-auto-viewport-quality-20261120/summary.json"
+      ],
       "remaining_work": [
-        "Implement Auto alongside existing manual settings; keep preference global/per-workspace, never a creative image parameter.",
-        "Choose intermediate display resolution from viewport physical pixels, zoom, measured recent latency and memory budget with hysteresis.",
-        "Keep final user-selected quality guarantee; display approximate status only while settling, retain source/variant generation identity.",
-        "Investigate visible 1:1 crop refinement using full-image coordinates and overlap halos; keep global metering and deterministic grain independent of tile order.",
-        "Use look-stage dependencies so strength/comparison or zoom does not re-develop unchanged RAW unnecessarily.",
-        "Offer simple Fast/Balanced/Quality presets backed by measured budgets, preserving explicit per-user overrides."
+        "Measure actual resize, DPI switch, rapid zoom and drag latency across GPUs and physical monitors, then use measured latency to tune optional quality presets and pressure hysteresis.",
+        "Investigate 1:1 regional refinement using full coordinate mapping and exact grain/halation overlap. Auto currently caps full-image preview and native resolution remains available explicitly.",
+        "Verify pan and zoom have no unnecessary source redevelopment on the native host. Publish pan/zoom, P95 drag, memory and seam criteria together with the renderer matrix."
       ],
       "original_acceptance_tests": [
         "Auto does not oscillate between sizes or overwrite manual selection; DPI/zoom/window moves adjust correctly.",
@@ -2637,10 +2646,10 @@
   "counts": {
     "total": 70,
     "implemented": 16,
-    "partial": 39,
-    "pending": 15
+    "partial": 40,
+    "pending": 14
   },
-  "last_reconciled": "2026-11-19",
+  "last_reconciled": "2026-11-20",
   "handover": "HANDOVER.md",
   "runtime_revision": "ffc481988eb2e6e7ef7a1379486c4a8b2656ac81",
   "status_policy": "Update completed substeps/evidence at each meaningful milestone. Broad tasks stay partial until remaining acceptance work is satisfied. Documentation HEAD can be newer than installed runtime.",

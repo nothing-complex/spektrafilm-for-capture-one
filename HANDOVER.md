@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-19. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 16 bounded primary fixes implemented, 39 partial items and 15 pending items. It includes feasibility investigations and enhancements.
+Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 16 bounded primary fixes implemented, 40 partial items and 14 pending items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -326,6 +326,15 @@ Evidence is under `.test-results/host-selective-presets-ranges-20261119`, `.test
 - [x] Pass 12,404 local contract assertions with physical hard-link and junction fixtures, plus 146 first-launch and 150 restart checks. The source catalog hash remained unchanged. Local symlink privilege was unavailable. The earlier launch and selective preset checkpoints passed the full Windows 2022 and 2025 CI matrix.
 
 Evidence is under `.test-results/host-native-grain-state-20261119`, `.test-results/real-same-tick-backup-20261119`, and `.test-results/contracts-grain-backup-policy-20261119`. [Launch CI](https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44630864725) and [selective preset CI](https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44632131352).
+
+## Automatic Viewer quality checkpoint
+
+- [x] Add an optional Auto resolution up to 4096 px. Use the image’s projected physical long edge and available system memory. Hysteresis prevents rapid size changes around a zoom boundary. Native and manual resolution modes remain available.
+- [x] Test missing/offscreen geometry, stable and jittered zoom, pan translation and pressure recovery. The licensed host reported a 2934 px projection and used a 4096 px 16-bit RAW frame. Manual 2048 px then produced the exact requested 16-bit size. The fixture left the real stored preference unchanged.
+- [x] Pass 12,513 ordinary contracts and 149 first-launch plus 153 restart assertions with the source catalog hash unchanged. Local alias fixtures requiring privilege were skipped in this ordinary tier and passed separately where noted above.
+- [ ] Verify live pan/zoom/DPI transitions across physical displays and quantify P95 drag latency. Regional 1:1 refinement and quality presets need follow-up work.
+
+Evidence is under `.test-results/host-auto-viewport-quality-20261120` and `.test-results/contracts-auto-viewport-quality-20261120`.
 
 ## Status maintenance
 
