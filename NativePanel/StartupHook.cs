@@ -250,11 +250,34 @@ internal static class StartupHook
             return;
         try
         {
+            if (!CanCloseAfterSaving(args.CloseReason, () => Forms.MessageBox.Show(sender as Forms.IWin32Window,
+                "Spektrafilm could not save changes to the normal location or the recovery folder. Keep Capture One open to retry when storage is available. Close Capture One and discard the pending changes?",
+                ProductName, Forms.MessageBoxButtons.YesNo, Forms.MessageBoxIcon.Warning, Forms.MessageBoxDefaultButton.Button2)
+                == Forms.DialogResult.Yes))
+            {
+                args.Cancel = true;
+                return;
+            }
             Detach(saveWorkspace: true);
         }
         catch (Exception error)
         {
             Log(error.ToString());
+        }
+    }
+
+    private static bool CanCloseAfterSaving(Forms.CloseReason reason, Func<bool> confirmDiscard)
+    {
+        if (hostedTool?.ProtectPendingLooks() != false)
+            return true;
+        Log("Capture One close requested while a Spektrafilm edit is only in memory.");
+        if (reason != Forms.CloseReason.UserClosing)
+            return true;
+        try { return confirmDiscard(); }
+        catch (Exception error)
+        {
+            Log("Could not ask whether to close with unsaved Spektrafilm changes: " + error.GetBaseException().Message);
+            return false;
         }
     }
 

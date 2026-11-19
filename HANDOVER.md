@@ -6,7 +6,7 @@ Updated 2026-11-20. The critical-fix batch is implemented, tested, installed loc
 
 1. Read this file, `AGENTS.md` and `qa/AUDIT-FIX-STATUS.json` before changing code. The JSON is the authoritative task-progress ledger; its `remaining_work` and original acceptance tests matter more than a short status label.
 2. Check `git status`, current branch and PR head. Do not discard existing edits or switch the installed build merely because this documentation has a newer commit.
-3. The installed and packaged **runtime revision is `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`**. The initial product changes are in `285f0aa`. The current source also includes the tested 2026-11-19 export follow-up. Its validation used a disposable catalog and a separate panel build.
+3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP identifies clean source `bb0c19e`. Its verification used an isolated installation. The normal app stayed on `ffc4819`.
 4. Choose an unresolved task and an exact ownership boundary. Do not repeat the completed installation, crash test or old defect reproductions as if nothing had happened.
 5. Update task evidence and the delivery ledger at each completed milestone. Never mark a broad parent task complete because one mitigation shipped.
 
@@ -353,6 +353,23 @@ GPU evidence is in `.test-results/spectral-stock-matrix-20261120.log`. Repeat wi
 - [ ] Generate the expanded control and release documentation from the schema. Units, dependencies and exact host colour acceptance remain open. Runtime package provenance for this checkpoint is separate from the earlier development ZIP.
 
 Evidence is under `.test-results/contracts-compilercaps-20261120`, `.test-results/renderer-parameter-matrix-20261120.log` and `.test-results/host-compiled-controls-20261120`. Run `Build-Windows.ps1` before HostSmoke to generate the required description.
+
+## Development package with compiled capabilities
+
+- [x] Run the full Windows source build and Vulkan smoke from clean `bb0c19e672aee861c74a03c7bb970c31d85a9180`. The runtime contains the compiled 137-option description.
+- [x] Verify 150 payload entries and 19 runtime entries after extraction. Reject a modified capabilities file with otherwise valid JSON, restore the original bytes, install into a disposable folder, and run CheckOnly through a fresh Windows PowerShell process.
+- [x] Verify the test shortcut starts Windows PowerShell with the bundled launcher and `-Shortcut`, uses the installed working directory, and points to the bundled film icon. Confirm the regular installation still identifies `ffc4819`.
+
+The development archive is `dist/Spektrafilm-for-Capture-One-v0.2.0-audit.3-windows-x64.zip`, SHA-256 `72daea1a947362d14ea759f97a633b7c225b962bf372ebd4c080b3ad819dd6cc`. Its source tree digest is `6a504b9caf2290b917e7839cb03b0d4867238686852fd78989284cbd572097b6`. Evidence is in `.test-results/audit3-package-verify-20261120/result.json`. The ZIP remains a local development artifact.
+
+## Close with unavailable look storage
+
+- [x] Retry pending saves when Capture One closes. Manual close stays open by default when neither save location can protect the changes. Windows shutdown attempts a save without prompting.
+- [x] Use a real exclusive lock on the primary JSON and a directory obstructing its recovery target. The licensed-host fixture exercised keep-open, explicit proceed, prompt failure and shutdown decisions without opening a prompt. Removing the fallback obstruction protected the exact pending value. Removing the primary lock published it.
+- [x] Pass 168 first-launch and 172 restart assertions with the source database hash unchanged. The worker-crash probe now waits for the previous worker to drain and verifies the new process path before terminating it.
+- [ ] Exercise disk exhaustion and OS or device power loss as separate cases.
+
+Evidence is in `.test-results/host-close-storage-retry-20261120`. This source checkpoint postdates the development `audit.3` ZIP.
 
 ## Status maintenance
 

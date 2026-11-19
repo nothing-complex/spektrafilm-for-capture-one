@@ -98,6 +98,7 @@ internal static class SpektraFilmTool
         internal void ReportLaunchHealth() => LaunchHealth.Report(
             panel.ControlsLoadPhase, panel.ExportBridgeStatus, panel.ViewerStatus);
         internal Task<bool> ExportAsync(Window? owner) => panel.ExportAsync(useRecipeSize: true, owner);
+        internal bool ProtectPendingLooks() => panel.ProtectPendingLooks();
         internal void SetExportBridgeStatus(ExportBridgeState state, string? detail = null) => panel.SetExportBridgeStatus(state, detail);
         internal InspectorToolHeaderViewModel CreateDockedHeader(ILifeCycleRegistrationService registration) =>
             new InspectorToolHeaderViewModelBuilder(StartupHook.ProductName, () => Tool.Document, registration)
@@ -912,6 +913,12 @@ internal static class SpektraFilmTool
         {
             if (looks.HasPending)
                 FlushLooks();
+        }
+
+        internal bool ProtectPendingLooks()
+        {
+            RetryPendingLookWrites();
+            return !looks.HasUnprotectedPending;
         }
 
         internal void FlushLooks()

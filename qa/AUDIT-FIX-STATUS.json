@@ -949,16 +949,21 @@
       "status": "partial",
       "implemented": [
         "Failed writes survive panel recreation in session state and independent durable recovery checkpoints; separate-process replay is tested and total storage failure is explicit.",
-        "An identical value with a temporarily locked primary file now uses the durable recovery path instead of failing before the queue. It replays without changing the saved content."
+        "An identical value with a temporarily locked primary file now uses the durable recovery path instead of failing before the queue. It replays without changing the saved content.",
+        "Capture One retries unprotected saves during a user-initiated close. A manual close offers a default-stay confirmation only when both normal storage and fallback failed. The guard keeps the edit in memory if its confirmation cannot open. Windows shutdown retries without displaying a modal prompt.",
+        "With the actual primary JSON held in an exclusive lock and the fallback path physically blocked, the licensed host verified safe stay-open, explicit proceed, prompt failure and system-close policies. Clearing only the fallback obstruction allowed the close policy to proceed; releasing the primary lock published the exact pending edit."
       ],
       "evidence_paths": [
         "NativePanel/VariantLookStore.cs",
         "NativePanel/SpektraFilmTool.cs",
         "tests/state/Program.cs",
-        ".test-results/contracts-selective-presets-20261119/StateContracts.log"
+        ".test-results/contracts-selective-presets-20261119/StateContracts.log",
+        "NativePanel/StartupHook.cs",
+        ".test-results/host-close-storage-retry-20261120/host-smoke.log"
       ],
       "remaining_work": [
-        "Add full host shutdown/close-error notification and disk-full testing; no persistence guarantee is possible if primary and recovery storage are both unavailable."
+        "Verify physical disk-full and OS/power-loss behaviour separately from the tested exclusive-lock and obstructed-path failures. A process cannot retain an unprotected edit after it is forcibly stopped.",
+        "The licensed fixture exercised the actual close decision with injected responses so it could run unattended. The standard WinForms confirmation was not manually clicked."
       ],
       "original_acceptance_tests": [
         "deny replacement, fill disk, then close/remove/recreate tab",
@@ -1966,7 +1971,8 @@
       "implemented": [
         "Protocol verifies parameter-header SHA and float layout; build/package manifests fingerprint runtime files and launcher validates them; LUT embeds parameter contract.",
         "Fresh complete source build/package at clean ffc4819 verified runtime/resources and host dependency hashes; extracted and installed checks passed.",
-        "The package and build manifests now fingerprint the renderer-emitted parameter capabilities file. Manifest fixtures reject missing or changed metadata; the renderer produces byte-stable descriptor output in repeat calls."
+        "The package and build manifests now fingerprint the renderer-emitted parameter capabilities file. Manifest fixtures reject missing or changed metadata; the renderer produces byte-stable descriptor output in repeat calls.",
+        "A development ZIP built from clean bb0c19e was extracted and installed in a disposable folder. Fingerprints covered the compiled capabilities. Replacing the description with a valid JSON file of different bytes was refused. The restored fixture passed CheckOnly."
       ],
       "evidence_paths": [
         "NativePanel/OpticalRenderer.cs",
@@ -1977,7 +1983,8 @@
         "Package-Windows.ps1",
         "NativePanel/RendererParameters.cs",
         "tests/installer/Test-Manifest.ps1",
-        ".test-results/renderer-parameter-matrix-20261120.log"
+        ".test-results/renderer-parameter-matrix-20261120.log",
+        ".test-results/audit3-package-verify-20261120/result.json"
       ],
       "remaining_work": [
         "Complete remaining tamper matrix; presets/metrics do not yet carry complete build identity; legacy developer layouts allow missing manifest."
@@ -2003,7 +2010,8 @@
         "Every launcher session now has an atomic status record tied to its random session ID, Capture One PID and exact active host version. The optional bounded wait reads only that process and session and distinguishes absent startup, delayed catalog, unsupported host, inaccessible catalog and hook failure.",
         "Tool readiness, native Export binding and Viewer health update separately. The disposable host reported a disabled Viewer, a missing renderer, abrupt termination of its actual in-flight Vulkan worker, and unavailable native Export for each malformed binding.",
         "The production readiness reader observed two genuine startup sessions (120 first-launch and 123 restart assertions). The corresponding ordinary Capture One launch opened the same disposable catalog without any Spektrafilm startup report. The original database hash stayed unchanged.",
-        "Launcher contracts cover missing reports, wrong-session and wrong-PID reports, slow and rejected startup, bad format and excessive size. The public contract runner passed all eight suites (12,337 assertions)."
+        "Launcher contracts cover missing reports, wrong-session and wrong-PID reports, slow and rejected startup, bad format and excessive size. The public contract runner passed all eight suites (12,337 assertions).",
+        "The actual worker-crash fixture now drains the earlier request, retries a canceled worker candidate, and rechecks the exact disposable process path immediately before termination. Both launches passed on the guarded-close run."
       ],
       "evidence_paths": [
         "Start-Spektrafilm.ps1",
@@ -2015,7 +2023,8 @@
         ".test-results/host-launch-full-handshake-20261119/first.ready.json",
         ".test-results/host-launch-full-handshake-20261119/restart.ready.json",
         ".test-results/host-launch-full-handshake-20261119/ordinary.passed",
-        ".test-results/contracts-launch-readiness-20261119/summary.json"
+        ".test-results/contracts-launch-readiness-20261119/summary.json",
+        ".test-results/host-close-storage-retry-20261120/host-smoke.log"
       ],
       "remaining_work": [],
       "original_acceptance_tests": [
@@ -2201,7 +2210,8 @@
         "Manifest-based build/package/installer checks reject runtime/hash/source mismatches and record source/dependencies; release validation fixtures exist.",
         "Fresh complete clean ffc4819 build, renderer smoke,146-file package allowlist/hash verification,17 runtime-file verification, extracted and installed checks passed. Archive checksum is recorded in delivery.package.",
         "Built the exact clean 8bb999e commit twice, including a fresh detached checkout. Generated curves/counts/tables and all packaged shader bytes matched. Recorded C# and native PE binary differences and the 19 source files with only checkout line-ending differences.",
-        "Verified explicit ZIP content allowlist and corresponding source link. The original package survived separate tamper probes for a shader, two tables, stocks, helper, panel and host manifest. It installed and ran CheckOnly in isolated folders; branded shortcut points to that installed copy."
+        "Verified explicit ZIP content allowlist and corresponding source link. The original package survived separate tamper probes for a shader, two tables, stocks, helper, panel and host manifest. It installed and ran CheckOnly in isolated folders; branded shortcut points to that installed copy.",
+        "Packaged clean bb0c19e as audit.3 and verified 150 payload records, 19 runtime records, capability metadata, installer, shortcut and Vulkan smoke in an isolated installation."
       ],
       "evidence_paths": [
         "ReleaseManifest.ps1",
@@ -2212,7 +2222,9 @@
         ".test-results/audit-package-compatibility-20261119/verified-package.json",
         ".test-results/package-repro-20261119.json",
         ".test-results/package-tamper-20261119/tamper-report.json",
-        ".test-results/build-clean-repro-8bb999e.log"
+        ".test-results/build-clean-repro-8bb999e.log",
+        ".test-results/audit3-package-verify-20261120/result.json",
+        ".test-results/audit3-complete-build-20261120.log"
       ],
       "remaining_work": [],
       "original_acceptance_tests": [
@@ -2720,7 +2732,23 @@
     },
     "original_user_data_files_verified_unchanged": 6,
     "original_test_catalog_hash_unchanged": true,
-    "local_evidence_note": "Paths under .test-results/build/dist are ignored local artifacts and are not present in a public clone."
+    "local_evidence_note": "Paths under .test-results/build/dist are ignored local artifacts and are not present in a public clone.",
+    "latest_development_package": {
+      "version": "0.2.0-audit.3",
+      "archive": "dist/Spektrafilm-for-Capture-One-v0.2.0-audit.3-windows-x64.zip",
+      "sha256": "72daea1a947362d14ea759f97a633b7c225b962bf372ebd4c080b3ad819dd6cc",
+      "source": {
+        "commit": "bb0c19e672aee861c74a03c7bb970c31d85a9180",
+        "dirty": false,
+        "treeDigest": "6a504b9caf2290b917e7839cb03b0d4867238686852fd78989284cbd572097b6"
+      },
+      "verified_package_entries": 150,
+      "verified_runtime_entries": 19,
+      "renderer_description_sha256": "dc1e4da9377be4c8cb818d241f2683784ae2116f93e1f86258ab50891db4ed98",
+      "isolated_install_and_checkonly": "passed",
+      "normal_installed_revision": "ffc481988eb2e6e7ef7a1379486c4a8b2656ac81",
+      "receipt": ".test-results/audit3-package-verify-20261120/result.json"
+    }
   },
   "completed_milestones": [
     {

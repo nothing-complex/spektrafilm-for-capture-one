@@ -161,6 +161,7 @@ public static class StartupHook
             await TestRecipeExport(panel, spatial, recipe!, variant, toggle);
             await TestNativeExportCommands(hookField, hosted, panel, spatial, window);
             await TestFullDirectExport(spatial);
+            TestUnprotectedClose(hook, store, variant, exposure);
             await TestDetach(hook, hosted, panel, spatial, window, toggle);
             Check(Prop(Call(store, "Read", variant)!, "Enabled") is false, "master switch persisted after all tests");
             if (!restart) File.WriteAllText(Path.Combine(folder, "restart.expected"), "1.2 disabled");
@@ -212,21 +213,43 @@ public static class StartupHook
             Check(report.GetProperty("Phase").GetString() == "Ready" && report.GetProperty("Viewer").GetString() == "ProcessingError",
                 "real renderer failure appears separately from the available tool");
 
-            Call(spatial, "SetEnabled", false);
             Environment.SetEnvironmentVariable("SPEKTRAFILM_ROOT", existing);
-            Call(spatial, "SetEnabled", true);
-            until = DateTime.UtcNow.AddSeconds(20);
-            Process? worker = null;
-            while (worker is null && DateTime.UtcNow < until)
+            var expectedWorker = Path.Combine(existing, "renderer", "SpektraStillRenderer.exe");
+            var killed = false;
+            for (var attempt = 0; attempt < 3 && !killed; attempt++)
             {
-                if (Field(spatial, "renderingFinal") is true && Field(spatial, "renderer") is { } candidate)
-                    worker = Field(candidate, "process") as Process;
-                if (worker is null) await Task.Delay(10);
+                Call(spatial, "SetEnabled", false);
+                until = DateTime.UtcNow.AddSeconds(4);
+                while (Field(spatial, "pending") is not null && DateTime.UtcNow < until)
+                    await Task.Delay(20);
+                if (Field(spatial, "previewWorkersExited") is Task drained)
+                    await drained.WaitAsync(TimeSpan.FromSeconds(5));
+                Call(spatial, "SetEnabled", true);
+                until = DateTime.UtcNow.AddSeconds(10);
+                while (!killed && DateTime.UtcNow < until && Field(spatial, "frameCurrent") is false)
+                {
+                    if (Field(spatial, "renderingFinal") is true && Field(spatial, "renderer") is { } candidate
+                        && Field(candidate, "process") is Process worker)
+                    {
+                        try
+                        {
+                            worker.Refresh();
+                            if (!worker.HasExited && string.Equals(worker.MainModule?.FileName, expectedWorker, StringComparison.OrdinalIgnoreCase))
+                            {
+                                worker.Kill();
+                                killed = true;
+                            }
+                        }
+                        catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception)
+                        {
+                            // A canceled or completed candidate can exit while being inspected.
+                        }
+                    }
+                    if (!killed) await Task.Delay(10);
+                }
             }
-            if (worker is null || worker.HasExited || !string.Equals(worker.MainModule?.FileName,
-                Path.Combine(existing, "renderer", "SpektraStillRenderer.exe"), StringComparison.OrdinalIgnoreCase))
+            if (!killed)
                 throw new InvalidOperationException("Could not identify the current disposable Viewer worker.");
-            worker.Kill();
 
             until = DateTime.UtcNow.AddSeconds(15);
             while (Prop(spatial, "Health")!.ToString() != "ProcessingError" && DateTime.UtcNow < until)
@@ -243,6 +266,49 @@ public static class StartupHook
             Environment.SetEnvironmentVariable("SPEKTRAFILM_ROOT", existing);
             toggle.IsChecked = originalEnabled;
             Call(spatial, "SetEnabled", originalEnabled == true);
+        }
+    }
+
+    static void TestUnprotectedClose(Type hook, object store, Guid variant, object exposure)
+    {
+        var saved = (string)Call(store, "GetPath", variant)!;
+        var recovery = (string)Call(store, "GetRecoveryPath", variant)!;
+        if (!Path.GetFullPath(recovery).StartsWith(Path.GetFullPath(folder) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+            || File.Exists(recovery) || Directory.Exists(recovery))
+            throw new InvalidOperationException("The fixture requires an untouched disposable recovery path.");
+        var value = exposure.GetType().GetProperty("Value", Flags)!;
+        var prior = value.GetValue(exposure);
+        var close = hook.GetMethod("CanCloseAfterSaving", Flags)!;
+        bool CanClose(Forms.CloseReason reason, Func<bool> decide) => (bool)close.Invoke(null, new object[] { reason, decide })!;
+        var decisions = 0;
+        Directory.CreateDirectory(recovery);
+        try
+        {
+            using (var locked = new FileStream(saved, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                value.SetValue(exposure, 2.125);
+                Check(Prop(store, "HasUnprotectedPending") is true, "real blocked primary and recovery destinations leave a visible in-memory edit");
+                Check(!CanClose(Forms.CloseReason.UserClosing, () => { decisions++; return false; }) && decisions == 1,
+                    "user-close protection can keep Capture One open when neither location can save");
+                Check(CanClose(Forms.CloseReason.UserClosing, () => { decisions++; return true; }) && decisions == 2,
+                    "the user can explicitly close despite completely unavailable storage");
+                Check(!CanClose(Forms.CloseReason.UserClosing, () => throw new InvalidOperationException("Fixture prompt failure")),
+                    "a failed close prompt keeps the unprotected edit in memory");
+                Check(CanClose(Forms.CloseReason.WindowsShutDown, () => throw new InvalidOperationException("OS shutdown displayed a prompt")),
+                    "OS shutdown performs a save attempt without a modal prompt");
+                Directory.Delete(recovery);
+                Check(CanClose(Forms.CloseReason.UserClosing, () => throw new InvalidOperationException("Durable recovery displayed a prompt"))
+                    && File.Exists(recovery) && Prop(store, "HasUnprotectedPending") is false,
+                    "a verified fallback automatically allows close while the primary is locked");
+            }
+            Call(store, "Flush");
+            Check(Prop(Prop(Call(store, "Read", variant)!, "Look")!, "Exposure") is 2.125,
+                "restoring disk access publishes the exact pending edit");
+        }
+        finally
+        {
+            if (Directory.Exists(recovery)) Directory.Delete(recovery);
+            value.SetValue(exposure, prior);
         }
     }
 
