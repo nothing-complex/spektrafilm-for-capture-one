@@ -50,9 +50,18 @@ The export path is for the selected image with one recipe. Export supports a can
 
 Choose a 33- or 65-point LUT from **Presets and LUT export**. The LUT uses the same Vulkan film engine as image processing, with sRGB input and output and the selected look strength. Before export, the panel lists image-dependent effects outside the LUT, such as grain, halation, diffusion and sharpening. **Cancel LUT export** preserves any existing destination until the new file commits. Keep the attribution in the LUT header if you share it. [Profile and LUT license](upstream-spektrafilm/SPEKTRAFILM_LICENSE.txt)
 
-The Python setup scripts remain available for reference/development workflows; they are not required for ordinary panel or LUT use.
-
 The bundled renderer describes its supported settings in `renderer/parameter-capabilities.json`. The panel checks that description before loading its controls. Hanatos 2026 is offered when the renderer includes the calibrated film data. The Windows still workflow exposes Print Simulation and Scan Film, including scan inversion.
+
+### Optional Python reference runtime
+
+The Capture One panel and its LUT exporter use the bundled Vulkan renderer. For the separate scientific Python worker, install Windows x64 CPython 3.13 and run **Setup LUT Export.cmd**. Setup checks the exact wheel hashes, verifies dependencies and renders a test stock before selecting the new environment. A failed setup keeps the previous environment available.
+
+For offline setup, download the locked wheels on a connected Windows x64 CPython 3.13 machine, then copy the wheelhouse to the offline system.
+
+```powershell
+py -3.13 -m pip download --only-binary=:all: --require-hashes -r requirements-lut.txt --dest .\wheelhouse
+.\Setup-LutExport.ps1 -Wheelhouse .\wheelhouse
+```
 
 ## Troubleshooting and uninstall
 

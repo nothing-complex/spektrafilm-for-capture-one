@@ -10,6 +10,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'CatalogIntegrity.ps1')
+. (Join-Path $PSScriptRoot 'ReferencePython.ps1')
 $appName = 'Spektrafilm for Capture One'
 $userData = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'FilmToolsForCaptureOne'
 
@@ -364,8 +365,7 @@ try {
         Confirm-RequiredFile (Join-Path $PSScriptRoot "renderer\shaders\Spektra$shader.comp.spv")
     }
 
-    $python = Join-Path $PSScriptRoot '.venv\Scripts\python.exe'
-    if (!(Test-Path -LiteralPath $python -PathType Leaf)) { $python = $null }
+    $python = Get-SpektrafilmReferencePython $PSScriptRoot
     if ($CheckOnly) {
         Confirm-VulkanRenderer $renderer
         Write-Output "Capture One $appVersion ($architecture) matches the supported build. Release files and Vulkan render passed."

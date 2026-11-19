@@ -1,13 +1,28 @@
-# Runtime for the optional 3D LUT exporter. Use 64-bit Python 3.13.
-numpy~=2.4
-scipy~=1.17
-colour-science~=0.4.6
-scikit-image~=0.26
-matplotlib~=3.10
-opt-einsum~=3.4.0
-numba~=0.64
-OpenImageIO~=3.1.11
-pyfftw~=0.15.0
-rawpy~=0.26.1
-exiv2~=0.18.1
-lensfunpy~=1.18.0
+# Optional reference runtime for 64-bit CPython 3.13 on Windows.
+# The package hashes match these exact PyPI wheels, including transitive dependencies.
+colour-science==0.4.7 --hash=sha256:fe2383d86e507fc11a4b5206ff31a7399031e0dce527e22ec06eeb491d45d9a7
+contourpy==1.4.0 --hash=sha256:6507a016976a75a15aee47809a34605de6244ccc056e6164bf9fb14b27eecad4
+cycler==0.12.1 --hash=sha256:85cef7cff222d8644161529808465972e51340599459b8ac3ccbac5a854e0d30
+exiv2==0.18.1 --hash=sha256:5ef7fee6a41fd411ad65f6bdbf8e671162686e291c6346a6b3b2a3455f1d6873
+fonttools==4.68.0 --hash=sha256:6ed796b220654b4d37ad20af73419ec7969b669dd678cab88afb602c5683a331
+imageio==2.38.2 --hash=sha256:d71174e7af8369a4f73525c5b1c0d2621eb2827ed3cfd7327560be02ac1b4084
+kiwisolver==1.5.1 --hash=sha256:dc23390afe9f4ef9ac3bcc72a03a56eebbde03f4c571a32cb38f859cff9a6524
+lazy-loader==0.6 --hash=sha256:77253be3391b06124a0e16105bd663b6c54470af1a9ca8e1cf026f38d58ed056
+lensfunpy==1.18.0 --hash=sha256:09ade2b1c91407cba31a88b05f9050c286906057b085e590990f01fa7b90968a
+llvmlite==0.50.0 --hash=sha256:266a6a29be71c3e3a22960ddcedf66b4e0388e5abb6cc4991cc093d6df402ad7
+matplotlib==3.11.2 --hash=sha256:bc067c462a86f0e57bf52fc6e058d90171a5420007dac00c46e90153050c69a7
+networkx==3.7 --hash=sha256:e3fd2c13a7814cee3746340d8d7f8598a67f16a58bf47fb7f8793fab6efca1b0
+numba==0.68.1 --hash=sha256:dc3f29d540be5fc60699dbac53fc04f246cbf503a4e2e8315f04b70fcd9f1ec7
+numpy==2.5.5 --hash=sha256:e0608d1585557b68dcb6a70a41654f7536567960afad79d91752d2863b242b68
+openimageio==3.1.19.0 --hash=sha256:e8d020cd7f09ab703c8ce5172f97880a9e7ae38d539faadc21249d142ce206f1
+opt_einsum==3.4.0 --hash=sha256:69bb92469f86a1565195ece4ac0323943e83477171b91d24c35afe028a90d7cd
+packaging==26.3 --hash=sha256:d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c
+pillow==13.0.0 --hash=sha256:9dda0788a9932776a75d8bcc020076edc308ce2508b51f6739a45e3158b3fc42
+pyfftw==0.15.1 --hash=sha256:dcac51a5a4b8c6600bb2c7edb86d9739860a61bb0b076e20fbf0340919da307d
+pyparsing==3.3.3 --hash=sha256:ece8c00a69cf01b45d0b1dedabb469c90d8caf996d4fda40f147627a122849a4
+python-dateutil==4.0.0 --hash=sha256:a5e246f79eb80475e691bf93862cead98decd8a498cf53ba0516fcdc0f50dc1c
+rawpy==0.26.1 --hash=sha256:a730ed88843141224518724e0926f6b71d5c1883c3ca839865bac6b450337332
+scikit-image==0.26.0 --hash=sha256:ac529eb9dbd5954f9aaa2e3fe9a3fd9661bfe24e134c688587d811a0233127f1
+scipy==1.18.1 --hash=sha256:559ed65f60c1af5a03f3912605a1b5114f522c7c32fb23c3376ae8f03219fe28
+tifffile==2026.11.16 --hash=sha256:d2103c2537f185868f0a880eceba590b316aa1981bd76d91028e5f2eb0e1a6e6
+tzdata==2026.6 --hash=sha256:0a10eec6e13ef16b627fabed9a5f2ba61a62b1c67f327305f4e7e412a70b4aec

@@ -29,7 +29,7 @@ $files = @(
     'Install Spektrafilm for Capture One.cmd', 'Install-Spektrafilm.ps1',
     'ReleaseManifest.ps1', 'CatalogIntegrity.ps1', 'Restore-SpektrafilmCatalog.ps1', 'build-manifest.json', 'runtime-manifest.required',
     'Start Spektrafilm for Capture One.cmd', 'Start-Spektrafilm.ps1',
-    'Setup LUT Export.cmd', 'Setup-LutExport.ps1', 'lut_worker.py', 'requirements-lut.txt',
+    'Setup LUT Export.cmd', 'Setup-LutExport.ps1', 'ReferencePython.ps1', 'lut_worker.py', 'requirements-lut.txt',
     'README.md', 'LICENSE', 'THIRD-PARTY.md', 'UPSTREAM-CHANGES.md', 'capture-one-hosts.json','stocks.json',
     'assets\Spektrafilm.ico', 'assets\Spektrafilm.png', 'panel\NativePanel.dll',
     'profiles\preview\Linear Rec.2020.icc', 'profiles\preview\ProPhoto RGB.icc',

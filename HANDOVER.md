@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 17 bounded primary fixes implemented, 40 partial items and 13 pending items. It includes feasibility investigations and enhancements.
+Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 18 bounded primary fixes implemented, 39 partial items and 13 pending items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -370,6 +370,15 @@ The development archive is `dist/Spektrafilm-for-Capture-One-v0.2.0-audit.3-wind
 - [ ] Exercise disk exhaustion and OS or device power loss as separate cases.
 
 Evidence is in `.test-results/host-close-storage-retry-20261120`. This source checkpoint postdates the development `audit.3` ZIP.
+
+## Optional Python reference setup
+
+- [x] Pin all 26 wheels by published SHA-256 for Windows x64 CPython 3.13. Offline installs consume the exact same lock.
+- [x] Build a short immutable candidate directory. Check dependencies and run a nonzero reference LUT before making the candidate active. Preserve the previous selection on failed setup and serialize competing runs. Installer upgrades keep the optional environment as user state.
+- [x] Compare two independent offline installs. Portra 400 Print matched SHA-256 `e17e56d936153c62a7cf0deea061da11cad5569ba6ea4145753d6ccf52e9db5b`. Provia 100F Scan matched `70329e0ca5ca83dc427c12af335c132b1cc9408e8501f1e45b57fd6493d9007b`.
+- [x] Pass missing wheel, unsuitable interpreter, concurrent setup, reuse and atomic replacement checks. Pass 12,534 ordinary contracts, including the legacy selection fallback and installer preservation. The regular app and the previous development ZIP predate this checkpoint.
+
+Evidence is under `.test-results/reference-setup-A2-20261120`, `.test-results/reference-setup-B-20261120`, `.test-results/reference-transforms-20261120` and `.test-results/contracts-pinned-reference-20261120`. The fixture exposed a Windows DLL path-length limit at the longer candidate name. The shorter name passed the same nested-path fixture.
 
 ## Status maintenance
 

@@ -2581,18 +2581,31 @@
       "id": "RQ-06",
       "title": "Make retained scientific Python setup reproducible and transactional",
       "priority": "P2",
-      "status": "partial",
+      "status": "implemented",
       "implemented": [
-        "Normal user LUT export no longer requires the Python environment."
+        "Normal user LUT export no longer requires the Python environment.",
+        "The optional Windows x64 CPython 3.13 reference runtime uses a complete 26-wheel SHA-256 lock verified against PyPI release metadata. Both normal and offline setup require hashes and binary wheels.",
+        "Setup creates a short immutable candidate environment, checks installed dependencies and runs an active Portra 400 stock transform before atomically updating the selection. A lock serializes setup; a failed candidate is removed without changing the active environment.",
+        "Windows PowerShell 5.1 successfully provisioned two independent environments from the same offline wheelhouse. Their non-identity Kodak Portra 400 Print and Fujifilm Provia 100F Scan LUTs were byte-identical.",
+        "Blocked the selected environment change when a wheel or valid interpreter was unavailable and when setup held a competing lock. Verified successful atomic replacement, preservation of the earlier selection, same-lock reuse and legacy launcher fallback.",
+        "The nine-suite public runner passed 12,534 ordinary assertions, including nine active selector checks and upgrade preservation of the optional environment record."
       ],
       "evidence_paths": [
         "NativePanel/NativeLutExporter.cs",
         "NativePanel/SpektraFilmTool.cs",
-        "README.md"
+        "README.md",
+        "requirements-lut.txt",
+        "Setup-LutExport.ps1",
+        "ReferencePython.ps1",
+        "tests/installer/Test-ReferenceSelection.ps1",
+        ".test-results/contracts-pinned-reference-20261120/summary.json",
+        ".test-results/reference-setup-A2-20261120/offline-short-path-setup.log",
+        ".test-results/reference-setup-B-20261120/active-stock-result.txt",
+        ".test-results/reference-transforms-20261120",
+        ".test-results/reference-setup-A2-20261120/missing-offline-wheel.log",
+        ".test-results/reference-setup-A2-20261120/overlapping-setup.log"
       ],
-      "remaining_work": [
-        "Retained Python scientific setup still lacks exact dependency hash lock, transactional versioned environments and active-stock parity checks."
-      ],
+      "remaining_work": [],
       "original_acceptance_tests": [
         "Failed install leaves previous working environment selected.",
         "Same lock produces equivalent stock transform on clean machines.",
@@ -2693,8 +2706,8 @@
   ],
   "counts": {
     "total": 70,
-    "implemented": 17,
-    "partial": 40,
+    "implemented": 18,
+    "partial": 39,
     "pending": 13
   },
   "last_reconciled": "2026-11-20",

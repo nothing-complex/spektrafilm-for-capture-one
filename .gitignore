@@ -8,6 +8,7 @@
 /panel/
 /renderer/
 /.venv/
+/.reference-python/
 **/bin/
 **/obj/
 **/__pycache__/

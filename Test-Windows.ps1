@@ -49,6 +49,7 @@ try {
     Invoke-Test 'runner-environment' $powershell @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $PSScriptRoot 'tests\installer\Test-RunnerEnvironment.ps1'),'-ResultsDirectory',$ResultsDirectory)
     Invoke-Test 'manifest' $powershell @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $PSScriptRoot 'tests\installer\Test-Manifest.ps1'),'-ResultsDirectory',$ResultsDirectory)
     Invoke-Test 'launch-status' $powershell @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $PSScriptRoot 'tests\installer\Test-LaunchStatus.ps1'),'-ResultsDirectory',$ResultsDirectory)
+    Invoke-Test 'reference-selection' $powershell @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $PSScriptRoot 'tests\installer\Test-ReferenceSelection.ps1'),'-ResultsDirectory',$ResultsDirectory)
     Invoke-Test 'catalog-backup' $powershell @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $PSScriptRoot 'tests\installer\Test-CatalogBackup.ps1'),'-ResultsDirectory',$ResultsDirectory)
     if(!$SkipInstaller){Invoke-Test 'installer' $powershell @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $PSScriptRoot 'tests\installer\Test-Installer.ps1'),'-ResultsDirectory',$ResultsDirectory)}
     if($Gpu){

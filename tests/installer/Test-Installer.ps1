@@ -35,7 +35,7 @@ function Invoke-Installer([bool] $expectSuccess = $true) {
     Assert (($code -eq 0) -eq $expectSuccess) "Installer exit $code matches expected success=$expectSuccess"
 }
 Copy-Item -LiteralPath (Join-Path $repo 'Install-Spektrafilm.ps1') -Destination $payload
-$files = @('Start Spektrafilm for Capture One.cmd','Start-Spektrafilm.ps1','CatalogIntegrity.ps1','Restore-SpektrafilmCatalog.ps1','capture-one-hosts.json','stocks.json','panel\NativePanel.dll','assets\Spektrafilm.ico',
+$files = @('Start Spektrafilm for Capture One.cmd','Start-Spektrafilm.ps1','CatalogIntegrity.ps1','Restore-SpektrafilmCatalog.ps1','ReferencePython.ps1','capture-one-hosts.json','stocks.json','panel\NativePanel.dll','assets\Spektrafilm.ico',
     'profiles\preview\Linear Rec.2020.icc','profiles\preview\ProPhoto RGB.icc',
     'renderer\SpektraStillRenderer.exe','renderer\SpektraHanatos2025Spectra.f32','renderer\SpektraOutputGamutCompression.f32',
     'renderer\parameter-capabilities.json')
@@ -46,7 +46,8 @@ foreach ($file in $files) { Write-Fixture (Join-Path $payload $file) "inert vers
 Invoke-Installer
 Assert (Test-Path -LiteralPath (Join-Path $desktop 'Spektrafilm for Capture One.lnk')) 'Shortcut is created only on fixture Desktop'
 Assert (Test-Path -LiteralPath (Join-Path $install '.film-tools-owned.json')) 'Owned-file receipt is generated'
-$custom = @('profiles\nested\my look.spektra.json','my-top-level-look.spektra.json','.venv\retained.txt','assets\custom icon.txt')
+$custom = @('profiles\nested\my look.spektra.json','my-top-level-look.spektra.json','.venv\retained.txt',
+    '.reference-python\active.json','assets\custom icon.txt')
 foreach ($file in $custom) { Write-Fixture (Join-Path $install $file) "user sentinel: $file" }
 Write-Fixture (Join-Path $install 'assets\Spektrafilm.png\notes.txt') 'directory collision sentinel'
 Write-Fixture (Join-Path $payload 'assets\Spektrafilm.png') 'new bundled file'
