@@ -943,7 +943,7 @@ internal static class SpektraFilmTool
                 var approved = OutputPathGuard.Approve(picker.FileName, original);
                 cancelLut.Visibility = Visibility.Visible;
                 status.Text = "Baking the sRGB LUT…";
-                var cube = await NativeLutExporter.ExportAsync(plan, resolution, settings.Strength, work.Token);
+                var cube = await opticalPreview.RenderLutAsync(plan, resolution, settings.Strength, work.Token);
                 if (!disposed)
                 {
                     await Task.Run(() => approved.Write(stream =>

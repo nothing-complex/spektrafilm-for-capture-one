@@ -335,6 +335,30 @@
         "evidence": ".test-results/host-full-presets-20261119/host-smoke.log",
         "scope": "Version 2 stored master state, optics, film controls and staged grain. Wrong target no-op, single native action for apply/undo/redo and actual grain preserved."
       }
+    },
+    "renderer_drain_and_full_raw_export": {
+      "contracts": {
+        "status": "passed",
+        "assertions": 12066,
+        "renderer_client_assertions": 86,
+        "summary": ".test-results/contracts-renderer-drain-20261119/summary.json",
+        "skipped": [
+          "Local symbolic-file-link creation lacks Windows privilege."
+        ]
+      },
+      "host": {
+        "status": "passed",
+        "first_launch_assertions": 105,
+        "restart_assertions": 108,
+        "source_catalog_unchanged": true,
+        "evidence": ".test-results/host-full-raw-24mp-20261119/host-smoke.log",
+        "scope": "Actual full/draft Vulkan processes drained for LUT output. Duplicate LUT/image start rejected. Direct 6000x4000 DNG exported to RGB48 TIFF with intermediate codes and embedded ICC. Initial and reopened export timing for one fixture."
+      },
+      "gpu": {
+        "status": "passed",
+        "checks": 17,
+        "evidence": ".test-results/gpu-renderer-drain-20261119.log"
+      }
     }
   },
   "known_limitations": [
@@ -566,14 +590,16 @@
       "implemented": [
         "Tracked pure tests verify affine geometry, exact 16-bit TIFF/PNG samples, ICC, atomic-write preservation, draft filtering and cancellation.",
         "A separate overlap integral validates nonconstant color and alpha on fractional sampling footprints in all four transfer spaces and five output sizes.",
-        "Actual Capture One native development from a restored catalog uses 16-bit input with correctly sampled quarter-turn and horizontal mirroring. Keystone correction changes the developed pixels."
+        "Actual Capture One native development from a restored catalog uses 16-bit input with correctly sampled quarter-turn and horizontal mirroring. Keystone correction changes the developed pixels.",
+        "Unscaled actual DNG export reopened as 6000 by 4000 RGB48 with embedded ICC and 96 DPI. A decoded sample contained codes between 8-bit steps. Recipe/geometry and export tiers remain separate."
       ],
       "evidence_paths": [
         "tests/ViewerContracts",
         "NativePanel/ColorTransfer.cs",
         "NativePanel/ViewerDraftSource.cs",
         ".test-results/contracts-audit-resolution-20261119/summary.json",
-        ".test-results/host-restore-geometry-20261119/host-smoke.log"
+        ".test-results/host-restore-geometry-20261119/host-smoke.log",
+        ".test-results/host-full-raw-24mp-20261119/host-smoke.log"
       ],
       "remaining_work": [
         "Test host DPI coordinate transforms and crop/rounding edge cases."
@@ -884,11 +910,14 @@
       "priority": "P2",
       "status": "partial",
       "implemented": [
-        "Cancellation now safely aborts the child and resets its stream/cache; fake-worker mid-request and queued cancellation pass."
+        "Cancellation now safely aborts the child and resets its stream/cache; fake-worker mid-request and queued cancellation pass.",
+        "Renderer cancellation now waits for verified child termination. Async disposal covers idle shutdown and active abort without starting a replacement while an earlier child is shutting down."
       ],
       "evidence_paths": [
         "NativePanel/OpticalRenderer.cs",
-        "tests/renderer/Program.cs"
+        "tests/renderer/Program.cs",
+        "tests/renderer/Program.cs",
+        ".test-results/contracts-renderer-drain-20261119/summary.json"
       ],
       "remaining_work": [
         "Cooperative pass/tile cancellation, request IDs, progress channel and bounded warm restart policy are still absent."
@@ -1261,13 +1290,15 @@
       "priority": "P2",
       "status": "partial",
       "implemented": [
-        "Versioned worker metrics and reproducible synthetic/host test entry points supply initial telemetry."
+        "Versioned worker metrics and reproducible synthetic/host test entry points supply initial telemetry.",
+        "Repeated full-host 24 MP export baseline was 4204 ms on first process and 4033 ms after restart, including a small TIFF decode. Viewer worker quiescence is timed separately. The test machine used an RTX 3090."
       ],
       "evidence_paths": [
         "ofx-still-renderer/main.cpp",
         "NativePanel/OpticalRenderer.cs",
         "qa/HostSmoke",
-        "Test-Windows.ps1"
+        "Test-Windows.ps1",
+        ".test-results/host-full-raw-24mp-20261119/host-smoke.log"
       ],
       "remaining_work": [
         "No structured end-to-end event model, shared request identity, p50/p95 benchmark matrix or UI latency budget yet."
@@ -2032,14 +2063,19 @@
       "priority": "P2",
       "status": "partial",
       "implemented": [
-        "Starting image export cancels pending previews, pauses refresh and separates export status; preview refresh resumes afterward."
+        "Starting image export cancels pending previews, pauses refresh and separates export status; preview refresh resumes afterward.",
+        "Image and LUT output share the panel output slot. Both retire active and idle Viewer workers and await process exit before starting new GPU work. Preview resumes from the latest queued controls when the output slot releases. Real Vulkan worker PIDs and exclusion verified live."
       ],
       "evidence_paths": [
         "NativePanel/SpatialPreview.cs",
-        "NativePanel/ExportOperation.cs"
+        "NativePanel/ExportOperation.cs",
+        "NativePanel/OpticalRenderer.cs",
+        "tests/renderer/Program.cs",
+        ".test-results/host-full-raw-24mp-20261119/host-smoke.log",
+        ".test-results/contracts-renderer-drain-20261119/summary.json"
       ],
       "remaining_work": [
-        "No global resource leases, GPU-memory admission or guaranteed worker quiescence before export; benchmark peak overlap and priorities."
+        "Introduce cross-host/context resource leases and hardware admission. Collect p50/p95, parent memory, GPU allocations and overlap across more GPUs and cancellation stages."
       ],
       "original_acceptance_tests": [
         "Instrument fake and real workers: maximum active high-cost jobs conforms to budget; warmup is lowest priority.",

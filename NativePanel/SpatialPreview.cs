@@ -121,6 +121,8 @@ internal sealed class SpatialPreview : IDisposable
     private bool frameCurrent;
     private bool saveInProgress;
     private ExportOperation? exportWork;
+    private bool lutRenderActive;
+    private Task previewWorkersExited = Task.CompletedTask;
     private readonly CancellationTokenSource lifetime = new();
     private readonly TextBlock exportStatus = new() { TextWrapping = TextWrapping.Wrap };
     private readonly Button cancelExport = new() { Content = "Cancel export", Visibility = Visibility.Collapsed, HorizontalAlignment = HorizontalAlignment.Left };
@@ -615,6 +617,26 @@ internal sealed class SpatialPreview : IDisposable
         }
     }
 
+    private bool OutputRenderActive => exportWork is not null || lutRenderActive;
+
+    internal async Task<string> RenderLutAsync(NativeLutExporter.Plan plan, int resolution, double strength, CancellationToken stop)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        if (OutputRenderActive)
+            throw new InvalidOperationException("Wait for the current Spektrafilm export to finish.");
+        lutRenderActive = true;
+        try
+        {
+            await DrainPreviewWorkersAsync(stop);
+            return await NativeLutExporter.ExportAsync(plan, resolution, strength, stop);
+        }
+        finally
+        {
+            lutRenderActive = false;
+            RequestRefresh();
+        }
+    }
+
     internal Task<bool> ExportAsync(bool useRecipeSize, Window? owner = null) =>
         ExportWithDestinationAsync(useRecipeSize, owner, ChooseExportDestination);
 
@@ -623,6 +645,11 @@ internal sealed class SpatialPreview : IDisposable
     {
         if (disposed || !enabled || exportWork is not null)
             return false;
+        if (lutRenderActive)
+        {
+            exportStatus.Text = "Wait for the Spektrafilm LUT export to finish.";
+            return false;
+        }
         try
         {
             var look = getSettings() ?? throw new InvalidOperationException("Wait for the Spektrafilm controls to finish loading.");
@@ -665,9 +692,9 @@ internal sealed class SpatialPreview : IDisposable
 
                 var approved = OutputPathGuard.Approve(destination, target.SourcePath);
                 var outputFormat = SpektraExport.PixelFormatFor(approved.Path);
-                pending?.Cancel();
-                pendingDraft?.Cancel();
                 cancelExport.Visibility = Visibility.Visible;
+                exportStatus.Text = "Waiting for Viewer rendering to finish…";
+                await DrainPreviewWorkersAsync(work.Token);
                 exportStatus.Text = "Rendering Spektrafilm export…";
                 var result = await Task.Run(async () =>
                 {
@@ -676,10 +703,12 @@ internal sealed class SpatialPreview : IDisposable
                     if (source.BitDepth < 16)
                         throw new InvalidDataException("Capture One did not produce high-bit-depth image data for this export.");
                     StartupHook.Log($"Capture One developed {target.SourceFormat} export input at {source.Width} × {source.Height}, {source.BitDepth}-bit {input.Space}.");
-                    using var exporter = new OpticalRenderer(export: true);
-                    var pixels = look.Strength > 0
-                        ? await exporter.RenderAsync(source.Width, source.Height, source.FloatBytes, args, work.Token).ConfigureAwait(false)
-                        : null;
+                    byte[]? pixels = null;
+                    if (look.Strength > 0)
+                    {
+                        await using var exporter = new OpticalRenderer(export: true);
+                        pixels = await exporter.RenderAsync(source.Width, source.Height, source.FloatBytes, args, work.Token).ConfigureAwait(false);
+                    }
                     work.Token.ThrowIfCancellationRequested();
                     var output = DecodeExport(source, pixels, look.Strength, input.Space, encoding, outputFormat, rendered.Crop, work.Token, dpi);
                     SpektraExport.SaveApproved(approved, output, work.Token, recipe?.Metadata);
@@ -765,7 +794,7 @@ internal sealed class SpatialPreview : IDisposable
             ClearPreview();
             return;
         }
-        if (exportWork is not null)
+        if (OutputRenderActive || !previewWorkersExited.IsCompletedSuccessfully)
             return;
         if ((!queued || selectionUnavailable || pending is not null && !WantsDragPreview)
             && Environment.TickCount64 < nextViewerCheck)
@@ -999,7 +1028,7 @@ internal sealed class SpatialPreview : IDisposable
 
     private void ReleaseRenderer()
     {
-        renderer?.Dispose();
+        RetirePreviewWorker(renderer);
         renderer = null;
     }
 
@@ -1033,7 +1062,7 @@ internal sealed class SpatialPreview : IDisposable
             var display = await Task.Run(() => packed ? CreateDisplayBitmap(frame, pixels)
                 : DecodeResult(frame, pixels, look.Strength, inputColor.Space, encoding.Id, stop), stop);
             stop.ThrowIfCancellationRequested();
-            if (version != inputRevision || DragLongEdge != dragEdge || exportWork is not null
+            if (version != inputRevision || DragLongEdge != dragEdge || OutputRenderActive
                 || HostImageSource.GetRevision(window, variant) != revision)
                 return;
             viewerFrame = display;
@@ -1092,7 +1121,7 @@ internal sealed class SpatialPreview : IDisposable
                 ? DecodeResult(frame, pixels, look.Strength, inputColor.Space, encoding.Id, job.Token)
                 : CreateDisplayBitmap(frame, packed), job.Token);
             job.Token.ThrowIfCancellationRequested();
-            if (!WantsDragPreview || exportWork is not null || activeVariant != selectedVariant || !ReferenceEquals(source, input)
+            if (!WantsDragPreview || OutputRenderActive || activeVariant != selectedVariant || !ReferenceEquals(source, input)
                 || !ReferenceEquals(inputSpace.SelectedItem, inputColor) || !ReferenceEquals(outputSpace.SelectedItem, encoding)
                 || ((Choice)previewSize.SelectedItem).Id != viewerSize || DragLongEdge != dragEdge
                 || HostImageSource.GetRevision(window, selectedVariant) != revision)
@@ -1120,8 +1149,39 @@ internal sealed class SpatialPreview : IDisposable
 
     private void ReleaseDraftRenderer()
     {
-        draftRenderer?.Dispose();
+        RetirePreviewWorker(draftRenderer);
         draftRenderer = null;
+    }
+
+    private void RetirePreviewWorker(OpticalRenderer? worker)
+    {
+        if (worker is null)
+            return;
+        var exit = worker.DisposeAsync().AsTask();
+        previewWorkersExited = previewWorkersExited.IsCompletedSuccessfully
+            ? exit
+            : Task.WhenAll(previewWorkersExited, exit);
+        // Log even when this viewer is disposed before the next output operation.
+        _ = ObservePreviewWorkerExitAsync(exit);
+    }
+
+    private static async Task ObservePreviewWorkerExitAsync(Task exit)
+    {
+        try { await exit.ConfigureAwait(false); }
+        catch (Exception error) { StartupHook.Log("Viewer renderer could not exit: " + error.GetBaseException().Message); }
+    }
+
+    private async Task DrainPreviewWorkersAsync(CancellationToken token)
+    {
+        var started = Stopwatch.GetTimestamp();
+        var waiting = renderer is not null || draftRenderer is not null || !previewWorkersExited.IsCompletedSuccessfully;
+        pending?.Cancel();
+        pendingDraft?.Cancel();
+        ReleaseRenderer();
+        ReleaseDraftRenderer();
+        await previewWorkersExited.WaitAsync(token);
+        if (waiting)
+            StartupHook.Log($"Spektrafilm Viewer renderer processes exited before export in {Stopwatch.GetElapsedTime(started).TotalMilliseconds:F0} ms.");
     }
 
     private void ClearFrame(Exception error)
@@ -1146,7 +1206,7 @@ internal sealed class SpatialPreview : IDisposable
 
     private void UpdateViewerStatus()
     {
-        if (!enabled || exportWork is not null)
+        if (!enabled || OutputRenderActive)
             return;
         var message = viewer.UnavailableReason;
         if (message is null && viewerFrame is { } frame)

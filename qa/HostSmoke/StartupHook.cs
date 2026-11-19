@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -142,6 +143,7 @@ public static class StartupHook
                 Check(decoded.Format == PixelFormats.Rgb48,"actual developed and processed TIFF retains 16 bits per RGB channel");
                 Check(decoded.PixelWidth == width && decoded.PixelHeight == height,"actual TIFF keeps intended image dimensions");
             }
+            await TestWorkerQuiescence(panel, spatial, rendererType);
             var grain = panelAssembly.GetType("NativeGrain")!;
             TestNativeUndoCapability(Field(panel, "document")!);
             TestNativeGrain(grain, window, store, variant, restart);
@@ -149,6 +151,7 @@ public static class StartupHook
             File.AppendAllText(Path.Combine(folder,"host-smoke.log"), "RECIPE " + recipe + Environment.NewLine);
             await TestRecipeExport(panel, spatial, recipe!, variant, toggle);
             await TestNativeExportCommands(hookField, hosted, panel, spatial, window);
+            await TestFullDirectExport(spatial);
             await TestDetach(hook, hosted, panel, spatial, window, toggle);
             Check(Prop(Call(store, "Read", variant)!, "Enabled") is false, "master switch persisted after all tests");
             if (!restart) File.WriteAllText(Path.Combine(folder, "restart.expected"), "1.2 disabled");
@@ -159,6 +162,75 @@ public static class StartupHook
             timer?.Stop();
             File.WriteAllText(Path.Combine(folder, "failed.txt"), error.ToString());
         }
+    }
+
+    static async Task TestFullDirectExport(object spatial)
+    {
+        var output = Path.Combine(folder, "full-precision-export.tif");
+        var started = Stopwatch.GetTimestamp();
+        var exported = await (Task<bool>)Call(spatial, "ExportWithDestinationAsync", false, null,
+            (Func<SaveFileDialog, Window?, string?>)((_, _) => output))!;
+        Check(exported && File.Exists(output), "direct export processed the full-sized RAW source");
+        using var input = File.OpenRead(output);
+        var frame = BitmapDecoder.Create(input, BitmapCreateOptions.PreservePixelFormat | BitmapCreateOptions.IgnoreColorProfile,
+            BitmapCacheOption.OnDemand).Frames[0];
+        Check(frame.Format == PixelFormats.Rgb48 && frame.PixelWidth == 6000 && frame.PixelHeight == 4000,
+            "full unscaled DNG export reopens at 6000 x 4000 in RGB48");
+        Check(Math.Abs(frame.DpiX - 96) < 0.03 && Math.Abs(frame.DpiY - 96) < 0.03
+            && frame.ColorContexts?.Count > 0, "full direct export retained 96 DPI and embedded ICC");
+        const int stride = 16 * 6;
+        var sample = new byte[16 * stride];
+        frame.CopyPixels(new Int32Rect(3000, 2000, 16, 16), sample, stride, 0);
+        Check(Enumerable.Range(0, sample.Length / 2).Select(index => BitConverter.ToUInt16(sample, index * 2))
+            .Any(code => code % 257 != 0), "full RAW export contains codes between 8-bit steps");
+        File.AppendAllText(Path.Combine(folder, "host-smoke.log"),
+            $"Full export benchmark: {Stopwatch.GetElapsedTime(started).TotalMilliseconds:F0} ms incl. one decoded sample, {input.Length} bytes." + Environment.NewLine);
+    }
+
+    static async Task TestWorkerQuiescence(object panel, object spatial, Type rendererType)
+    {
+        Call(spatial, "SetEnabled", false);
+        await (Task)Call(spatial, "DrainPreviewWorkersAsync", CancellationToken.None)!;
+        object NewRenderer() => Activator.CreateInstance(rendererType, Flags, null, new object[] { false, true }, null)!;
+        var full = NewRenderer();
+        var draft = NewRenderer();
+        using var disposeFull = (IDisposable)full;
+        using var disposeDraft = (IDisposable)draft;
+        var arguments = Call(spatial, "RendererOptions", Call(panel, "CurrentSettings"), "srgb", "srgb", true, false)!;
+        var samples = Enumerable.Range(0, 8 * 8 * 4).Select(index => index % 4 == 3 ? 1f : 0.4f).ToArray();
+        var input = new byte[samples.Length * sizeof(float)];
+        Buffer.BlockCopy(samples, 0, input, 0, input.Length);
+        foreach (var worker in new[] { full, draft })
+            await (Task<byte[]>)Call(worker, "RenderAsync", 8, 8, input, arguments, CancellationToken.None, false)!;
+        using var fullProcess = Process.GetProcessById(((Process)Field(full, "process")!).Id);
+        using var draftProcess = Process.GetProcessById(((Process)Field(draft, "process")!).Id);
+        spatial.GetType().GetField("renderer", Flags)!.SetValue(spatial, full);
+        spatial.GetType().GetField("draftRenderer", Flags)!.SetValue(spatial, draft);
+        Check(!fullProcess.HasExited && !draftProcess.HasExited, "real Vulkan preview workers running before output lease");
+
+        var nativeLut = rendererType.Assembly.GetType("NativeLutExporter")!;
+        var plan = nativeLut.GetMethod("Prepare", Flags)!.Invoke(null, new[] { arguments })!;
+        Task<string> Bake() => (Task<string>)Call(spatial, "RenderLutAsync", plan, 33, 1d, CancellationToken.None)!;
+        var bake = Bake();
+        try
+        {
+            await Bake();
+            throw new InvalidOperationException("A second Vulkan output acquired the same lease.");
+        }
+        catch (InvalidOperationException error) when (error.Message.Contains("current Spektrafilm export", StringComparison.Ordinal))
+        {
+            Check(true, "second LUT render rejected while first owns the output lease");
+        }
+
+        Call(spatial, "SetEnabled", true);
+        var image = (Task<bool>)Call(spatial, "ExportWithDestinationAsync", true, null,
+            (Func<SaveFileDialog, Window?, string?>)((_, _) => throw new InvalidOperationException("Image export should not open Save during LUT rendering.")))!;
+        Check(await image == false && Field(spatial, "exportWork") is null, "image export is blocked during the active LUT without opening a dialog");
+        var cube = await bake;
+        Check(cube.Contains("LUT_3D_SIZE 33", StringComparison.Ordinal) && fullProcess.HasExited && draftProcess.HasExited,
+            "Vulkan LUT completed after both Viewer worker processes exited");
+        Check(Field(spatial, "lutRenderActive") is false && Field(spatial, "queued") is true,
+            "latest Viewer request resumes automatically when the LUT lease releases");
     }
 
     static void TestProductionUndo(object panel, object spatial, object window, object store, Guid variant, object exposure)

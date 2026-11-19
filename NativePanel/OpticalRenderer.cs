@@ -7,13 +7,14 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
-internal sealed class OpticalRenderer(bool export = false, bool nativePreview = false) : IDisposable
+internal sealed class OpticalRenderer(bool export = false, bool nativePreview = false) : IDisposable, IAsyncDisposable
 {
     private Process? process;
     private WeakReference<byte[]>? source;
     private readonly SemaphoreSlim requests = new(1, 1);
     private readonly CancellationTokenSource lifetime = new();
     private readonly object sync = new();
+    private Task shutdown = Task.CompletedTask;
     private bool disposed;
     private bool negotiated;
     private int sourceWidth, sourceHeight;
@@ -28,6 +29,7 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
         try
         {
             ObjectDisposedException.ThrowIf(disposed, this);
+            await shutdown.WaitAsync(linked.Token).ConfigureAwait(false);
             return await RenderCoreAsync(width, height, rgba, arguments, linked.Token, displayPixels).ConfigureAwait(false);
         }
         finally { requests.Release(); }
@@ -107,14 +109,14 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
         }
         catch (OperationCanceledException) when (!stop.IsCancellationRequested)
         {
-            Stop(abort: true);
+            await StopAsync(abort: true).ConfigureAwait(false);
             var target = export ? "export" : nativePreview ? "native Viewer preview" : "preview";
             throw new TimeoutException($"Spektrafilm did not finish the {target} in time.");
         }
         catch (Exception error) when (error is IOException or InvalidDataException or JsonException
             or OperationCanceledException or ObjectDisposedException)
         {
-            Stop(abort: true);
+            await StopAsync(abort: true).ConfigureAwait(false);
             throw;
         }
     }
@@ -202,7 +204,7 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
             }
             catch
             {
-                Stop(abort: true);
+                await StopAsync(abort: true).ConfigureAwait(false);
                 throw;
             }
         }
@@ -213,62 +215,83 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
     {
         lock (sync)
         {
-        ObjectDisposedException.ThrowIf(disposed, this);
-        if (process is { HasExited: false })
-            return process;
-        Stop(abort: true);
-        var root = Environment.GetEnvironmentVariable("SPEKTRAFILM_ROOT")
-            ?? throw new InvalidOperationException("Start Capture One using the Spektrafilm launcher.");
-        var exe = Path.Combine(root, "renderer", "SpektraStillRenderer.exe");
-        if (!File.Exists(exe))
-            throw new IOException("The Spektrafilm Vulkan renderer is missing. See the project README.");
-        var start = new ProcessStartInfo(exe)
-        {
-            WorkingDirectory = Path.GetDirectoryName(exe)!, UseShellExecute = false, CreateNoWindow = true,
-            RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true,
-        };
-        WorkerEnvironment.Sanitize(start);
-        start.ArgumentList.Add(export ? "--export-stream" : nativePreview ? "--native-preview-stream" : "--stream");
-        var child = Process.Start(start) ?? throw new IOException("Could not start the optical renderer.");
-        child.ErrorDataReceived += (_, args) =>
-        {
-            if (!string.IsNullOrEmpty(args.Data))
-                StartupHook.Log("Optical renderer: " + args.Data);
-        };
-        child.BeginErrorReadLine();
-        process = child;
-        return child;
+            ObjectDisposedException.ThrowIf(disposed, this);
+            if (process is { HasExited: false })
+                return process;
+            if (process is { } exited)
+            {
+                ClearProcess();
+                exited.Dispose();
+            }
+
+            var root = Environment.GetEnvironmentVariable("SPEKTRAFILM_ROOT")
+                ?? throw new InvalidOperationException("Start Capture One using the Spektrafilm launcher.");
+            var exe = Path.Combine(root, "renderer", "SpektraStillRenderer.exe");
+            if (!File.Exists(exe))
+                throw new IOException("The Spektrafilm Vulkan renderer is missing. See the project README.");
+            var start = new ProcessStartInfo(exe)
+            {
+                WorkingDirectory = Path.GetDirectoryName(exe)!, UseShellExecute = false, CreateNoWindow = true,
+                RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true,
+            };
+            WorkerEnvironment.Sanitize(start);
+            start.ArgumentList.Add(export ? "--export-stream" : nativePreview ? "--native-preview-stream" : "--stream");
+            var child = Process.Start(start) ?? throw new IOException("Could not start the optical renderer.");
+            child.ErrorDataReceived += (_, args) =>
+            {
+                if (!string.IsNullOrEmpty(args.Data))
+                    StartupHook.Log("Optical renderer: " + args.Data);
+            };
+            child.BeginErrorReadLine();
+            process = child;
+            return child;
         }
     }
 
-    public void Dispose()
+    public void Dispose() => _ = ObserveDisposalAsync(DisposeCore());
+
+    public ValueTask DisposeAsync() => new(DisposeCore());
+
+    private Task DisposeCore()
     {
         lock (sync)
         {
-            if (disposed) return;
-            disposed = true;
-            lifetime.Cancel();
-            Stop(abort: false);
+            if (!disposed)
+            {
+                disposed = true;
+                lifetime.Cancel();
+            }
+            return StopAsync(abort: requests.CurrentCount == 0);
         }
     }
 
-    private void Stop(bool abort)
+    private Task StopAsync(bool abort)
     {
         lock (sync)
         {
-        var child = process;
+            if (process is not { } child)
+                return shutdown;
+            ClearProcess();
+            // Process exit is the resource boundary. Killing a worker only
+            // requests termination and does not guarantee GPU resources are free.
+            shutdown = Task.Run(() => CloseWorker(child, abort));
+            return shutdown;
+        }
+    }
+
+    private void ClearProcess()
+    {
         process = null;
         source = null;
         sourceWidth = sourceHeight = 0;
         negotiated = false;
         ParameterContract = null;
-        if (child is null)
-            return;
-        if (abort)
-            CloseWorker(child, abort: true);
-        else
-            _ = Task.Run(() => CloseWorker(child, abort: false));
-        }
+    }
+
+    private static async Task ObserveDisposalAsync(Task completion)
+    {
+        try { await completion.ConfigureAwait(false); }
+        catch (Exception error) { StartupHook.Log("Optical renderer shutdown: " + error.GetBaseException().Message); }
     }
 
     private static void CloseWorker(Process child, bool abort)
@@ -279,23 +302,16 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
                 return;
             if (!abort)
             {
-                child.StandardInput.Close();
+                try { child.StandardInput.BaseStream.Close(); }
+                catch (IOException) { /* The worker can close its pipe on exit. */ }
                 if (child.WaitForExit(300))
                     return;
             }
-            if (!child.HasExited)
-                child.Kill();
-        }
-        catch (IOException)
-        {
             try { if (!child.HasExited) child.Kill(); }
-            catch (InvalidOperationException) { }
+            catch (InvalidOperationException) when (child.HasExited) { }
+            if (!child.WaitForExit(5000))
+                throw new TimeoutException("A Spektrafilm renderer could not exit before the next render.");
         }
-        catch (InvalidOperationException) { }
-        catch (System.ComponentModel.Win32Exception error) { StartupHook.Log($"Optical renderer shutdown: {error.Message}"); }
-        finally
-        {
-            child.Dispose();
-        }
+        finally { child.Dispose(); }
     }
 }

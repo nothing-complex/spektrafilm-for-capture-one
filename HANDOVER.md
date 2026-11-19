@@ -170,6 +170,15 @@ Evidence is under `.test-results/contracts-native-undo-metadata-20261119` and `.
 
 Evidence is under `.test-results/contracts-full-presets-20261119` and `.test-results/host-full-presets-20261119`. Selective section apply, every-mode roundtrips and adjacent native clone/copy behavior remain open. The installed runtime still identifies `ffc4819`.
 
+## Output worker scheduling and full RAW export checkpoint
+
+- [x] Retire and await Viewer processes before image or LUT GPU output. Native exports and LUT baking share the same panel output slot. Block a second GPU output and queue the latest Viewer refresh when output completes. Waiting for process exit is asynchronous.
+- [x] Assert process exit for an idle and a blocked renderer using process handles. Reopen a worker after shutdown. Also verify cancellation, queued-request survival and malformed stream recovery.
+- [x] Exercise real full and draft Vulkan processes in Capture One, block overlapping outputs, and export a complete 6000 × 4000 DNG without a recipe size reduction. The RGB48 TIFF includes an embedded ICC profile and 16-bit codes between 8-bit steps. First/restart fixture timing was 4.20 s and 4.03 s on the RTX 3090, each including a small decoded sample.
+- [x] Pass 12,066 local Windows assertions, 17 GPU checks and 105 first-launch plus 108 restart host assertions. The source catalog hash stayed unchanged.
+
+Evidence is under `.test-results/contracts-renderer-drain-20261119`, `.test-results/host-full-raw-24mp-20261119` and `.test-results/gpu-renderer-drain-20261119.log`. Global admission across panels and processes, accurate VRAM reservations and a performance matrix across GPUs remain open. The installed runtime still identifies `ffc4819`.
+
 ## Runtime map for the next agent
 
 | Responsibility | Main files and contracts |

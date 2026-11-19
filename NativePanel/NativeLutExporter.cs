@@ -64,7 +64,7 @@ internal static class NativeLutExporter
         string? contract = null;
         if (strength > 0)
         {
-            using var renderer = new OpticalRenderer(export: true);
+            await using var renderer = new OpticalRenderer(export: true);
             result = await renderer.RenderAsync(size * size, size, source, plan.Arguments, stop).ConfigureAwait(false);
             contract = renderer.ParameterContract;
         }

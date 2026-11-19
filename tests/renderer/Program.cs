@@ -69,6 +69,32 @@ internal static class Program
                 Check(File.ReadAllLines(Path.Combine(root, "renderer", "trace.txt")).Count(l => l.Contains("HELLO")) == 2, "cancel restarts and renegotiates");
             }
             {
+                var root = Setup(scratch, "valid");
+                string PathInRenderer(string name) => Path.Combine(root, "renderer", name);
+                int LastWorker() => int.Parse(File.ReadLines(PathInRenderer("trace.txt")).Last().Split(':')[0]);
+                await using var idle = new OpticalRenderer(nativePreview: true);
+                await idle.RenderAsync(1, 1, Pixels(1), [], default);
+                using var idleProcess = Process.GetProcessById(LastWorker());
+                File.Delete(PathInRenderer("request-received"));
+                File.WriteAllText(PathInRenderer("scenario.txt"), "hang");
+
+                await using var busy = new OpticalRenderer(nativePreview: true);
+                var rendering = busy.RenderAsync(1, 1, Pixels(1), [], default);
+                await WaitForRequest(root, rendering);
+                using var busyProcess = Process.GetProcessById(LastWorker());
+                Check(!busyProcess.HasExited && !idleProcess.HasExited, "idle and busy worker fixture reached the resource barrier");
+                var idleExit = idle.DisposeAsync().AsTask();
+                var busyExit = busy.DisposeAsync().AsTask();
+                var secondExit = busy.DisposeAsync().AsTask();
+                await Task.WhenAll(idleExit, busyExit, secondExit).WaitAsync(TimeSpan.FromSeconds(10));
+                await Throws<OperationCanceledException>(() => rendering.WaitAsync(TimeSpan.FromSeconds(10)));
+                Check(idleProcess.HasExited && busyProcess.HasExited, "awaited shutdown confirms both renderer processes exited");
+                File.WriteAllText(PathInRenderer("scenario.txt"), "valid");
+                await using var export = new OpticalRenderer(export: true);
+                Check((await export.RenderAsync(1, 1, Pixels(1), [], default)).Length == 16,
+                    "a replacement worker can start after preview resource release");
+            }
+            {
                 var root = Setup(scratch, "gated");
                 using var renderer = new OpticalRenderer(nativePreview: true);
                 var pixels = Pixels(1);
