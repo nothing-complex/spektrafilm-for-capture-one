@@ -1,7 +1,6 @@
 using System;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Security.Cryptography;
 using System.Windows;
 using System.Windows.Media;
@@ -17,7 +16,6 @@ internal static class StartupHook
     internal const string ProductName = "Spektrafilm for Capture One";
     internal const string BrandName = "Spektrafilm";
     private const string SupportedHostHash = "4E17B2AB68CB60CCE18BB92CF0C829A93A62024B15354136FD30A3F9EED2E342";
-    private const BindingFlags PublicStatic = BindingFlags.Public | BindingFlags.Static;
     private static readonly string[] CustomTabIds = Enumerable.Range(1, 18)
         .Select(index => $"Custom{index}PaletteTab").ToArray();
 
@@ -77,10 +75,8 @@ internal static class StartupHook
     {
         try
         {
-            var program = FindProgram();
-            var manager = program?.GetProperty("DocumentManager", PublicStatic)?.GetValue(null);
-            var document = manager?.GetType().GetProperty("ActiveDocument")?.GetValue(manager) as ICaptureOneDocument;
-            var form = GetMainForm(program, document);
+            var document = HostDocumentAccess.Current()?.ActiveDocument();
+            var form = HostDocumentAccess.MainForm(document);
             if (form is not { IsHandleCreated: true, IsDisposed: false })
                 return;
 
@@ -100,11 +96,9 @@ internal static class StartupHook
     {
         try
         {
-            var program = FindProgram();
-            var manager = program?.GetProperty("DocumentManager", PublicStatic)?.GetValue(null);
-            var managerType = manager?.GetType();
-            var path = managerType?.GetProperty("ActiveDocumentPath")?.GetValue(manager) as string;
-            if (!ApprovedCatalog.IsApproved(path))
+            var manager = HostDocumentAccess.Current();
+            var document = manager?.ActiveDocument();
+            if (document is null || !ApprovedCatalog.IsApproved(manager?.ActivePath(), document.Path))
             {
                 if (window is { IsDisposed: true })
                     Detach();
@@ -112,9 +106,8 @@ internal static class StartupHook
                 return;
             }
 
-            var document = managerType!.GetProperty("ActiveDocument")?.GetValue(manager) as ICaptureOneDocument;
-            var form = GetMainForm(program, document);
-            var palette = form?.GetType().GetProperty("InspectorPaletteViewModel")?.GetValue(form) as InspectorPaletteViewModel;
+            var form = HostDocumentAccess.MainForm(document);
+            var palette = HostDocumentAccess.Palette(form);
             if (document is null || form is not { IsHandleCreated: true, IsDisposed: false } || palette is null)
             {
                 LogState("Waiting for the selected catalog’s tool palette.");
@@ -136,13 +129,6 @@ internal static class StartupHook
             LogState(error.ToString());
         }
     }
-
-    private static Type? FindProgram() => AppDomain.CurrentDomain.GetAssemblies()
-        .FirstOrDefault(assembly => assembly.GetName().Name == "CaptureOne")?.GetType("P1.C1.Program");
-
-    private static Forms.Form? GetMainForm(Type? program, ICaptureOneDocument? document) => document is null
-        ? null
-        : program?.GetMethod("GetMainForm", PublicStatic)?.Invoke(null, new object[] { document }) as Forms.Form;
 
     private static void Attach(Forms.Form form, InspectorPaletteViewModel palette, ICaptureOneDocument document)
     {

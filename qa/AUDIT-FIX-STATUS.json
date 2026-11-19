@@ -493,6 +493,33 @@
         "assertions": 11,
         "evidence": ".test-results/large-encoder-20261119.log",
         "scope": "Synthetic 61 MP TIFF and 45 MP PNG, exact high-depth codes, ICC and DPI."
+      },
+      "github": {
+        "status": "passed",
+        "run_id": 44626037770,
+        "url": "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44626037770",
+        "scope": "Both Windows Server 2022 and 2025 host-independent jobs passed."
+      }
+    },
+    "cached_host_access": {
+      "status": "passed",
+      "host": {
+        "first_launch_assertions": 113,
+        "restart_assertions": 116,
+        "source_catalog_unchanged": true,
+        "evidence": ".test-results/host-cached-identity-20261119/host-smoke.log"
+      },
+      "microbenchmark": {
+        "calls_per_sample": 5000,
+        "reflection_ms": [
+          32.52,
+          45.97
+        ],
+        "cached_ms": [
+          2.18,
+          1.9
+        ],
+        "scope": "Same active catalog and palette. Tests discovery/lookups only, without claiming full UI latency."
       }
     }
   },
@@ -1497,14 +1524,21 @@
       "id": "HS-16",
       "title": "Polling repeats reflection and path work even at idle",
       "priority": "P3",
-      "status": "pending",
-      "implemented": [],
-      "evidence_paths": [],
+      "status": "partial",
+      "implemented": [
+        "Cache the exact host manager, active document/path and main-form property delegates. A weakly keyed palette binding follows form instances without holding an old form alive.",
+        "Recurring catalog authorization compares the actual native document database with the selected database and checks the manager path. Directory-form manager paths resolve by document identity, so recurring authorization never enumerates catalog directories.",
+        "The periodic watchdog retries pending writes without flushing an empty queue. Four lookup routes were checked against the real host on both launches, including mismatched document and unrelated network path refusal."
+      ],
+      "evidence_paths": [
+        "NativePanel/HostDocumentAccess.cs",
+        "NativePanel/ApprovedCatalog.cs",
+        "NativePanel/StartupHook.cs",
+        ".test-results/host-cached-identity-20261119/host-smoke.log"
+      ],
       "remaining_work": [
-        "cache validated member access in host adapter",
-        "document lifecycle/selection events drive attach and synchronization",
-        "retain low-frequency defensive watchdog with adaptive backoff",
-        "cache path identity while invalidating on document change/rename, never skip catalog authorization. Separate pending persistence retry from full host discovery."
+        "Measure real idle UI thread time and adopt event-led form/document reattach with an adaptive watchdog.",
+        "Exercise physical document or workspace replacement, event loss and startup on an unavailable network catalog."
       ],
       "original_acceptance_tests": [
         "measure idle UI thread cost/IO and zero-change work",
@@ -2497,8 +2531,8 @@
   "counts": {
     "total": 70,
     "implemented": 12,
-    "partial": 39,
-    "pending": 19
+    "partial": 40,
+    "pending": 18
   },
   "last_reconciled": "2026-11-19",
   "handover": "HANDOVER.md",

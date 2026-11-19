@@ -65,6 +65,7 @@ public static class StartupHook
             }
             timer!.Stop();
             var window = Field(hosted, "mainWindow")!;
+            TestHostLookups(panelAssembly!, panel, (Forms.Form)window);
             var hookField = hook!.GetField("exportHook", Flags)!;
             var exportHook = hookField.GetValue(null);
             Check(exportHook is not null, "native Export hook attached");
@@ -167,6 +168,76 @@ public static class StartupHook
             timer?.Stop();
             File.WriteAllText(Path.Combine(folder, "failed.txt"), error.ToString());
         }
+    }
+
+    static void TestHostLookups(Assembly panelAssembly, object panel, Forms.Form window)
+    {
+        const int calls = 5_000;
+        var access = panelAssembly.GetType("HostDocumentAccess")!;
+        var current = access.GetMethod("Current", Flags)!.CreateDelegate<Func<object?>>();
+        var active = current()!;
+        var path = (Func<string?>)Prop(active, "ActivePath")!;
+        var readDocumentCallback = (Delegate)Prop(active, "ActiveDocument")!;
+        var readDocument = (Func<object?>)readDocumentCallback;
+        var formMethod = access.GetMethod("MainForm", Flags)!;
+        var documented = System.Linq.Expressions.Expression.Parameter(typeof(object), "document");
+        var formLookup = System.Linq.Expressions.Expression.Lambda<Func<object, Forms.Form?>>(
+            System.Linq.Expressions.Expression.Call(formMethod,
+                System.Linq.Expressions.Expression.Convert(documented, formMethod.GetParameters()[0].ParameterType)), documented).Compile();
+        var approve = panelAssembly.GetType("ApprovedCatalog")!.GetMethod("IsApproved", Flags)!.CreateDelegate<Func<string?, string?, bool>>();
+        var paletteFor = access.GetMethod("Palette", Flags)!.CreateDelegate<Func<Forms.Form, object?>>();
+        var document = Field(panel, "document")!;
+        var pathProperty = formMethod.GetParameters()[0].ParameterType.GetProperty("Path")!;
+        var readDocumentPath = System.Linq.Expressions.Expression.Lambda<Func<object, string>>(
+            System.Linq.Expressions.Expression.Property(System.Linq.Expressions.Expression.Convert(documented,
+                formMethod.GetParameters()[0].ParameterType), pathProperty), documented).Compile();
+        var nativePath = readDocumentPath(document);
+        var another = Path.Combine(folder, "different.cocatalogdb");
+        var palette = paletteFor(window);
+        Check(ReferenceEquals(readDocument(), document) && palette is not null && approve(path(), nativePath),
+            "cached adapter matches the active native document, form palette and catalog authorization");
+        Check(ReferenceEquals(active, current()) && !approve(another, nativePath),
+            "binding retains its stable manager and rejects a different database path");
+        Check(string.Equals(nativePath, Environment.GetEnvironmentVariable("SPEKTRAFILM_CATALOG"), StringComparison.OrdinalIgnoreCase),
+            "native document reports its exact selected database path");
+        Check(approve(Path.GetDirectoryName(nativePath), nativePath) && !approve(Path.GetDirectoryName(nativePath), another),
+            "directory-form manager identity requires the exact opted-in database");
+        Check(!approve(nativePath, another) && !approve(@"\\example.invalid\catalog-share", nativePath),
+            "document switch and unrelated network paths are rejected");
+
+        // Compare just the lookup work on the same UI thread and stable catalog.
+        object? Legacy()
+        {
+            var program = AppDomain.CurrentDomain.GetAssemblies()
+                .First(assembly => assembly.GetName().Name == "CaptureOne").GetType("P1.C1.Program")!;
+            var manager = program.GetProperty("DocumentManager", Flags)!.GetValue(null)!;
+            var activePath = (string?)manager.GetType().GetProperty("ActiveDocumentPath")!.GetValue(manager);
+            var activeDoc = manager.GetType().GetProperty("ActiveDocument")!.GetValue(manager);
+            if (activeDoc is null || !approve(activePath, readDocumentPath(activeDoc)))
+                return null;
+            var form = program.GetMethod("GetMainForm", BindingFlags.Public | BindingFlags.Static)!.Invoke(null, new[] { activeDoc });
+            return form!.GetType().GetProperty("InspectorPaletteViewModel")!.GetValue(form);
+        }
+
+        object? Cached() => ReferenceEquals(current(), active) && readDocument() is { } currentDocument
+            && approve(path(), readDocumentPath(currentDocument))
+            && formLookup(currentDocument) is { } form ? paletteFor(form) : null;
+        Check(ReferenceEquals(Legacy(), palette) && ReferenceEquals(Cached(), palette), "lookup benchmark produced identical live palette identity");
+        double Measure(Func<object?> lookup)
+        {
+            var start = Stopwatch.GetTimestamp();
+            object? result = null;
+            for (var index = 0; index < calls; index++)
+                result = lookup();
+            if (!ReferenceEquals(palette, result))
+                throw new InvalidOperationException("Lookup benchmark changed palette identity.");
+            return Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+        }
+
+        var reflectionMilliseconds = Measure(Legacy);
+        var cachedMilliseconds = Measure(Cached);
+        File.AppendAllText(Path.Combine(folder, "host-smoke.log"),
+            $"Host lookup benchmark: {calls} calls; repeated discovery {reflectionMilliseconds:F2} ms, cached lookup {cachedMilliseconds:F2} ms." + Environment.NewLine);
     }
 
     static async Task TestFullDirectExport(object spatial)

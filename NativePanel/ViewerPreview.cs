@@ -239,7 +239,8 @@ internal sealed class ViewerPreview : IDisposable
 
     private static string? Availability(Attachment current)
     {
-        if (!ReferenceEquals(current.Document, current.ActiveDocument()))
+        var documentPath = current.Document.Path;
+        if (!ReferenceEquals(current.Document, current.ActiveDocument()) || !ApprovedCatalog.IsApproved(documentPath, documentPath))
             return InactiveDocument;
         if (!IsSelected(current.Document, current.VariantId))
             return "The selected image changed.";

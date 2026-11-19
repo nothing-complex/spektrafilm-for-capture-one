@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-19. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 12 bounded primary fixes implemented, 39 partial items and 19 pending items. It includes feasibility investigations and enhancements.
+Updated 2026-11-19. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 12 bounded primary fixes implemented, 40 partial items and 18 pending items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -217,6 +217,16 @@ Evidence is under `.test-results/gpu-memory-adaptive-20261119.log`, `.test-resul
 - [x] Pass 12,319 local contracts, 11 large-encoder checks, and 107 first-launch plus 110 restart assertions in Capture One. The disposable host checked recipe dimensions in the Save dialog and matching output, as well as an unscaled 24 MP DNG. The source catalog stayed unchanged.
 
 Evidence is under `.test-results/contracts-large-export-final-20261119`, `.test-results/renderer-large-export-20261119.json`, `.test-results/large-encoder-20261119.log` and `.test-results/host-exact-export-capabilities-20261119`. The larger worker and encoder tests use synthetic inputs. The installed runtime still identifies `ffc4819`.
+
+## Cached catalog and Viewer lookups checkpoint
+
+- [x] Cache typed service getters and reuse the palette binding for each live form. Strict approval uses the active document's exact database path and accepts either that database or its parent directory from the manager. The recurring checks do no catalog directory enumeration.
+- [x] Keep the watchdog for selection and pending writes and skip a flush when the write queue is empty. Startup catalog validation and backup retain their existing file checks.
+- [x] Run 113 first-launch and 116 restart assertions. The real host matched the native database path, rejected mismatched and unrelated network paths, and returned the same document and palette. The source catalog hash stayed unchanged.
+- [x] Compare 5,000 repeated lookups on the same UI thread in both launches. Repeated reflective discovery took 32.52 and 45.97 ms. Cached validated lookups took 2.18 and 1.90 ms. These measurements cover host lookups alone.
+- [x] Both public Windows 2022 and 2025 jobs passed on the larger exact export checkpoint. [Windows contracts](https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44626037770)
+
+Evidence is under `.test-results/host-cached-identity-20261119`. An event-led form/workspace lifecycle and unavailable-network startup fixtures remain open. The installed runtime still identifies `ffc4819`.
 
 ## Runtime map for the next agent
 

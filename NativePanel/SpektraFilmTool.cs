@@ -92,7 +92,7 @@ internal static class SpektraFilmTool
         internal void CheckSelectionAndSave()
         {
             panel.SyncSelection();
-            panel.FlushLooks();
+            panel.RetryPendingLookWrites();
         }
         internal Task<bool> ExportAsync(Window? owner) => panel.ExportAsync(useRecipeSize: true, owner);
         internal void SetExportBridgeStatus(ExportBridgeState state, string? detail = null) => panel.SetExportBridgeStatus(state, detail);
@@ -818,6 +818,12 @@ internal static class SpektraFilmTool
             }
             if (error is not null)
                 ShowSaveError(error.Message);
+        }
+
+        internal void RetryPendingLookWrites()
+        {
+            if (looks.HasPending)
+                FlushLooks();
         }
 
         internal void FlushLooks()

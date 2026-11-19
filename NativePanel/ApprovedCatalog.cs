@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Linq;
 
 internal static class ApprovedCatalog
 {
@@ -8,25 +7,21 @@ internal static class ApprovedCatalog
 
     internal static bool HasSelection => SelectedDatabase is not null;
 
-    internal static bool IsApproved(string? activePath)
+    private static readonly string? SelectedDirectory = SelectedDatabase is { } selected ? Path.GetDirectoryName(selected) : null;
+
+    internal static bool IsApproved(string? activePath, string? documentPath) =>
+        SelectedDatabase is not null && PathMatches(documentPath, SelectedDatabase)
+        && (PathMatches(activePath, SelectedDatabase) || PathMatches(activePath, SelectedDirectory));
+
+    private static bool PathMatches(string? value, string? expected)
     {
-        if (SelectedDatabase is null || string.IsNullOrWhiteSpace(activePath) || !Path.IsPathFullyQualified(activePath))
+        if (expected is null || string.IsNullOrWhiteSpace(value))
             return false;
-
-        try
-        {
-            var active = Path.TrimEndingDirectorySeparator(Path.GetFullPath(activePath));
-            if (Matches(active, SelectedDatabase))
-                return true;
-            if (!Matches(active, Path.GetDirectoryName(SelectedDatabase)))
-                return false;
-
-            // Capture One can return a catalog's directory instead of its database.
-            // Match that form only when it identifies the one opted-in database.
-            var databases = Directory.EnumerateFiles(active, "*.cocatalogdb")
-                .Where(IsCatalogDatabase).Take(2).ToArray();
-            return databases.Length == 1 && Matches(databases[0], SelectedDatabase);
-        }
+        if (Matches(value, expected))
+            return true;
+        if (!Path.IsPathFullyQualified(value))
+            return false;
+        try { return Matches(Path.TrimEndingDirectorySeparator(Path.GetFullPath(value)), expected); }
         catch (Exception error) when (error is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException)
         {
             return false;

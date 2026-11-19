@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Reflection;
 using System.Windows.Forms;
 using P1.C1.Core;
 using P1.C1.Core.Interfaces;
@@ -30,31 +29,17 @@ internal static class HostProfile
     internal static Selection ReadSelection(object window)
     {
         if (window is not Control { IsDisposed: false, IsHandleCreated: true, InvokeRequired: false }
-            || SelectionAccess.DocumentManager.GetValue(null) is not { } manager
-            || SelectionAccess.ActiveDocumentPath.GetValue(manager) is not string path
-            || !ApprovedCatalog.IsApproved(path)
-            || SelectionAccess.ActiveDocument.GetValue(manager) is not ICaptureOneDocument document
-            || !ReferenceEquals(SelectionAccess.GetMainForm.Invoke(null, new object[] { document }), window))
+            || HostDocumentAccess.Current() is not { } manager
+            || manager.ActiveDocument() is not { } document
+            || !ApprovedCatalog.IsApproved(manager.ActivePath(), document.Path)
+            || !ReferenceEquals(HostDocumentAccess.MainForm(document), window))
             throw new InvalidOperationException("Activate the catalog selected by the Spektrafilm launcher.");
 
         if (((ISelectedCollectionsProvider)document).PrimarySelectedCollection is not ISimpleCollection collection
             || collection.PrimaryVariant is not ICoreVariant variant)
             throw new InvalidOperationException("Select an image in the Viewer first.");
-        return new Selection(manager, document, variant);
+        return new Selection(manager.Instance, document, variant);
     }
 
     internal readonly record struct Selection(object Manager, ICaptureOneDocument Document, ICoreVariant Variant);
-
-    private static class SelectionAccess
-    {
-        private static readonly Type Program = Assembly.Load("CaptureOne").GetType("P1.C1.Program", throwOnError: true)!;
-        internal static readonly PropertyInfo DocumentManager = RequireProperty(Program, "DocumentManager");
-        internal static readonly PropertyInfo ActiveDocumentPath = RequireProperty(DocumentManager.PropertyType, "ActiveDocumentPath");
-        internal static readonly PropertyInfo ActiveDocument = RequireProperty(DocumentManager.PropertyType, "ActiveDocument");
-        internal static readonly MethodInfo GetMainForm = Program.GetMethod("GetMainForm", new[] { typeof(ICaptureOneDocument) })
-            ?? throw new MissingMethodException(Program.FullName, "GetMainForm");
-
-        private static PropertyInfo RequireProperty(Type type, string name) =>
-            type.GetProperty(name) ?? throw new MissingMemberException(type.FullName, name);
-    }
 }

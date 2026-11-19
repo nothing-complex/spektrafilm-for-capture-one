@@ -77,7 +77,7 @@ internal sealed class ExportHook : IDisposable
 
     private bool IsApprovedDocument() =>
         !window.IsDisposed && ReferenceEquals(activeDocument.GetValue(manager), document)
-        && ApprovedCatalog.IsApproved(activePath.GetValue(manager) as string);
+        && ApprovedCatalog.IsApproved(activePath.GetValue(manager) as string, document.Path);
 
     private bool ShouldIntercept() => !disposed && IsApprovedDocument() && isActive();
 
