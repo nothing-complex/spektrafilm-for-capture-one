@@ -395,6 +395,7 @@ try {
     $start.EnvironmentVariables['DOTNET_STARTUP_HOOKS'] = $hook
     $start.EnvironmentVariables['SPEKTRAFILM_ROOT'] = $PSScriptRoot
     $start.EnvironmentVariables['SPEKTRAFILM_CATALOG'] = $database
+    $start.EnvironmentVariables['SPEKTRAFILM_DATA_ROOT'] = $userData
     $start.EnvironmentVariables['SPEKTRAFILM_PANEL_LOG'] = Join-Path $userData 'panel.log'
     $launchId = [Guid]::NewGuid().ToString('N')
     $launchStatus = Join-Path (Join-Path $userData 'Launch status') ($launchId + '.json')

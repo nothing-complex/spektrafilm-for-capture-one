@@ -45,6 +45,7 @@ internal static class Program
         TestGeometry();
         TestDpiAndCropGeometry();
         TestViewportQuality();
+        TestViewerHistogram();
         TestDraft();
         TestExport(folder);
         TestExportMetadata(folder);
@@ -60,6 +61,31 @@ internal static class Program
         TestMemoryAdmission();
         TestExportFrameLimits();
         Console.WriteLine($"PASS: {assertions} assertions. Pure current-source probes only; no Capture One process used.");
+    }
+
+    private static void TestViewerHistogram()
+    {
+        var pixels = new byte[]
+        {
+            0, 0, 255, 255, 0, 255, 0, 255, 255, 0, 0, 255, 99, 70, 99, 0,
+            0, 0, 0, 255, 255, 255, 255, 255, 177, 169, 156, 133, 255, 255, 255, 0,
+        };
+        var image = BitmapSource.Create(4, 2, 96, 96, PixelFormats.Bgra32, null, pixels, 16);
+        image.Freeze();
+        var bins = ViewerHistogram.Read(image, CancellationToken.None);
+        Check(bins.PixelCount == 6 && bins.HighlightCount == 4, "histogram counts visible pixels with a channel at the display maximum");
+        Check(bins.Red[255] == 2 && bins.Green[255] == 2 && bins.Blue[255] == 2, "red, green and blue histograms follow the display code channel order");
+        Check(bins.Red[156] == 1 && bins.Green[169] == 1 && bins.Blue[177] == 1 && bins.Green[70] == 0,
+            "partially transparent colour is counted and fully transparent colour is excluded");
+        Check(bins.Red.Sum() == 6 && bins.Green.Sum() == 6 && bins.Blue.Sum() == 6, "histogram totals match the exact visible sample count");
+        using var stop = new CancellationTokenSource();
+        stop.Cancel();
+        try
+        {
+            ViewerHistogram.Read(image, stop.Token);
+            throw new InvalidOperationException("A stale histogram ignored cancellation.");
+        }
+        catch (OperationCanceledException) { Check(true, "stale histogram can be cancelled before scanning the shared display frame"); }
     }
 
     private static void TestViewportQuality()

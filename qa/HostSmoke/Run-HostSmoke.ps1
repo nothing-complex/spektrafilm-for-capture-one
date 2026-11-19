@@ -62,13 +62,14 @@ $testHook=$TestHookPath
 if(!(Test-Path -LiteralPath $testHook)){throw 'Build qa/HostSmoke and NativePanel first.'}
 Copy-Item -LiteralPath $testHook -Destination $runtime
 $testHook=Join-Path $runtime 'HostSmoke.dll'
-$names=@('DOTNET_STARTUP_HOOKS','SPEKTRAFILM_ROOT','SPEKTRAFILM_CATALOG','SPEKTRAFILM_PANEL_LOG','SPEKTRAFILM_HOST_SMOKE','SPEKTRAFILM_LAUNCH_ID')
+$names=@('DOTNET_STARTUP_HOOKS','SPEKTRAFILM_ROOT','SPEKTRAFILM_CATALOG','SPEKTRAFILM_DATA_ROOT','SPEKTRAFILM_PANEL_LOG','SPEKTRAFILM_HOST_SMOKE','SPEKTRAFILM_LAUNCH_ID')
 $prior=@{}
 foreach($name in $names){$prior[$name]=[Environment]::GetEnvironmentVariable($name,'Process')}
 try {
     $env:DOTNET_STARTUP_HOOKS=(Join-Path $runtime 'NativePanel.dll')+';'+$testHook
     $env:SPEKTRAFILM_ROOT=$runtime
     $env:SPEKTRAFILM_CATALOG=$catalog
+    $env:SPEKTRAFILM_DATA_ROOT=$folder
     $env:SPEKTRAFILM_PANEL_LOG=Join-Path $folder 'panel.log'
     $env:SPEKTRAFILM_HOST_SMOKE=$folder
     $phases=if($SkipRestart){@('first')}else{@('first','restart')}

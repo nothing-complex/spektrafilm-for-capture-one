@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 18 bounded primary fixes implemented, 39 partial items and 13 pending items. It includes feasibility investigations and enhancements.
+Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 18 bounded primary fixes implemented, 40 partial items and 12 pending items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -379,6 +379,15 @@ Evidence is in `.test-results/host-close-storage-retry-20261120`. This source ch
 - [x] Pass missing wheel, unsuitable interpreter, concurrent setup, reuse and atomic replacement checks. Pass 12,534 ordinary contracts, including the legacy selection fallback and installer preservation. The regular app and the previous development ZIP predate this checkpoint.
 
 Evidence is under `.test-results/reference-setup-A2-20261120`, `.test-results/reference-setup-B-20261120`, `.test-results/reference-transforms-20261120` and `.test-results/contracts-pinned-reference-20261120`. The fixture exposed a Windows DLL path-length limit at the longer candidate name. The shorter name passed the same nested-path fixture.
+
+## Processed Viewer histogram
+
+- [x] Count the RGB codes and maximum channels in the settled sRGB Viewer bitmap. Show source gives its own histogram. Cancel scans if the frame changes, the panel hides, or the section closes. Each scan uses only one row of additional pixel memory.
+- [x] Verify the production bitmap identity, exact pixel count, all three histograms, source comparison and WPF graph layout in Capture One. The first-launch and restart fixtures each wrote a graph PNG.
+- [x] Scope looks and panel preferences to the fixture data directory at process start. The tests passed 12,539 ordinary contracts and 174 first-launch plus 178 restart checks. The source catalog hash remained unchanged.
+- [ ] Add pixel picking and the clipping overlay. Verify native analysis and edit-tool paint ordering and physical monitor colour behaviour separately.
+
+Evidence is under `.test-results/host-viewer-histogram-20261120` and `.test-results/contracts-viewer-histogram-20261120`. Users can expand **Viewer histogram** below the resolution controls.
 
 ## Status maintenance
 

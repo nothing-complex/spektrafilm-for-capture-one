@@ -60,6 +60,7 @@ internal sealed class SpatialPreview : IDisposable
     private readonly DispatcherTimer refresh = new() { Interval = TimeSpan.FromMilliseconds(33) };
     private readonly ViewerPreview viewer;
     private readonly ViewportQuality viewportQuality = new();
+    private readonly ViewerHistogramControl histogram = new();
     private OpticalRenderer? renderer;
     private bool rendererUsesHighDepthPreview;
     private CancellationTokenSource? pending;
@@ -142,6 +143,7 @@ internal sealed class SpatialPreview : IDisposable
         actions.Children.Add(savePreview);
         liveControls.Children.Add(actions);
         AddResolutionControls(liveControls);
+        liveControls.Children.Add(histogram.Section);
         LiveControls = liveControls;
         Element = Build();
         var preferences = PanelPreferences.Current;
@@ -191,6 +193,7 @@ internal sealed class SpatialPreview : IDisposable
         refresh.Tick -= OnRefreshTick;
         viewer.StatusChanged -= UpdateViewerStatus;
         viewer.Dispose();
+        histogram.Dispose();
     }
     internal bool CompareSource { get => showSource.IsChecked == true; set => showSource.IsChecked = value; }
     private int DragLongEdge => ((DragSize)dragPreviewSize.SelectedItem).LongEdge;
@@ -575,6 +578,7 @@ internal sealed class SpatialPreview : IDisposable
             lastDragChange = Environment.TickCount64;
         queued = true;
         frameCurrent = false;
+        histogram.SetFrame(null);
         selectionUnavailable = false;
         savePreview.IsEnabled = false;
         inputRevision++;
@@ -775,6 +779,7 @@ internal sealed class SpatialPreview : IDisposable
         viewerFrame = null;
         previewDetail = null;
         frameCurrent = false;
+        histogram.SetFrame(null);
         showSource.IsEnabled = false;
         savePreview.IsEnabled = false;
         if (pending is null)
@@ -844,6 +849,7 @@ internal sealed class SpatialPreview : IDisposable
             ResetSource(keepDraftRenderer: true);
             viewerFrame = null;
             frameCurrent = false;
+            histogram.SetFrame(null);
             showSource.IsEnabled = false;
             queued = true;
         }
@@ -1215,6 +1221,7 @@ internal sealed class SpatialPreview : IDisposable
         viewer.Clear();
         viewerFrame = null;
         frameCurrent = false;
+        histogram.SetFrame(null);
         savePreview.IsEnabled = false;
         nextViewerCheck = Environment.TickCount64 + 350;
         var message = error.GetBaseException().Message;
@@ -1239,6 +1246,7 @@ internal sealed class SpatialPreview : IDisposable
             message = $"{previewDetail} · {frame.PixelWidth} × {frame.PixelHeight}";
         if (message is not null && status.Text != message)
             status.Text = message;
+        histogram.SetFrame(viewer.UnavailableReason is null && frameCurrent ? viewerFrame : null, CompareSource);
         savePreview.IsEnabled = viewerFrame is not null && frameCurrent && !saveInProgress && viewer.UnavailableReason is null;
     }
 

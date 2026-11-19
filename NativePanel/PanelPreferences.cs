@@ -16,9 +16,16 @@ internal sealed record PanelPreferenceData(int Version = 1, string ViewerSize = 
 
 internal static class PanelPreferences
 {
-    private static readonly PanelPreferenceStore Store = new(Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "FilmToolsForCaptureOne", "Panel preferences.json"), StartupHook.Log);
+    private static readonly PanelPreferenceStore Store = new(Path.Combine(UserDataDirectory(), "Panel preferences.json"), StartupHook.Log);
+
+    internal static string UserDataDirectory()
+    {
+        if (Environment.GetEnvironmentVariable("SPEKTRAFILM_DATA_ROOT") is not { } directory)
+            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FilmToolsForCaptureOne");
+        if (!Path.IsPathFullyQualified(directory))
+            throw new InvalidOperationException("The Spektrafilm data directory must be an absolute path.");
+        return Path.GetFullPath(directory);
+    }
 
     internal static PanelPreferenceData Current => Store.Current;
     internal static void Update(Func<PanelPreferenceData, PanelPreferenceData> edit) => Store.Update(edit);

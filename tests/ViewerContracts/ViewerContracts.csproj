@@ -11,6 +11,7 @@
     <Compile Include="../../NativePanel/RenderMemoryBudget.cs" Link="RenderMemoryBudget.cs" />
     <Compile Include="../../NativePanel/ViewerGeometry.cs" Link="ViewerGeometry.cs" />
     <Compile Include="../../NativePanel/ViewportQuality.cs" Link="ViewportQuality.cs" />
+    <Compile Include="../../NativePanel/ViewerHistogram.cs" Link="ViewerHistogram.cs" />
     <Compile Include="../../NativePanel/ViewerDraftSource.cs" Link="ViewerDraftSource.cs" />
     <Compile Include="../../NativePanel/ColorTransfer.cs" Link="ColorTransfer.cs" />
     <Compile Include="../../NativePanel/SrgbDelivery.cs" Link="SrgbDelivery.cs" />

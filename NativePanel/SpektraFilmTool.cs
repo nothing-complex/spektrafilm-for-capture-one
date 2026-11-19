@@ -349,8 +349,7 @@ internal static class SpektraFilmTool
             };
             selections = (ISelectedCollectionsProvider)document;
             var catalog = ApprovedCatalog.SelectedDatabase ?? throw new InvalidOperationException("No catalog selected for Spektrafilm.");
-            var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "FilmToolsForCaptureOne", "Variant looks");
+            var root = Path.Combine(PanelPreferences.UserDataDirectory(), "Variant looks");
             looks = new VariantLookStore(root, catalog);
             Foreground = Brushes.Gainsboro;
             enableSpektraFilm.IsEnabled = false;

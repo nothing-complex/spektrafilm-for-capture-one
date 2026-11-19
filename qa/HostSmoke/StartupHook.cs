@@ -71,11 +71,10 @@ public static class StartupHook
             Check(exportHook is not null, "native Export hook attached");
             var catalog = Environment.GetEnvironmentVariable("SPEKTRAFILM_CATALOG")!;
             Check(Path.GetFullPath(catalog).StartsWith(Path.GetFullPath(folder) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase), "catalog is disposable and contained in test folder");
-            // Isolate saved looks; this does not change any production storage configuration.
-            var storeType = panelAssembly!.GetType("VariantLookStore")!;
-            var store = Activator.CreateInstance(storeType, Flags, null, new object[] { Path.Combine(folder, "Variant looks"), catalog }, null)!;
-            panel.GetType().GetField("looks", Flags)!.SetValue(panel, store);
-            panel.GetType().GetField("displayedVariant", Flags)!.SetValue(panel, null);
+            var preferences = panelAssembly!.GetType("PanelPreferences")!;
+            Check(Equals(preferences.GetMethod("UserDataDirectory", Flags)!.Invoke(null, null), Path.GetFullPath(folder)),
+                "test looks and panel preferences use the disposable workspace directory from startup");
+            var store = Field(panel, "looks")!;
             Call(panel, "SyncSelection");
             Check(Field(panel, "displayedVariant") is Guid, "selected image bound to panel");
             var variant = (Guid)Field(panel, "displayedVariant")!;
@@ -101,6 +100,7 @@ public static class StartupHook
             TestPresetHistory(panel, window, store, variant, exposure, toggle);
             await TestViewportQuality(spatial, variant);
             await TestSpectralReconstruction(panel, spatial, store, variant);
+            await TestViewerHistogram(hook, spatial, restart);
             await TestLockedLook(panel, store, variant, exposure, toggle);
             var optics = Call(spatial, "CaptureSettings")!;
             Call(spatial, "ValidateSettings", optics);
@@ -393,6 +393,67 @@ public static class StartupHook
             throw new InvalidOperationException("Hanatos 2026 did not settle in the disposable Viewer.");
         }
         finally { picker.SelectedItem = prior; }
+    }
+
+    static async Task TestViewerHistogram(Type hook, object spatial, bool restart)
+    {
+        var histogram = Field(spatial, "histogram")!;
+        var section = (Expander)Prop(histogram, "Section")!;
+        var comparison = (CheckBox)Field(spatial, "showSource")!;
+        var palette = hook.GetField("owner", Flags)!.GetValue(null)!;
+        var priorTab = Prop(palette, "Current");
+        var ownTab = hook.GetField("tab", Flags)!.GetValue(null)!;
+        var select = hook.GetMethod("SelectTab", Flags)!;
+        var priorComparison = comparison.IsChecked;
+        async Task<object> WaitForHistogram()
+        {
+            var deadline = DateTime.UtcNow.AddSeconds(25);
+            while (DateTime.UtcNow < deadline)
+            {
+                if (Prop(histogram, "Histogram") is { } result && Field(spatial, "frameCurrent") is true)
+                    return result;
+                await Task.Delay(100);
+            }
+            throw new InvalidOperationException("The disposable Viewer histogram did not settle.");
+        }
+        try
+        {
+            select.Invoke(null, new[] { palette, ownTab });
+            comparison.IsChecked = false;
+            section.IsExpanded = true;
+            var film = await WaitForHistogram();
+            var displayed = (BitmapSource)Field(spatial, "viewerFrame")!;
+            var pixels = (int)Prop(film, "PixelCount")!;
+            Check(ReferenceEquals(Field(histogram, "frame"), displayed) && pixels == displayed.PixelWidth * displayed.PixelHeight,
+                "histogram reads every visible pixel of the exact settled film Viewer frame");
+            Check(((int[])Prop(film, "Red")!).Sum() == pixels && ((int[])Prop(film, "Green")!).Sum() == pixels
+                && ((int[])Prop(film, "Blue")!).Sum() == pixels, "real film histogram channel counts match the view dimensions");
+
+            var graphic = (FrameworkElement)Field(histogram, "graph")!;
+            var width = (int)Math.Ceiling(graphic.ActualWidth);
+            var height = (int)Math.Ceiling(graphic.ActualHeight);
+            Check(width > 10 && height > 10, "histogram is laid out in the real Capture One panel");
+            var rendered = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
+            rendered.Render(graphic);
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(rendered));
+            using (var output = File.Create(Path.Combine(folder, restart ? "viewer-histogram-restart.png" : "viewer-histogram.png")))
+                encoder.Save(output);
+
+            comparison.IsChecked = true;
+            var unprocessed = await WaitForHistogram();
+            Check(!ReferenceEquals(film, unprocessed) && !((int[])Prop(film, "Red")!).SequenceEqual((int[])Prop(unprocessed, "Red")!),
+                "Show source produces a fresh histogram from the actual source Viewer pixels");
+            section.IsExpanded = false;
+            Check(Prop(histogram, "Histogram") is null && File.Exists(Path.Combine(folder, "Panel preferences.json")),
+                "closing the histogram clears its result and saves layout only to the disposable preferences");
+        }
+        finally
+        {
+            section.IsExpanded = false;
+            comparison.IsChecked = priorComparison;
+            select.Invoke(null, new[] { palette, priorTab });
+        }
     }
 
     static void TestHostLookups(Assembly panelAssembly, object panel, Forms.Form window)

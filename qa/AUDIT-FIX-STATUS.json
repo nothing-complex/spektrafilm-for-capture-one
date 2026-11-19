@@ -1856,13 +1856,16 @@
       "status": "partial",
       "implemented": [
         "Floating bounds are persisted at close/dispose and restored with an offscreen fallback; quality preferences are independent of looks.",
-        "Stable section keys persist comparison-independent expand/collapse state. Nested events leave ancestor state intact. Floating scroll and bounds survive reopen; the isolated store test covers legacy and future preference data."
+        "Stable section keys persist comparison-independent expand/collapse state. Nested events leave ancestor state intact. Floating scroll and bounds survive reopen; the isolated store test covers legacy and future preference data.",
+        "Launcher and licensed fixtures can now bind one exact data directory for both saved looks and layout. Fixture section persistence was exercised without writing the ordinary panel preference file."
       ],
       "evidence_paths": [
         "NativePanel/PanelPreferences.cs",
         "NativePanel/SpektraFilmTool.cs",
         "tests/ViewerContracts",
-        ".test-results/contracts-backup-layout-20261119/ViewerContracts.log"
+        ".test-results/contracts-backup-layout-20261119/ViewerContracts.log",
+        "NativePanel/PanelPreferences.cs",
+        ".test-results/host-viewer-histogram-20261120/host-smoke.log"
       ],
       "remaining_work": [
         "Test and improve workspace docking, per-monitor/DPI migration and full visible-area clamping. Exercise multi-monitor, RDP, narrow/wide panels and keyboard focus."
@@ -2155,15 +2158,26 @@
       "id": "VE-11",
       "title": "Make native analysis tools describe the processed image",
       "priority": "P2",
-      "status": "pending",
-      "implemented": [],
-      "evidence_paths": [],
+      "status": "partial",
+      "implemented": [
+        "Add a clearly labeled sRGB Viewer histogram from the exact settled BGRA display frame. It counts visible channel codes and marks the count of pixels with any channel at 255. Transparency handling is explicit.",
+        "The histogram recomputes on Show source, clears on stale or unavailable frames, scans only when the section is expanded and visible, and cancels superseded work. It processes one bitmap row at a time.",
+        "Verified the exact displayed bitmap identity and complete RGB counts in the licensed host, a distinct histogram for Show source and the native panel layout. Captured first-launch and restart graph images from WPF.",
+        "Run 12,539 host-independent assertions and 174 first-launch plus 178 restart host assertions. A dedicated process data root kept both fixture looks and panel preferences in the disposable folder from startup. The original catalog hash was unchanged."
+      ],
+      "evidence_paths": [
+        "NativePanel/ViewerHistogram.cs",
+        "NativePanel/ViewerHistogramControl.cs",
+        "NativePanel/SpatialPreview.cs",
+        ".test-results/contracts-viewer-histogram-20261120/summary.json",
+        ".test-results/host-viewer-histogram-20261120/host-smoke.log",
+        ".test-results/host-viewer-histogram-20261120/viewer-histogram.png",
+        ".test-results/host-viewer-histogram-20261120/viewer-histogram-restart.png"
+      ],
       "remaining_work": [
-        "Inventory native analytic consumers and determine from host hooks which operate on source, display bitmap, or overlay event.",
-        "Provide explicit processed-image analysis until reliable host integration is possible: film histogram, picked RGB with color-space label and highlight clipping overlay.",
-        "Prefer verified host service integration when it can be isolated behind adapter; avoid patching arbitrary memory or misleading native instruments.",
-        "Maintain native edit tools and masks visually on top of film image where possible; characterize event/paint ordering.",
-        "Clearly distinguish display-only features from true host-pipeline integration in capability report."
+        "Add a sampled RGB readout and optional clipping overlay with verified pointer-to-image geometry at zoom and across DPI.",
+        "Verify native histogram, detail picker, focus mask, crop handles, brush and annotations against the processed overlay paint order. The panel histogram currently works from display pixels separately from native Capture One analysis.",
+        "Confirm profile-managed monitor/display parity with VE-10 before presenting numerical values outside sRGB Viewer codes."
       ],
       "original_acceptance_tests": [
         "Patch chart where film crushes whites or changes hue; compare visible result and processed histogram/picker values.",
@@ -2707,8 +2721,8 @@
   "counts": {
     "total": 70,
     "implemented": 18,
-    "partial": 39,
-    "pending": 13
+    "partial": 40,
+    "pending": 12
   },
   "last_reconciled": "2026-11-20",
   "handover": "HANDOVER.md",
