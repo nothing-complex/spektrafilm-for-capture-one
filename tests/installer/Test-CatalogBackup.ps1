@@ -12,7 +12,7 @@ $appName='Spektrafilm backup fixture'
 $tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $repo 'Start-Spektrafilm.ps1'),[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'Launcher syntax failed.'}
-foreach($name in @('New-LookBackup','Save-CatalogBackup')) {
+foreach($name in @('New-LookBackup','Confirm-CatalogIntegrity','Save-CatalogBackup')) {
     $definition=$ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name},$true)
     . ([scriptblock]::Create($definition.Extent.Text))
 }
@@ -23,8 +23,13 @@ function Confirm-CatalogIsIdle([string] $path) {
 $count=0
 function Assert([bool] $condition,[string] $name){if(!$condition){throw "FAIL: $name"};$script:count++}
 $db=Join-Path $root 'test.cocatalogdb'
-$bytes=New-Object byte[] 4096
-[Text.Encoding]::ASCII.GetBytes("SQLite format 3`0").CopyTo($bytes,0)
+# Two SQLite pages, generated with page_size=512 and a sample table containing two synthetic rows.
+$compressed = [Convert]::FromBase64String('H4sIAAAAAAAC/wsO9MksSVVIyy/KTSxRMGZgYmBkZHBQUGCAACYGBGAEYhY0PlGAF6SYcRkDEI0CskAEI7u4pCRjI3dJYlJOanFibgGMZHIOcnUMcVUIcXTycVWAiGlkpihk5pWkpqcWKRQUZeYmFlUqZKdW6ijkJeamKpSkVpQo5OUDcWlOjiYobpgYbzIwvgcSo2D4ABEmZgb9zNzcUnCSUUjLrCgpLUrlZ2RmUC1JLS5RSE4sSczJTwcAru1jjQAEAAA=')
+$compressedStream = New-Object IO.MemoryStream(,$compressed)
+$decoder = New-Object IO.Compression.GZipStream($compressedStream, [IO.Compression.CompressionMode]::Decompress)
+$database = New-Object IO.MemoryStream
+try { $decoder.CopyTo($database); $bytes = $database.ToArray() }
+finally { $decoder.Dispose(); $compressedStream.Dispose(); $database.Dispose() }
 [IO.File]::WriteAllBytes($db,$bytes)
 $originalHash=(Get-FileHash -LiteralPath $db -Algorithm SHA256).Hash
 $sha=[Security.Cryptography.SHA256]::Create()
@@ -40,6 +45,7 @@ Assert (Test-Path -LiteralPath ($first+'.manifest.json')) 'Joint manifest create
 $manifest=[IO.File]::ReadAllText($first+'.manifest.json')|ConvertFrom-Json
 Assert ($manifest.files.Count -eq 2) 'Both saved and recovery records included'
 Assert ($manifest.catalogSha256 -eq $originalHash) 'DB fingerprint matches original'
+Assert ($manifest.databaseIntegrity -eq 'ok') 'Passed full SQLite integrity check before publishing'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $zip=[IO.Compression.ZipFile]::OpenRead($first+'.spektrafilm.zip')
 try {
@@ -68,6 +74,17 @@ Assert (@(Get-ChildItem -LiteralPath $folder -Filter '*.spektrafilm.zip' -File).
 Assert (@(Get-ChildItem -LiteralPath $folder -Filter '*.manifest.json' -File).Count -eq 5) 'Companion manifests rotate together'
 Assert ((Get-FileHash -LiteralPath $db -Algorithm SHA256).Hash -eq $originalHash) 'Original DB remains unchanged'
 Assert (@(Get-ChildItem -LiteralPath $folder -Filter '*.tmp' -File).Count -eq 0) 'No incomplete temporary backups remain'
+$verifiedBeforeFailure = @($databases | Get-FileHash -Algorithm SHA256 | ForEach-Object Hash)
+try {
+    # Preserve the SQLite signature and schema page while cutting off live data cells.
+    [IO.File]::WriteAllBytes($db, [byte[]]($bytes[0..($bytes.Length-201)]))
+    $failure = $null
+    try { $null = Save-CatalogBackup $db } catch { $failure = $_.Exception.Message }
+    Assert ($null -ne $failure -and $failure.Contains('SQLite integrity verification')) 'Valid header with corrupt database is refused'
+    $afterFailure = @(Get-ChildItem -LiteralPath $folder -Filter '*.cocatalogdb' -File)
+    Assert ($afterFailure.Count -eq 5 -and @(Compare-Object $verifiedBeforeFailure @($afterFailure | Get-FileHash -Algorithm SHA256 | ForEach-Object Hash)).Count -eq 0) 'Integrity failure preserves all prior verified databases'
+    Assert (@(Get-ChildItem -LiteralPath $folder -Filter '*.tmp' -File).Count -eq 0) 'Integrity failure discards only temporary copies'
+} finally { [IO.File]::WriteAllBytes($db,$bytes) }
 $userData=Resolve-Path -LiteralPath $userData -Relative
 $relativeArchive=Join-Path $root 'relative-state.zip'
 $relativeManifest=New-LookBackup $db $relativeArchive

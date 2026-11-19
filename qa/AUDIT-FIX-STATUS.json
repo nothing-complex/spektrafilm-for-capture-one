@@ -174,6 +174,40 @@
         "format": "RGB48 TIFF"
       },
       "scope": "Actual native selection of a disabled second variant in the destination callback, true startup bind failures, and automatic saved-look retry. The OS Save dialog and native confirm click are separate tests."
+    },
+    "guarded_output_detach_and_backup": {
+      "status": "passed",
+      "date": "2026-11-19",
+      "host_assertions": [
+        44,
+        46
+      ],
+      "local_contract_assertions": 11989,
+      "gpu_assertions": 17,
+      "source_catalog_unchanged": true,
+      "backup_checks": 21,
+      "evidence": [
+        ".test-results/host-detach-20261119/host-smoke.log",
+        ".test-results/contracts-audit-integrity-20261119/summary.json",
+        ".test-results/gpu-lut-heldout-20261119.log",
+        ".test-results/real-catalog-integrity-20261119/result.txt"
+      ],
+      "observed": [
+        "Actual hardlink and junction fixture creation",
+        "Concurrent destination creation/replacement rejected",
+        "Canceled commit preserves previous file",
+        "Canceled close keeps export live",
+        "Real dispatcher callback aborted on production detach",
+        "SQLite check rejects corrupt database despite valid header",
+        "No SQLite journal sidecar on closed catalog copy",
+        "65-point LUT held-out normalized sRGB p95 under 0.00025 on both tested methods"
+      ],
+      "remaining": [
+        "Local symbolic-file-link privilege unavailable",
+        "Detach seam used in host instead of physical window close",
+        "Existing-file rename is still a path operation after the final identity check",
+        "GPU results are for the two tested LUT methods and the fixture look"
+      ]
     }
   },
   "known_limitations": [
@@ -245,7 +279,8 @@
       "implemented": [
         "Accepted image exports own cancellation independently of SetEnabled/selection; explicit cancel and document disposal cancel the job.",
         "Reserve export before choosing the destination. Disposable host confirmed a recipe-sized output survives a simulated enable transition in the picker. Explicit cancel preserved the original output bytes.",
-        "Activated a real disabled second variant in the destination chooser and verified the captured variant produced RGB48 output at its own recipe dimensions. Explicit cancellation preserved the previous destination."
+        "Activated a real disabled second variant in the destination chooser and verified the captured variant produced RGB48 output at its own recipe dimensions. Explicit cancellation preserved the previous destination.",
+        "Licensed-host regression confirmed cancel-after-detach leaves the previously committed export intact and canceled close retains the job."
       ],
       "evidence_paths": [
         "NativePanel/ExportOperation.cs",
@@ -254,10 +289,11 @@
         ".test-results/host-final/host-smoke.log",
         "qa/HostSmoke/StartupHook.cs",
         ".test-results/host-export-20261119-pass/host-smoke.log",
-        ".test-results/host-audit-state-selection-20261119/host-smoke.log"
+        ".test-results/host-audit-state-selection-20261119/host-smoke.log",
+        ".test-results/host-detach-20261119/host-smoke.log"
       ],
       "remaining_work": [
-        "Verify active document closure during export, and movement after actual background development has already started."
+        "Verify physical closure while the captured job is already developing."
       ],
       "original_acceptance_tests": [
         "Selecting disabled B during A export does not cancel or change A output.",
@@ -347,7 +383,8 @@
       "implemented": [
         "Public source-linked state, renderer, viewer and installer contracts plus a no-host entry point are tracked; GPU and host prerequisites are separate.",
         "Public GitHub Windows workflow passed all seven suites, including six PowerShell child-environment regression assertions.",
-        "Ported the independent nonconstant fractional resampling check to the ordinary Windows contract runner."
+        "Ported the independent nonconstant fractional resampling check to the ordinary Windows contract runner.",
+        "Stabilized fake renderer cancellation by explicit request markers. Added a deterministic disposable-host late callback seam with abort and no-output replacement tests."
       ],
       "evidence_paths": [
         "Test-Windows.ps1",
@@ -356,10 +393,11 @@
         "tests/ViewerContracts",
         "tests/installer",
         "qa/HostSmoke",
-        ".test-results/contracts-audit-resolution-20261119/summary.json"
+        ".test-results/contracts-audit-resolution-20261119/summary.json",
+        ".test-results/contracts-audit-integrity-20261119/summary.json"
       ],
       "remaining_work": [
-        "Finish fake host late-callback lifecycle seams and their regression tests."
+        "Preserve public CI no-host fixture coverage as more feature tests land. Move the real-host late callback case into a host-independent fake-session suite during the host-adapter refactor."
       ],
       "original_acceptance_tests": [
         "Fresh checkout on Windows with .NET SDK runs pure suite without Capture One DLL redistribution.",
@@ -631,15 +669,17 @@
       "priority": "P2",
       "status": "partial",
       "implemented": [
-        "SpatialPreview has explicit disposal that stops/unsubscribes timer and viewer events and cancels owned work; LookPanel delegates disposal."
+        "SpatialPreview has explicit disposal that stops/unsubscribes timer and viewer events and cancels owned work; LookPanel delegates disposal.",
+        "Added partial construction rollback, ApplicationExit timer cleanup, owned/cancelable selection DispatcherOperation, life-bound preview file writes, and ensured tab cleanup even when another disposer fails. Real-host canceled close and detach covered pending callback and export cancellation."
       ],
       "evidence_paths": [
         "NativePanel/SpatialPreview.cs",
         "NativePanel/SpektraFilmTool.cs",
-        "NativePanel/OpticalRenderer.cs"
+        "NativePanel/OpticalRenderer.cs",
+        ".test-results/host-detach-20261119/host-smoke.log"
       ],
       "remaining_work": [
-        "Add asynchronous bounded teardown, constructor-failure rollback, dispatcher/Idle ownership audit and 100-cycle host leak/handle tests."
+        "Test physical window closing, high-cycle leak baselines and bounded asynchronous drain for work already executing inside the host."
       ],
       "original_acceptance_tests": [
         "100 attach/detach/float cycles, close during render/export/load, canceled host close, weak references become collectible, no orphan workers or dispatcher callbacks",
@@ -1207,7 +1247,8 @@
       "implemented": [
         "Captured single-image export owns independent lifetime, settings and target identity; selection/master changes do not cancel it.",
         "Recipe export now reserves its captured job while the Save dialog is open. The host test verified rejection of a duplicate request, continued output after a simulated enable change and explicit cancellation.",
-        "Exercised real Capture One navigation to a separate disabled variant inside destination selection and confirmed that the original captured target still exported successfully."
+        "Exercised real Capture One navigation to a separate disabled variant inside destination selection and confirmed that the original captured target still exported successfully.",
+        "Production detach in the disposable host canceled a currently owned export and preserved the previous TIFF. The canceled-form-close seam kept the active job running."
       ],
       "evidence_paths": [
         "NativePanel/ExportOperation.cs",
@@ -1215,10 +1256,11 @@
         "tests/ViewerContracts/Program.cs",
         "qa/HostSmoke/StartupHook.cs",
         ".test-results/host-export-20261119-pass/host-smoke.log",
-        ".test-results/host-audit-state-selection-20261119/host-smoke.log"
+        ".test-results/host-audit-state-selection-20261119/host-smoke.log",
+        ".test-results/host-detach-20261119/host-smoke.log"
       ],
       "remaining_work": [
-        "Verify navigation after background development starts, adjustment-revision races and actual document closure. Persistent batch jobs remain a separate task."
+        "Add physical window close, host navigation after development starts, and a changed-native-adjustment race. Persistent batch jobs remain a separate task."
       ],
       "original_acceptance_tests": [
         "Start a delayed export for A; select enabled B, disabled C, clear selection, float/dock panel, switch tab; accepted A completes unless explicit cancel policy applies.",
@@ -1237,16 +1279,18 @@
       "priority": "P1",
       "status": "partial",
       "implemented": [
-        "High-depth and preview output validate resolved final paths before work and again immediately before atomic commit."
+        "High-depth and preview output validate resolved final paths before work and again immediately before atomic commit.",
+        "Original, output and enclosing directory identity revalidated around atomic preview, image, LUT and preset writes. Hardlink and junction aliases, concurrent creation and replacement during the write, explicit cancellation, and valid overwrite passed."
       ],
       "evidence_paths": [
         "NativePanel/OutputPathGuard.cs",
         "NativePanel/SpektraExport.cs",
         "NativePanel/SpatialPreview.cs",
-        "tests/ViewerContracts"
+        "tests/ViewerContracts",
+        ".test-results/contracts-audit-integrity-20261119/summary.json"
       ],
       "remaining_work": [
-        "Complete junction/symlink/hardlink/race matrix; symlink creation unavailable in this run. Handle-resolution check plus later rename is not a fully race-proof filesystem transaction."
+        "Run the new symbolic-file-link case on CI. Existing replacement checks identity immediately before the path rename; Windows does not provide an atomic expected-file compare-and-swap for this path operation."
       ],
       "original_acceptance_tests": [
         "Direct same path, case variation, dot segments, source via junction, destination via junction, symlink file and ordinary separate hardlinks in isolated directory.",
@@ -1360,15 +1404,17 @@
       "priority": "P2",
       "status": "partial",
       "implemented": [
-        "Normal LUT export uses active native Vulkan colour implementation, explicit sRGB domain/spatial exclusions and atomic output; 33/65 grids match direct native samples."
+        "Normal LUT export uses active native Vulkan colour implementation, explicit sRGB domain/spatial exclusions and atomic output; 33/65 grids match direct native samples.",
+        "A cancel action now controls LUT sampling and guarded write commit. A 1,024-color held-out trilinear approximation compared 33 and 65-point LUTs with direct Vulkan processing for both supported spectral methods. Grid endpoints and exact sample comparison remain tested."
       ],
       "evidence_paths": [
         "NativePanel/NativeLutExporter.cs",
         "NativePanel/SpektraFilmTool.cs",
-        "tests/renderer"
+        "tests/renderer",
+        ".test-results/gpu-lut-heldout-20261119.log"
       ],
       "remaining_work": [
-        "Add explicit UI cancellation, held-out interpolated colours, every-control/model sweep and documented legacy Python difference report."
+        "Complete sweep of pointwise controls and legacy Python difference report. Test LUT cancel button interaction in native UI, in addition to renderer cancellation and guarded write contracts."
       ],
       "original_acceptance_tests": [
         "Grid ordering/endpoints/identity cube",
@@ -1636,14 +1682,16 @@
       "priority": "P1",
       "status": "partial",
       "implemented": [
-        "Closed-catalog backup now captures catalog and path-keyed film-state archives with hashes; refuses unsafe sidecars/open-file conditions."
+        "Closed-catalog backup now captures catalog and path-keyed film-state archives with hashes; refuses unsafe sidecars/open-file conditions.",
+        "Backups hold the source read lock through the look snapshot and run read-only SQLite integrity_check on new database bytes before rotation. Tests refused a corrupt database with a valid header and preserved all five verified generations. An actual catalog copy passed with unchanged hashes and zero sidecars."
       ],
       "evidence_paths": [
         "Start-Spektrafilm.ps1",
-        "tests/installer/Test-CatalogBackup.ps1"
+        "tests/installer/Test-CatalogBackup.ps1",
+        ".test-results/real-catalog-integrity-20261119/result.txt"
       ],
       "remaining_work": [
-        "Joint backup tests now pass17assertions including relative-path regression. Add SQLite integrity validation, portable identity/generation pairing, restore preview and crash/disk-full failure-safe rotation."
+        "Add portable catalog identity and generation pairing, joint restore preview, verified restore, pre-existing sidecars and crash/disk-full backup publication/rotation fixtures."
       ],
       "original_acceptance_tests": [
         "Restore into a different directory and verify native and film state for multiple variants.",

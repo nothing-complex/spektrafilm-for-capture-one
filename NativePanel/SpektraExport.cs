@@ -25,7 +25,15 @@ internal static class SpektraExport
     internal static void Save(string path, BitmapSource image, CancellationToken stop, string? originalPath = null)
     {
         stop.ThrowIfCancellationRequested();
-        if (originalPath is not null) OutputPathGuard.Validate(path, originalPath);
+        SaveImage(path, image, stop, originalPath is null ? null : OutputPathGuard.Approve(path, originalPath));
+    }
+
+    internal static void SaveApproved(OutputPathGuard.ApprovedDestination destination, BitmapSource image, CancellationToken stop) =>
+        SaveImage(destination.Path, image, stop, destination);
+
+    private static void SaveImage(string path, BitmapSource image, CancellationToken stop, OutputPathGuard.ApprovedDestination? destination)
+    {
+        stop.ThrowIfCancellationRequested();
         var format = PixelFormatFor(path);
         if (image.Format != format)
             throw new InvalidDataException($"Spektrafilm export requires unpremultiplied {format} pixels.");
@@ -38,15 +46,15 @@ internal static class SpektraExport
             "spool", "drivers", "color", "sRGB Color Space Profile.icm");
         var profile = new ReadOnlyCollection<ColorContext>(new[] { new ColorContext(new Uri(profilePath)) });
         encoder.Frames.Add(BitmapFrame.Create(image, null, null, profile));
-        PanelFiles.WriteAtomically(path, stream =>
+        void Encode(Stream stream)
         {
             stop.ThrowIfCancellationRequested();
             encoder.Save(stream);
             stop.ThrowIfCancellationRequested();
-        }, beforeCommit: () =>
-        {
-            stop.ThrowIfCancellationRequested();
-            if (originalPath is not null) OutputPathGuard.Validate(path, originalPath);
-        });
+        }
+        if (destination is null)
+            PanelFiles.WriteAtomically(path, Encode, beforeCommit: stop.ThrowIfCancellationRequested);
+        else
+            destination.Write(Encode, stop);
     }
 }

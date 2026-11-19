@@ -45,7 +45,7 @@ The export path is for the selected image with one recipe. It supports up to 32 
 
 ### .cube export
 
-Choose a 33- or 65-point LUT from **Presets and LUT export**. It now uses the same Vulkan film engine as image processing and does not require Python. The LUT uses sRGB input and output, including look strength. Before export, the panel lists image-dependent effects that cannot be represented by a 3D LUT, such as grain, halation, diffusion and sharpening. Keep the attribution in its header if you share it. [Profile and LUT license](upstream-spektrafilm/SPEKTRAFILM_LICENSE.txt)
+Choose a 33- or 65-point LUT from **Presets and LUT export**. The LUT uses the same Vulkan film engine as image processing, with sRGB input and output and the selected look strength. Before export, the panel lists image-dependent effects outside the LUT, such as grain, halation, diffusion and sharpening. **Cancel LUT export** preserves any existing destination until the new file commits. Keep the attribution in the LUT header if you share it. [Profile and LUT license](upstream-spektrafilm/SPEKTRAFILM_LICENSE.txt)
 
 The Python setup scripts remain available for reference/development workflows; they are not required for ordinary panel or LUT use.
 
@@ -59,7 +59,7 @@ The Python setup scripts remain available for reference/development workflows; t
 | Launcher finds an open or busy catalog | Open it in Capture One normally, close it, and retry. |
 | GPU or startup error | Run `.\Start-Spektrafilm.ps1 -CheckOnly` in PowerShell from the installed folder. It checks the release files, Capture One build and a Vulkan test frame. |
 
-Diagnostic logs and up to five joint backups per catalog are under `%LOCALAPPDATA%\FilmToolsForCaptureOne`. Each new database backup has matching `.spektrafilm.zip` and `.manifest.json` files containing its saved looks, pending recovery records and checksums. Keep all three together. A look-only change creates a new backup even if the catalog database did not change. This does not include original image files or Capture One previews; keep your normal image backups as well.
+Diagnostic logs and up to five joint backups per catalog are under `%LOCALAPPDATA%\FilmToolsForCaptureOne`. A changed database copy passes SQLite integrity verification before publication and backup rotation. Each database backup has matching `.spektrafilm.zip` and `.manifest.json` files containing its saved looks, pending recovery records and checksums. Keep all three together. A look-only change creates a new backup even if the catalog database hash is the same. Original images and Capture One previews need their own backups.
 
 To uninstall, close Capture One, delete the **Spektrafilm for Capture One** desktop shortcut, and remove the installation folder printed by the installer. Keep the saved looks and catalog backups under `%LOCALAPPDATA%\FilmToolsForCaptureOne` if you want to use them later. If you used portable mode, remove the extracted folder.
 

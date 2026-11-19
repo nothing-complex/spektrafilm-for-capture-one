@@ -9,6 +9,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using Microsoft.Win32;
 using Forms = System.Windows.Forms;
 
@@ -144,11 +145,10 @@ public static class StartupHook
             var recipe = host.GetMethod("ActiveRecipe", Flags)!.Invoke(null, new[] { window });
             File.AppendAllText(Path.Combine(folder,"host-smoke.log"), "RECIPE " + recipe + Environment.NewLine);
             await TestRecipeExport(panel, spatial, recipe!, variant, toggle);
-            toggle.IsChecked = false;
-            Call(panel, "FlushLooks");
+            await TestDetach(hook, hosted, panel, spatial, window, toggle);
             Check(Prop(Call(store, "Read", variant)!, "Enabled") is false, "master switch persisted after all tests");
-            File.WriteAllText(Path.Combine(folder, restart ? "restart.passed" : "first.passed"), $"PASS {checks} host assertions");
             if (!restart) File.WriteAllText(Path.Combine(folder, "restart.expected"), "1.2 disabled");
+            File.WriteAllText(Path.Combine(folder, restart ? "restart.passed" : "first.passed"), $"PASS {checks} host assertions");
         }
         catch (Exception error)
         {
@@ -324,5 +324,34 @@ public static class StartupHook
         Call(Field(spatial, "exportWork")!, "Cancel");
         Check(!await canceled && File.ReadAllBytes(output).AsSpan().SequenceEqual(original),
             "explicit cancellation preserved the previous recipe export");
+    }
+
+    static async Task TestDetach(Type hook, object hosted, object panel, object spatial, object window, CheckBox toggle)
+    {
+        var output = Path.Combine(folder, "recipe-export.tif");
+        var existing = File.ReadAllBytes(output);
+        var export = (Task<bool>)Call(spatial, "ExportWithDestinationAsync", true, null,
+            (Func<SaveFileDialog, Window?, string?>)((_, _) => output))!;
+        var token = (CancellationToken)Prop(Field(spatial, "exportWork")!, "Token")!;
+        var closing = new Forms.FormClosingEventArgs(Forms.CloseReason.UserClosing, cancel: true);
+        hook.GetMethod("OnFormClosing", Flags)!.Invoke(null, new[] { window, closing });
+        var hostedField = hook.GetField("hostedTool", Flags)!;
+        Check(ReferenceEquals(hostedField.GetValue(null), hosted) && !token.IsCancellationRequested,
+            "canceled form close keeps the panel attached and the export live");
+
+        toggle.IsChecked = false;
+        Call(panel, "ScheduleSelectionSync");
+        var operation = (DispatcherOperation)Field(panel, "selectionSync")!;
+        Check(operation.Status == DispatcherOperationStatus.Pending, "real dispatcher held a pending selection callback");
+        // The fixture invokes the production detach path and keeps the host message loop
+        // alive to observe cancellation and the queued callback deterministically.
+        var watchdog = (Forms.Timer)hook.GetField("timer", Flags)!.GetValue(null)!;
+        watchdog.Stop();
+        hook.GetMethod("Detach", Flags)!.Invoke(null, new object[] { false });
+        Check(hostedField.GetValue(null) is null && token.IsCancellationRequested, "detach cancels the active export and releases the host owner");
+        Check(operation.Status == DispatcherOperationStatus.Aborted && Field(panel, "selectionSync") is null,
+            "detach aborts the late dispatcher callback");
+        Check(!await export.WaitAsync(TimeSpan.FromSeconds(10)) && File.ReadAllBytes(output).AsSpan().SequenceEqual(existing),
+            "detached export exits without replacing the prior output");
     }
 }

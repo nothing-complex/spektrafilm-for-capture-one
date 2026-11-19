@@ -32,18 +32,25 @@ internal static class PanelFiles
     }
 
     internal static void WritePreset<T>(string path, T preset) => WriteJson(path, preset, WriteOptions);
+    internal static void WritePreset<T>(Stream stream, T preset) => stream.Write(EncodePreset(preset, WriteOptions));
 
     internal static void WriteCompactPreset<T>(string path, T preset) => WriteJson(path, preset, null);
 
     private static void WriteJson<T>(string path, T preset, JsonSerializerOptions? options)
     {
-        var bytes = JsonSerializer.SerializeToUtf8Bytes(preset, options);
-        if (bytes.Length > MaxPresetBytes)
-            throw new InvalidDataException("The preset is larger than 64 KB and cannot be safely saved.");
+        var bytes = EncodePreset(preset, options);
         WriteAtomically(path, stream => stream.Write(bytes));
     }
 
-    internal static void WriteAtomically(string path, Action<Stream> write, Action? beforeCommit = null)
+    private static byte[] EncodePreset<T>(T preset, JsonSerializerOptions? options)
+    {
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(preset, options);
+        if (bytes.Length > MaxPresetBytes)
+            throw new InvalidDataException("The preset is larger than 64 KB and cannot be safely saved.");
+        return bytes;
+    }
+
+    internal static void WriteAtomically(string path, Action<Stream> write, Action? beforeCommit = null, bool overwrite = true)
     {
         var destination = Path.GetFullPath(path);
         var temp = Path.Combine(Path.GetDirectoryName(destination)!, $".spektra-{Guid.NewGuid():N}.tmp");
@@ -55,7 +62,7 @@ internal static class PanelFiles
                 stream.Flush(flushToDisk: true);
             }
             beforeCommit?.Invoke();
-            File.Move(temp, destination, overwrite: true);
+            File.Move(temp, destination, overwrite);
         }
         finally
         {

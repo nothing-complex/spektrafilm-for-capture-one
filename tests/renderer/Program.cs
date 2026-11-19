@@ -59,20 +59,28 @@ internal static class Program
             {
                 var root = Setup(scratch, "hang");
                 using var renderer = new OpticalRenderer(nativePreview: true);
-                using var cancel = new CancellationTokenSource(150);
-                await Throws<OperationCanceledException>(() => renderer.RenderAsync(1, 1, Pixels(1), [], cancel.Token));
+                using var cancel = new CancellationTokenSource();
+                var render = renderer.RenderAsync(1, 1, Pixels(1), [], cancel.Token);
+                await WaitForRequest(root, render);
+                cancel.Cancel();
+                await Throws<OperationCanceledException>(() => render.WaitAsync(TimeSpan.FromSeconds(10)));
                 File.WriteAllText(Path.Combine(root, "renderer", "scenario.txt"), "valid");
                 await renderer.RenderAsync(1, 1, Pixels(1), [], default);
                 Check(File.ReadAllLines(Path.Combine(root, "renderer", "trace.txt")).Count(l => l.Contains("HELLO")) == 2, "cancel restarts and renegotiates");
             }
             {
-                var root = Setup(scratch, "delay");
+                var root = Setup(scratch, "gated");
                 using var renderer = new OpticalRenderer(nativePreview: true);
                 var pixels = Pixels(1);
                 var first = renderer.RenderAsync(1, 1, pixels, [], default);
-                using var cancel = new CancellationTokenSource(25);
-                await Throws<OperationCanceledException>(() => renderer.RenderAsync(1, 1, pixels, [], cancel.Token));
-                await first;
+                await WaitForRequest(root, first);
+                using var cancel = new CancellationTokenSource();
+                var queued = renderer.RenderAsync(1, 1, pixels, [], cancel.Token);
+                cancel.Cancel();
+                await Throws<OperationCanceledException>(() => queued.WaitAsync(TimeSpan.FromSeconds(10)));
+                Check(!first.IsCompleted, "queued cancellation did not disturb the in-flight request");
+                File.WriteAllText(Path.Combine(root, "renderer", "release-response"), "");
+                await first.WaitAsync(TimeSpan.FromSeconds(10));
                 File.WriteAllText(Path.Combine(root, "renderer", "scenario.txt"), "valid");
                 await Task.WhenAll(Enumerable.Range(0, 5).Select(_ => renderer.RenderAsync(1, 1, pixels, [], default)));
                 Check(File.ReadAllLines(Path.Combine(root, "renderer", "trace.txt")).Count(l => l.Contains("HELLO")) == 1, "queued cancellation/concurrent clients preserve stream");
@@ -148,6 +156,23 @@ internal static class Program
         finally { Environment.SetEnvironmentVariable("SPEKTRAFILM_ROOT", previous); }
     }
 
+    private static async Task WaitForRequest(string root, Task render)
+    {
+        var marker = Path.Combine(root, "renderer", "request-received");
+        var started = Stopwatch.GetTimestamp();
+        while (!File.Exists(marker))
+        {
+            if (render.IsCompleted)
+            {
+                await render;
+                throw new InvalidOperationException("Fake renderer completed before the request checkpoint.");
+            }
+            if (Stopwatch.GetElapsedTime(started) >= TimeSpan.FromSeconds(10))
+                throw new TimeoutException("Fake renderer did not receive its request.");
+            await Task.Delay(10);
+        }
+    }
+
     private static async Task CheckGpu(string root)
     {
         var previousRoot = Environment.GetEnvironmentVariable("SPEKTRAFILM_ROOT");
@@ -193,12 +218,80 @@ internal static class Program
                 }
                 Check(maximum <= 6e-9, "native LUT exact sampled-image parity " + size);
             }
-            Console.WriteLine($"PASS: {checks} GPU integration checks, LUT maximum code error {maximum:R}.");
+            Console.WriteLine($"Exact grid maximum code error {maximum:R}.");
+            await TestHeldOutLut(options);
+            Console.WriteLine($"PASS: {checks} GPU integration checks.");
         }
         finally
         {
             Environment.SetEnvironmentVariable("SPEKTRAFILM_ROOT", previousRoot);
             Environment.SetEnvironmentVariable("SPEKTRAFILM_VULKAN_COPY_PASS", previousDebug);
+        }
+    }
+
+    private static async Task TestHeldOutLut(string[] options)
+    {
+        var colors = new float[1024 * 4];
+        var random = new Random(707);
+        for (var index = 0; index < 1024; index++)
+        {
+            for (var channel = 0; channel < 3; channel++)
+                colors[index * 4 + channel] = (float)random.NextDouble();
+            colors[index * 4 + 3] = 1;
+        }
+        var pixels = new byte[colors.Length * sizeof(float)];
+        Buffer.BlockCopy(colors, 0, pixels, 0, pixels.Length);
+
+        foreach (var method in new[] { "hanatos2025", "mallett2019" })
+        {
+            var plan = NativeLutExporter.Prepare(options.Concat(new[] { "--spectral-method", method }).ToArray());
+            using var renderer = new OpticalRenderer(export: true);
+            var direct = await renderer.RenderAsync(32, 32, pixels, plan.Arguments, default);
+            var previousMean = double.PositiveInfinity;
+            foreach (var size in new[] { 33, 65 })
+            {
+                var cube = await NativeLutExporter.ExportAsync(plan, size, 1, default);
+                var samples = cube.Split('\n').Where(line => line.Length > 0 && (char.IsDigit(line[0]) || line[0] == '-'))
+                    .SelectMany(line => line.Split(' ')).Select(text => float.Parse(text, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+                var errors = new double[3072];
+                for (var index = 0; index < 1024; index++)
+                for (var channel = 0; channel < 3; channel++)
+                {
+                    var interpolated = Interpolate(samples, size, colors, index * 4, channel);
+                    var expected = Math.Clamp(BitConverter.ToSingle(direct, (index * 4 + channel) * 4), 0, 1);
+                    errors[index * 3 + channel] = Math.Abs(interpolated - expected);
+                }
+                Array.Sort(errors);
+                var mean = errors.Average();
+                var p95 = errors[(int)(errors.Length * .95) - 1];
+                Console.WriteLine($"{method} {size}-point LUT held-out sRGB code error: mean {mean:G6}, p95 {p95:G6}, max {errors[^1]:G6}.");
+                Check(p95 < .012 && errors[^1] < .09, "held-out interpolation error within bound: " + method + "/" + size);
+                Check(mean < previousMean, "denser grid improves mean interpolation error: " + method + "/" + size);
+                previousMean = mean;
+            }
+        }
+
+        static double Interpolate(float[] samples, int size, float[] colors, int offset, int channel)
+        {
+            var (r, dr) = Cell(colors[offset], size);
+            var (g, dg) = Cell(colors[offset + 1], size);
+            var (b, db) = Cell(colors[offset + 2], size);
+            double result = 0;
+            for (var bz = 0; bz <= 1; bz++)
+            for (var gy = 0; gy <= 1; gy++)
+            for (var rx = 0; rx <= 1; rx++)
+            {
+                var weight = (bz == 0 ? 1 - db : db) * (gy == 0 ? 1 - dg : dg) * (rx == 0 ? 1 - dr : dr);
+                result += weight * samples[3 * (((b + bz) * size + g + gy) * size + r + rx) + channel];
+            }
+            return result;
+        }
+
+        static (int Base, double Fraction) Cell(float color, int size)
+        {
+            var coordinate = (double)color * (size - 1);
+            var lower = Math.Min(size - 2, (int)coordinate);
+            return (lower, coordinate - lower);
         }
     }
 
@@ -259,8 +352,15 @@ internal static class Program
                 pixels = new byte[int.Parse(tokens[1]) * int.Parse(tokens[2]) * 16];
                 input.ReadExactly(pixels);
             }
+            if (scenario is "hang" or "gated") File.WriteAllText("request-received", "");
             if (scenario == "hang") { Thread.Sleep(10000); continue; }
-            if (scenario == "delay") Thread.Sleep(200);
+            if (scenario == "gated")
+            {
+                var started = Stopwatch.GetTimestamp();
+                while (!File.Exists("release-response") && Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(10))
+                    Thread.Sleep(10);
+                if (!File.Exists("release-response")) return;
+            }
             if (scenario == "status") Reply(output, 99, pixels);
             else if (scenario == "length") Reply(output, 0, new byte[pixels.Length + 1]);
             else if (scenario == "error-size") Reply(output, 1, new byte[65536]);

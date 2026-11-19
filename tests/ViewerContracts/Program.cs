@@ -2,6 +2,7 @@ using System;
 using System.Drawing;
 using System.Diagnostics;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -70,6 +71,7 @@ internal static class Program
         try { OutputPathGuard.Validate(source.ToUpperInvariant(),source); } catch(IOException) { refused=true; }
         Check(refused,"Original path was accepted");
         Check(OutputPathGuard.Validate(Path.Combine(folder,"different.tif"),source).EndsWith("different.tif"),"Distinct output rejected");
+        ExpectRefused(() => OutputPathGuard.Validate(Path.Combine(folder, ".", "source.tif"), source), "Source path with dot segment accepted");
         var link=Path.Combine(folder,"linked-source.tif");
         try
         {
@@ -81,8 +83,101 @@ internal static class Program
         catch(UnauthorizedAccessException) { Console.WriteLine("SKIP: symbolic-link creation unavailable for alias test."); }
         catch(IOException error) when ((error.HResult & 0xffff) == 1314)
         { Console.WriteLine("SKIP: symbolic-link privilege unavailable for alias test."); }
+
+        var hardlink = Path.Combine(folder, "hardlink-source.tif");
+        if (!CreateHardLink(hardlink, source, IntPtr.Zero))
+            throw new IOException($"Hardlink fixture failed: {Marshal.GetLastWin32Error()}.");
+        ExpectRefused(() => OutputPathGuard.Validate(hardlink, source), "Original file identity through a hardlink was accepted");
+
+        var junction = Path.Combine(folder, "junction");
+        var junctionTarget = Path.Combine(folder, "junction-target");
+        Directory.CreateDirectory(junctionTarget);
+        var junctionSource = Path.Combine(junctionTarget, "source.tif");
+        File.WriteAllText(junctionSource, "JUNCTION ORIGINAL");
+        var mklinkInfo = new ProcessStartInfo("cmd.exe", "/d /c mklink /J \"%SPEKTRA_TEST_JUNCTION%\" \"%SPEKTRA_TEST_TARGET%\"")
+        {
+            CreateNoWindow = true,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        mklinkInfo.Environment["SPEKTRA_TEST_JUNCTION"] = junction;
+        mklinkInfo.Environment["SPEKTRA_TEST_TARGET"] = junctionTarget;
+        using (var mklink = Process.Start(mklinkInfo)!)
+        {
+            if (!mklink.WaitForExit(10000))
+                throw new TimeoutException("Disposable junction creation timed out.");
+            var response = mklink.StandardOutput.ReadToEnd() + mklink.StandardError.ReadToEnd();
+            if (mklink.ExitCode == 0)
+            {
+                ExpectRefused(() => OutputPathGuard.Validate(Path.Combine(junction, "source.tif"), junctionSource), "Output junction alias accepted");
+                ExpectRefused(() => OutputPathGuard.Validate(junctionSource, Path.Combine(junction, "source.tif")), "Source junction alias accepted");
+                OutputPathGuard.Approve(Path.Combine(junction, "separate.tif"), junctionSource).Write(stream => stream.WriteByte(17));
+                Check(File.ReadAllBytes(Path.Combine(junctionTarget, "separate.tif")).SequenceEqual(new byte[] { 17 }), "Separate junction output was not committed");
+                Check(File.ReadAllText(junctionSource) == "JUNCTION ORIGINAL", "Junction test altered the original");
+            }
+            else if (response.Contains(new Win32Exception(5).Message, StringComparison.CurrentCultureIgnoreCase)
+                || response.Contains(new Win32Exception(1314).Message, StringComparison.CurrentCultureIgnoreCase))
+                Console.WriteLine("SKIP: Windows denied creation of the disposable junction fixture.");
+            else
+                throw new IOException("Could not create the disposable junction fixture: " + response.Trim());
+        }
+
+        var late = Path.Combine(folder, "late.tif");
+        var approved = OutputPathGuard.Approve(late, source);
+        ExpectRefused(() => approved.Write(stream =>
+        {
+            stream.WriteByte(20);
+            File.WriteAllText(late, "CONCURRENT");
+        }), "Concurrent creation was silently replaced");
+        Check(File.ReadAllText(late) == "CONCURRENT", "Concurrent destination bytes changed");
+
+        var replacement = OutputPathGuard.Approve(late, source);
+        ExpectRefused(() => replacement.Write(stream =>
+        {
+            stream.WriteByte(21);
+            File.Move(late, Path.Combine(folder, "previous.tif"));
+            File.WriteAllText(late, "DIFFERENT");
+        }), "Replacement with a different identity was silently overwritten");
+        Check(File.ReadAllText(late) == "DIFFERENT", "Replacement bytes changed");
+        OutputPathGuard.Approve(late, source).Write(stream => stream.WriteByte(22));
+        Check(File.ReadAllBytes(late).SequenceEqual(new byte[] { 22 }), "Unchanged approved destination could not be replaced");
+        using var stop = new CancellationTokenSource();
+        try
+        {
+            OutputPathGuard.Approve(late, source).Write(stream =>
+            {
+                stream.WriteByte(99);
+                stop.Cancel();
+            }, stop.Token);
+            throw new InvalidOperationException("Canceled output committed after encoding.");
+        }
+        catch (OperationCanceledException) { assertions++; }
+        Check(File.ReadAllBytes(late).SequenceEqual(new byte[] { 22 }), "Cancellation after encoding changed an existing destination");
+        Check(!Directory.EnumerateFiles(folder, ".spektra-*.tmp").Any(), "Output failures left partial files behind");
+
+        var lateAlias = Path.Combine(folder, "late-alias.tif");
+        var aliasApproval = OutputPathGuard.Approve(lateAlias, source);
+        ExpectRefused(() => aliasApproval.Write(stream =>
+        {
+            stream.WriteByte(23);
+            if (!CreateHardLink(lateAlias, source, IntPtr.Zero))
+                throw new InvalidOperationException("Could not create concurrent hardlink fixture.");
+        }), "Concurrent original alias was accepted");
+        Check(File.ReadAllText(lateAlias) == "ORIGINAL", "Concurrent original alias was altered");
         Check(File.ReadAllText(source)=="ORIGINAL","Path test altered original");
+
+        void ExpectRefused(Action action, string failure)
+        {
+            try { action(); }
+            catch (IOException) { assertions++; return; }
+            throw new InvalidOperationException(failure);
+        }
     }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CreateHardLink(string newName, string existingPath, IntPtr reserved);
 
     private static void TestFractionalColorSampling()
     {

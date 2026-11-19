@@ -37,15 +37,16 @@ internal static class SpektraFilmTool
     {
         // The base class loads BAML from CaptureOne.dll, so use the host's empty tool.
         var tool = new DummyInspectorTool(bus);
-        var toolType = typeof(InspectorToolWpf);
-        var registration = (ILifeCycleRegistrationService?)toolType.GetProperty("LifeCycleEventRegistration", InstanceNonPublic)?.GetValue(tool)
-            ?? throw new MissingMemberException(toolType.FullName, "LifeCycleEventRegistration");
-        var initialize = toolType.GetMethod("Initialize", InstanceNonPublic, null,
-            new[] { typeof(UserControl), typeof(IInspectorToolContentViewModel), typeof(InspectorToolHeaderViewModel) }, null)
-            ?? throw new MissingMethodException(toolType.FullName, "Initialize");
-        var hosted = new HostedTool(window, tool, document);
+        HostedTool? hosted = null;
         try
         {
+            var toolType = typeof(InspectorToolWpf);
+            var registration = (ILifeCycleRegistrationService?)toolType.GetProperty("LifeCycleEventRegistration", InstanceNonPublic)?.GetValue(tool)
+                ?? throw new MissingMemberException(toolType.FullName, "LifeCycleEventRegistration");
+            var initialize = toolType.GetMethod("Initialize", InstanceNonPublic, null,
+                new[] { typeof(UserControl), typeof(IInspectorToolContentViewModel), typeof(InspectorToolHeaderViewModel) }, null)
+                ?? throw new MissingMethodException(toolType.FullName, "Initialize");
+            hosted = new HostedTool(window, tool, document);
             var header = hosted.CreateDockedHeader(registration);
             tool.SetProperties(new Dictionary<string, object>());
             initialize.Invoke(tool, new object[] { hosted.DockedContent, EmptyInspectorToolContentViewModel.Instance, header });
@@ -56,8 +57,8 @@ internal static class SpektraFilmTool
         }
         catch
         {
-            hosted.Dispose();
-            tool.Dispose();
+            try { hosted?.Dispose(); }
+            finally { tool.Dispose(); }
             throw;
         }
     }
@@ -297,10 +298,12 @@ internal static class SpektraFilmTool
         private readonly SpatialPreview opticalPreview;
         private readonly Button recoverSavedLook;
         private readonly CancellationTokenSource lifetime = new();
+        private readonly Button cancelLut = new() { Content = "Cancel LUT export", Visibility = Visibility.Collapsed };
+        private CancellationTokenSource? lutWork;
         private bool lutExporting;
         private Guid? displayedVariant;
         private long? retryLookReadAt;
-        private bool selectionQueued;
+        private DispatcherOperation? selectionSync;
         private LookOptions? options;
         private bool settingValues;
         private bool disposed;
@@ -323,6 +326,8 @@ internal static class SpektraFilmTool
             recoverSavedLook.Visibility = Visibility.Collapsed;
             layout.Children.Add(recoverSavedLook);
             layout.Children.Add(exportBridgeStatus);
+            cancelLut.Click += (_, _) => lutWork?.Cancel();
+            layout.Children.Add(cancelLut);
             layout.Children.Add(controls);
             Content = layout;
             AddStock(controls, "Processing mode", mode, () =>
@@ -374,9 +379,29 @@ internal static class SpektraFilmTool
 
             enableSpektraFilm.Checked += (_, _) => OnEnabledChanged();
             enableSpektraFilm.Unchecked += (_, _) => OnEnabledChanged();
-            Loaded += (_, _) => LoadStocks();
-            document.MessageBus.Subscribe<PrimaryVariantChangedMessage>(this);
-            selections.CollectionsSelectionChanged += OnCollectionsSelectionChanged;
+            Loaded += OnLoaded;
+            try
+            {
+                document.MessageBus.Subscribe<PrimaryVariantChangedMessage>(this);
+                try { selections.CollectionsSelectionChanged += OnCollectionsSelectionChanged; }
+                catch
+                {
+                    document.MessageBus.Unsubscribe<PrimaryVariantChangedMessage>(this);
+                    throw;
+                }
+            }
+            catch
+            {
+                Loaded -= OnLoaded;
+                opticalPreview.Dispose();
+                lifetime.Dispose();
+                throw;
+            }
+        }
+
+        private void OnLoaded(object sender, RoutedEventArgs args)
+        {
+            if (!disposed) LoadStocks();
         }
 
         public Guid Id { get; } = Guid.NewGuid();
@@ -392,13 +417,12 @@ internal static class SpektraFilmTool
         private void ScheduleSelectionSync()
         {
             // Read the primary variant after the host finishes processing the selection.
-            if (disposed || selectionQueued)
+            if (disposed || selectionSync is not null || Dispatcher.HasShutdownStarted)
                 return;
-            selectionQueued = true;
-            Dispatcher.BeginInvoke(DispatcherPriority.DataBind, new Action(() =>
+            selectionSync = Dispatcher.BeginInvoke(DispatcherPriority.DataBind, new Action(() =>
             {
-                selectionQueued = false;
-                SyncSelection();
+                selectionSync = null;
+                if (!disposed) SyncSelection();
             }));
         }
 
@@ -446,11 +470,20 @@ internal static class SpektraFilmTool
                 return;
             FlushLooks();
             disposed = true;
-            lifetime.Cancel();
-            lifetime.Dispose();
-            selections.CollectionsSelectionChanged -= OnCollectionsSelectionChanged;
-            document.MessageBus.Unsubscribe<PrimaryVariantChangedMessage>(this);
-            opticalPreview.Dispose();
+            selectionSync?.Abort();
+            selectionSync = null;
+            Loaded -= OnLoaded;
+            try
+            {
+                selections.CollectionsSelectionChanged -= OnCollectionsSelectionChanged;
+                document.MessageBus.Unsubscribe<PrimaryVariantChangedMessage>(this);
+            }
+            finally
+            {
+                lifetime.Cancel();
+                lifetime.Dispose();
+                opticalPreview.Dispose();
+            }
         }
 
         private FrameworkElement MakeFilmControls()
@@ -520,20 +553,7 @@ internal static class SpektraFilmTool
         {
             var section = new StackPanel();
             var presets = new WrapPanel { Margin = new Thickness(0, 5, 0, 3) };
-            presets.Children.Add(Button("Save preset…", () =>
-            {
-                if (CurrentSettings() is { } settings)
-                {
-                    var original = HostProfile.CaptureTarget(window).SourcePath;
-                    var picker = new SaveFileDialog { Filter = "Spektrafilm preset|*.spektra.json", FileName = "Film look.spektra.json" };
-                    if (picker.ShowDialog() == true)
-                    {
-                        var preset = new PanelPreset(settings, opticalPreview.CaptureSettings(), 1);
-                        Run(() => PanelFiles.WritePreset(OutputPathGuard.Validate(picker.FileName, original), preset), "Preset saved.");
-                    }
-                }
-                return Task.CompletedTask;
-            }));
+            presets.Children.Add(Button("Save preset…", SavePresetAsync));
             presets.Children.Add(Button("Load preset…", LoadPresetAsync));
             section.Children.Add(presets);
 
@@ -551,6 +571,31 @@ internal static class SpektraFilmTool
         internal Task<bool> ExportAsync(bool useRecipeSize, Window? owner = null) =>
             IsSpektraExportActive ? opticalPreview.ExportAsync(useRecipeSize, owner) : Task.FromResult(false);
         internal bool StocksReady => !disposed && options is not null;
+
+        private async Task SavePresetAsync()
+        {
+            if (!SyncSelection() || !IsSpektraFilmEnabled || CurrentSettings() is not { } settings)
+                return;
+            try
+            {
+                var stop = lifetime.Token;
+                var original = HostProfile.CaptureTarget(window).SourcePath;
+                var preset = new PanelPreset(settings, opticalPreview.CaptureSettings(), 1);
+                var picker = new SaveFileDialog { Filter = "Spektrafilm preset|*.spektra.json", FileName = "Film look.spektra.json" };
+                if (picker.ShowDialog() != true)
+                    return;
+                stop.ThrowIfCancellationRequested();
+                var approved = OutputPathGuard.Approve(picker.FileName, original);
+                await Task.Run(() => approved.Write(stream => PanelFiles.WritePreset(stream, preset), stop), stop);
+                if (!disposed) status.Text = "Preset saved.";
+            }
+            catch (OperationCanceledException) when (disposed) { }
+            catch (Exception error)
+            {
+                if (!disposed) Report(error);
+            }
+        }
+
         private async Task LoadPresetAsync()
         {
             if (!SyncSelection())
@@ -794,6 +839,8 @@ internal static class SpektraFilmTool
             if (lutExporting || !IsSpektraFilmEnabled || CurrentSettings() is not { } settings)
                 return;
             lutExporting = true;
+            using var work = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+            lutWork = work;
             try
             {
                 var original = HostProfile.CaptureTarget(window).SourcePath;
@@ -805,25 +852,38 @@ internal static class SpektraFilmTool
                 var picker = new SaveFileDialog { Filter = "3D LUT|*.cube", FileName = $"Spektrafilm sRGB {resolution}.cube" };
                 if (picker.ShowDialog() != true)
                     return;
-                var path = OutputPathGuard.Validate(picker.FileName, original);
+                work.Token.ThrowIfCancellationRequested();
+                var approved = OutputPathGuard.Approve(picker.FileName, original);
+                cancelLut.Visibility = Visibility.Visible;
                 status.Text = "Baking the sRGB LUT…";
-                var cube = await NativeLutExporter.ExportAsync(plan, resolution, settings.Strength, lifetime.Token);
+                var cube = await NativeLutExporter.ExportAsync(plan, resolution, settings.Strength, work.Token);
                 if (!disposed)
                 {
-                    await Task.Run(() => PanelFiles.WriteAtomically(path, stream =>
+                    await Task.Run(() => approved.Write(stream =>
                     {
                         using var writer = new StreamWriter(stream, new System.Text.UTF8Encoding(false), leaveOpen: true);
                         writer.Write(cube);
-                    }, beforeCommit: () => OutputPathGuard.Validate(path, original)));
-                    status.Text = "LUT exported.";
+                    }, work.Token), work.Token);
+                    if (!disposed)
+                        status.Text = "LUT exported.";
                 }
+            }
+            catch (OperationCanceledException)
+            {
+                if (!disposed)
+                    status.Text = "LUT export canceled.";
             }
             catch (Exception error)
             {
                 if (!disposed)
                     Report(error);
             }
-            finally { lutExporting = false; }
+            finally
+            {
+                lutWork = null;
+                lutExporting = false;
+                if (!disposed) cancelLut.Visibility = Visibility.Collapsed;
+            }
         }
 
         private FrameworkElement MakeGrainControls()

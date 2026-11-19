@@ -110,6 +110,18 @@ Logs live under `.test-results/host-export-20261119-pass` and `.test-results/con
 
 Evidence lives in `.test-results/host-audit-state-selection-20261119`, `.test-results/host-audit-resolution-20261119` and `.test-results/contracts-audit-resolution-20261119`. Actual native confirmation and OS picker interactions, device-independent display colour, metadata policy, navigation after background development starts and document closure during export are separate acceptance cases.
 
+## Output protection, detach and backup integrity checkpoint
+
+- [x] Record the original, destination and directory identities when the Save dialog returns. Recognize hard links and folder aliases. Recheck approval immediately before the sibling temporary file commits. New destinations also use a rename that refuses overwrite.
+- [x] Pass the real hardlink and junction fixtures, approved replacement, concurrent destination creation and replacement, and explicit cancellation after encoding. The symlink fixture runs when Windows grants that privilege. Existing-destination replacement still has a small Windows path-rename race after its final recheck.
+- [x] Guard image, viewer snapshot, LUT and preset output with the same approval policy. LUT jobs have their own visible cancellation action, and preset export captures effect settings together before opening Save.
+- [x] A suppressed close retained the active export. Explicit detach cancelled it, aborted the queued WPF callback, and preserved the previous file. This used the real host message loop and production detach code. The fixture kept the host window open so it could observe the asynchronous result. First/restart passed 44 and 46 assertions.
+- [x] Verify a changed catalog copy using the Windows SQLite library's read-only `integrity_check`. Reject a corrupted database with a valid header before publication or rotation. The original fixture catalog hash stayed unchanged, and the verifier produced no SQLite sidecar. There were 21 backup assertions.
+- [x] Compare the two supported LUT spectral methods against GPU rendering at 1,024 held-out colors for each cube size. All 17 GPU checks passed. The 65-point LUT normalized sRGB code p95 stayed below 0.00025 on the tested look, and the max was below 0.020. These are results for the tested setup and look.
+- [x] Fix renderer cancellation test timing by waiting until the fake worker receives the request and explicitly releasing the queued-request fixture. The full Windows suite passed 11,989 assertions before the usual local symbolic-file-link privilege skip.
+
+Logs live under `.test-results/contracts-audit-integrity-20261119`, `.test-results/host-detach-20261119`, `.test-results/gpu-lut-heldout-20261119.log`, and `.test-results/real-catalog-integrity-20261119`. Next audit work includes actual form closure, native command confirmation, recipe metadata, panel layout preferences, portable restoration and full renderer request envelopes.
+
 ## Runtime map for the next agent
 
 | Responsibility | Main files and contracts |

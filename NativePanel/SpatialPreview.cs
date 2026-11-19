@@ -121,6 +121,7 @@ internal sealed class SpatialPreview : IDisposable
     private bool frameCurrent;
     private bool saveInProgress;
     private ExportOperation? exportWork;
+    private readonly CancellationTokenSource lifetime = new();
     private readonly TextBlock exportStatus = new() { TextWrapping = TextWrapping.Wrap };
     private readonly Button cancelExport = new() { Content = "Cancel export", Visibility = Visibility.Collapsed, HorizontalAlignment = HorizontalAlignment.Left };
     private bool disposed;
@@ -179,6 +180,8 @@ internal sealed class SpatialPreview : IDisposable
         if (disposed) return;
         disposed = true;
         enabled = false;
+        lifetime.Cancel();
+        lifetime.Dispose();
         exportWork?.Cancel();
         ClearPreview();
         refresh.Tick -= OnRefreshTick;
@@ -659,8 +662,8 @@ internal sealed class SpatialPreview : IDisposable
                 if (destination is null)
                     return false;
 
-                var path = ProtectOriginal(destination, target.SourcePath);
-                var outputFormat = SpektraExport.PixelFormatFor(path);
+                var approved = OutputPathGuard.Approve(destination, target.SourcePath);
+                var outputFormat = SpektraExport.PixelFormatFor(approved.Path);
                 pending?.Cancel();
                 pendingDraft?.Cancel();
                 cancelExport.Visibility = Visibility.Visible;
@@ -678,12 +681,12 @@ internal sealed class SpatialPreview : IDisposable
                         : null;
                     work.Token.ThrowIfCancellationRequested();
                     var output = DecodeExport(source, pixels, look.Strength, input.Space, encoding, outputFormat, rendered.Crop, work.Token, dpi);
-                    SpektraExport.Save(path, output, work.Token, target.SourcePath);
+                    SpektraExport.SaveApproved(approved, output, work.Token);
                     return (output.PixelWidth, output.PixelHeight);
                 }, work.Token);
                 if (!disposed)
                     exportStatus.Text = $"Saved 16-bit Spektrafilm export · {result.PixelWidth} × {result.PixelHeight}";
-                StartupHook.Log($"Spektrafilm 16-bit export saved at {result.PixelWidth}x{result.PixelHeight}: {path}");
+                StartupHook.Log($"Spektrafilm 16-bit export saved at {result.PixelWidth}x{result.PixelHeight}: {approved.Path}");
                 return true;
             }
             finally
@@ -1154,8 +1157,9 @@ internal sealed class SpatialPreview : IDisposable
 
     private async Task SavePreviewAsync()
     {
-        if (!frameCurrent || viewerFrame is not { } frame || saveInProgress)
+        if (disposed || !frameCurrent || viewerFrame is not { } frame || saveInProgress)
             return;
+        var stop = lifetime.Token;
         try
         {
             var target = HostProfile.CaptureTarget(window);
@@ -1171,31 +1175,32 @@ internal sealed class SpatialPreview : IDisposable
             if (picker.ShowDialog() != true)
                 return;
 
-            var path = ProtectOriginal(picker.FileName, target.SourcePath);
+            stop.ThrowIfCancellationRequested();
+            var approved = OutputPathGuard.Approve(picker.FileName, target.SourcePath);
             saveInProgress = true;
             savePreview.IsEnabled = false;
-            await Task.Run(() => PanelFiles.WriteAtomically(path, stream =>
+            await Task.Run(() => approved.Write(stream =>
             {
                 var encoder = new PngBitmapEncoder();
                 encoder.Frames.Add(BitmapFrame.Create(frame, null, null,
                     new ReadOnlyCollection<ColorContext>(new[] { new ColorContext(PixelFormats.Bgra32) })));
                 encoder.Save(stream);
-            }, beforeCommit: () => OutputPathGuard.Validate(path, target.SourcePath)));
+            }, stop), stop);
             StartupHook.Log("Saved the sRGB Viewer preview as PNG.");
         }
+        catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
         catch (Exception error)
         {
-            MessageBox.Show(error.GetBaseException().Message, "Could not save Spektrafilm preview", MessageBoxButton.OK, MessageBoxImage.Error);
+            if (!disposed)
+                MessageBox.Show(error.GetBaseException().Message, "Could not save Spektrafilm preview", MessageBoxButton.OK, MessageBoxImage.Error);
             StartupHook.Log(error.ToString());
         }
         finally
         {
             saveInProgress = false;
-            UpdateViewerStatus();
+            if (!disposed) UpdateViewerStatus();
         }
     }
-
-    private static string ProtectOriginal(string destination, string source) => OutputPathGuard.Validate(destination, source);
 
     private static string DescribeRender(string[] arguments)
     {

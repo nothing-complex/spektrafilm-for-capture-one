@@ -50,11 +50,27 @@ internal static class StartupHook
             Log($"{ProductName} startup hook loaded.");
             // Wait for Capture One's own WinForms message loop before accessing its WPF palette.
             Forms.Application.Idle += OnApplicationIdle;
+            Forms.Application.ApplicationExit += OnApplicationExit;
         }
         catch (Exception error)
         {
             Log(error.ToString());
         }
+    }
+
+    private static void OnApplicationExit(object? sender, EventArgs args)
+    {
+        Forms.Application.Idle -= OnApplicationIdle;
+        Forms.Application.ApplicationExit -= OnApplicationExit;
+        if (timer is { } check)
+        {
+            timer = null;
+            check.Stop();
+            check.Tick -= OnTick;
+            check.Dispose();
+        }
+        try { Detach(); }
+        catch (Exception error) { Log(error.ToString()); }
     }
 
     private static void OnApplicationIdle(object? sender, EventArgs args)
@@ -255,18 +271,24 @@ internal static class StartupHook
             originalWindow.FormClosing -= OnFormClosing;
         oldTool?.SetExportBridgeStatus(ExportBridgeState.Detached);
         try { oldExport?.Dispose(); }
-        finally { oldTool?.Dispose(); }
-        if (oldOwner.Tabs.Contains(oldTab))
+        finally
         {
-            if (ReferenceEquals(oldOwner.Current, oldTab))
+            try { oldTool?.Dispose(); }
+            finally
             {
-                var other = oldPrevious is not null && oldOwner.Tabs.Contains(oldPrevious)
-                    ? oldPrevious
-                    : oldOwner.Tabs.FirstOrDefault(item => !ReferenceEquals(item, oldTab));
-                SelectTab(oldOwner, other);
+                if (oldOwner.Tabs.Contains(oldTab))
+                {
+                    if (ReferenceEquals(oldOwner.Current, oldTab))
+                    {
+                        var other = oldPrevious is not null && oldOwner.Tabs.Contains(oldPrevious)
+                            ? oldPrevious
+                            : oldOwner.Tabs.FirstOrDefault(item => !ReferenceEquals(item, oldTab));
+                        SelectTab(oldOwner, other);
+                    }
+                    oldOwner.Tabs.Remove(oldTab);
+                    oldTab.Dispose();
+                }
             }
-            oldOwner.Tabs.Remove(oldTab);
-            oldTab.Dispose();
         }
         // The main form saves its palette before raising FormClosing. Refresh the
         // in-memory workspace snapshot once the temporary Spektrafilm tab has been removed.
