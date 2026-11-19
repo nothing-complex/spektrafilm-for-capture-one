@@ -611,9 +611,13 @@ internal sealed class SpatialPreview : IDisposable
         }
     }
 
-    internal async Task<bool> ExportAsync(bool useRecipeSize, Window? owner = null)
+    internal Task<bool> ExportAsync(bool useRecipeSize, Window? owner = null) =>
+        ExportWithDestinationAsync(useRecipeSize, owner, ChooseExportDestination);
+
+    private async Task<bool> ExportWithDestinationAsync(bool useRecipeSize, Window? owner,
+        Func<SaveFileDialog, Window?, string?> chooseDestination)
     {
-        if (!enabled || exportWork is not null)
+        if (disposed || !enabled || exportWork is not null)
             return false;
         try
         {
@@ -641,22 +645,23 @@ internal sealed class SpatialPreview : IDisposable
                 picker.InitialDirectory = recipe.CustomRootFolder;
             if (recipe is { RootFolderMode: "ImageFolder" })
                 picker.InitialDirectory = Path.GetDirectoryName(target.SourcePath)!;
-            if ((owner is { IsVisible: true } ? picker.ShowDialog(owner) : picker.ShowDialog()) != true)
-                return false;
-
-            if (!enabled)
-                return false;
-            var path = ProtectOriginal(picker.FileName, target.SourcePath);
-            var outputFormat = SpektraExport.PixelFormatFor(path);
-
+            // The save dialog pumps UI events. Reserve the captured request before
+            // opening it so a second export or a selection change cannot retarget it.
             using var work = new ExportOperation(target.VariantId);
             exportWork = work;
-            pending?.Cancel();
-            pendingDraft?.Cancel();
-            cancelExport.Visibility = Visibility.Visible;
-            exportStatus.Text = "Rendering Spektrafilm export…";
             try
             {
+                var destination = chooseDestination(picker, owner);
+                work.Token.ThrowIfCancellationRequested();
+                if (destination is null)
+                    return false;
+
+                var path = ProtectOriginal(destination, target.SourcePath);
+                var outputFormat = SpektraExport.PixelFormatFor(path);
+                pending?.Cancel();
+                pendingDraft?.Cancel();
+                cancelExport.Visibility = Visibility.Visible;
+                exportStatus.Text = "Rendering Spektrafilm export…";
                 var result = await Task.Run(async () =>
                 {
                     var rendered = snapshot.RenderExport(null, work.Token, useRecipeSize);
@@ -673,26 +678,32 @@ internal sealed class SpatialPreview : IDisposable
                     SpektraExport.Save(path, output, work.Token, target.SourcePath);
                     return (output.PixelWidth, output.PixelHeight);
                 }, work.Token);
-                exportStatus.Text = $"Saved 16-bit Spektrafilm export · {result.PixelWidth} × {result.PixelHeight}";
+                if (!disposed)
+                    exportStatus.Text = $"Saved 16-bit Spektrafilm export · {result.PixelWidth} × {result.PixelHeight}";
                 StartupHook.Log($"Spektrafilm 16-bit export saved at {result.PixelWidth}x{result.PixelHeight}: {path}");
                 return true;
             }
             finally
             {
                 exportWork = null;
-                cancelExport.Visibility = Visibility.Collapsed;
-                RequestRefresh();
+                if (!disposed)
+                {
+                    cancelExport.Visibility = Visibility.Collapsed;
+                    RequestRefresh();
+                }
             }
         }
         catch (OperationCanceledException)
         {
-            exportStatus.Text = "Spektrafilm export canceled.";
+            if (!disposed)
+                exportStatus.Text = "Spektrafilm export canceled.";
             return false;
         }
         catch (Exception error)
         {
-            exportStatus.Text = error.GetBaseException().Message;
             StartupHook.Log("Spektrafilm export failed: " + error);
+            if (disposed) return false;
+            exportStatus.Text = error.GetBaseException().Message;
             if (owner is { IsVisible: true })
                 MessageBox.Show(owner, exportStatus.Text, "Could not export with Spektrafilm", MessageBoxButton.OK, MessageBoxImage.Error);
             else
@@ -700,6 +711,9 @@ internal sealed class SpatialPreview : IDisposable
             return false;
         }
     }
+
+    private static string? ChooseExportDestination(SaveFileDialog picker, Window? owner) =>
+        (owner is { IsVisible: true } ? picker.ShowDialog(owner) : picker.ShowDialog()) == true ? picker.FileName : null;
 
     private void ClearPreview()
     {

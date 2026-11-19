@@ -1,12 +1,12 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-16. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The full 70-item integration audit is **not complete**: 7 bounded primary fixes are implemented, 39 items are partial and 24 are pending. Some items are feasibility investigations or enhancements, not proven defects.
+Updated 2026-11-19. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The export follow-up below has passed local validation. The full 70-item integration audit tracks 7 bounded primary fixes implemented, 39 partial items and 24 pending items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
 1. Read this file, `AGENTS.md` and `qa/AUDIT-FIX-STATUS.json` before changing code. The JSON is the authoritative task-progress ledger; its `remaining_work` and original acceptance tests matter more than a short status label.
 2. Check `git status`, current branch and PR head. Do not discard existing edits or switch the installed build merely because this documentation has a newer commit.
-3. The installed and packaged **runtime revision is `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`**. Later documentation commits do not imply a newer installed runtime. The product changes are in `285f0aa`; `ffc4819` changes only the test runner and its environment regression.
+3. The installed and packaged **runtime revision is `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`**. The initial product changes are in `285f0aa`. The current source also includes the tested 2026-11-19 export follow-up. Its validation used a disposable catalog and a separate panel build.
 4. Choose an unresolved task and an exact ownership boundary. Do not repeat the completed installation, crash test or old defect reproductions as if nothing had happened.
 5. Update task evidence and the delivery ledger at each completed milestone. Never mark a broad parent task complete because one mitigation shipped.
 
@@ -90,6 +90,15 @@ Live-host scope: the tool and native Export binding attached; tested slider move
 
 The host tests ran against product commit `285f0aa`; the later runtime package commit changes only the CI test runner. The final package and installed runtime were checked again. The current initial draft also uses original high-depth development (`RenderDraft` / `RenderPurpose.Draft`), not the old 8-bit proxy route.
 
+## Export follow-up verified 2026-11-19
+
+- [x] Reserve the captured target, settings, recipe and cancellation before the modal Save dialog pumps UI events. A concurrent request cannot open a second picker. Changing the active enable state during destination selection leaves the captured export intact.
+- [x] Keep native Export window registration scoped to its owner and attempt both native delegate restorations during cleanup. Reject a Spektrafilm dialog open while another Export window owns the slot.
+- [x] Build `NativePanel` and `HostSmoke` with zero warnings and errors. Pass all seven local contract suites with 10,061 assertions. The symbolic-link fixture skipped unavailable local privilege.
+- [x] Pass 27 assertions in a disposable Capture One catalog. The harness injected missing first and second native callbacks and verified delegate rollback, prepared and released the native confirmation binding, checked another dialog's ownership, and ran the recipe-sized production export with a deterministic test destination. The resulting 3000 × 2000 TIFF is RGB48. Explicit cancellation preserved its bytes. The source catalog hash stayed unchanged.
+
+Logs live under `.test-results/host-export-20261119-pass` and `.test-results/contracts-export-20261119`. The first attempt diagnosed a reflection error in the test hook and is superseded by the passing run. The test simulated the enable transition in the export panel. Actual navigation to a second variant, the native confirmation click and OS picker interaction, and active document closure during export remain open. This follow-up is a source and test checkpoint. The previous development ZIP and installed build still identify `ffc4819`.
+
 ## Runtime map for the next agent
 
 | Responsibility | Main files and contracts |
@@ -109,7 +118,7 @@ The host tests ran against product commit `285f0aa`; the later runtime package c
 
 Consult the detailed JSON before implementation. Useful next bounded packets are:
 
-1. Finish host fault/race coverage for `FIX-01`, `FIX-03`, `HS-03`, `HS-04`, `HS-19`, `VE-01`, `VE-05`, `HS-15`: failed binding rollback, selection/export races, teardown callbacks and real host failure semantics. Do not reimplement the safeguards already present.
+1. Finish host fault and race coverage for `FIX-01`, `FIX-03`, `HS-03`, `HS-04`, `HS-19`, `VE-01`, `VE-05`, and `HS-15`. Check the persisted attach-failure warning, actual variant navigation during export, active document closure, delayed teardown callbacks and live-host state or grain failures. Build on the tested native delegate rollback and enable-state export paths described above.
 2. Agree model/parameter/capability contracts (`HS-18`, `HS-11`, `HS-12`, `RC-07`) before native undo, copy/apply/clone (`HS-05`, `HS-06`) or broader host compatibility. One owner should edit each shared UI/scheduler region.
 3. Complete export policy (`VE-02`, `VE-03`): ICC/profile intent, metadata, DPI, naming, crop/orientation and explicit unsupported recipes. Current output is 16-bit sRGB TIFF/PNG; output DPI remains 96. Native-dialog interaction still needs verification.
 4. Add measured resource admission and generation-aware scheduling (`RC-11`, `VE-09`, `VE-07`, `VE-08`, `VE-17`, `RQ-09`) before increasing output limits. Current export cap is 32 MP / 8192 px per side; native viewer cap is 100 MP / 16384 px; synthesis has its own 32 MP constraints.

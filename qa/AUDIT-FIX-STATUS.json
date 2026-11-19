@@ -108,6 +108,45 @@
       "path": "C:\\Users\\luka\\AppData\\Local\\Programs\\Film Tools for Capture One",
       "check": "Fresh Windows PowerShell process -CheckOnly returned exit0; manifest runtime identity matched.",
       "evidence": ".test-results/installed-before-audit-20261116/installed-check-passed.txt"
+    },
+    "export_follow_up": {
+      "date": "2026-11-19",
+      "status": "passed",
+      "scope": "Tested source follow-up, with no new package or local installation.",
+      "panel_and_host_hook_build": {
+        "warnings": 0,
+        "errors": 0
+      },
+      "host_assertions": 27,
+      "host_version": "16.4.6.2414",
+      "source_catalog_hash_unchanged": true,
+      "recipe_output": {
+        "width": 3000,
+        "height": 2000,
+        "format": "RGB48 TIFF"
+      },
+      "contracts": {
+        "passed_assertions": 10061,
+        "suites": 7,
+        "skipped": "Symbolic-link privilege unavailable."
+      },
+      "evidence": [
+        ".test-results/host-export-20261119-pass/host-smoke.log",
+        ".test-results/host-export-20261119-pass/panel.log",
+        ".test-results/contracts-export-20261119/summary.json"
+      ],
+      "tested": [
+        "First and second native command binding failure preserve both callback lists.",
+        "Native confirmation binding registers, releases and preserves another Export window.",
+        "Duplicate request is rejected while picking a destination.",
+        "Captured recipe job completes after a simulated enable-state change during destination selection.",
+        "Explicit cancellation preserves an existing output."
+      ],
+      "remaining": [
+        "Actual variant switch, native confirmation click and OS save-dialog interaction.",
+        "Close during active export and adjustment revision races.",
+        "Persistent attach-failure UI and full recipe policy."
+      ]
     }
   },
   "known_limitations": [
@@ -130,14 +169,17 @@
       "priority": "P1",
       "status": "partial",
       "implemented": [
-        "Native Export attach failures now create a persistent panel warning with an explicit alternative export route."
+        "Native Export attach failures now create a persistent panel warning with an explicit alternative export route.",
+        "The licensed-host fixture removed each native callback in turn. It verified both delegate lists after first and second binding failures and confirmed an existing Export window stays registered."
       ],
       "evidence_paths": [
         "NativePanel/StartupHook.cs",
-        "NativePanel/SpektraFilmTool.cs"
+        "NativePanel/SpektraFilmTool.cs",
+        "qa/HostSmoke/StartupHook.cs",
+        ".test-results/host-export-20261119-pass/host-smoke.log"
       ],
       "remaining_work": [
-        "Add missing-binding/rollback fault injection and typed capability transitions; successful binding in disposable host does not prove failure handling."
+        "Verify persistent warning and independently available direct export after an injected startup attach failure. Typed capability transitions remain open."
       ],
       "original_acceptance_tests": [
         "Missing first/second binding produces unavailable status and original delegates restored.",
@@ -172,16 +214,19 @@
       "priority": "P1",
       "status": "implemented",
       "implemented": [
-        "Accepted image exports own cancellation independently of SetEnabled/selection; explicit cancel and document disposal cancel the job."
+        "Accepted image exports own cancellation independently of SetEnabled/selection; explicit cancel and document disposal cancel the job.",
+        "Reserve export before choosing the destination. Disposable host confirmed a recipe-sized output survives a simulated enable transition in the picker. Explicit cancel preserved the original output bytes."
       ],
       "evidence_paths": [
         "NativePanel/ExportOperation.cs",
         "NativePanel/SpatialPreview.cs",
         "tests/ViewerContracts/Program.cs",
-        ".test-results/host-final/host-smoke.log"
+        ".test-results/host-final/host-smoke.log",
+        "qa/HostSmoke/StartupHook.cs",
+        ".test-results/host-export-20261119-pass/host-smoke.log"
       ],
       "remaining_work": [
-        "Add a real-host A-export/select-disabled-B race and close-during-export test; unit evidence covers token ownership and source review confirms captured settings."
+        "Exercise actual navigation to a second variant and active-document closure during export. The fixture changes the panel enable state with a deterministic destination callback."
       ],
       "original_acceptance_tests": [
         "Selecting disabled B during A export does not cancel or change A output.",
@@ -1119,15 +1164,18 @@
       "priority": "P1",
       "status": "implemented",
       "implemented": [
-        "Captured single-image export owns independent lifetime, settings and target identity; selection/master changes do not cancel it."
+        "Captured single-image export owns independent lifetime, settings and target identity; selection/master changes do not cancel it.",
+        "Recipe export now reserves its captured job while the Save dialog is open. The host test verified rejection of a duplicate request, continued output after a simulated enable change and explicit cancellation."
       ],
       "evidence_paths": [
         "NativePanel/ExportOperation.cs",
         "NativePanel/SpatialPreview.cs",
-        "tests/ViewerContracts/Program.cs"
+        "tests/ViewerContracts/Program.cs",
+        "qa/HostSmoke/StartupHook.cs",
+        ".test-results/host-export-20261119-pass/host-smoke.log"
       ],
       "remaining_work": [
-        "Add host selection/disable race and native-adjustment-after-acceptance tests; persistent batch jobs are not implemented."
+        "Test actual host selection and native-adjustment-after-acceptance races plus active document closure. Persistent batch jobs remain a separate task."
       ],
       "original_acceptance_tests": [
         "Start a delayed export for A; select enabled B, disabled C, clear selection, float/dock panel, switch tab; accepted A completes unless explicit cancel policy applies.",
@@ -1923,7 +1971,7 @@
     "partial": 39,
     "pending": 24
   },
-  "last_reconciled": "2026-11-16",
+  "last_reconciled": "2026-11-19",
   "handover": "HANDOVER.md",
   "runtime_revision": "ffc481988eb2e6e7ef7a1379486c4a8b2656ac81",
   "status_policy": "Update completed substeps/evidence at each meaningful milestone. Broad tasks stay partial until remaining acceptance work is satisfied. Documentation HEAD can be newer than installed runtime.",

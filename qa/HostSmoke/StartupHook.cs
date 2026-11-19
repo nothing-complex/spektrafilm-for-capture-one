@@ -4,9 +4,11 @@ using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using Microsoft.Win32;
 using Forms = System.Windows.Forms;
 
 // A separate, opt-in test startup hook. Never distributed in the product package.
@@ -57,9 +59,12 @@ public static class StartupHook
             }
             timer!.Stop();
             var window = Field(hosted, "mainWindow")!;
-            Check(hook!.GetField("exportHook", Flags)!.GetValue(null) is not null, "native Export hook attached");
+            var hookField = hook!.GetField("exportHook", Flags)!;
+            var exportHook = hookField.GetValue(null);
+            Check(exportHook is not null, "native Export hook attached");
             var catalog = Environment.GetEnvironmentVariable("SPEKTRAFILM_CATALOG")!;
             Check(Path.GetFullPath(catalog).StartsWith(Path.GetFullPath(folder) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase), "catalog is disposable and contained in test folder");
+            TestExportBinding(hookField, exportHook!, window);
             // Isolate saved looks; this does not change any production storage configuration.
             var storeType = panelAssembly!.GetType("VariantLookStore")!;
             var store = Activator.CreateInstance(storeType, Flags, null, new object[] { Path.Combine(folder, "Variant looks"), catalog }, null)!;
@@ -136,6 +141,7 @@ public static class StartupHook
             Check(before.Equals(grain.GetMethod("Read",Flags)!.Invoke(null,new[] {window})),"native grain restored exact prior values");
             var recipe = host.GetMethod("ActiveRecipe", Flags)!.Invoke(null, new[] { window });
             File.AppendAllText(Path.Combine(folder,"host-smoke.log"), "RECIPE " + recipe + Environment.NewLine);
+            await TestRecipeExport(spatial, recipe!);
             toggle.IsChecked = false;
             Call(panel, "FlushLooks");
             Check(Prop(Call(store, "Read", variant)!, "Enabled") is false, "master switch persisted after all tests");
@@ -147,5 +153,112 @@ public static class StartupHook
             timer?.Stop();
             File.WriteAllText(Path.Combine(folder, "failed.txt"), error.ToString());
         }
+    }
+
+    static void TestExportBinding(FieldInfo hookField, object attached, object window)
+    {
+        var hookType = attached.GetType();
+        var normal = Field(attached, "normal")!;
+        var previous = Field(attached, "previous")!;
+        var normalCommand = Field(normal, "command")!;
+        var previousCommand = Field(previous, "command")!;
+        var callbacks = (FieldInfo)normal.GetType().GetField("Callbacks", Flags)!.GetValue(null)!;
+        var active = Field(attached, "isActive");
+        var export = Field(attached, "export");
+        object Bind() => Activator.CreateInstance(hookType, Flags, null, new[] { window, active, export }, null)!;
+
+        ((IDisposable)attached).Dispose();
+        var normalBefore = callbacks.GetValue(normalCommand);
+        var previousBefore = callbacks.GetValue(previousCommand);
+        try
+        {
+            foreach (var (command, description) in new[] { (normalCommand, "first"), (previousCommand, "second") })
+            {
+                var original = callbacks.GetValue(command);
+                callbacks.SetValue(command, null);
+                try
+                {
+                    using var unexpected = (IDisposable)Bind();
+                    throw new InvalidOperationException("Binding unexpectedly succeeded with a missing " + description + " callback.");
+                }
+                catch (TargetInvocationException error) when (error.InnerException is InvalidOperationException)
+                {
+                    Check(Equals(callbacks.GetValue(normalCommand), command == normalCommand ? null : normalBefore)
+                        && Equals(callbacks.GetValue(previousCommand), command == previousCommand ? null : previousBefore),
+                        "native delegate lists preserved after missing " + description + " Export binding");
+                }
+                finally { callbacks.SetValue(command, original); }
+            }
+        }
+        finally { hookField.SetValue(null, Bind()); }
+
+        var current = hookField.GetValue(null)!;
+        Window? owner = null;
+        try
+        {
+            Call(current, "PrepareDialog", false);
+            owner = (Window)Prop(current, "Dialog")!;
+            Check(ReferenceEquals(Prop(window, "ExportDialogWindow"), owner), "native Export confirmation bound and dialog published");
+        }
+        finally
+        {
+            try { Call(current, "ReleaseDialog"); }
+            finally { owner?.Close(); }
+        }
+        Check(Prop(window, "ExportDialogWindow") is null, "native Export dialog registration released");
+
+        Call(current, "PrepareDialog", false);
+        var other = (Window)Prop(current, "Dialog")!;
+        var slot = window.GetType().GetProperty("ExportDialogWindow", Flags)!;
+        try
+        {
+            Call(current, "ReleaseDialog");
+            slot.SetValue(window, other);
+            try
+            {
+                Call(current, "PrepareDialog", false);
+                throw new InvalidOperationException("Spektrafilm replaced an existing native Export window.");
+            }
+            catch (TargetInvocationException error) when (error.InnerException is InvalidOperationException)
+            {
+                Call(current, "ReleaseDialog");
+                Check(ReferenceEquals(slot.GetValue(window), other), "foreign native Export window remains registered after rejected open and cleanup");
+            }
+        }
+        finally
+        {
+            if (ReferenceEquals(slot.GetValue(window), other)) slot.SetValue(window, null);
+            other.Close();
+        }
+    }
+
+    static async Task TestRecipeExport(object spatial, object recipe)
+    {
+        var output = Path.Combine(folder, "recipe-export.tif");
+        Task<bool> Start(Func<SaveFileDialog, Window?, string?> choose) =>
+            (Task<bool>)Call(spatial, "ExportWithDestinationAsync", true, null, choose)!;
+        Call(spatial, "SetEnabled", true);
+        var result = await Start((_, _) =>
+        {
+            var duplicate = Start((_, _) => throw new InvalidOperationException("Opened a second save dialog."));
+            Check(duplicate.IsCompletedSuccessfully && !duplicate.Result, "duplicate Export blocked while choosing a destination");
+            Call(spatial, "SetEnabled", false);
+            return output;
+        });
+        Check(result && File.Exists(output), "recipe export completed after enable state changed during destination selection");
+        using (var data = File.OpenRead(output))
+        {
+            var frame = BitmapDecoder.Create(data, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad).Frames[0];
+            Check(frame.Format == PixelFormats.Rgb48, "recipe export saved RGB48 TIFF");
+            Check(frame.PixelWidth == (int)Prop(recipe, "Width")! && frame.PixelHeight == (int)Prop(recipe, "Height")!,
+                "recipe export obeyed Capture One output dimensions");
+        }
+        var original = File.ReadAllBytes(output);
+        Call(spatial, "SetEnabled", true);
+        var canceled = Start((_, _) => output);
+        Call(Field(spatial, "exportWork")!, "Cancel");
+        Check(!await canceled && File.ReadAllBytes(output).AsSpan().SequenceEqual(original),
+            "explicit cancellation preserved the previous recipe export");
+        Call(spatial, "SetEnabled", false);
     }
 }

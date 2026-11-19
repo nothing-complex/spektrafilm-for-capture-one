@@ -142,7 +142,7 @@ internal sealed class ExportHook : IDisposable
                 Warn("Select one variant to export with Spektrafilm.");
                 return;
             }
-            if (!busy && CheckRecipe())
+            if (!busy && dialog is null && CheckRecipe())
                 _ = ExportAsync();
         }
         catch (Exception error)
@@ -167,6 +167,8 @@ internal sealed class ExportHook : IDisposable
 
     private ExportDialogFactory PrepareDialog(bool editMultiple)
     {
+        if (exportWindow.GetValue(window) is not null)
+            throw new InvalidOperationException("Close Capture One’s other Export window before exporting with Spektrafilm.");
         var factory = new ExportDialogFactory(document, MessageBusProvider.DefaultInstance, editMultiple);
         try
         {
@@ -179,19 +181,24 @@ internal sealed class ExportHook : IDisposable
         }
         catch
         {
-            ReleaseDialog();
-            factory.ExportDialogWindow.Close();
+            try { ReleaseDialog(); }
+            finally { factory.ExportDialogWindow.Close(); }
             throw;
         }
     }
 
     private void ReleaseDialog()
     {
-        confirmation?.Dispose();
+        var binding = confirmation;
+        var owner = dialog;
         confirmation = null;
         dialog = null;
-        if (!window.IsDisposed)
-            exportWindow.SetValue(window, null);
+        try { binding?.Dispose(); }
+        finally
+        {
+            if (owner is not null && !window.IsDisposed && ReferenceEquals(exportWindow.GetValue(window), owner))
+                exportWindow.SetValue(window, null);
+        }
     }
 
     private async Task<bool> ExportAsync()
@@ -213,7 +220,10 @@ internal sealed class ExportHook : IDisposable
         }
         catch (Exception error)
         {
-            Fail(error);
+            if (disposed)
+                StartupHook.Log(error.ToString());
+            else
+                Fail(error);
             return false;
         }
         finally
@@ -244,14 +254,13 @@ internal sealed class ExportHook : IDisposable
         disposed = true;
         try
         {
-            if (dialog is { } owner)
-                owner.Close();
-            ReleaseDialog();
+            try { dialog?.Close(); }
+            finally { ReleaseDialog(); }
         }
         finally
         {
-            previous.Dispose();
-            normal.Dispose();
+            try { previous.Dispose(); }
+            finally { normal.Dispose(); }
         }
     }
 
