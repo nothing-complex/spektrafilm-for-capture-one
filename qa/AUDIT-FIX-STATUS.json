@@ -831,7 +831,8 @@
       "implemented": [
         "Tracked host compatibility manifest is shared by launch and build verification and embedded in the panel. Profiles bind version, executable architecture, exact assembly hash and declared capabilities.",
         "Headless tests refuse unknown version, altered hash, different architecture, malformed manifest and duplicate profiles. Compare packaged host-dependency hashes against the exact installed components on launch.",
-        "The exact licensed host loaded and passed the current smoke matrix. Launch CheckOnly verified the installed x64 executable and rendered through the new Vulkan worker."
+        "The exact licensed host loaded and passed the current smoke matrix. Launch CheckOnly verified the installed x64 executable and rendered through the new Vulkan worker.",
+        "The launcher reads observed live panel, Export and Viewer status independently; diagnostics were exercised on the licensed supported host, including actual Viewer worker termination and an ordinary launch without injection."
       ],
       "evidence_paths": [
         "capture-one-hosts.json",
@@ -839,10 +840,12 @@
         "ReleaseManifest.ps1",
         ".test-results/host-manifest-gate-20261119/host-smoke.log",
         ".test-results/contracts-host-manifest-20261119/summary.json",
-        ".test-results/host-compatibility-check-20261119/check-only.log"
+        ".test-results/host-compatibility-check-20261119/check-only.log",
+        "NativePanel/LaunchHealth.cs",
+        ".test-results/host-launch-full-handshake-20261119/host-smoke.log"
       ],
       "remaining_work": [
-        "Turn declared capability names into observed live lifecycle diagnostics and collect independent evidence for every surface.",
+        "Extend observed capability diagnostics and independent verification to each supported version, native history, floating and catalog teardown.",
         "Test the exact 16.7 adapter against an installed licensed build, including host version and assembly fingerprints, high-depth develop, native Export, undo, floating and teardown."
       ],
       "original_acceptance_tests": [
@@ -1946,18 +1949,27 @@
       "id": "RQ-07",
       "title": "Confirm a usable integration after launch with capability diagnostics",
       "priority": "P2",
-      "status": "partial",
+      "status": "implemented",
       "implemented": [
-        "Launcher CheckOnly/runtime manifest verification and explicit export-bridge warning improve launch diagnostics."
+        "Launcher CheckOnly/runtime manifest verification and explicit export-bridge warning improve launch diagnostics.",
+        "Every launcher session now has an atomic status record tied to its random session ID, Capture One PID and exact active host version. The optional bounded wait reads only that process and session and distinguishes absent startup, delayed catalog, unsupported host, inaccessible catalog and hook failure.",
+        "Tool readiness, native Export binding and Viewer health update separately. The disposable host reported a disabled Viewer, a missing renderer, abrupt termination of its actual in-flight Vulkan worker, and unavailable native Export for each malformed binding.",
+        "The production readiness reader observed two genuine startup sessions (120 first-launch and 123 restart assertions). The corresponding ordinary Capture One launch opened the same disposable catalog without any Spektrafilm startup report. The original database hash stayed unchanged.",
+        "Launcher contracts cover missing reports, wrong-session and wrong-PID reports, slow and rejected startup, bad format and excessive size. The public contract runner passed all eight suites (12,341 assertions)."
       ],
       "evidence_paths": [
         "Start-Spektrafilm.ps1",
         "NativePanel/StartupHook.cs",
-        "qa/HostSmoke"
+        "qa/HostSmoke",
+        "NativePanel/LaunchHealth.cs",
+        "tests/installer/Test-LaunchStatus.ps1",
+        ".test-results/host-launch-full-handshake-20261119/host-smoke.log",
+        ".test-results/host-launch-full-handshake-20261119/first.ready.json",
+        ".test-results/host-launch-full-handshake-20261119/restart.ready.json",
+        ".test-results/host-launch-full-handshake-20261119/ordinary.passed",
+        ".test-results/contracts-launch-readiness-20261119/summary.json"
       ],
-      "remaining_work": [
-        "Production launcher does not wait for a typed end-to-end ready signal or expose full capability health. Opt-in disposable-host first/restart tests passed; this is not a universal launch-readiness handshake."
-      ],
+      "remaining_work": [],
       "original_acceptance_tests": [
         "Missing hook, slow catalog, unsupported host, renderer crash and missing Export binding produce distinct accurate states.",
         "Ordinary native C1 launch does not report the tool as installed into plugin manager.",
@@ -2580,8 +2592,8 @@
   ],
   "counts": {
     "total": 70,
-    "implemented": 13,
-    "partial": 40,
+    "implemented": 14,
+    "partial": 39,
     "pending": 17
   },
   "last_reconciled": "2026-11-19",

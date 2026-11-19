@@ -82,6 +82,7 @@ public static class StartupHook
             var spatial = Field(panel, "opticalPreview")!;
             var exposure = Field(panel, "exposure")!;
             var toggle = (CheckBox)Field(panel, "enableSpektraFilm")!;
+            await TestLaunchHealth(hosted, spatial, toggle);
             var restart = File.Exists(Path.Combine(folder, "restart.expected"));
             if (restart)
             {
@@ -167,6 +168,79 @@ public static class StartupHook
         {
             timer?.Stop();
             File.WriteAllText(Path.Combine(folder, "failed.txt"), error.ToString());
+        }
+    }
+
+    static JsonElement ReadLaunchHealth()
+    {
+        var session = Environment.GetEnvironmentVariable("SPEKTRAFILM_LAUNCH_ID")!;
+        var path = Path.Combine(folder, "Launch status", session + ".json");
+        using var document = JsonDocument.Parse(File.ReadAllBytes(path));
+        return document.RootElement.Clone();
+    }
+
+    static async Task TestLaunchHealth(object hosted, object spatial, CheckBox toggle)
+    {
+        Call(hosted, "ReportLaunchHealth");
+        var report = ReadLaunchHealth();
+        Check(report.GetProperty("SessionId").GetString() == Environment.GetEnvironmentVariable("SPEKTRAFILM_LAUNCH_ID")
+            && report.GetProperty("ProcessId").GetInt32() == Environment.ProcessId
+            && report.GetProperty("HostVersion").GetString() == "16.4.6.2414", "startup report is bound to this exact process and session");
+        Check(report.GetProperty("Phase").GetString() == "Ready" && report.GetProperty("Export").GetString() == "Connected",
+            "actual host panel readiness and native Export binding are visible");
+
+        // Disable the live Viewer before swapping the fixture resource root. The
+        // regular installation is outside this path and no file is replaced.
+        Call(spatial, "SetEnabled", false);
+        Call(hosted, "ReportLaunchHealth");
+        Check(ReadLaunchHealth().GetProperty("Viewer").GetString() == "Disabled",
+            "disabled Viewer still reports a ready native tool");
+        var originalEnabled = toggle.IsChecked;
+        var existing = Environment.GetEnvironmentVariable("SPEKTRAFILM_ROOT")!;
+        Environment.SetEnvironmentVariable("SPEKTRAFILM_ROOT", Path.Combine(folder, "unavailable-runtime"));
+        try
+        {
+            toggle.IsChecked = true;
+            Call(spatial, "SetEnabled", true);
+            var until = DateTime.UtcNow.AddSeconds(15);
+            while (Prop(spatial, "Health")!.ToString() != "ProcessingError" && DateTime.UtcNow < until)
+                await Task.Delay(100);
+            Call(hosted, "ReportLaunchHealth");
+            report = ReadLaunchHealth();
+            Check(report.GetProperty("Phase").GetString() == "Ready" && report.GetProperty("Viewer").GetString() == "ProcessingError",
+                "real renderer failure appears separately from the available tool");
+
+            Call(spatial, "SetEnabled", false);
+            Environment.SetEnvironmentVariable("SPEKTRAFILM_ROOT", existing);
+            Call(spatial, "SetEnabled", true);
+            until = DateTime.UtcNow.AddSeconds(20);
+            Process? worker = null;
+            while (worker is null && DateTime.UtcNow < until)
+            {
+                if (Field(spatial, "renderingFinal") is true && Field(spatial, "renderer") is { } candidate)
+                    worker = Field(candidate, "process") as Process;
+                if (worker is null) await Task.Delay(10);
+            }
+            if (worker is null || worker.HasExited || !string.Equals(worker.MainModule?.FileName,
+                Path.Combine(existing, "renderer", "SpektraStillRenderer.exe"), StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Could not identify the current disposable Viewer worker.");
+            worker.Kill();
+
+            until = DateTime.UtcNow.AddSeconds(15);
+            while (Prop(spatial, "Health")!.ToString() != "ProcessingError" && DateTime.UtcNow < until)
+                await Task.Delay(100);
+            Call(hosted, "ReportLaunchHealth");
+            report = ReadLaunchHealth();
+            Check(report.GetProperty("Phase").GetString() == "Ready" && report.GetProperty("Export").GetString() == "Connected"
+                && report.GetProperty("Viewer").GetString() == "ProcessingError",
+                "terminating the actual in-flight Viewer process reports a rendering failure without losing Export or panel readiness");
+        }
+        finally
+        {
+            Call(spatial, "SetEnabled", false);
+            Environment.SetEnvironmentVariable("SPEKTRAFILM_ROOT", existing);
+            toggle.IsChecked = originalEnabled;
+            Call(spatial, "SetEnabled", originalEnabled == true);
         }
     }
 
@@ -667,6 +741,9 @@ public static class StartupHook
                     Check(hookField.GetValue(null) is null && warning.Visibility == Visibility.Visible
                         && Prop(panel, "ExportBridgeStatus")!.ToString() == "Unavailable",
                         "missing " + description + " callback reaches the persistent startup warning");
+                    Call(hosted, "ReportLaunchHealth");
+                    Check(ReadLaunchHealth().GetProperty("Export").GetString() == "Unavailable",
+                        "missing " + description + " callback also reaches the typed launch report");
                     Check(Equals(callbacks.GetValue(normalCommand), command == normalCommand ? null : normalBefore)
                         && Equals(callbacks.GetValue(previousCommand), command == previousCommand ? null : previousBefore),
                         "native delegate lists preserved after missing " + description + " Export binding");

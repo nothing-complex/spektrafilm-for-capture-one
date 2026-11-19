@@ -32,6 +32,8 @@ Updates also preserve custom files inside bundled folders. If a new package conf
 - In the color controls, pick the input working space Capture One develops into. Use sRGB to start, or choose Linear Rec.2020, ProPhoto RGB or Adobe RGB (1998). The renderer accepts that encoding and can display sRGB, Rec.709 gamma 2.4, or Linear Rec.709 in the Viewer. File exports are tagged sRGB. Capture One handles RAW development, camera profiles and its own adjustments.
 - Use **Save preset** and **Load preset** in **Presets and LUT export** to retain the film look, optics, enable switch and staged grain values. Loading a preset leaves the actual Capture One Grain adjustment untouched.
 
+Each Spektrafilm launch writes a status file under `%LOCALAPPDATA%/FilmToolsForCaptureOne/Launch status`. It records whether the panel is ready, whether native Export connected, and whether the Viewer is disabled, waiting, rendering, showing an image or reporting a processing error. For diagnosis from PowerShell, run `Start-Spektrafilm.ps1 -CatalogPath <database> -WaitForPanel`. A slow startup remains open if the readiness wait expires.
+
 ## Saved looks
 
 Spektrafilm automatically saves every change to the selected Capture One variant, including the enable switch, stocks and sliders. Preview resolution, comparison and panel layout are separate from the look. Each change is committed immediately, so Capture One can reopen the last complete save after a crash. Choose the same catalog through the desktop shortcut to restore its saved looks.

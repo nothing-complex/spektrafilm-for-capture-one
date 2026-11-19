@@ -27,6 +27,7 @@ internal sealed class ViewerPreview : IDisposable
 
     internal ViewerPreview(object window) => this.window = window;
     internal string? UnavailableReason { get; private set; }
+    internal bool HasPainted => UnavailableReason is null && attachment is { HasDrawn: true };
     internal event Action? StatusChanged;
 
     internal bool Show(Guid variantId, BitmapSource bitmap)

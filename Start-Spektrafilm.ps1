@@ -3,6 +3,8 @@ param(
     [string] $CatalogPath,
     [string] $CaptureOnePath,
     [switch] $CheckOnly,
+    [switch] $WaitForPanel,
+    [ValidateRange(1, 180)][int] $PanelTimeoutSeconds = 45,
     [switch] $Shortcut
 )
 
@@ -49,6 +51,42 @@ function Select-ExistingFile([string] $title, [string] $filter) {
     } finally {
         $dialog.Dispose()
     }
+}
+
+function Read-SpektrafilmLaunchStatus([string] $Path, [string] $SessionId, [int] $ProcessId) {
+    try {
+        if (!(Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
+        if ((Get-Item -LiteralPath $Path).Length -gt 16KB) { return $null }
+        $state = [IO.File]::ReadAllText($Path) | ConvertFrom-Json
+        if ($state.SchemaVersion -ne 1 -or $state.SessionId -cne $SessionId -or $state.ProcessId -ne $ProcessId -or
+            $state.Phase -cnotin @('Starting','UnsupportedHost','CatalogUnavailable','WaitingForCatalog','WaitingForPalette','LoadingControls','Ready','Closed','Failed') -or
+            $state.Export -cnotin @('Checking','Connected','Unavailable','Detached') -or
+            $state.Viewer -cnotin @('Unchecked','Disabled','WaitingForImage','Rendering','Visible','ProcessingError')) {
+            return $null
+        }
+        return $state
+    } catch { return $null }
+}
+
+function Wait-SpektrafilmPanel([Diagnostics.Process] $Process, [string] $Path, [string] $SessionId, [int] $Seconds) {
+    $elapsed = [Diagnostics.Stopwatch]::StartNew()
+    $state = $null
+    while ($elapsed.Elapsed.TotalSeconds -lt $Seconds) {
+        $Process.Refresh()
+        if ($Process.HasExited) { throw "Capture One exited before the panel became ready (exit $($Process.ExitCode))." }
+        $current = Read-SpektrafilmLaunchStatus $Path $SessionId $Process.Id
+        if ($current) { $state = $current }
+        if ($state.Phase -eq 'Ready') { return $state }
+        switch ($state.Phase) {
+            'UnsupportedHost' { throw 'The startup hook rejected this Capture One build.' }
+            'CatalogUnavailable' { throw 'The startup hook could not access the selected catalog.' }
+            'Closed' { throw 'Capture One closed before the panel became ready.' }
+            'Failed' { throw 'The startup hook encountered an error. See panel.log beside the launch status folder.' }
+        }
+        Start-Sleep -Milliseconds 200
+    }
+    if (!$state) { throw "Capture One started but did not report the Spektrafilm startup hook within $Seconds seconds." }
+    throw "Capture One is still starting Spektrafilm ($($state.Phase)). See the launch status file for updates."
 }
 
 function Confirm-RequiredFile([string] $path) {
@@ -334,11 +372,20 @@ try {
     $start.EnvironmentVariables['SPEKTRAFILM_ROOT'] = $PSScriptRoot
     $start.EnvironmentVariables['SPEKTRAFILM_CATALOG'] = $database
     $start.EnvironmentVariables['SPEKTRAFILM_PANEL_LOG'] = Join-Path $userData 'panel.log'
+    $launchId = [Guid]::NewGuid().ToString('N')
+    $launchStatus = Join-Path (Join-Path $userData 'Launch status') ($launchId + '.json')
+    $start.EnvironmentVariables['SPEKTRAFILM_LAUNCH_ID'] = $launchId
     if ($python) { $start.EnvironmentVariables['SPEKTRAFILM_PYTHON'] = $python }
     else { [void] $start.EnvironmentVariables.Remove('SPEKTRAFILM_PYTHON') }
     $process = [Diagnostics.Process]::Start($start)
-    try { Write-Output "Started Capture One ($($process.Id)). Catalog backup: $backup" }
-    finally { $process.Dispose() }
+    try {
+        Write-Output "Started Capture One ($($process.Id)). Catalog backup: $backup"
+        Write-Output "Launch status file: $launchStatus"
+        if ($WaitForPanel) {
+            $status = Wait-SpektrafilmPanel $process $launchStatus $launchId $PanelTimeoutSeconds
+            Write-Output "Spektrafilm panel ready. Native Export: $($status.Export). Viewer: $($status.Viewer)."
+        }
+    } finally { $process.Dispose() }
 } catch {
     $message = $_.Exception.Message
     [Console]::Error.WriteLine("${appName}: $message")

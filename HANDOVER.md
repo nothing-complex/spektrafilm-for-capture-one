@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-19. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 13 bounded primary fixes implemented, 40 partial items and 17 pending items. It includes feasibility investigations and enhancements.
+Updated 2026-11-19. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 14 bounded primary fixes implemented, 39 partial items and 17 pending items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -299,6 +299,14 @@ For installed verification, run the script in a **fresh** Windows PowerShell pro
 The opt-in `qa/HostSmoke/Run-HostSmoke.ps1` launches and deliberately terminates its own Capture One processes; it is **not** a read-only test. It requires no existing Capture One process, a closed source test catalog without transaction sidecars, a new results directory and a built test hook. It copies the database, isolates look storage, tests native grain only in the disposable catalog, and keeps source originals protected. Use a known test catalog, not a user's production database. It backs up and removes only crash markers generated during its own phases; it refuses pre-existing markers. Do not broaden that cleanup or clear user crash state to force a pass.
 
 Earlier hidden launches stalled, and an immediate deliberate-crash restart stopped in Capture One's own crash detection before the UI loop. The final harness uses a normal interactive window, a delay, a per-run test-hook copy and bounded cleanup of its own markers. Evidence from `host-integration-1` through `-4` contains abandoned attempts; `host-final` is the successful run. Do not count those earlier attempts as passing or change the product compatibility gate to work around test startup.
+
+## Launch readiness checkpoint
+
+- [x] Give every launch a unique status file tied to the Capture One PID and exact host build. The optional launcher wait distinguishes missing startup from slow or rejected startup. Panel readiness, Viewer health and native Export availability have separate states.
+- [x] The production launcher reader consumed readiness from a first launch and restart. The two runs passed 120 and 123 live assertions, including an abrupt kill of the real Viewer worker inside the disposable runtime and failure of both native Export callbacks. A normal launch then opened the same disposable test catalog without a Spektrafilm report. The source catalog hash remained unchanged.
+- [x] Pass 12,341 public assertions, including 11 launch reader contracts for wrong session/PID, delayed startup and invalid reports.
+
+Evidence is under `.test-results/host-launch-full-handshake-20261119` and `.test-results/contracts-launch-readiness-20261119`. Use `Run-HostSmoke.ps1 -CheckOrdinaryLaunch` to repeat the ordinary-launch observation. The previously verified development ZIP and regular installation predate this change.
 
 ## Status maintenance
 

@@ -34,21 +34,29 @@ internal static class StartupHook
         try
         {
             if (Environment.ProcessPath is not { } exe
-                || !string.Equals(Path.GetFileName(exe), "CaptureOne.exe", StringComparison.OrdinalIgnoreCase)
-                || !ApprovedCatalog.HasSelection)
+                || !string.Equals(Path.GetFileName(exe), "CaptureOne.exe", StringComparison.OrdinalIgnoreCase))
                 return;
+            LaunchHealth.Report(LaunchPhase.Starting);
+            if (!ApprovedCatalog.HasSelection)
+            {
+                LaunchHealth.Report(LaunchPhase.CatalogUnavailable);
+                return;
+            }
 
             var hostPath = Path.Combine(Path.GetDirectoryName(exe)!, "CaptureOne.dll");
             using var host = File.OpenRead(hostPath);
             var version = FileVersionInfo.GetVersionInfo(exe).FileVersion;
+            LaunchHealth.SetHostVersion(version);
             var architecture = RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant();
             var verified = HostCompatibility.Match(version, architecture, Convert.ToHexString(SHA256.HashData(host)));
             if (verified is null)
             {
+                LaunchHealth.Report(LaunchPhase.UnsupportedHost);
                 Log($"{ProductName} supports verified Windows Capture One builds {HostCompatibility.SupportedVersions}. Rejected {version} ({architecture}).");
                 return;
             }
 
+            LaunchHealth.Report(LaunchPhase.WaitingForCatalog);
             Log($"{ProductName} startup hook loaded for Capture One {verified.FileVersion} ({verified.Architecture}).");
             // Wait for Capture One's own WinForms message loop before accessing its WPF palette.
             Forms.Application.Idle += OnApplicationIdle;
@@ -56,6 +64,7 @@ internal static class StartupHook
         }
         catch (Exception error)
         {
+            LaunchHealth.Report(LaunchPhase.Failed);
             Log(error.ToString());
         }
     }
@@ -73,6 +82,7 @@ internal static class StartupHook
         }
         try { Detach(); }
         catch (Exception error) { Log(error.ToString()); }
+        finally { LaunchHealth.Report(LaunchPhase.Closed, ExportBridgeState.Detached); }
     }
 
     private static void OnApplicationIdle(object? sender, EventArgs args)
@@ -92,6 +102,7 @@ internal static class StartupHook
         }
         catch (Exception error)
         {
+            LaunchHealth.Report(LaunchPhase.Failed);
             LogState(error.ToString());
         }
     }
@@ -106,6 +117,7 @@ internal static class StartupHook
             {
                 if (window is { IsDisposed: true })
                     Detach();
+                LaunchHealth.Report(LaunchPhase.WaitingForCatalog, ExportBridgeState.Detached);
                 LogState(hostedTool is null ? "Waiting for the selected catalog." : "Live Viewer paused until the selected catalog is active.");
                 return;
             }
@@ -114,6 +126,7 @@ internal static class StartupHook
             var palette = HostDocumentAccess.Palette(form);
             if (document is null || form is not { IsHandleCreated: true, IsDisposed: false } || palette is null)
             {
+                LaunchHealth.Report(LaunchPhase.WaitingForPalette);
                 LogState("Waiting for the selected catalog’s tool palette.");
                 return;
             }
@@ -122,14 +135,17 @@ internal static class StartupHook
                 && hostedTool is { } existing && tab.AllTools.Contains(existing.Tool))
             {
                 existing.CheckSelectionAndSave();
+                existing.ReportLaunchHealth();
                 return;
             }
 
             Detach();
             Attach(form, palette, document);
+            hostedTool?.ReportLaunchHealth();
         }
         catch (Exception error)
         {
+            LaunchHealth.Report(LaunchPhase.Failed);
             LogState(error.ToString());
         }
     }
@@ -261,6 +277,7 @@ internal static class StartupHook
         if (originalWindow is not null)
             originalWindow.FormClosing -= OnFormClosing;
         oldTool?.SetExportBridgeStatus(ExportBridgeState.Detached);
+        LaunchHealth.Report(LaunchPhase.WaitingForPalette, ExportBridgeState.Detached);
         try { oldExport?.Dispose(); }
         finally
         {

@@ -94,6 +94,8 @@ internal static class SpektraFilmTool
             panel.SyncSelection();
             panel.RetryPendingLookWrites();
         }
+        internal void ReportLaunchHealth() => LaunchHealth.Report(
+            panel.StocksReady ? LaunchPhase.Ready : LaunchPhase.LoadingControls, panel.ExportBridgeStatus, panel.ViewerStatus);
         internal Task<bool> ExportAsync(Window? owner) => panel.ExportAsync(useRecipeSize: true, owner);
         internal void SetExportBridgeStatus(ExportBridgeState state, string? detail = null) => panel.SetExportBridgeStatus(state, detail);
         internal InspectorToolHeaderViewModel CreateDockedHeader(ILifeCycleRegistrationService registration) =>
@@ -601,6 +603,7 @@ internal static class SpektraFilmTool
         internal Task<bool> ExportAsync(bool useRecipeSize, Window? owner = null) =>
             IsSpektraExportActive ? opticalPreview.ExportAsync(useRecipeSize, owner) : Task.FromResult(false);
         internal bool StocksReady => !disposed && options is not null;
+        internal ViewerHealth ViewerStatus => opticalPreview.Health;
 
         private async Task SavePresetAsync()
         {
