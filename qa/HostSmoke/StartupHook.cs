@@ -510,6 +510,124 @@ public static class StartupHook
             "one Redo restores the complete imported preset state");
         revert.Invoke(undo, new object[] { false });
         Check(SameLook(Saved()) && originalGrain.Equals(NativeGrain()), "preset fixture restored saved look and native grain exactly");
+
+        var sections = assembly.GetType("LookSections")!;
+        Check(Call(panel, "ApplyPresetSections", variant, disk, Enum.Parse(sections, "Film"), "Spektrafilm preset sections") is true,
+            "the host applied just the selected film and print section");
+        var filmOnly = JsonSerializer.SerializeToNode(Saved(), baseline.GetType())!;
+        var baselineNode = JsonSerializer.SerializeToNode(baseline, baseline.GetType())!;
+        Check(filmOnly["Look"]!["Exposure"]!.GetValue<double>() == 2.4 && toggle.IsChecked == true
+            && JsonNode.DeepEquals(filmOnly["Optics"], baselineNode["Optics"])
+            && JsonNode.DeepEquals(filmOnly["Grain"], baselineNode["Grain"]), "unchecked sections survive selective preset application");
+        revert.Invoke(undo, new object[] { false });
+        Check(SameLook(Saved()), "one native Undo restores the selective preset change");
+
+        var spatial = Field(panel, "opticalPreview")!;
+        var options = Field(panel, "options")!;
+        var modes = ((IEnumerable)Prop(options, "Modes")!).Cast<object>();
+        foreach (var mode in modes)
+        {
+            var modeName = (string)Prop(mode, "Id")!;
+            foreach (var boundary in new[] { "Minimum", "Maximum" })
+            {
+                var exhaustive = json.DeepClone().AsObject();
+                exhaustive["Look"]!["Mode"] = modeName;
+                exhaustive["Look"]!["Exposure"] = (double)Prop(exposure, boundary)!;
+                exhaustive["Look"]!["PrintExposure"] = (double)Prop(Field(panel, "printExposure")!, boundary)!;
+                exhaustive["Look"]!["Strength"] = (double)Prop(Field(panel, "strength")!, boundary)! / 100;
+                var development = exhaustive["Look"]!["Development"]!.AsObject();
+                foreach (DictionaryEntry entry in (IDictionary)Field(panel, "development")!)
+                    development[(string)entry.Key] = (double)Prop(Field(entry.Value!, "Item1")!, boundary)!;
+                var numbers = exhaustive["Optics"]!["Numbers"]!.AsObject();
+                foreach (DictionaryEntry entry in (IDictionary)Field(spatial, "values")!)
+                    numbers[(string)entry.Key] = (double)Prop(entry.Value!, boundary)!;
+                var switches = exhaustive["Optics"]!["Switches"]!.AsObject();
+                foreach (var key in switches.Select(entry => entry.Key).ToArray())
+                    switches[key] = boundary == "Maximum";
+                exhaustive["Look"]!["ScanInvert"] = boundary == "Maximum";
+                var loaded = JsonSerializer.Deserialize(exhaustive.ToJsonString(), presetType)!;
+                Check(Call(panel, "ApplyPreset", variant, loaded) is true, $"{modeName} absorbs all {boundary.ToLowerInvariant()} preset values");
+                var captured = JsonSerializer.SerializeToNode(Saved(), baseline.GetType())!;
+                Check(JsonNode.DeepEquals(captured["Look"], exhaustive["Look"])
+                    && JsonNode.DeepEquals(captured["Optics"], exhaustive["Optics"])
+                    && JsonNode.DeepEquals(captured["Grain"], exhaustive["Grain"])
+                    && JsonNode.DeepEquals(captured["Enabled"], exhaustive["Enabled"]),
+                    $"{modeName} preserves every serialized control at the {boundary.ToLowerInvariant()} boundary");
+                revert.Invoke(undo, new object[] { false });
+            }
+        }
+        Check(SameLook(Saved()) && originalGrain.Equals(NativeGrain()), "every-mode preset probes restore the original state and native grain");
+
+        var fileControls = (DependencyObject)Field(panel, "fileControls")!;
+        var controls = Descendants(fileControls).OfType<ContentControl>().ToArray();
+        T Control<T>(string label) where T : ContentControl => controls.OfType<T>().Single(control => Equals(control.Content, label));
+        var copy = Control<Button>("Copy selected settings");
+        var apply = Control<Button>("Apply copied settings");
+        var film = Control<CheckBox>("Film and print");
+        var optics = Control<CheckBox>("Optics and colour spaces");
+        var grain = Control<CheckBox>("Staged Capture One grain");
+        var master = Control<CheckBox>("Master switch");
+        film.IsChecked = optics.IsChecked = grain.IsChecked = master.IsChecked = false;
+        Check(!copy.IsEnabled && !apply.IsEnabled, "selective controls require a section before copying or applying");
+        film.IsChecked = true;
+        copy.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, copy));
+        Check(apply.IsEnabled, "copying a section makes it available to apply");
+        film.IsChecked = false;
+        optics.IsChecked = true;
+        Check(!apply.IsEnabled, "a section omitted during Copy cannot be applied later");
+        film.IsChecked = true;
+
+        var document = Field(panel, "document")!;
+        var core = AppDomain.CurrentDomain.GetAssemblies().Single(item => item.GetName().Name == "P1.C1.Core");
+        var provider = core.GetType("P1.C1.Core.Interfaces.ISelectedCollectionsProvider", true)!;
+        var collection = provider.GetProperty("PrimarySelectedCollection")!.GetValue(document)!;
+        var all = ((IEnumerable)core.GetType("P1.C1.Core.ModelEntities.ISimpleCollection", true)!
+            .GetMethod("GetAllFilteredAndVisibleVariants")!.Invoke(collection, null)!).Cast<object>().ToArray();
+        var uuid = core.GetType("P1.C1.Core.ICoreVariant", true)!.GetProperty("UUID")!;
+        var source = all.Single(item => Equals(uuid.GetValue(item), variant));
+        var destination = all.First(item => !Equals(uuid.GetValue(item), variant));
+        var destinationId = (Guid)uuid.GetValue(destination)!;
+        var selection = provider.GetProperty("PrimarySelectedCollectionSelection")!.GetValue(document)!;
+        var target = core.GetType("P1.C1.Core.Selection.ISelection", true)!.GetProperty("SelectedVariants")!.GetValue(selection)!;
+        var select = core.GetType("P1.C1.Core.Selection.IVariantSelection", true)!.GetMethod("SelectAndSetAsPrimary")!;
+        void Select(object item)
+        {
+            select.Invoke(target, new[] { item, (object)false });
+            Call(panel, "SyncSelection");
+        }
+
+        try
+        {
+            Select(destination);
+            exposure.GetType().GetProperty("Value", Flags)!.SetValue(exposure, -0.45);
+            toggle.IsChecked = false;
+            var previous = JsonSerializer.SerializeToNode(Call(panel, "CaptureLook")!, baseline.GetType())!;
+            var destinationGrain = NativeGrain();
+            apply.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, apply));
+            var next = JsonSerializer.SerializeToNode(Call(store, "Read", destinationId)!, baseline.GetType())!;
+            Check(JsonNode.DeepEquals(next["Look"], baselineNode["Look"]) && JsonNode.DeepEquals(next["Optics"], previous["Optics"])
+                && JsonNode.DeepEquals(next["Grain"], previous["Grain"]) && next["Enabled"]!.GetValue<bool>() == false,
+                "real Copy and Apply carry only the captured film settings to another native variant");
+            Check(SameLook(Saved()) && destinationGrain.Equals(NativeGrain()), "copy leaves the source and actual destination grain intact");
+            Check(contract.GetProperty("TryGetUndoActionName")!.GetValue(undo) is "Apply Spektrafilm settings",
+                "copy recorded one named native history action");
+            revert.Invoke(undo, new object[] { false });
+            var restored = JsonSerializer.SerializeToNode(Call(store, "Read", destinationId)!, baseline.GetType());
+            Check(JsonNode.DeepEquals(previous, restored), "one native Undo restores the destination after Copy and Apply");
+        }
+        finally
+        {
+            film.IsChecked = optics.IsChecked = grain.IsChecked = master.IsChecked = true;
+            Select(source);
+        }
+
+        static System.Collections.Generic.IEnumerable<DependencyObject> Descendants(DependencyObject node)
+        {
+            yield return node;
+            foreach (var child in LogicalTreeHelper.GetChildren(node).OfType<DependencyObject>())
+                foreach (var descendant in Descendants(child))
+                    yield return descendant;
+        }
     }
 
     static void TestNativeUndoCapability(object document)

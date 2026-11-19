@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-19. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 14 bounded primary fixes implemented, 39 partial items and 17 pending items. It includes feasibility investigations and enhancements.
+Updated 2026-11-19. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 15 bounded primary fixes implemented, 39 partial items and 16 pending items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -307,6 +307,16 @@ Earlier hidden launches stalled, and an immediate deliberate-crash restart stopp
 - [x] Pass 12,341 public assertions, including 11 launch reader contracts for wrong session/PID, delayed startup and invalid reports.
 
 Evidence is under `.test-results/host-launch-full-handshake-20261119` and `.test-results/contracts-launch-readiness-20261119`. Use `Run-HostSmoke.ps1 -CheckOrdinaryLaunch` to repeat the ordinary-launch observation. The previously verified development ZIP and regular installation predate this change.
+
+## Durable writes and selective presets checkpoint
+
+- [x] Prepare and hash each saved snapshot once. Keep the per-movement flush, external-change check before file replacement, and independent fallback. Separate processes were killed immediately before and after replacement and recovered the expected exact bytes.
+- [x] Compare two 10,000-edit runs per build across 64 synthetic variants. Preparation and flush measured 2.86–2.88 ms median before and 2.73–2.79 ms afterwards. Managed allocations fell by about 26%. They measure the save path without WPF dispatcher overhead. The process-kill tests did not emulate device power loss.
+- [x] Let users choose which film, optics, staged Grain and master settings to load or copy. In the licensed host, Copy and Apply across two variants preserved unchecked controls and actual Capture One Grain. One native Undo restored the destination. Print and Scan each round-tripped all saved sliders at both limits.
+- [x] Pass 12,364 public assertions and 139 first-launch plus 142 restart assertions on the copied catalog. Capture One did not change the source database hash.
+- [ ] Add opt-in multi-selection application, exact native clone lineage, and explicit per-image progress and partial completion handling. Per-movement writes still wait for successful disk publication or recovery.
+
+Evidence is under `.test-results/host-selective-presets-ranges-20261119`, `.test-results/contracts-selective-presets-20261119` and the four `.test-results/durable-*-20261119/measurement.json` files. To reproduce 10,000 measured edits, run `dotnet run --project tests/state/StateContracts.csproj -c Release -- --measure-durable-edits .test-results/<new-dir>`.
 
 ## Status maintenance
 

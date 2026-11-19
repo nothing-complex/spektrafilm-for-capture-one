@@ -35,6 +35,7 @@ internal static class PanelFiles
     internal static void WritePreset<T>(Stream stream, T preset) => stream.Write(EncodePreset(preset, WriteOptions));
 
     internal static void WriteCompactPreset<T>(string path, T preset) => WriteJson(path, preset, null);
+    internal static byte[] EncodeCompactPreset<T>(T preset) => EncodePreset(preset, null);
 
     private static void WriteJson<T>(string path, T preset, JsonSerializerOptions? options)
     {

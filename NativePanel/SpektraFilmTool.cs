@@ -587,8 +587,9 @@ internal static class SpektraFilmTool
             var section = new StackPanel();
             var presets = new WrapPanel { Margin = new Thickness(0, 5, 0, 3) };
             presets.Children.Add(Button("Save preset…", SavePresetAsync));
-            presets.Children.Add(Button("Load preset…", LoadPresetAsync));
+            presets.Children.Add(Button("Load preset…", () => LoadPresetAsync(LookSections.All)));
             section.Children.Add(presets);
+            section.Children.Add(MakePresetSections());
 
             exportButtons.Children.Add(Button("Export with Spektrafilm…", () => ExportAsync(useRecipeSize: false)));
             exportButtons.Children.Add(Button("Export 33-point LUT…", () => ExportLutAsync(33)));
@@ -597,6 +598,69 @@ internal static class SpektraFilmTool
             section.Children.Add(new TextBlock { Text = "Image export saves 16-bit sRGB TIFF or PNG. With Capture One Export, the recipe supplies size, crop and resolution. Use the save dialog to name the file. Permitted credits, title, capture date, rating and all-keyword selections carry over. Recipe profiles, GPS and watermarks are omitted.",
                 TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 5, 0, 0) });
             return Section("presets-and-lut", "Presets and LUT export", section);
+        }
+
+        private FrameworkElement MakePresetSections()
+        {
+            var controls = new StackPanel();
+            var film = AddChoice("Film and print");
+            var optics = AddChoice("Optics and colour spaces");
+            var grain = AddChoice("Staged Capture One grain");
+            var enabled = AddChoice("Master switch");
+            var actions = new WrapPanel { Margin = new Thickness(0, 4, 0, 1) };
+            var load = Button("Load selected sections…", () => LoadPresetAsync(Selected()));
+            (LookPreset Preset, LookSections Included)? copied = null;
+            var apply = Button("Apply copied settings", () =>
+            {
+                try
+                {
+                    if (copied is { } entry && SyncSelection() && displayedVariant is { } variant)
+                        ApplyPresetSections(variant, entry.Preset, Selected() & entry.Included, "Apply Spektrafilm settings");
+                }
+                catch (Exception error) { Report(error); }
+                return Task.CompletedTask;
+            });
+            var copy = Button("Copy selected settings", () =>
+            {
+                var sections = Selected();
+                if (sections != LookSections.None && SyncSelection() && enableSpektraFilm.IsEnabled && CaptureLook() is { } look)
+                {
+                    copied = (LookPreset.From(look), sections);
+                    status.Text = "Spektrafilm settings copied.";
+                    apply.IsEnabled = true;
+                }
+                return Task.CompletedTask;
+            });
+            actions.Children.Add(load);
+            actions.Children.Add(copy);
+            actions.Children.Add(apply);
+            controls.Children.Add(actions);
+            foreach (var choice in new[] { film, optics, grain, enabled })
+            {
+                choice.Checked += (_, _) => RefreshButtons();
+                choice.Unchecked += (_, _) => RefreshButtons();
+            }
+            RefreshButtons();
+            return Section("preset-sections", "Select settings to copy or load", controls);
+
+            CheckBox AddChoice(string title)
+            {
+                var choice = new CheckBox { Content = title, IsChecked = true, Margin = new Thickness(0, 2, 0, 0) };
+                controls.Children.Add(choice);
+                return choice;
+            }
+
+            LookSections Selected() => (film.IsChecked == true ? LookSections.Film : LookSections.None)
+                | (optics.IsChecked == true ? LookSections.Optics : LookSections.None)
+                | (grain.IsChecked == true ? LookSections.Grain : LookSections.None)
+                | (enabled.IsChecked == true ? LookSections.Enabled : LookSections.None);
+
+            void RefreshButtons()
+            {
+                var selected = Selected();
+                load.IsEnabled = copy.IsEnabled = selected != LookSections.None;
+                apply.IsEnabled = copied is { } entry && (entry.Included & selected) != LookSections.None;
+            }
         }
 
         internal bool IsSpektraExportActive => SyncSelection() && IsSpektraFilmEnabled;
@@ -629,9 +693,9 @@ internal static class SpektraFilmTool
             }
         }
 
-        private async Task LoadPresetAsync()
+        private async Task LoadPresetAsync(LookSections sections)
         {
-            if (!SyncSelection() || !enableSpektraFilm.IsEnabled || displayedVariant is not { } variant)
+            if (sections == LookSections.None || !SyncSelection() || !enableSpektraFilm.IsEnabled || displayedVariant is not { } variant)
                 return;
             try
             {
@@ -639,7 +703,10 @@ internal static class SpektraFilmTool
                 if (picker.ShowDialog() != true)
                     return;
                 var preset = await Task.Run(() => PanelFiles.ReadPreset<LookPreset>(picker.FileName));
-                ApplyPreset(variant, preset);
+                if (sections == LookSections.All)
+                    ApplyPreset(variant, preset);
+                else
+                    ApplyPresetSections(variant, preset, sections, "Spektrafilm preset sections");
             }
             catch (Exception error)
             {
@@ -647,15 +714,19 @@ internal static class SpektraFilmTool
             }
         }
 
-        private bool ApplyPreset(Guid variant, LookPreset preset)
+        private bool ApplyPreset(Guid variant, LookPreset preset) =>
+            ApplyPresetSections(variant, preset, LookSections.All, "Spektrafilm preset");
+
+        private bool ApplyPresetSections(Guid variant, LookPreset preset, LookSections sections, string historyName)
         {
             preset.Validate();
-            if (!SyncSelection() || displayedVariant != variant || !enableSpektraFilm.IsEnabled)
+            if (sections == LookSections.None || !SyncSelection() || displayedVariant != variant
+                || !enableSpektraFilm.IsEnabled || CaptureLook() is not { } current)
                 return false;
             UpdateHistoryGesture(false);
-            var optics = preset.Optics ?? (preset.SchemaVersion >= 2 ? opticalPreview.CaptureSettings() : null);
-            ApplyControls(preset.Look, optics, preset.Enabled, preset.Grain);
-            PersistLook("Spektrafilm preset");
+            var (film, optics, enabled, grain) = preset.SelectSections(current, sections);
+            ApplyControls(film, optics, enabled, grain);
+            PersistLook(historyName);
             return true;
         }
 

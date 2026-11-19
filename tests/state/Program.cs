@@ -4,6 +4,9 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
+if (args is ["--measure-durable-edits", var measurementDirectory])
+    return DurableEditProbe.Run(measurementDirectory);
+
 if (args.Length != 0)
 {
     var childStore = new VariantLookStore(args[1], args[2]);
@@ -24,6 +27,18 @@ if (args.Length != 0)
             && receipt.Matches(new GrainValues(2, 48, 72)) ? 0 : 15;
     if (args[0] == "--verify")
         return childStore.Read(childVariant)?.Look.Exposure == double.Parse(args[4], System.Globalization.CultureInfo.InvariantCulture) ? 0 : 13;
+    if (args[0] == "--commit-boundary")
+    {
+        var file = Directory.GetFiles(args[1], childVariant.ToString("N") + ".json", SearchOption.AllDirectories).Single();
+        void WaitForKill()
+        {
+            File.WriteAllText(args[5], args[4]);
+            Thread.Sleep(Timeout.Infinite);
+        }
+        PanelFiles.WriteAtomically(file, stream => JsonSerializer.Serialize(stream, Sample(2.4)),
+            args[4] == "before-replace" ? WaitForKill : null);
+        WaitForKill();
+    }
     return 14;
 }
 
@@ -70,6 +85,18 @@ Throws<IOException>("final guard failure", () => PanelFiles.WriteAtomically(stat
 Check("final guard failure preserves file", File.ReadAllBytes(stateFile).SequenceEqual(bytes));
 Check("atomic write temporary files cleaned", Directory.GetFiles(Path.GetDirectoryName(stateFile)!, ".spektra-*.tmp").Length == 0);
 
+var boundaryId = Guid.NewGuid();
+store.Queue(boundaryId, Sample(.6));
+store.Flush();
+var boundaryFile = StateFile(root, boundaryId);
+var boundaryBytes = File.ReadAllBytes(boundaryFile);
+KillAtBoundary("before-replace", root, catalog, boundaryId, scratch);
+Check("process death after staged flush preserves committed bytes", File.ReadAllBytes(boundaryFile).SequenceEqual(boundaryBytes));
+RunChild("--verify", root, catalog, boundaryId.ToString(), "0.6");
+KillAtBoundary("after-replace", root, catalog, boundaryId, scratch);
+RunChild("--verify", root, catalog, boundaryId.ToString(), "2.4");
+Check("process death after replace preserves exact published bytes", File.ReadAllBytes(boundaryFile).SequenceEqual(JsonSerializer.SerializeToUtf8Bytes(Sample(2.4))));
+
 var readLockedId = Guid.NewGuid();
 store.Queue(readLockedId, Sample(2.3));
 store.Flush();
@@ -82,6 +109,15 @@ using (var locked = new FileStream(readLockedPath, FileMode.Open, FileAccess.Rea
 }
 Check("retry reads the original look after the sharing violation", store.Read(readLockedId)?.Look.Exposure == 2.3);
 Check("retry preserves the original file", File.ReadAllBytes(readLockedPath).SequenceEqual(readLockedBytes));
+
+using (var locked = new FileStream(readLockedPath, FileMode.Open, FileAccess.Read, FileShare.None))
+{
+    store.Queue(readLockedId, Sample(2.3));
+    Throws<IOException>("an identical look whose primary cannot be checked still gets a fallback", store.Flush);
+    Check("temporary lock does not lose the identical edit", store.HasPending && !store.HasUnprotectedPending);
+}
+store.Flush();
+Check("the same look is restored without changing content", File.ReadAllBytes(readLockedPath).SequenceEqual(readLockedBytes));
 
 using (var locked = new FileStream(stateFile, FileMode.Open, FileAccess.Read, FileShare.None))
 {
@@ -256,6 +292,28 @@ Throws<InvalidDataException>("preset validates staged native grain before apply"
     () => (presetCopy with { Grain = new GrainControls(13, 90, 60) }).Validate());
 Throws<InvalidDataException>("preset cannot apply unknown future format", () => (presetCopy with { SchemaVersion = 3 }).Validate());
 
+var presetDestination = Sample(-.9) with
+{
+    Optics = new(new() { ["halation-amount"] = 0.6 }, new() { ["input-color"] = "rec2020" }, new()),
+};
+for (var mask = 0; mask <= (int)LookSections.All; mask++)
+{
+    var sections = (LookSections)mask;
+    var selected = presetCopy.SelectSections(presetDestination, sections);
+    Check($"preset section mask {sections} only replaces selected settings",
+        selected.Film == (sections.HasFlag(LookSections.Film) ? presetCopy.Look : presetDestination.Look)
+        && selected.Optics == (sections.HasFlag(LookSections.Optics) ? presetCopy.Optics : presetDestination.Optics)
+        && selected.Enabled == (sections.HasFlag(LookSections.Enabled) ? false : null)
+        && selected.Grain == (sections.HasFlag(LookSections.Grain) ? presetCopy.Grain : null));
+}
+Check("old preset resets missing optics only when optics is selected",
+    oldPreset.SelectSections(presetDestination, LookSections.All).Optics is null
+    && oldPreset.SelectSections(presetDestination, LookSections.Film).Optics == presetDestination.Optics);
+var optionalPreset = presetCopy with { Enabled = null, Optics = null, Grain = null };
+var optionalSelected = optionalPreset.SelectSections(presetDestination, LookSections.All);
+Check("new preset with absent sections preserves destination optics and both toggles",
+    optionalSelected.Optics == presetDestination.Optics && optionalSelected.Enabled is null && optionalSelected.Grain is null);
+
 var undoVariant = Guid.NewGuid();
 var undoFirst = Sample(0.2);
 var undoSecond = Sample(1.7);
@@ -342,16 +400,40 @@ static VariantLook Sample(double exposure) => new(new("kodak_portra_400", "kodak
     "print", "hanatos2025", false, new() { ["film_gamma"] = 1 }),
     new(new() { ["halation-amount"] = 0 }, new() { ["input-color"] = "srgb" }, new()), true, Grain: new(2,25,50));
 
-static void RunChild(params string[] arguments)
+static Process StartChild(params string[] arguments)
 {
     var info = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false, CreateNoWindow = true };
     info.Environment.Remove("DOTNET_STARTUP_HOOKS");
     if (string.Equals(Path.GetFileNameWithoutExtension(Environment.ProcessPath), "dotnet", StringComparison.OrdinalIgnoreCase))
         info.ArgumentList.Add(typeof(Program).Assembly.Location);
     foreach (var arg in arguments) info.ArgumentList.Add(arg);
-    using var child = Process.Start(info)!;
+    return Process.Start(info)!;
+}
+
+static void RunChild(params string[] arguments)
+{
+    using var child = StartChild(arguments);
     if (!child.WaitForExit(30000)) { child.Kill(); throw new Exception("Child recovery probe timed out"); }
     if (child.ExitCode != 0) throw new Exception($"Child recovery probe failed: {child.ExitCode}");
+}
+
+static void KillAtBoundary(string boundary, string root, string catalog, Guid variant, string directory)
+{
+    var ready = Path.Combine(directory, boundary + ".ready");
+    using var child = StartChild("--commit-boundary", root, catalog, variant.ToString(), boundary, ready);
+    try
+    {
+        var timeout = Stopwatch.StartNew();
+        while (!File.Exists(ready) && !child.HasExited && timeout.Elapsed < TimeSpan.FromSeconds(30))
+            Thread.Sleep(15);
+        if (child.HasExited || !File.Exists(ready))
+            throw new IOException($"Child did not reach the {boundary} save boundary.");
+    }
+    finally
+    {
+        if (!child.HasExited) child.Kill();
+        if (!child.WaitForExit(10000)) throw new IOException("The fixture process did not terminate.");
+    }
 }
 
 internal static class SpatialPreview

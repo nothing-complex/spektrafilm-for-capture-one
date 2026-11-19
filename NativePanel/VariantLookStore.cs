@@ -74,7 +74,7 @@ internal sealed class VariantLookStore
                     }
                     else if (hash == recovery.BaseHash)
                     {
-                        session.Pending[variant] = new(Clone(recovery.Look), hash, RecoveryDurable: true);
+                        session.Pending[variant] = PrepareEdit(recovery.Look, hash) with { RecoveryDurable = true };
                         RecoveryNotice = "Recovered this image’s last unsaved look. Spektrafilm will retry saving it.";
                         return Clone(recovery.Look);
                     }
@@ -106,13 +106,22 @@ internal sealed class VariantLookStore
                 throw new InvalidDataException(issue);
             if (!session.KnownHash.ContainsKey(variant) && !session.Pending.ContainsKey(variant))
                 Read(variant); // Never overwrite an existing look without validating it.
-            var snapshot = Clone(look);
-            if (!session.Pending.ContainsKey(variant) && session.KnownLookHash.GetValueOrDefault(variant) == LookHash(snapshot)
-                && FileHash(GetPath(variant)) == session.KnownHash.GetValueOrDefault(variant))
-                return; // The identical value is already durable; no new edit occurred.
-            var baseline = session.Pending.TryGetValue(variant, out var prior)
-                ? prior.BaseHash : session.KnownHash.GetValueOrDefault(variant);
-            session.Pending[variant] = new(snapshot, baseline);
+            session.Pending.TryGetValue(variant, out var prior);
+            var baseline = prior is null ? session.KnownHash.GetValueOrDefault(variant) : prior.BaseHash;
+            var edit = PrepareEdit(look, baseline);
+            if (prior is null && session.KnownLookHash.GetValueOrDefault(variant) == edit.Hash)
+            {
+                try
+                {
+                    if (FileHash(GetPath(variant)) == baseline)
+                        return; // The identical value is already durable; no new edit occurred.
+                }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+                {
+                    // Flush can protect the edit in recovery when the primary cannot be checked.
+                }
+            }
+            session.Pending[variant] = edit;
         }
     }
 
@@ -142,11 +151,14 @@ internal sealed class VariantLookStore
                     if (blocked.TryGetValue(variant, out var issue))
                         throw new InvalidDataException(issue);
                     Directory.CreateDirectory(directory);
-                    if (FileHash(GetPath(variant)) != pending.BaseHash)
-                        throw Block(variant, new InvalidDataException("The saved look changed outside this panel. Your pending edit and the external file are both retained."));
-                    PanelFiles.WriteCompactPreset(GetPath(variant), pending.Look);
-                    session.KnownHash[variant] = LookHash(pending.Look);
-                    session.KnownLookHash[variant] = session.KnownHash[variant];
+                    var path = GetPath(variant);
+                    PanelFiles.WriteAtomically(path, stream => stream.Write(pending.Json), () =>
+                    {
+                        if (FileHash(path) != pending.BaseHash)
+                            throw Block(variant, new InvalidDataException("The saved look changed outside this panel. Your pending edit and the external file are both retained."));
+                    }, overwrite: pending.BaseHash is not null);
+                    session.KnownHash[variant] = pending.Hash;
+                    session.KnownLookHash[variant] = pending.Hash;
                     session.Pending.Remove(variant);
                     TryDeleteRecovery(variant);
                 }
@@ -184,9 +196,10 @@ internal sealed class VariantLookStore
             ArchiveFile(GetPath(variant), variant, "before-reset");
             ArchiveFile(GetRecoveryPath(variant), variant, "pending-before-reset");
             var baseline = FileHash(GetPath(variant));
+            var edit = PrepareEdit(replacement, baseline);
             session.KnownHash[variant] = baseline;
             session.KnownLookHash.Remove(variant);
-            session.Pending[variant] = new(Clone(replacement), baseline);
+            session.Pending[variant] = edit;
             blocked.Remove(variant);
             FlushPending(variant);
         }
@@ -263,7 +276,15 @@ internal sealed class VariantLookStore
         Optics = look.Optics with { Numbers = new(look.Optics.Numbers, StringComparer.Ordinal),
             Selections = new(look.Optics.Selections, StringComparer.Ordinal), Switches = new(look.Optics.Switches, StringComparer.Ordinal) },
     };
-    private static string LookHash(VariantLook look) => Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(look)));
+    private static PendingEdit PrepareEdit(VariantLook look, string? baseline)
+    {
+        var snapshot = Clone(look);
+        var json = PanelFiles.EncodeCompactPreset(snapshot);
+        return new(snapshot, baseline, json, Digest(json));
+    }
+
+    private static string Digest(ReadOnlySpan<byte> json) => Convert.ToHexString(SHA256.HashData(json));
+    private static string LookHash(VariantLook look) => Digest(JsonSerializer.SerializeToUtf8Bytes(look));
     internal static bool Equivalent(VariantLook? first, VariantLook second) => first is not null &&
         JsonNode.DeepEquals(JsonSerializer.SerializeToNode(first), JsonSerializer.SerializeToNode(second));
     private string GetPath(Guid variant) => Path.Combine(directory, variant.ToString("N") + ".json");
@@ -281,7 +302,7 @@ internal sealed class VariantLookStore
         internal readonly Dictionary<Guid, string?> KnownLookHash = new();
         internal readonly Dictionary<Guid, string> Blocked = new();
     }
-    private sealed record PendingEdit(VariantLook Look, string? BaseHash, bool RecoveryDurable = false);
+    private sealed record PendingEdit(VariantLook Look, string? BaseHash, byte[] Json, string Hash, bool RecoveryDurable = false);
     private sealed record RecoveryCheckpoint([property: JsonRequired] int Version, [property: JsonRequired] string CatalogKey,
         [property: JsonRequired] Guid Variant, [property: JsonRequired] string? BaseHash, [property: JsonRequired] VariantLook Look);
 }
