@@ -19,7 +19,7 @@ internal static class Program
         var previous = Environment.GetEnvironmentVariable("SPEKTRAFILM_ROOT");
         try
         {
-            foreach (var malformed in new[] { "status", "length", "truncated", "error-size", "bad-json", "old-version", "bad-json-type", "bad-contract", "bad-precision", "bad-endian" })
+            foreach (var malformed in new[] { "status", "length", "truncated", "error-size", "bad-json", "old-version", "bad-json-type", "bad-contract", "bad-precision", "bad-endian", "bad-limits" })
             {
                 var root = Setup(scratch, malformed);
                 using var renderer = new OpticalRenderer(nativePreview: true);
@@ -45,6 +45,23 @@ internal static class Program
                 var diagnostics = await renderer.ReadDiagnosticsAsync(default);
                 Check(diagnostics?.GetProperty("schema").GetInt32() == 1, "versioned diagnostics");
                 Check(renderer.ParameterContract == Contract, "negotiated contract");
+            }
+            {
+                var root = Setup(scratch, "limited-dimensions");
+                await using var renderer = new OpticalRenderer(export: true);
+                await Throws<InvalidOperationException>(() => renderer.RenderAsync(2, 1, Pixels(2), [], default));
+                var log = Path.Combine(root, "renderer", "trace.txt");
+                Check(File.ReadAllLines(log).All(line => !line.Contains("FRAME")), "oversized input refused before sending its bytes");
+                await renderer.RenderAsync(1, 1, Pixels(1), [], default);
+                Check(File.ReadAllLines(log).Count(line => line.Contains("HELLO")) == 1, "negotiated size refusal preserves aligned stream");
+            }
+            {
+                var root = Setup(scratch, "no-packed");
+                await using var renderer = new OpticalRenderer(nativePreview: true);
+                await Throws<InvalidOperationException>(() => renderer.RenderAsync(1, 1, Pixels(1), [], default, displayPixels: true));
+                await renderer.RenderAsync(1, 1, Pixels(1), [], default);
+                Check(!File.ReadAllText(Path.Combine(root, "renderer", "trace.txt")).Contains("FRAME8"),
+                    "worker without packed mode still supports the float path");
             }
             {
                 var root = Setup(scratch, "valid-error");
@@ -368,6 +385,9 @@ internal static class Program
                     "bad-json-type" => "{\"protocol\":\"1\"}",
                     _ => JsonSerializer.Serialize(new { protocol = scenario == "old-version" ? 0 : 1, floatChannels = 4,
                         floatBits = scenario == "bad-precision" ? 16 : 32, littleEndian = scenario != "bad-endian",
+                        maxSide = scenario == "limited-dimensions" ? 1 : 16384,
+                        maxPixels = scenario switch { "bad-limits" => 0, "limited-dimensions" => 1, _ => 100_000_000 },
+                        packedDisplay = scenario != "no-packed",
                         parameterContract = scenario == "bad-contract" ? new string('z', 64) : Contract }),
                 };
                 Reply(output, 0, Encoding.UTF8.GetBytes(json)); continue;

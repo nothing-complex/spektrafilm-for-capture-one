@@ -33,6 +33,13 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
+        if (args is ["--large-encoding", var results])
+        {
+            Directory.CreateDirectory(results);
+            TestLargeEncoding(results);
+            Console.WriteLine($"PASS: {assertions} large 16-bit encoder checks.");
+            return;
+        }
         var folder = args.Length > 0 ? args[0] : Path.Combine(Path.GetTempPath(), "Spektrafilm-viewer-contracts-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(folder);
         TestGeometry();
@@ -49,6 +56,7 @@ internal static class Program
         TestScheduling().GetAwaiter().GetResult();
         TestNativeCallbackOwnership().GetAwaiter().GetResult();
         TestMemoryAdmission();
+        TestExportFrameLimits();
         Console.WriteLine($"PASS: {assertions} assertions. Pure current-source probes only; no Capture One process used.");
     }
 
@@ -196,6 +204,17 @@ internal static class Program
         }
         catch (OperationCanceledException) { assertions++; }
         Check(File.ReadAllBytes(late).SequenceEqual(new byte[] { 22 }), "Cancellation after encoding changed an existing destination");
+        try
+        {
+            OutputPathGuard.Approve(late, source).Write(stream =>
+            {
+                stream.WriteByte(90);
+                throw new InsufficientMemoryException("Simulated allocation failure during encoding.");
+            });
+            throw new InvalidOperationException("Allocation failure published an incomplete file.");
+        }
+        catch (InsufficientMemoryException) { assertions++; }
+        Check(File.ReadAllBytes(late).SequenceEqual(new byte[] { 22 }), "Allocation failure changed an existing output");
         Check(!Directory.EnumerateFiles(folder, ".spektra-*.tmp").Any(), "Output failures left partial files behind");
 
         var lateAlias = Path.Combine(folder, "late-alias.tif");
@@ -313,6 +332,24 @@ internal static class Program
         foreach(var linear in new[]{1f/256-1e-7f,1f/256,1f/256+1e-7f,.25f,.8f,2f})
             Check(Math.Abs(ColorTransfer.Encode(linear,PreviewInputSpace.AdobeRgb)-Math.Pow(linear,256.0/563))<2e-7,"Adobe encode reference/threshold discontinuity");
         Console.WriteLine("Colour precision: Adobe near-black reference, transfer boundary, signed range, finite inputs and enum validation passed.");
+    }
+
+    private static void TestExportFrameLimits()
+    {
+        foreach (var (width, height) in new[] { (6000, 5000), (9000, 5000), (10000, 6100), (10000, 10000), (16384, 8), (8, 16384) })
+            Check(RenderFrameLimits.ValidateExportCanvas(width, height, 1) == (width, height), "allowed export was silently resized");
+        Check(RenderFrameLimits.ValidateExportCanvas(10000, 6100, 0.5) == (5000, 3050), "recipe scale changed");
+        Check(RenderFrameLimits.ValidateExportCanvas(3999.5, 2000.1, 1) == (4000, 2001), "fractional canvas must reserve its final pixel");
+        foreach (var (width, height, scale) in new[] { (10001d, 10000d, 1d), (16385d, 1d, 1d), (10d, 10d, 0d), (double.NaN, 1d, 1d) })
+        {
+            try
+            {
+                RenderFrameLimits.ValidateExportCanvas(width, height, scale);
+                throw new Exception("Invalid requested canvas was admitted");
+            }
+            catch (InvalidOperationException) { assertions++; }
+        }
+        Console.WriteLine("Export preflight: exact 30/45/61/100 MP, long thin edges, recipe scaling and oversized refusal passed.");
     }
 
     private static void TestMemoryAdmission()
@@ -588,6 +625,51 @@ internal static class Program
             Check(Math.Abs(decoded.DpiX - 150) < 0.03 && Math.Abs(decoded.DpiY - 200) < 0.03, "Encoder changed supplied non-square resolution");
             Console.WriteLine($"Export {suffix}: {decoded.Format}, exact samples, ICC, resolution and canceled/rejected writes passed.");
         }
+    }
+
+    private static void TestLargeEncoding(string folder)
+    {
+        var original = Path.Combine(folder, "fixture-original.bin");
+        File.WriteAllBytes(original, new byte[] { 9, 42, 101 });
+        var metadata = new ExportMetadata("Fixture copyright", null, "Large high-depth synthetic image", null, null, Array.Empty<string>());
+        foreach (var (width, height, suffix) in new[] { (10000, 6100, ".tif"), (9000, 5000, ".png") })
+        {
+            var destination = Path.Combine(folder, $"synthetic-{width}x{height}{suffix}");
+            var format = SpektraExport.PixelFormatFor(destination);
+            var channels = format.BitsPerPixel / 16;
+            var stride = width * channels * sizeof(ushort);
+            using var lease = RenderMemoryBudget.SystemMemory.Reserve(RenderAllocation.ImageEncoding, (long)width * height, "");
+            var row = new ushort[width * channels];
+            for (var x = 0; x < width; x++)
+            {
+                row[x * channels] = (ushort)(1024 + x);
+                row[x * channels + 1] = (ushort)(31001 + x);
+                row[x * channels + 2] = (ushort)(60001 - x);
+                if (channels == 4) row[x * channels + 3] = ushort.MaxValue;
+            }
+            var samples = new byte[checked(height * stride)];
+            for (var y = 0; y < height; y++)
+                Buffer.BlockCopy(row, 0, samples, y * stride, stride);
+            var image = BitmapSource.Create(width, height, 300, 150, format, null, samples, stride);
+            var timer = Stopwatch.StartNew();
+            SpektraExport.SaveApproved(OutputPathGuard.Approve(destination, original), image, CancellationToken.None, metadata);
+            using var input = File.OpenRead(destination);
+            var frame = BitmapDecoder.Create(input, BitmapCreateOptions.PreservePixelFormat | BitmapCreateOptions.IgnoreColorProfile,
+                BitmapCacheOption.OnDemand).Frames[0];
+            Check(frame.Format == format && frame.PixelWidth == width && frame.PixelHeight == height,
+                "Large output was resized or lost 16-bit precision");
+            Check(frame.ColorContexts?.Count > 0 && Math.Abs(frame.DpiX - 300) < 0.03 && Math.Abs(frame.DpiY - 150) < 0.03,
+                "Large output lost its ICC or resolution");
+            foreach (var (x, y) in new[] { (0, 0), (width / 2, height / 2), (width - 1, height - 1) })
+            {
+                var read = new ushort[channels];
+                frame.CopyPixels(new System.Windows.Int32Rect(x, y, 1, 1), read, channels * sizeof(ushort), 0);
+                Check(read.AsSpan().SequenceEqual(row.AsSpan(x * channels, channels)), "Large output changed a 16-bit sample");
+            }
+            Console.WriteLine($"Large {suffix} {width}x{height}, {format}, {input.Length} bytes in {timer.ElapsedMilliseconds} ms.");
+        }
+        Check(File.ReadAllBytes(original).AsSpan().SequenceEqual(new byte[] { 9, 42, 101 }),
+            "Large encoders touched their source fixture");
     }
 
     private static void TestExportMetadata(string folder)

@@ -441,7 +441,7 @@ struct FrameLimit {
 };
 
 constexpr FrameLimit kPreviewLimit{2048, 1048576, "The in-app spatial preview accepts up to 1,048,576 pixels."};
-constexpr FrameLimit kExportLimit{8192, 32000000, "The SpektraFilm export renderer accepts up to 32,000,000 pixels."};
+constexpr FrameLimit kExportLimit{16384, 100000000, "The Spektrafilm export renderer accepts up to 100,000,000 pixels."};
 constexpr FrameLimit kNativePreviewLimit{16384, 100000000, "The native Viewer accepts up to 100,000,000 pixels."};
 
 constexpr int kNativeFullFramePixels = 32000000;
@@ -708,10 +708,12 @@ void writeMetrics(const Renderer *renderer, uint64_t renderSequence, const Input
     writeReply(0, text.data(), static_cast<uint32_t>(text.size()));
 }
 
-void configureNativePreview(RenderParams &params, FrameSize size) {
+void configureLargeFrame(RenderParams &params, FrameSize size, bool nativePreview) {
     if (size.width * size.height <= kNativeFullFramePixels) return;
     if (params.grainEnabled && params.grainModel == GrainModel::GrainSynthesis)
-        throw std::invalid_argument("Native Viewer grain synthesis supports up to 32,000,000 pixels. Choose a smaller Viewer preview size or switch grain models.");
+        throw std::invalid_argument(nativePreview
+            ? "Native Viewer grain synthesis supports up to 32,000,000 pixels. Choose a smaller Viewer preview size or switch grain models."
+            : "Export grain synthesis supports up to 32,000,000 pixels. Choose a smaller Export Recipe or switch grain models.");
     // Use the OFX renderer's overlap and full-frame coordinates to bound the
     // optical scratch buffers while keeping the original sampling resolution.
     params.gpuRenderTiling = GpuRenderTilingMode::Tiled;
@@ -779,8 +781,8 @@ void processStream(const FrameLimit &limit) {
                 params = readParameters(args);
                 if (packedPreview && params.outputColorSpace != ColorSpace::Srgb)
                     throw std::invalid_argument("Packed Viewer pixels require sRGB output.");
-                if (nativePreview)
-                    configureNativePreview(params, replacesInput ? size : input.size);
+                if (nativePreview || &limit == &kExportLimit)
+                    configureLargeFrame(params, replacesInput ? size : input.size, nativePreview);
             } catch (const std::exception &error) {
                 if (replacesInput) skipFrame(size);
                 writeError(error.what());

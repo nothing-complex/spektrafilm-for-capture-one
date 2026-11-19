@@ -17,6 +17,8 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
     private Task shutdown = Task.CompletedTask;
     private bool disposed;
     private bool negotiated;
+    private int negotiatedMaxEdge, negotiatedMaxPixels;
+    private bool negotiatedPackedDisplay;
     private int sourceWidth, sourceHeight;
     internal string? ParameterContract { get; private set; }
 
@@ -43,8 +45,8 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
         ArgumentNullException.ThrowIfNull(arguments);
         if (displayPixels && !nativePreview)
             throw new InvalidOperationException("Packed display pixels require the native Viewer renderer.");
-        var edge = export ? 8192 : nativePreview ? 16384 : 2048;
-        var pixels = export ? 32_000_000 : nativePreview ? 100_000_000 : 1_048_576;
+        var edge = export || nativePreview ? RenderFrameLimits.MaxHighDepthEdge : 2048;
+        var pixels = export || nativePreview ? RenderFrameLimits.MaxHighDepthPixels : 1_048_576;
         if (width < 1 || height < 1 || width > edge || height > edge || (long)width * height > pixels
             || (long)width * height * 16 != rgba.LongLength)
             throw new ArgumentException("The optical source dimensions and float pixel buffer do not match the render limits.");
@@ -82,6 +84,10 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
         {
             if (!negotiated)
                 await NegotiateAsync(renderer, token).ConfigureAwait(false);
+            if (width > negotiatedMaxEdge || height > negotiatedMaxEdge || (long)width * height > negotiatedMaxPixels)
+                throw new InvalidOperationException("This renderer build cannot process the requested dimensions. Use a matching build or choose a smaller output.");
+            if (displayPixels && !negotiatedPackedDisplay)
+                throw new InvalidOperationException("This renderer build does not support packed Viewer pixels.");
             await input.WriteAsync(header, token).ConfigureAwait(false);
             if (newSource)
                 await input.WriteAsync(rgba, token).ConfigureAwait(false);
@@ -145,11 +151,17 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
             || !value.TryGetProperty("floatChannels", out var channels) || channels.ValueKind != JsonValueKind.Number || !channels.TryGetInt32(out var count) || count != 4
             || !value.TryGetProperty("floatBits", out var bits) || bits.ValueKind != JsonValueKind.Number || !bits.TryGetInt32(out var precision) || precision != 32
             || !value.TryGetProperty("littleEndian", out var byteOrder) || byteOrder.ValueKind != JsonValueKind.True
+            || !value.TryGetProperty("maxSide", out var side) || side.ValueKind != JsonValueKind.Number || !side.TryGetInt32(out var maxSide) || maxSide <= 0
+            || !value.TryGetProperty("maxPixels", out var pixels) || pixels.ValueKind != JsonValueKind.Number || !pixels.TryGetInt32(out var maxPixels) || maxPixels <= 0
+            || !value.TryGetProperty("packedDisplay", out var packed) || packed.ValueKind is not (JsonValueKind.True or JsonValueKind.False)
             || !value.TryGetProperty("parameterContract", out var contract) || contract.ValueKind != JsonValueKind.String
             || contract.GetString() is not { Length: 64 } hash || !IsSha256(hash))
             throw new InvalidDataException("The renderer returned incompatible capabilities. Reinstall the complete matching release.");
         ParameterContract = hash;
         ValidateBuildManifest(child, hash);
+        negotiatedMaxEdge = maxSide;
+        negotiatedMaxPixels = maxPixels;
+        negotiatedPackedDisplay = packed.ValueKind == JsonValueKind.True;
         negotiated = true;
     }
 

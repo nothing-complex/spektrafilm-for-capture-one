@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-19. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 11 bounded primary fixes implemented, 40 partial items and 19 pending items. It includes feasibility investigations and enhancements.
+Updated 2026-11-19. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 12 bounded primary fixes implemented, 39 partial items and 19 pending items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -209,6 +209,15 @@ Evidence is under `.test-results/contracts-memory-admission-20261119`, `.test-re
 
 Evidence is under `.test-results/gpu-memory-adaptive-20261119.log`, `.test-results/renderer-gpu-budget-*-20261119.json` and `.test-results/host-adaptive-vram-20261119`. Physical low-VRAM devices, multiple concurrent host windows and larger exact exports remain open. The installed runtime still identifies `ffc4819`.
 
+## Larger exact export checkpoint
+
+- [x] Keep requested native or recipe scaling. Validate up to 100 MP and 16,384 pixels per side, then admit based on system and GPU memory. Grain synthesis retains its 32 MP limit.
+- [x] Validate worker dimensions and packed-pixel capability before sending pixels. An older worker with a smaller declared limit can still render a supported image after refusing a larger one.
+- [x] Render 45 and 61 MP synthetic inputs through actual Vulkan at exact size. Separately reopen a 45 MP RGBA64 PNG and 61 MP RGB48 TIFF with exact sampled codes, ICC and DPI. A simulated allocation failure leaves accepted output intact.
+- [x] Pass 12,319 local contracts, 11 large-encoder checks, and 107 first-launch plus 110 restart assertions in Capture One. The disposable host checked recipe dimensions in the Save dialog and matching output, as well as an unscaled 24 MP DNG. The source catalog stayed unchanged.
+
+Evidence is under `.test-results/contracts-large-export-final-20261119`, `.test-results/renderer-large-export-20261119.json`, `.test-results/large-encoder-20261119.log` and `.test-results/host-exact-export-capabilities-20261119`. The larger worker and encoder tests use synthetic inputs. The installed runtime still identifies `ffc4819`.
+
 ## Runtime map for the next agent
 
 | Responsibility | Main files and contracts |
@@ -231,7 +240,7 @@ Consult the detailed JSON before implementation. Useful next bounded packets are
 1. Finish host fault and race coverage for `FIX-03`, `HS-03`, `HS-04`, `HS-19`, `VE-01`, `VE-05`, and `HS-15`. Check active document closure, adjustment revision races, delayed teardown callbacks and live-host state or grain failures. Build on the validated startup warning and real selection transitions described above.
 2. Agree model/parameter/capability contracts (`HS-18`, `HS-11`, `HS-12`, `RC-07`) before native undo, copy/apply/clone (`HS-05`, `HS-06`) or broader host compatibility. One owner should edit each shared UI/scheduler region.
 3. Complete export policy (`VE-02`, `VE-03`), including ICC intent, metadata, naming, crop and orientation edge cases, and explicit handling of unsupported recipes. Current output is 16-bit sRGB TIFF/PNG. Recipe exports use its print resolution, and direct exports use 96 DPI. The host has exercised confirmation and previous-settings commands. The real OS Save picker and broader recipe matrix are still open.
-4. Add measured resource admission and generation-aware scheduling (`RC-11`, `VE-09`, `VE-07`, `VE-08`, `VE-17`, `RQ-09`) before increasing output limits. Current export cap is 32 MP / 8192 px per side; native viewer cap is 100 MP / 16384 px; synthesis has its own 32 MP constraints.
+4. Add measured resource admission and generation-aware scheduling (`RC-11`, `VE-09`, `VE-07`, `VE-08`, `VE-17`, `RQ-09`) before increasing output limits. Export and native Viewer share a 100 MP / 16,384 px safety bound under current system and GPU admission. Grain synthesis uses a distinct 32 MP full-frame bound. Measure multi-context overlap and physical lower-VRAM adapters.
 5. Solve portable catalog identity/restore (`HS-02`, `RQ-04`) and native grain revision and receipt pruning (`HS-08`). Verified joint restore rebases saved looks to the chosen path. Moving a catalog outside that flow still changes its path-based state key.
 6. Treat histogram/proofing/native pixel hooks (`VE-10`, `VE-11`), multi-view and sessions as exact-build feasibility work. An overlay does not prove native analysis tools describe the processed image.
 

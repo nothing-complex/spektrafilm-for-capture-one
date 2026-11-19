@@ -836,8 +836,10 @@ public static class StartupHook
         toggle.IsChecked = false;
         Select(originalVariant);
         Check(toggle.IsChecked == true, "Capture One variants have distinct persisted enable states");
-        var result = await Start((_, _) =>
+        var result = await Start((picker, _) =>
         {
+            Check(picker.Title.Contains($"{Prop(recipe, "Width")} × {Prop(recipe, "Height")}", StringComparison.Ordinal),
+                "Save dialog identifies the captured recipe dimensions");
             var duplicate = Start((_, _) => throw new InvalidOperationException("Opened a second save dialog."));
             Check(duplicate.IsCompletedSuccessfully && !duplicate.Result, "duplicate Export blocked while choosing a destination");
             Select(disabledVariant);

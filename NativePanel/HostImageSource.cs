@@ -26,10 +26,7 @@ internal static class HostImageSource
     private const int PixelLimit = 1024 * 1024;
     private const int DraftEdgeLimit = 1200;
     private const int ScaledPreviewEdgeLimit = 4096;
-    private const int NativePreviewPixelLimit = 100_000_000;
-    private const int NativePreviewEdgeLimit = 16_384;
-    internal const int ExportPixelLimit = 32_000_000;
-    internal const int ExportEdgeLimit = 8192;
+    private const int NativePreviewEdgeLimit = RenderFrameLimits.MaxHighDepthEdge;
     private static readonly TimeSpan PreviewScheduleTimeout = TimeSpan.FromSeconds(20);
     private static readonly TimeSpan NativePreviewScheduleTimeout = TimeSpan.FromMinutes(3);
     private static readonly TimeSpan ExportScheduleTimeout = TimeSpan.FromMinutes(3);
@@ -197,7 +194,7 @@ internal static class HostImageSource
             RenderWithRetry(new RenderOptions(Math.Min(maxLongEdge, DraftEdgeLimit), RenderPurpose.Draft), token).Image;
 
         internal ExportFrame RenderExport(int? maxLongEdge, CancellationToken token, bool followRecipeSize = false) =>
-            RenderWithRetry(new RenderOptions(maxLongEdge ?? ExportEdgeLimit, RenderPurpose.Export, followRecipeSize), token);
+            RenderWithRetry(new RenderOptions(maxLongEdge ?? RenderFrameLimits.MaxHighDepthEdge, RenderPurpose.Export, followRecipeSize, maxLongEdge is not null), token);
 
         private ExportFrame RenderWithRetry(RenderOptions options, CancellationToken token)
         {
@@ -293,8 +290,7 @@ internal static class HostImageSource
             var longest = Math.Max(canvas.Width, canvas.Height);
             var pixelLimit = options.Purpose switch
             {
-                RenderPurpose.Export => ExportPixelLimit,
-                RenderPurpose.NativePreview => NativePreviewPixelLimit,
+                RenderPurpose.Export or RenderPurpose.NativePreview => RenderFrameLimits.MaxHighDepthPixels,
                 RenderPurpose.ScaledPreview => ScaledPreviewEdgeLimit * ScaledPreviewEdgeLimit,
                 RenderPurpose.Draft => DraftEdgeLimit * DraftEdgeLimit,
                 _ => PixelLimit,
@@ -302,11 +298,10 @@ internal static class HostImageSource
             double scale;
             if (options.ForExport)
             {
-                var nativeScale = options.FollowRecipeSize ? recipe!.Scale : 1;
-                scale = Math.Min(nativeScale, (double)options.MaxDimension / Math.Max(crop.Width, crop.Height));
-                if (!double.IsFinite(scale) || scale <= 0 || Math.Ceiling(longest * scale) > ExportEdgeLimit
-                    || Math.Ceiling(canvas.Width * scale) * Math.Ceiling(canvas.Height * scale) > pixelLimit)
-                    throw new InvalidOperationException("The export canvas exceeds 8192 pixels per side or 32 megapixels. Choose a smaller export size.");
+                scale = options.FollowRecipeSize ? recipe!.Scale : 1;
+                if (options.CallerLimitsExportEdge)
+                    scale = Math.Min(scale, (double)options.MaxDimension / Math.Max(crop.Width, crop.Height));
+                RenderFrameLimits.ValidateExportCanvas(canvas.Width, canvas.Height, scale);
             }
             else if (options.Purpose == RenderPurpose.NativePreview)
             {
@@ -414,7 +409,8 @@ internal static class HostImageSource
 
     private enum RenderPurpose { Preview, Draft, ScaledPreview, NativePreview, Export }
 
-    private readonly record struct RenderOptions(int MaxDimension, RenderPurpose Purpose, bool FollowRecipeSize = false)
+    private readonly record struct RenderOptions(int MaxDimension, RenderPurpose Purpose, bool FollowRecipeSize = false,
+        bool CallerLimitsExportEdge = false)
     {
         internal bool ForExport => Purpose == RenderPurpose.Export;
         internal bool UsesNativeDepth => Purpose != RenderPurpose.Preview;

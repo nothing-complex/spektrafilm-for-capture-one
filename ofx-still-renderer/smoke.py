@@ -157,11 +157,14 @@ def check_export_stream(exe, frame, base):
     np.testing.assert_array_equal(exported[..., 3], large[..., 3])
 
     for request, error in (
-        (b"FRAME 8193 1\n", b"Invalid integer"),
-        (b"FRAME 8192 8192\n", b"up to 32,000,000 pixels"),
+        (b"FRAME 16385 1\n", b"Invalid integer"),
+        (b"FRAME 10001 10000\n", b"up to 100,000,000 pixels"),
     ):
         failure = run_stream(exe, request, exit_code=1, mode="--export-stream")
         assert len(failure) == 1 and failure[0][0] == 1 and error in failure[0][1]
+    (status, capabilities), = run_stream(exe, b"HELLO 1\n", mode="--export-stream")
+    contract = json.loads(capabilities)
+    assert status == 0 and contract["maxSide"] == 16384 and contract["maxPixels"] == 100_000_000
     print("Export stream accepted a frame above the preview limit and preserved preview color parity")
 
 

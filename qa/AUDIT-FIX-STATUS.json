@@ -453,6 +453,47 @@
         ],
         "scope": "Exact size, measured estimates and process-local Vulkan budget. Simulations impose allocator caps on the RTX 3090; hardware with lower physical VRAM is a separate test."
       }
+    },
+    "large_exact_export": {
+      "contracts": {
+        "status": "passed",
+        "assertions": 12319,
+        "summary": ".test-results/contracts-large-export-final-20261119/summary.json",
+        "renderer_checks": 95,
+        "skipped": [
+          "Local symbolic-file-link creation lacks Windows privilege."
+        ]
+      },
+      "host": {
+        "status": "passed",
+        "first_launch_assertions": 107,
+        "restart_assertions": 110,
+        "source_catalog_unchanged": true,
+        "evidence": ".test-results/host-exact-export-capabilities-20261119/host-smoke.log"
+      },
+      "gpu": {
+        "status": "passed",
+        "exact_dimensions": [
+          [
+            9000,
+            5000
+          ],
+          [
+            10000,
+            6100
+          ]
+        ],
+        "evidence": [
+          ".test-results/gpu-large-export-contract-20261119.log",
+          ".test-results/renderer-large-export-20261119.json"
+        ]
+      },
+      "encoder": {
+        "status": "passed",
+        "assertions": 11,
+        "evidence": ".test-results/large-encoder-20261119.log",
+        "scope": "Synthetic 61 MP TIFF and 45 MP PNG, exact high-depth codes, ICC and DPI."
+      }
     }
   },
   "known_limitations": [
@@ -659,14 +700,18 @@
       "status": "partial",
       "implemented": [
         "Malformed frames/capabilities reset worker and source cache; bounded HELLO negotiation, immutable-shape validation, serialized requests and cancellation recovery pass fake-worker tests.",
-        "After worker shutdown, interpret pipe EOF as cancellation when that request was explicitly canceled. Server 2025 found this race with the fixture that requires verified process exit."
+        "After worker shutdown, interpret pipe EOF as cancellation when that request was explicitly canceled. Server 2025 found this race with the fixture that requires verified process exit.",
+        "Validate advertised maxSide, maxPixels and packed display capability before writing a frame header or payload. A valid lower limit refuses an oversized request and retains the aligned stream for a supported request."
       ],
       "evidence_paths": [
         "NativePanel/OpticalRenderer.cs",
         "ofx-still-renderer/main.cpp",
         "tests/renderer/Program.cs",
         ".test-results/contracts-memory-admission-20261119/summary.json",
-        "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44622033511"
+        "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44622033511",
+        "NativePanel/OpticalRenderer.cs",
+        ".test-results/contracts-large-export-final-20261119/summary.json",
+        ".test-results/gpu-large-export-contract-20261119.log"
       ],
       "remaining_work": [
         "Request IDs and fully versioned per-frame layout metadata remain absent; transport is safe only with enforced one-in-flight serialization."
@@ -1555,7 +1600,8 @@
         "Captured single-image export owns independent lifetime, settings and target identity; selection/master changes do not cancel it.",
         "Recipe export now reserves its captured job while the Save dialog is open. The host test verified rejection of a duplicate request, continued output after a simulated enable change and explicit cancellation.",
         "Exercised real Capture One navigation to a separate disabled variant inside destination selection and confirmed that the original captured target still exported successfully.",
-        "Production detach in the disposable host canceled a currently owned export and preserved the previous TIFF. The canceled-form-close seam kept the active job running."
+        "Production detach in the disposable host canceled a currently owned export and preserved the previous TIFF. The canceled-form-close seam kept the active job running.",
+        "Inject an allocation failure after writing temporary output bytes. The accepted prior output stays intact and the original is unchanged."
       ],
       "evidence_paths": [
         "NativePanel/ExportOperation.cs",
@@ -1564,7 +1610,8 @@
         "qa/HostSmoke/StartupHook.cs",
         ".test-results/host-export-20261119-pass/host-smoke.log",
         ".test-results/host-audit-state-selection-20261119/host-smoke.log",
-        ".test-results/host-detach-20261119/host-smoke.log"
+        ".test-results/host-detach-20261119/host-smoke.log",
+        ".test-results/contracts-large-export-final-20261119/summary.json"
       ],
       "remaining_work": [
         "Add physical window close, host navigation after development starts, and a changed-native-adjustment race. Persistent batch jobs remain a separate task."
@@ -1916,10 +1963,13 @@
       "id": "VE-04",
       "title": "Replace fixed export limits with safe memory-aware rendering",
       "priority": "P2",
-      "status": "partial",
+      "status": "implemented",
       "implemented": [
         "Export checks measured system memory estimates at successive stages, preserves exact requested canvas or refuses it explicitly, and passes a real 24 MP run. Tiled/full parity passed six representative GPU scenes without format reduction.",
-        "Rebuilt Vulkan helper selected tiling for all three simulated cache caps at exact 6000 by 4000 output. Reported Vulkan allocations fell from 4033 to 845 MiB for the tested optics graph. Impossible source and synthesis requests preserve the existing accepted frame and report the limitation."
+        "Rebuilt Vulkan helper selected tiling for all three simulated cache caps at exact 6000 by 4000 output. Reported Vulkan allocations fell from 4033 to 845 MiB for the tested optics graph. Impossible source and synthesis requests preserve the existing accepted frame and report the limitation.",
+        "Dimension-preserving preflight accepts 30/45/61/100 MP and 16,384 px long-thin frames. Requests beyond either transport bound are refused before source transmission. Export respects requested native or recipe scale. Working system and GPU admission governs requests inside the hard protocol safety bounds.",
+        "Vulkan rendered exact 45 and 61 MP synthetic frames. Separate 45 MP RGBA64 PNG and 61 MP RGB48 TIFF encoder fixtures reopened exact geometry, sampled 16-bit codes, ICC and DPI. An injected allocation failure and cancellation preserved accepted output.",
+        "The live native Save dialog included the captured recipe dimensions and the matching RGB48 file was verified. Non-resized 24 MP DNG export remained verified through restart."
       ],
       "evidence_paths": [
         ".test-results/host-memory-admission-20261119/host-smoke.log",
@@ -1930,11 +1980,15 @@
         ".test-results/renderer-gpu-budget-native-20261119.json",
         ".test-results/renderer-gpu-budget-2048-20261119.json",
         ".test-results/renderer-gpu-budget-3072-20261119.json",
-        ".test-results/renderer-gpu-budget-4096-20261119.json"
+        ".test-results/renderer-gpu-budget-4096-20261119.json",
+        "NativePanel/RenderFrameLimits.cs",
+        ".test-results/host-exact-export-capabilities-20261119/host-smoke.log",
+        ".test-results/contracts-large-export-final-20261119/summary.json",
+        ".test-results/gpu-large-export-contract-20261119.log",
+        ".test-results/renderer-large-export-20261119.json",
+        ".test-results/large-encoder-20261119.log"
       ],
-      "remaining_work": [
-        "Extend exact export support beyond 32 MP and 8192 px, validate synthetic 45/61/>100 MP preflight, test held prior output at injected OOM, and repeat on actual low-VRAM adapters."
-      ],
+      "remaining_work": [],
       "original_acceptance_tests": [
         "Synthetic 30MP, 45MP, 61MP and >100MP preflight tests plus long-thin frames; allocate huge frames only on controlled memory fixtures.",
         "Crop-at-edge, rotated canvas, optical blur and halation compare tiled/ROI results to whole-image golden outputs with seam checks.",
@@ -1945,6 +1999,10 @@
         "RC-11",
         "VE-02",
         "VE-09"
+      ],
+      "implementation_limits": [
+        "Large worker and encoder fixtures are controlled synthetic inputs. Real RAW end-to-end coverage is 24 MP.",
+        "Grain synthesis has its separate 32 MP full-frame constraint. Device-specific pressure and cross-context GPU admission remain under RC-11."
       ]
     },
     {
@@ -2438,8 +2496,8 @@
   ],
   "counts": {
     "total": 70,
-    "implemented": 11,
-    "partial": 40,
+    "implemented": 12,
+    "partial": 39,
     "pending": 19
   },
   "last_reconciled": "2026-11-19",
