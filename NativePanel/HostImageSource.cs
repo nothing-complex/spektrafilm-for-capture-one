@@ -239,25 +239,30 @@ internal static class HostImageSource
                 // a listener is removed. Bound active work and clear canceled callbacks.
                 SchedulerSlot.Wait(workToken);
                 releaseSlot = true;
-                var request = new RenderRequest(source =>
+                var request = new QueuedRenderRequest<ICoreVariant, ExportFrame>(source =>
                 {
                     workToken.ThrowIfCancellationRequested();
                     if (source.UUID != variant.UUID || ReadRevision(source) != revision)
                         throw new OperationCanceledException("Capture One settings changed before the image could render.");
                     return RenderOnScheduler(source, options, requestProxyCheck, workToken);
-                });
-                var listener = scheduler.AddListener(null, null, null);
+                }, () => SchedulerSlot.Release());
+                releaseSlot = false; // The request now owns release, including a running native callback.
                 try
                 {
-                    scheduler.RequestUpdates(new ImageCoreScheduler.JobAndListener(
-                        variant, document, IcSchedulerHandle.ProcessingJobTypes.PreviewForPrint, listener, TimeSpan.Zero, request.Run));
-                    return request.Result.WaitAsync(workToken).GetAwaiter().GetResult();
+                    var listener = scheduler.AddListener(null, null, null);
+                    try
+                    {
+                        scheduler.RequestUpdates(new ImageCoreScheduler.JobAndListener(
+                            variant, document, IcSchedulerHandle.ProcessingJobTypes.PreviewForPrint, listener, TimeSpan.Zero, request.Run));
+                        return request.Result.WaitAsync(workToken).GetAwaiter().GetResult();
+                    }
+                    finally
+                    {
+                        request.Abandon();
+                        scheduler.RemoveListener(listener);
+                    }
                 }
-                finally
-                {
-                    request.Abandon();
-                    scheduler.RemoveListener(listener);
-                }
+                finally { request.Abandon(); }
             }
             catch (OperationCanceledException) when (!token.IsCancellationRequested && workToken.IsCancellationRequested)
             {
@@ -328,6 +333,9 @@ internal static class HostImageSource
             renderSettings.cropScale = options.UsesNativeDepth ? (float)scale : 1;
             renderSettings.cropScaleView = options.UsesNativeDepth ? 1 : (float)scale;
 
+            var pixels = checked((long)Math.Ceiling(canvas.Width * scale) * (long)Math.Ceiling(canvas.Height * scale));
+            using var memory = RenderMemoryBudget.SystemMemory.Reserve(RenderAllocation.NativeDevelopment, pixels,
+                options.ForExport ? "Free memory or choose a smaller Export Recipe." : "Free memory or choose a smaller Viewer resolution.");
             using var bitmap = new ImageCoreBitmap();
             var coreImage = source.CoreImage
                 ?? throw new InvalidOperationException("The selected variant no longer has a source image.");
@@ -358,7 +366,7 @@ internal static class HostImageSource
             if (ReadRevision(source) != revision)
                 throw new OperationCanceledException("Capture One settings changed during image development.");
             var imageFrame = CopyPixels(bitmap, pixelLimit, token, options.Purpose);
-            var pixelCrop = options.ForExport ? ScaleCrop(crop, canvas, imageFrame.Width, imageFrame.Height)
+            var pixelCrop = options.ForExport ? ViewerGeometry.ScaleCrop(crop, canvas, imageFrame.Width, imageFrame.Height)
                 : new Rectangle(0, 0, imageFrame.Width, imageFrame.Height);
             return new ExportFrame(imageFrame, pixelCrop);
 
@@ -428,52 +436,8 @@ internal static class HostImageSource
             Math.Min(canvas.Width, right), Math.Min(canvas.Height, bottom));
     }
 
-    private static Rectangle ScaleCrop(RectangleF crop, SizeF canvas, int width, int height)
-    {
-        var sx = (double)width / canvas.Width;
-        var sy = (double)height / canvas.Height;
-        var x = Math.Clamp((int)Math.Round(crop.Left * sx), 0, width - 1);
-        var y = Math.Clamp((int)Math.Round(crop.Top * sy), 0, height - 1);
-        var cropWidth = Math.Clamp((int)Math.Round(crop.Width * sx), 1, width - x);
-        var cropHeight = Math.Clamp((int)Math.Round(crop.Height * sy), 1, height - y);
-        return new Rectangle(x, y, cropWidth, cropHeight);
-    }
-
     internal sealed class ProxyPendingException(IC_Result result) :
         InvalidOperationException($"Capture One’s native preview is not available yet ({result}).");
-
-    private sealed class RenderRequest(Func<ICoreVariant, ExportFrame> render)
-    {
-        private Func<ICoreVariant, ExportFrame>? callback = render;
-        private readonly TaskCompletionSource<ExportFrame> completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        internal Task<ExportFrame> Result => completion.Task;
-
-        internal void Abandon()
-        {
-            Interlocked.Exchange(ref callback, null);
-            completion.TrySetCanceled();
-        }
-
-        internal void Run(ICoreVariant source)
-        {
-            var run = Interlocked.Exchange(ref callback, null);
-            if (run is null)
-                return;
-            try
-            {
-                completion.TrySetResult(run(source));
-            }
-            catch (OperationCanceledException error)
-            {
-                completion.TrySetCanceled(error.CancellationToken);
-            }
-            catch (Exception error)
-            {
-                completion.TrySetException(error);
-            }
-        }
-    }
 
     private static Frame CopyPixels(ImageCoreBitmap bitmap, int pixelLimit, CancellationToken token, RenderPurpose purpose)
     {

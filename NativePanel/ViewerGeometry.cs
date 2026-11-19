@@ -48,4 +48,15 @@ internal readonly record struct ViewerGeometry(Rect Clip, Matrix Transform)
         geometry = new ViewerGeometry(new Rect(clip.Left, clip.Top, clip.Width, clip.Height), matrix);
         return true;
     }
+
+    internal static Rectangle ScaleCrop(RectangleF crop, SizeF canvas, int width, int height)
+    {
+        var sx = (double)width / canvas.Width;
+        var sy = (double)height / canvas.Height;
+        var x = Math.Clamp((int)Math.Round(crop.Left * sx), 0, width - 1);
+        var y = Math.Clamp((int)Math.Round(crop.Top * sy), 0, height - 1);
+        var cropWidth = Math.Clamp((int)Math.Round(crop.Width * sx), 1, width - x);
+        var cropHeight = Math.Clamp((int)Math.Round(crop.Height * sy), 1, height - y);
+        return new Rectangle(x, y, cropWidth, cropHeight);
+    }
 }

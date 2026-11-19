@@ -383,6 +383,35 @@
       "viewer_096mp_grain_two_sample_warm_median_ms": 70.3,
       "viewer_096mp_grain_full_warm_median_ms": 4217.9,
       "limits": "A single GPU and short warm runs. Reported Vulkan buffers exclude driver and other process residency. The initial all-synthesis matrix was canceled before completing; final cases explicitly bound tested grain resolution."
+    },
+    "native_scheduler_dpi_and_system_memory": {
+      "contracts": {
+        "status": "passed",
+        "assertions": 12296,
+        "summary": ".test-results/contracts-memory-admission-20261119/summary.json",
+        "skipped": [
+          "Local symbolic-file-link creation lacks Windows privilege."
+        ]
+      },
+      "host": {
+        "status": "passed",
+        "first_launch_assertions": 105,
+        "restart_assertions": 108,
+        "source_catalog_unchanged": true,
+        "evidence": ".test-results/host-memory-admission-20261119/host-smoke.log"
+      },
+      "gpu": {
+        "status": "passed",
+        "tile_cases": 6,
+        "max_difference": 1.7881393432617188e-07,
+        "evidence": ".test-results/gpu-tiled-parity-20261119.log"
+      },
+      "previous_ci": {
+        "run_id": 44622033511,
+        "windows-2022": "passed",
+        "windows-2025": "failed",
+        "scope": "Windows worker shutdown returned EOF before cancellation. Fixed here; validate rerun on both images."
+      }
     }
   },
   "known_limitations": [
@@ -554,12 +583,13 @@
       "id": "RQ-02",
       "title": "Make audit regression harnesses reproducible from a public checkout",
       "priority": "P1",
-      "status": "partial",
+      "status": "implemented",
       "implemented": [
         "Public source-linked state, renderer, viewer and installer contracts plus a no-host entry point are tracked; GPU and host prerequisites are separate.",
         "Public GitHub Windows workflow passed all seven suites, including six PowerShell child-environment regression assertions.",
         "Ported the independent nonconstant fractional resampling check to the ordinary Windows contract runner.",
-        "Stabilized fake renderer cancellation by explicit request markers. Added a deterministic disposable-host late callback seam with abort and no-output replacement tests."
+        "Stabilized fake renderer cancellation by explicit request markers. Added a deterministic disposable-host late callback seam with abort and no-output replacement tests.",
+        "Reproducible host-independent tests include callback faults, queued cancellation, late delivery and 200 concurrent cancellation/delivery races. Public CI runs fixture-only contracts without licensed binaries and reports host/GPU as distinct tiers."
       ],
       "evidence_paths": [
         "Test-Windows.ps1",
@@ -569,11 +599,11 @@
         "tests/installer",
         "qa/HostSmoke",
         ".test-results/contracts-audit-resolution-20261119/summary.json",
-        ".test-results/contracts-audit-integrity-20261119/summary.json"
+        ".test-results/contracts-audit-integrity-20261119/summary.json",
+        ".test-results/contracts-memory-admission-20261119/summary.json",
+        "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44622033511"
       ],
-      "remaining_work": [
-        "Preserve public CI no-host fixture coverage as more feature tests land. Move the real-host late callback case into a host-independent fake-session suite during the host-adapter refactor."
-      ],
+      "remaining_work": [],
       "original_acceptance_tests": [
         "Fresh checkout on Windows with .NET SDK runs pure suite without Capture One DLL redistribution.",
         "Injected versions of known corruption/installer/geometry errors fail the corresponding tests.",
@@ -587,12 +617,15 @@
       "priority": "P2",
       "status": "partial",
       "implemented": [
-        "Malformed frames/capabilities reset worker and source cache; bounded HELLO negotiation, immutable-shape validation, serialized requests and cancellation recovery pass fake-worker tests."
+        "Malformed frames/capabilities reset worker and source cache; bounded HELLO negotiation, immutable-shape validation, serialized requests and cancellation recovery pass fake-worker tests.",
+        "After worker shutdown, interpret pipe EOF as cancellation when that request was explicitly canceled. Server 2025 found this race with the fixture that requires verified process exit."
       ],
       "evidence_paths": [
         "NativePanel/OpticalRenderer.cs",
         "ofx-still-renderer/main.cpp",
-        "tests/renderer/Program.cs"
+        "tests/renderer/Program.cs",
+        ".test-results/contracts-memory-admission-20261119/summary.json",
+        "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44622033511"
       ],
       "remaining_work": [
         "Request IDs and fully versioned per-frame layout metadata remain absent; transport is safe only with enforced one-in-flight serialization."
@@ -615,7 +648,8 @@
         "Tracked pure tests verify affine geometry, exact 16-bit TIFF/PNG samples, ICC, atomic-write preservation, draft filtering and cancellation.",
         "A separate overlap integral validates nonconstant color and alpha on fractional sampling footprints in all four transfer spaces and five output sizes.",
         "Actual Capture One native development from a restored catalog uses 16-bit input with correctly sampled quarter-turn and horizontal mirroring. Keystone correction changes the developed pixels.",
-        "Unscaled actual DNG export reopened as 6000 by 4000 RGB48 with embedded ICC and 96 DPI. A decoded sample contained codes between 8-bit steps. Recipe/geometry and export tiers remain separate."
+        "Unscaled actual DNG export reopened as 6000 by 4000 RGB48 with embedded ICC and 96 DPI. A decoded sample contained codes between 8-bit steps. Recipe/geometry and export tiers remain separate.",
+        "Paint and clip the corresponding physical pixels in an actual WPF target at 100%, 150% and 200% DPI with a modeled native painter transform. Test subpixel closure/degeneracy and crop rounding at right and bottom edges."
       ],
       "evidence_paths": [
         "tests/ViewerContracts",
@@ -623,10 +657,12 @@
         "NativePanel/ViewerDraftSource.cs",
         ".test-results/contracts-audit-resolution-20261119/summary.json",
         ".test-results/host-restore-geometry-20261119/host-smoke.log",
-        ".test-results/host-full-raw-24mp-20261119/host-smoke.log"
+        ".test-results/host-full-raw-24mp-20261119/host-smoke.log",
+        ".test-results/contracts-memory-admission-20261119/summary.json",
+        ".test-results/host-memory-admission-20261119/host-smoke.log"
       ],
       "remaining_work": [
-        "Test host DPI coordinate transforms and crop/rounding edge cases."
+        "Observe both updated CI matrix jobs and retain separate physical monitor/host UI evidence for placement."
       ],
       "original_acceptance_tests": [
         "Run CI Windows matrix on supported .NET target without installed Capture One for pure tests.",
@@ -717,7 +753,8 @@
       "status": "partial",
       "implemented": [
         "HELLO and METRICS expose bounded protocol/float/contract data and Vulkan timings, uploads and allocations; synthetic GPU/LUT and no-GPU suites exist.",
-        "Windows worker benchmark saves per-request transport wall time, renderer stages and Vulkan allocations, working-set/commit samples, cold request versus reused-source edit percentiles, and renderer fingerprint in machine-readable JSON."
+        "Windows worker benchmark saves per-request transport wall time, renderer stages and Vulkan allocations, working-set/commit samples, cold request versus reused-source edit percentiles, and renderer fingerprint in machine-readable JSON.",
+        "Actual Vulkan parity compares full and multi-tile pixels across color, 8 mm halation/scatter, 35 mm diffusion, 70 mm DIR, metering/grain/scanner, and enlarger. Worst code difference was 1.79e-7 on this GPU, with independently checked alpha."
       ],
       "evidence_paths": [
         "ofx-still-renderer/main.cpp",
@@ -726,7 +763,9 @@
         "ofx-still-renderer/smoke.py",
         "qa/renderer-benchmark.py",
         ".test-results/renderer-benchmark-color-optics-20261119.json",
-        ".test-results/renderer-benchmark-grain-quality-20261119.json"
+        ".test-results/renderer-benchmark-grain-quality-20261119.json",
+        "ofx-still-renderer/smoke.py",
+        ".test-results/gpu-tiled-parity-20261119.log"
       ],
       "remaining_work": [
         "Add frame/build/settings identity to diagnostics, structured whole-pipeline telemetry, quality oracles, tiled parity and hardware p50/p95/memory budgets.",
@@ -771,16 +810,20 @@
       "priority": "P1",
       "status": "partial",
       "implemented": [
-        "Measure peak worker working set and Vulkan allocation counters at 0.96, 6 and 24 MP for color and optics in packed Viewer and float export routes. Separate benchmark measured 2-sample draft synthesis and renderer-default synthesis."
+        "Measure peak worker working set and Vulkan allocation counters at 0.96, 6 and 24 MP for color and optics in packed Viewer and float export routes. Separate benchmark measured 2-sample draft synthesis and renderer-default synthesis.",
+        "Shared system RAM admission estimates and reserves physical/commit headroom for native development, worker transport, and output encoding. Verified reusable reservations and pressure in synthetic 4/6/8 GiB system headroom cases, plus an actual full 24 MP export under guard."
       ],
       "evidence_paths": [
         "qa/renderer-benchmark.py",
         ".test-results/renderer-benchmark-color-optics-20261119.json",
-        ".test-results/renderer-benchmark-grain-quality-20261119.json"
+        ".test-results/renderer-benchmark-grain-quality-20261119.json",
+        "NativePanel/RenderMemoryBudget.cs",
+        ".test-results/contracts-memory-admission-20261119/summary.json",
+        ".test-results/host-memory-admission-20261119/host-smoke.log"
       ],
       "remaining_work": [
-        "Measure Capture One process memory/commit and actual adapter heap free budget. Build graph-specific estimate and a shared admission lease.",
-        "Use budget-aware tiling or smaller explicit preview selection while retaining full requested export size. Validate 4/6/8 GB bounds, memory pressure and OOM preservation."
+        "Compare Capture One and worker peak to current conservative system estimates under real pressure. Account for cached frame lifetimes and cross-process reservations.",
+        "Use actual adapter-local free budget and graph-specific tiling for GPU admission. Test 4/6/8 GB VRAM and OOM recovery."
       ],
       "original_acceptance_tests": [
         "4/6/8GB GPU scenarios and100MP source sizing",
@@ -863,16 +906,20 @@
       "status": "partial",
       "implemented": [
         "SpatialPreview has explicit disposal that stops/unsubscribes timer and viewer events and cancels owned work; LookPanel delegates disposal.",
-        "Added partial construction rollback, ApplicationExit timer cleanup, owned/cancelable selection DispatcherOperation, life-bound preview file writes, and ensured tab cleanup even when another disposer fails. Real-host canceled close and detach covered pending callback and export cancellation."
+        "Added partial construction rollback, ApplicationExit timer cleanup, owned/cancelable selection DispatcherOperation, life-bound preview file writes, and ensured tab cleanup even when another disposer fails. Real-host canceled close and detach covered pending callback and export cancellation.",
+        "Native development slots now belong to queued callbacks until abandoned or to executing callbacks until actual native return. New jobs cannot enter during physical cancellation drain."
       ],
       "evidence_paths": [
         "NativePanel/SpatialPreview.cs",
         "NativePanel/SpektraFilmTool.cs",
         "NativePanel/OpticalRenderer.cs",
-        ".test-results/host-detach-20261119/host-smoke.log"
+        ".test-results/host-detach-20261119/host-smoke.log",
+        "NativePanel/RenderCoordination.cs",
+        ".test-results/contracts-memory-admission-20261119/summary.json",
+        ".test-results/host-memory-admission-20261119/host-smoke.log"
       ],
       "remaining_work": [
-        "Test physical window closing, high-cycle leak baselines and bounded asynchronous drain for work already executing inside the host."
+        "Physical form close and high-cycle attach/detach/float leak baselines. Inject actual running host cancellation stages and verify weak references/handles."
       ],
       "original_acceptance_tests": [
         "100 attach/detach/float cycles, close during render/export/load, canceled host close, weak references become collectible, no orphan workers or dispatcher callbacks",
@@ -1818,15 +1865,17 @@
       "id": "VE-04",
       "title": "Replace fixed export limits with safe memory-aware rendering",
       "priority": "P2",
-      "status": "pending",
-      "implemented": [],
-      "evidence_paths": [],
+      "status": "partial",
+      "implemented": [
+        "Export checks measured system memory estimates at successive stages, preserves exact requested canvas or refuses it explicitly, and passes a real 24 MP run. Tiled/full parity passed six representative GPU scenes without format reduction."
+      ],
+      "evidence_paths": [
+        ".test-results/host-memory-admission-20261119/host-smoke.log",
+        ".test-results/gpu-tiled-parity-20261119.log",
+        "NativePanel/RenderMemoryBudget.cs"
+      ],
       "remaining_work": [
-        "Keep current bounds until resource accounting exists; expose effective full-canvas dimensions and predicted memory in export preflight.",
-        "Measure peak resident CPU/GPU memory at multiple dimensions/effect combinations and derive safe bounded budgets.",
-        "Implement tile rendering only after characterizing global effects, random grain coordinates, filter halo and boundary conditions; otherwise use strip streaming of final encoding while retaining necessary full processing buffers.",
-        "Separate final crop from spatial neighborhood ROI; include exact halo/whole-image dependencies rather than cropping source blindly.",
-        "Permit larger images under measured budget or offer an explicit size reduction with predicted output dimensions, never silently downsample."
+        "Prove real low-VRAM budgeting, bounded tiled export and support beyond the current 32 MP and 8192 edge limits. Test tighter host-memory conditions and failure during export."
       ],
       "original_acceptance_tests": [
         "Synthetic 30MP, 45MP, 61MP and >100MP preflight tests plus long-thin frames; allocate huge frames only on controlled memory fixtures.",
@@ -2330,9 +2379,9 @@
   ],
   "counts": {
     "total": 70,
-    "implemented": 9,
+    "implemented": 10,
     "partial": 41,
-    "pending": 20
+    "pending": 19
   },
   "last_reconciled": "2026-11-19",
   "handover": "HANDOVER.md",

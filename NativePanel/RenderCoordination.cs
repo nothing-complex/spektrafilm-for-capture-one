@@ -32,3 +32,31 @@ internal static class RenderCoordination
         finally { lifetime.Dispose(); }
     }
 }
+
+internal sealed class QueuedRenderRequest<TSource, TResult>(Func<TSource, TResult> render, Action release)
+{
+    private Func<TSource, TResult>? callback = render;
+    private readonly TaskCompletionSource<TResult> completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    internal Task<TResult> Result => completion.Task;
+
+    internal void Abandon()
+    {
+        // An abandoned queued callback releases its slot here. An executing
+        // callback retains the slot until native processing actually returns.
+        if (Interlocked.Exchange(ref callback, null) is not null)
+            release();
+        completion.TrySetCanceled();
+    }
+
+    internal void Run(TSource input)
+    {
+        var run = Interlocked.Exchange(ref callback, null);
+        if (run is null)
+            return;
+        try { completion.TrySetResult(run(input)); }
+        catch (OperationCanceledException error) { completion.TrySetCanceled(error.CancellationToken); }
+        catch (Exception error) { completion.TrySetException(error); }
+        finally { release(); }
+    }
+}

@@ -1,6 +1,8 @@
 """Exercise the Vulkan binary frame bridge without opening Capture One."""
 
 import argparse
+import json
+import os
 from pathlib import Path
 import struct
 import subprocess
@@ -44,9 +46,8 @@ def render(exe, frame, options):
     return pixels, time.monotonic() - start
 
 
-def reference_crop(frame):
+def reference_crop(frame, scale=1.2, x_shift=0.04, y_shift=-0.03):
     height, width = frame.shape[:2]
-    scale, x_shift, y_shift = 1.2, 0.04, -0.03
     x = (width / 2) + (np.arange(width) + 0.5 - width / 2 + width * x_shift) / scale - 0.5
     y = (height / 2) + (np.arange(height) + 0.5 - height / 2 + height * y_shift) / scale - 0.5
     x0, y0 = np.floor(x).astype(int), np.floor(y).astype(int)
@@ -62,8 +63,8 @@ def frame_request(frame, options):
     return f"FRAME {width} {height} {options}\n".encode("ascii") + frame.astype("<f4", copy=False).tobytes()
 
 
-def run_stream(exe, request, exit_code=0, mode="--stream"):
-    result = subprocess.run([str(exe), mode], input=request, capture_output=True, timeout=20)
+def run_stream(exe, request, exit_code=0, mode="--stream", env=None):
+    result = subprocess.run([str(exe), mode], input=request, capture_output=True, timeout=20, env=env)
     if result.returncode != exit_code:
         raise AssertionError(f"Expected renderer exit {exit_code}, got {result.returncode}: {result.stderr!r}")
     offset = 0
@@ -197,6 +198,46 @@ def check_output_transfers(exe, frame, base):
     print("Verified sRGB, Rec.709 gamma 2.4, and linear Rec.709 output against their decoded color tolerances")
 
 
+def check_tiled_parity(exe, base):
+    """Compare genuine multi-tile renders on a signal that crosses tile boundaries."""
+    height, width = 769, 1027
+    y, x = np.mgrid[0:1:height * 1j, 0:1:width * 1j].astype(np.float32)
+    checker = (np.floor(x * 7) + np.floor(y * 9)) % 2
+    frame = np.stack((.1 + .7 * x, .07 + .8 * y, .1 + .5 * checker, .15 + .85 * x), axis=-1)
+    frame[240:285, 475:530, :3] = 1.5  # Highlight crosses both default tile boundaries.
+    cases = {
+        "color": "--grain-model off",
+        "8 mm halation/scatter": "--grain-model off --film-format 8 --halation-amount 1 --scatter-amount 0.5",
+        "35 mm diffusion": "--grain-model off --film-format 35 --camera-diffusion-family pro_mist "
+                           "--camera-diffusion-strength 1.5 --print-diffusion-family black_pro_mist "
+                           "--print-diffusion-strength 1.5",
+        "70 mm DIR": "--grain-model off --film-format 70 --dir-amount 1.5 --dir-diffusion 80 --dir-tail-weight 0.3",
+        "metering/grain/scanner": "--grain-model production --film-format 35 --auto-exposure true --scanner-enabled true",
+        "enlarger": "--grain-model off --enlarger-scale 1.3 --enlarger-x 3 --enlarger-y -2",
+    }
+    clean = {key: value for key, value in os.environ.items()
+             if not key.upper().startswith("SPEKTRAFILM_") and key.upper() != "DOTNET_STARTUP_HOOKS"}
+    for label, options in cases.items():
+        pictures = []
+        for mode in ("legacy", "tiled"):
+            environment = {**clean, "SPEKTRAFILM_VULKAN_TILE_MODE": mode}
+            request = frame_request(frame, f"{base} {options}") + b"METRICS\nQUIT\n"
+            replies = run_stream(exe, request, mode="--export-stream", env=environment)
+            assert len(replies) == 3 and all(status == 0 for status, _ in replies), label
+            assert len(replies[0][1]) == frame.nbytes
+            picture = np.frombuffer(replies[0][1], dtype="<f4").reshape(frame.shape)
+            assert np.isfinite(picture).all(), label
+            alpha = reference_crop(frame, 1.3, .03, -.02)[..., 3] if label == "enlarger" else frame[..., 3]
+            np.testing.assert_allclose(picture[..., 3], alpha, rtol=0, atol=4e-7, err_msg=f"Alpha: {label}")
+            metrics = json.loads(replies[1][1])
+            assert metrics["tiled"] == (mode == "tiled"), (label, mode, metrics)
+            if mode == "tiled":
+                assert metrics["tileCount"] > 1, (label, metrics)
+            pictures.append(picture)
+        np.testing.assert_allclose(pictures[0], pictures[1], rtol=0, atol=2e-6, err_msg=f"Tile parity: {label}")
+        print(f"Tile parity {label}: max code difference {np.max(np.abs(pictures[0] - pictures[1])):.8g}")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--image", type=Path, help="Optional photograph. Defaults to a synthetic image.")
@@ -208,6 +249,7 @@ def main():
     check_stream(args.exe, frame, base)
     check_export_stream(args.exe, frame, base)
     check_output_transfers(args.exe, frame, base)
+    check_tiled_parity(args.exe, base)
     baseline, seconds = render(args.exe, frame, base)
     print(f"Baseline {frame.shape[1]}×{frame.shape[0]} in {seconds * 1000:.0f} ms")
 

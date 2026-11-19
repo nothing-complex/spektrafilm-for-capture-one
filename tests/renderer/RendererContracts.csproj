@@ -4,6 +4,7 @@
     <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../../NativePanel/RenderMemoryBudget.cs" Link="RenderMemoryBudget.cs" />
     <Compile Include="../../NativePanel/OpticalRenderer.cs" Link="OpticalRenderer.cs" />
     <Compile Include="../../NativePanel/WorkerEnvironment.cs" Link="WorkerEnvironment.cs" />
     <Compile Include="../../NativePanel/NativeLutExporter.cs" Link="NativeLutExporter.cs" />

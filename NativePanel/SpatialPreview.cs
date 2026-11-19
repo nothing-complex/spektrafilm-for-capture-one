@@ -710,6 +710,8 @@ internal sealed class SpatialPreview : IDisposable
                         pixels = await exporter.RenderAsync(source.Width, source.Height, source.FloatBytes, args, work.Token).ConfigureAwait(false);
                     }
                     work.Token.ThrowIfCancellationRequested();
+                    using var memory = RenderMemoryBudget.SystemMemory.Reserve(RenderAllocation.ImageEncoding,
+                        (long)rendered.Crop.Width * rendered.Crop.Height, "Free memory or choose a smaller Export Recipe.");
                     var output = DecodeExport(source, pixels, look.Strength, input.Space, encoding, outputFormat, rendered.Crop, work.Token, dpi);
                     SpektraExport.SaveApproved(approved, output, work.Token, recipe?.Metadata);
                     return (output.PixelWidth, output.PixelHeight);

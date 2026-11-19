@@ -36,6 +36,7 @@ internal static class Program
         var folder = args.Length > 0 ? args[0] : Path.Combine(Path.GetTempPath(), "Spektrafilm-viewer-contracts-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(folder);
         TestGeometry();
+        TestDpiAndCropGeometry();
         TestDraft();
         TestExport(folder);
         TestExportMetadata(folder);
@@ -46,6 +47,8 @@ internal static class Program
         TestOutputProtection(folder);
         TestSectionPreferences(folder);
         TestScheduling().GetAwaiter().GetResult();
+        TestNativeCallbackOwnership().GetAwaiter().GetResult();
+        TestMemoryAdmission();
         Console.WriteLine($"PASS: {assertions} assertions. Pure current-source probes only; no Capture One process used.");
     }
 
@@ -312,6 +315,107 @@ internal static class Program
         Console.WriteLine("Colour precision: Adobe near-black reference, transfer boundary, signed range, finite inputs and enum validation passed.");
     }
 
+    private static void TestMemoryAdmission()
+    {
+        const long gib = 1024L * 1024L * 1024L;
+        const string alternatives = "Choose a smaller Viewer resolution.";
+        var available = 4 * gib;
+        var budget = new RenderMemoryBudget(() => available);
+        var stage = RenderAllocation.WorkerTransport;
+        bool Refused(long pixels)
+        {
+            try
+            {
+                using var lease = budget.Reserve(stage, pixels, alternatives);
+                return false;
+            }
+            catch (InsufficientMemoryException error) { return error.Message.Contains(alternatives, StringComparison.Ordinal); }
+        }
+
+        Check(RenderMemoryBudget.EstimateBytes(stage, 24_000_000)
+            > RenderMemoryBudget.EstimateBytes(RenderAllocation.NativeDevelopment, 24_000_000), "Worker reserve must include extra transport");
+        var first = budget.Reserve(stage, 24_000_000, alternatives);
+        Check(Refused(24_000_000), "4 GiB fresh system headroom admitted competing high-cost requests");
+        available = 6 * gib;
+        using (budget.Reserve(stage, 24_000_000, alternatives))
+            Check(Refused(24_000_000), "6 GiB fresh headroom admitted a third expensive reserve");
+        first.Dispose();
+        first.Dispose();
+        available = 8 * gib;
+        Check(Refused(100_000_000), "unsupported memory demand must return an explicit resolution choice");
+        using var request = budget.Reserve(stage, 24_000_000, alternatives);
+        using var codec = budget.Reserve(RenderAllocation.ImageEncoding, 24_000_000, alternatives);
+        available = 512 * 1024L * 1024L;
+        Check(Refused(960_000), "headroom drop during active work did not prevent further admission");
+
+        available = 3 * gib;
+        var competing = 0;
+        Parallel.For(0, 16, _ =>
+        {
+            try
+            {
+                using var lease = budget.Reserve(stage, 24_000_000, alternatives);
+                Interlocked.Increment(ref competing);
+            }
+            catch (InsufficientMemoryException) { }
+        });
+        Check(competing == 0, "cross-context admission bypassed the outstanding leases");
+        Console.WriteLine("System memory reserve: 4/6/8 GiB synthetic headroom, overlap, release and pressure behavior passed.");
+    }
+
+    private static async Task TestNativeCallbackOwnership()
+    {
+        using var slot = new SemaphoreSlim(0, 1);
+        var invoked = 0;
+        var queued = new QueuedRenderRequest<int, int>(value => { invoked++; return value; }, () => slot.Release());
+        queued.Abandon();
+        queued.Abandon();
+        queued.Run(42);
+        Check(invoked == 0 && queued.Result.IsCanceled && slot.CurrentCount == 1,
+            "an abandoned queued callback gives its slot back once and cannot run");
+
+        await slot.WaitAsync();
+        using var entered = new ManualResetEventSlim();
+        using var finish = new ManualResetEventSlim();
+        var running = new QueuedRenderRequest<int, int>(value =>
+        {
+            entered.Set();
+            if (!finish.Wait(TimeSpan.FromSeconds(10)))
+                throw new TimeoutException("Native callback fixture did not release its gate.");
+            return value;
+        }, () => slot.Release());
+        var thread = Task.Run(() => running.Run(88));
+        Check(entered.Wait(TimeSpan.FromSeconds(10)), "native callback obtained ownership of the slot");
+        try
+        {
+            running.Abandon();
+            running.Abandon();
+            Check(running.Result.IsCanceled && slot.CurrentCount == 0,
+                "caller cancellation cannot release an executing native callback's slot");
+            Check(!await slot.WaitAsync(TimeSpan.FromMilliseconds(20)), "a second development could not enter during native drain");
+        }
+        finally { finish.Set(); }
+        await thread.WaitAsync(TimeSpan.FromSeconds(10));
+        Check(slot.CurrentCount == 1 && running.Result.IsCanceled,
+            "native completion releases its slot without publishing a canceled frame");
+
+        await slot.WaitAsync();
+        var failure = new QueuedRenderRequest<int, int>(_ => throw new IOException("native failure"), () => slot.Release());
+        failure.Run(0);
+        try { await failure.Result; throw new InvalidOperationException("Native failure was swallowed."); }
+        catch (IOException) { Check(slot.CurrentCount == 1, "native fault releases its slot and surfaces the real error"); }
+
+        for (var attempt = 0; attempt < 200; attempt++)
+        {
+            await slot.WaitAsync();
+            var raced = new QueuedRenderRequest<int, int>(value => value, () => slot.Release());
+            await Task.WhenAll(Task.Run(() => raced.Run(5)), Task.Run(raced.Abandon));
+            Check(slot.CurrentCount == 1 && (raced.Result.IsCanceled || raced.Result is { IsCompletedSuccessfully: true, Result: 5 }),
+                "competing native delivery/cancel leaves one slot and a terminal result");
+        }
+        Console.WriteLine("Capture One scheduler contracts: pending cancellation, running drain, native faults and 200 delivery races passed.");
+    }
+
     private static async Task TestScheduling()
     {
         var previewEnd=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -382,6 +486,60 @@ internal static class Program
         invalid[0].X=float.NaN;
         Check(!ViewerGeometry.TryCreate(new RectangleF(0,0,500,500),invalid,2000,1000,out _),"Nonfinite geometry accepted");
         Console.WriteLine("Geometry: affine, mirror, rotation, shear, offscreen and invalid-corner probes passed.");
+    }
+
+    private static void TestDpiAndCropGeometry()
+    {
+        var rectangle = new RectangleF(52, 33, 100, 61);
+        var corners = new[] { new PointF(32, 24), new PointF(192, 24), new PointF(192, 104), new PointF(32, 104) };
+        var color = new byte[] { 29, 68, 115, 255 };
+        var bitmap = BitmapSource.Create(4, 2, 96, 96, PixelFormats.Bgra32, null,
+            Enumerable.Repeat(color, 8).SelectMany(pixel => pixel).ToArray(), 16);
+        foreach (var scale in new[] { 1d, 1.5d, 2d })
+        {
+            Check(ViewerGeometry.TryCreate(rectangle, corners, bitmap.PixelWidth, bitmap.PixelHeight, out var geometry),
+                "DPI fixture geometry rejected");
+            var drawing = new DrawingVisual();
+            using (var dc = drawing.RenderOpen())
+            {
+                // Capture One's painter supplies this physical-pixel-to-DIP transform.
+                dc.PushTransform(new ScaleTransform(1 / scale, 1 / scale));
+                dc.PushClip(new RectangleGeometry(geometry.Clip));
+                dc.PushTransform(new MatrixTransform(geometry.Transform));
+                dc.DrawImage(bitmap, new System.Windows.Rect(0, 0, bitmap.PixelWidth, bitmap.PixelHeight));
+                dc.Pop();
+                dc.Pop();
+                dc.Pop();
+            }
+            var frame = new RenderTargetBitmap(220, 140, scale * 96, scale * 96, PixelFormats.Pbgra32);
+            frame.Render(drawing);
+            byte[] Pixel(int x, int y)
+            {
+                var rgba = new byte[4];
+                frame.CopyPixels(new System.Windows.Int32Rect(x, y, 1, 1), rgba, 4, 0);
+                return rgba;
+            }
+            Check(Pixel(110, 65).SequenceEqual(color), "frame center drifted at " + scale + "x DPI");
+            Check(Pixel(46, 65)[3] == 0 && Pixel(156, 65)[3] == 0, "clip moved at " + scale + "x DPI");
+            Check(Pixel(110, 28)[3] == 0 && Pixel(110, 101)[3] == 0, "vertical clip moved at " + scale + "x DPI");
+        }
+
+        var approximate = (PointF[])corners.Clone();
+        approximate[2].X += .49f;
+        Check(ViewerGeometry.TryCreate(rectangle, approximate, 4, 2, out _), "subpixel native corner rounding was rejected");
+        approximate[2].X += .03f;
+        Check(!ViewerGeometry.TryCreate(rectangle, approximate, 4, 2, out _), "nonclosing corner passed the rounding threshold");
+        var flat = new[] { new PointF(32, 50), new PointF(192, 50), new PointF(192, 50.5f), new PointF(32, 50.5f) };
+        Check(!ViewerGeometry.TryCreate(rectangle, flat, 4, 2, out _), "degenerate half-pixel rows should not paint");
+
+        var canvas = new SizeF(6000, 4000);
+        Check(ViewerGeometry.ScaleCrop(new RectangleF(444.2f, 100.4f, 3000, 2000), canvas, 3000, 2000)
+            == new Rectangle(222, 50, 1500, 1000), "crop pixel rounding drifted from native canvas");
+        Check(ViewerGeometry.ScaleCrop(new RectangleF(5999.8f, 3999.8f, .2f, .2f), canvas, 3000, 2000)
+            == new Rectangle(2999, 1999, 1, 1), "rounded crop at canvas edges lost the final pixel");
+        Check(ViewerGeometry.ScaleCrop(new RectangleF(5998, 3998, 10, 10), canvas, 3000, 2000)
+            == new Rectangle(2999, 1999, 1, 1), "crop extending outside frame exceeded its delivered canvas");
+        Console.WriteLine("Geometry: WPF physical coordinates at 100/150/200% DPI, closure limits and crop rounding passed.");
     }
 
     private static void TestDraft()

@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-19. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 9 bounded primary fixes implemented, 41 partial items and 20 pending items. It includes feasibility investigations and enhancements.
+Updated 2026-11-19. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 10 bounded primary fixes implemented, 41 partial items and 19 pending items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -187,6 +187,17 @@ Evidence is under `.test-results/contracts-renderer-drain-20261119`, `.test-resu
 - [x] Add Windows Server 2025 to public CI alongside 2022. Licensed host and GPU coverage remain explicit local tiers. [GitHub-hosted runner labels](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
 
 Evidence is under `.test-results/renderer-benchmark-color-optics-20261119.json` and `.test-results/renderer-benchmark-grain-quality-20261119.json`. Repeat with `python qa/renderer-benchmark.py --renderer renderer/SpektraStillRenderer.exe --output .test-results/next-benchmark.json --scene color --scene optics`. The benchmark covers the worker and pipe. Capture One development, source upload from managed code, host composition, driver residency and file encoding require their own probes.
+
+## Scheduler cancellation, DPI and system memory checkpoint
+
+- [x] Retain the Capture One scheduler slot for an executing native callback. Canceling the waiting caller releases the slot immediately only when work remains queued. Run 200 races plus explicit running, abandoned and faulted cases.
+- [x] Exercise WPF clip and image placement at 100%, 150% and 200% DPI under the native painter's modeled transform. Verify closure tolerance, degenerate geometry, offscreen clipping and crop rounding at canvas edges.
+- [x] Check physical and commit headroom before native development, worker transport and encoding. Use a process-wide reservation and refuse oversized demand explicitly. Simulate 4, 6 and 8 GiB of system memory headroom with overlapping and pressure cases. [Windows memory status](https://learn.microsoft.com/en-us/windows/win32/api/sysinfoapi/ns-sysinfoapi-memorystatusex)
+- [x] Compare full and multi-tile GPU output in six scenes crossing tile edges. Maximum tested difference was 1.79e-7. Verify alpha independently. Automatically choosing tiling under VRAM pressure is still open.
+- [x] Pass 12,296 local Windows assertions, the Vulkan smoke/parity suite, and 105 first-launch plus 108 restart assertions. Both live runs included unscaled 24 MP export. The source catalog stayed unchanged.
+- [x] Fix the worker-shutdown EOF/cancellation race exposed by Windows Server 2025. The preceding matrix passed on Server 2022. Verify the updated matrix run on both images. [Initial matrix](https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44622033511)
+
+Evidence is under `.test-results/contracts-memory-admission-20261119`, `.test-results/host-memory-admission-20261119` and `.test-results/gpu-tiled-parity-20261119.log`. The installed runtime still identifies `ffc4819`.
 
 ## Runtime map for the next agent
 

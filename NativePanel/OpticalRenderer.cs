@@ -30,6 +30,8 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
         {
             ObjectDisposedException.ThrowIf(disposed, this);
             await shutdown.WaitAsync(linked.Token).ConfigureAwait(false);
+            using var memory = RenderMemoryBudget.SystemMemory.Reserve(RenderAllocation.WorkerTransport, (long)width * height,
+                export ? "Free memory or choose a smaller output." : "Free memory or choose a smaller Viewer resolution.");
             return await RenderCoreAsync(width, height, rgba, arguments, linked.Token, displayPixels).ConfigureAwait(false);
         }
         finally { requests.Release(); }
@@ -117,6 +119,9 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
             or OperationCanceledException or ObjectDisposedException)
         {
             await StopAsync(abort: true).ConfigureAwait(false);
+            // Disposing a worker can close its pipe before Windows completes
+            // the pending I/O cancellation.
+            stop.ThrowIfCancellationRequested();
             throw;
         }
     }
