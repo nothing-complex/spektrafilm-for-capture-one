@@ -22,6 +22,7 @@ param(
     [switch] $DurableSliderEdits,
     [switch] $NativeLookBatch,
     [switch] $NativeLookBatchCrash,
+    [switch] $NativeBatchExport,
     [switch] $NativeVariantLineage,
     [switch] $NativeSupportDiagnostics,
     [string] $MetadataFixtureRoot,
@@ -54,6 +55,13 @@ param(
 )
 $ErrorActionPreference='Stop'
 if ($NativeLookBatchCrash) { $NativeLookBatch=$true }
+if ($NativeBatchExport) {
+    if (!$NativeSettingsConfig -or $NativeLookBatch -or $NativeVariantLineage -or $NativeEffectExport -or $NativeExportInterruption -or
+        $CatalogIsolation -or $ConcurrentCatalogs -or $SessionIsolation -or $PackagedRuntime -or $UpgradeFromPackage) {
+        throw 'Native batch export needs its own copied four-RAW catalog and verified preferences backup.'
+    }
+    $SkipRestart=$true
+}
 if ($NativeSupportDiagnostics) {
     if (!$NativeSettingsConfig -or $PackagedRuntime -or $UpgradeFromPackage -or $CatalogIsolation -or $ConcurrentCatalogs -or
         $NativeLookBatch -or $NativeVariantLineage -or $ViewerLayouts -or $ColorMatrix -or $ViewerStress -or $NativeEffectExport) {
@@ -447,7 +455,7 @@ if ($NativeSettingsConfig) {
 }
 $nativeRecipes=$null
 $recipeHashes=@{}
-if ($NativeEffectCompression -or $NativeEffectOutputProfiles -or $NativeEffectFolders -or $NativeEffectSourceRevision -or $NativeEffectMaskedSource -or $NativeEffectProfileSidecars -or $NativeEffectRecipeRestart) {
+if ($NativeBatchExport -or $NativeEffectCompression -or $NativeEffectOutputProfiles -or $NativeEffectFolders -or $NativeEffectSourceRevision -or $NativeEffectMaskedSource -or $NativeEffectProfileSidecars -or $NativeEffectRecipeRestart) {
     $nativeRecipes=Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'CaptureOne\Recipes143'
     $recipeRoot=Get-Item -LiteralPath $nativeRecipes -Force
     if (!$recipeRoot.PSIsContainer -or ($recipeRoot.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
@@ -616,7 +624,7 @@ $names=@(
     'SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT','SPEKTRAFILM_HOST_MOVED_LOOK_BACKUP',
     'SPEKTRAFILM_SHOW_TOOL','SPEKTRAFILM_HOST_PROOF_TEST','SPEKTRAFILM_HOST_CATALOG_ISOLATION',
     'SPEKTRAFILM_HOST_VIEWER_LAYOUTS','SPEKTRAFILM_HOST_FLOATING_WORKSPACE','SPEKTRAFILM_HOST_NATIVE_WORKSPACE_SWITCH',
-    'SPEKTRAFILM_HOST_DURABLE_EDITS','SPEKTRAFILM_HOST_LOOK_BATCH','SPEKTRAFILM_HOST_VARIANT_LINEAGE','SPEKTRAFILM_HOST_SUPPORT_DIAGNOSTICS','SPEKTRAFILM_HOST_METADATA_FIXTURE',
+    'SPEKTRAFILM_HOST_DURABLE_EDITS','SPEKTRAFILM_HOST_LOOK_BATCH','SPEKTRAFILM_HOST_BATCH_EXPORT','SPEKTRAFILM_HOST_VARIANT_LINEAGE','SPEKTRAFILM_HOST_SUPPORT_DIAGNOSTICS','SPEKTRAFILM_HOST_METADATA_FIXTURE',
     'SPEKTRAFILM_HOST_VIEWER_CHURN','SPEKTRAFILM_HOST_VIEWER_CHURN_RESOLUTION','SPEKTRAFILM_HOST_VIEWER_TELEMETRY_SECONDS','SPEKTRAFILM_HOST_EXPORT_INTERRUPTION',
     'SPEKTRAFILM_HOST_NATIVE_VIEWER_BASELINE','SPEKTRAFILM_HOST_OTHER_CATALOG',
     'SPEKTRAFILM_HOST_NATIVE_LIFETIME',
@@ -648,6 +656,7 @@ try {
     $env:SPEKTRAFILM_HOST_NATIVE_WORKSPACE_SWITCH=if($NativeWorkspaceSwitch){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_DURABLE_EDITS=if($DurableSliderEdits){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_LOOK_BATCH=if($NativeLookBatchCrash){'crash'}elseif($NativeLookBatch){'1'}else{$null}
+    $env:SPEKTRAFILM_HOST_BATCH_EXPORT=if($NativeBatchExport){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_VARIANT_LINEAGE=if($NativeVariantLineage){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_SUPPORT_DIAGNOSTICS=if($NativeSupportDiagnostics){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_METADATA_FIXTURE=$MetadataFixtureRoot

@@ -558,7 +558,12 @@ internal static class SpektraFilmTool
             };
             var exports = new ExportJobJournal(Path.Combine(PanelPreferences.UserDataDirectory(), "Export jobs", looks.CatalogIdentity), StartupHook.Log);
             opticalPreview = SpatialPreview.BuildForPanel(window, document, CurrentSettings, UseSelectedLook, exports);
-            layout.Children.Insert(3, opticalPreview.ExportControls);
+            var exportSection = new StackPanel();
+            exportSection.Children.Add(Button("Export selected images…", async () =>
+                await ExportSelectedImagesAsync((picker, owner) =>
+                    (owner is { IsVisible: true } ? picker.ShowDialog(owner) : picker.ShowDialog()) == true ? picker.FolderName : null)));
+            exportSection.Children.Add(opticalPreview.ExportControls);
+            layout.Children.Insert(3, exportSection);
             opticalPreview.SettingsChanged += SaveLook;
             opticalPreview.SliderDragActivity += UpdateHistoryGesture;
             opticalPreview.TrackSliderDrag(exposure);
@@ -1029,6 +1034,30 @@ internal static class SpektraFilmTool
         }
 
         internal bool IsSpektraExportActive => SyncSelection() && IsSpektraFilmEnabled;
+
+        private Task<int> ExportSelectedImagesAsync(Func<OpenFolderDialog, Window?, string?> chooseFolder)
+        {
+            if (disposed || !StocksReady || defaultLook is not { } defaults)
+                return Task.FromResult(0);
+            try
+            {
+                FlushLooks();
+                var selected = HostProfile.CaptureSelectionSet(window, document);
+                return opticalPreview.ExportBatchAsync(selected, variant =>
+                {
+                    var saved = looks.ReadOutcome(variant);
+                    if (saved.ReadOnly)
+                        throw new InvalidDataException(saved.Detail ?? "A selected image has an unreadable Spektrafilm look.");
+                    return saved.Look ?? defaults;
+                }, Window.GetWindow(this), chooseFolder);
+            }
+            catch (Exception error)
+            {
+                status.Text = error.GetBaseException().Message;
+                StartupHook.Log("Could not capture the selected images: " + status.Text);
+                return Task.FromResult(0);
+            }
+        }
         internal ICaptureOneDocument Document => document;
 
         internal VariantLook? CaptureCloneLook(Guid variant)

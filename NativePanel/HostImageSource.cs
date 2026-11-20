@@ -103,6 +103,9 @@ internal static class HostImageSource
         PreviewInputSpace inputSpace, bool captureRecipe) =>
         CaptureSnapshot(window, target, inputSpace, captureRecipe, forExport: true);
 
+    internal static Snapshot CaptureBatchExport(HostProfile.Selection selection, HostProfile.Target target,
+        PreviewInputSpace inputSpace) => CaptureSnapshot(selection, target, inputSpace, captureRecipe: true, forExport: true);
+
     internal static async Task WaitForNativeDevelopmentAsync(CancellationToken token)
     {
         // A canceled preview can return before its running Capture One callback.
@@ -112,9 +115,12 @@ internal static class HostImageSource
     }
 
     private static Snapshot CaptureSnapshot(object window, HostProfile.Target target,
+        PreviewInputSpace inputSpace, bool captureRecipe, bool forExport) =>
+        CaptureSnapshot(RequireSelection(window, target.VariantId, forExport), target, inputSpace, captureRecipe, forExport);
+
+    private static Snapshot CaptureSnapshot(HostProfile.Selection selection, HostProfile.Target target,
         PreviewInputSpace inputSpace, bool captureRecipe, bool forExport)
     {
-        var selection = RequireSelection(window, target.VariantId, forExport);
         var variant = selection.Variant;
         var image = variant.CoreImage;
         if (image is null || !image.IsFileAvailable || !image.IsICProcessable || image.IsMovie || image.IsCorrupt)

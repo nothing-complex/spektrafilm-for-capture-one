@@ -67,6 +67,8 @@ Once you choose a destination, the panel reports Capture One development, film r
 
 After a restart, select the image from the unfinished job and choose **Retry interrupted export** when available. Spektrafilm verifies the original, adjustments, film settings, recipe and rendering files, then opens Save at the previous destination in the same format. Approve the destination again to render from the start. Use a new export if you changed the look, recipe or build, or if the interruption happened before the retry information was saved.
 
+To export several images, select them in Capture One and choose **Export selected images** in the Spektrafilm tool. Choose one destination folder for the batch. Each image uses its own saved look and the selected Capture One recipe. Images with Spektrafilm switched off use Capture One’s development alone. Shared names and existing files get numbered suffixes. **Cancel export** skips the current image. **Stop after this image** finishes the current image and stops the queue.
+
 The export path is for the selected image with one recipe. If Capture One is set to export all selected variants and a selected variant has an enabled Spektrafilm look, select that variant on its own. Export supports a canvas up to 100 megapixels and 16,384 pixels per edge when system and GPU memory allow it. Grain synthesis supports up to 32 megapixels. Choose a smaller Export Recipe if a requested frame exceeds these limits. Turn off **Enable Spektrafilm** for the variants you want to export through Capture One alone.
 
 ### .cube export

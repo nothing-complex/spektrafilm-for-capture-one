@@ -21,6 +21,8 @@ internal sealed class ExportActivity
 {
     internal ExportOperation? Active { get; private set; }
     internal string? Message { get; private set; }
+    internal bool BatchActive { get; private set; }
+    internal bool BatchStopped { get; private set; }
     internal event Action? Changed;
 
     internal void Begin(ExportOperation work)
@@ -45,5 +47,26 @@ internal sealed class ExportActivity
             return;
         Active = null;
         Changed?.Invoke();
+    }
+
+    internal void BeginBatch()
+    {
+        if (BatchActive || Active is not null)
+            throw new InvalidOperationException("A Spektrafilm export is already in progress.");
+        BatchActive = true;
+        BatchStopped = false;
+        Changed?.Invoke();
+    }
+
+    internal void StopBatch()
+    {
+        BatchStopped = true;
+        Changed?.Invoke();
+    }
+
+    internal void EndBatch(string message)
+    {
+        BatchActive = false;
+        Report(null, message);
     }
 }

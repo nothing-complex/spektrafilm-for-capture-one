@@ -226,6 +226,15 @@ internal static partial class Program
             "canceling the active operation cannot cancel a previous export");
         activity.End(second);
         Check(activity.Active is null, "a terminal export releases the native document's live slot");
+        activity.BeginBatch();
+        activity.Begin(first);
+        activity.StopBatch();
+        Check(activity.BatchActive && activity.BatchStopped && !first.Token.IsCancellationRequested,
+            "requesting a batch stop leaves the current export running");
+        activity.End(first);
+        Check(activity.Active is null && activity.BatchActive, "the batch owns output between consecutive images");
+        activity.EndBatch("Finished batch");
+        Check(!activity.BatchActive && activity.Message == "Finished batch", "batch completion publishes one visible summary");
     }
 
     private static void TestExportJobJournal(string folder)

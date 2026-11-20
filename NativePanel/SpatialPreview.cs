@@ -133,6 +133,7 @@ internal sealed class SpatialPreview : IDisposable
     private readonly CancellationTokenSource lifetime = new();
     private readonly TextBlock exportStatus = new() { TextWrapping = TextWrapping.Wrap };
     private readonly Button cancelExport = new() { Content = "Cancel export", Visibility = Visibility.Collapsed, HorizontalAlignment = HorizontalAlignment.Left };
+    private readonly Button stopExportBatch = new() { Content = "Stop after this image", Visibility = Visibility.Collapsed, HorizontalAlignment = HorizontalAlignment.Left };
     private readonly Button retryExport = new() { Content = "Retry interrupted export…", Visibility = Visibility.Collapsed, HorizontalAlignment = HorizontalAlignment.Left };
     private ExportReceipt? interruptedExport;
     private bool disposed;
@@ -193,8 +194,10 @@ internal sealed class SpatialPreview : IDisposable
         exportStatus.Text = exportActivity.Message ?? DescribePreviousExport(latest);
         exportControls.Children.Add(exportStatus);
         exportControls.Children.Add(cancelExport);
+        exportControls.Children.Add(stopExportBatch);
         exportControls.Children.Add(retryExport);
         cancelExport.Click += (_, _) => exportActivity.Active?.Cancel();
+        stopExportBatch.Click += (_, _) => exportActivity.StopBatch();
         retryExport.Click += async (_, _) => await RetryInterruptedExportAsync(ChooseExportDestination);
         ExportControls = exportControls;
         exportActivity.Changed += UpdateExportControls;
@@ -239,6 +242,8 @@ internal sealed class SpatialPreview : IDisposable
         lifetime.Cancel();
         lifetime.Dispose();
         exportActivity.Changed -= UpdateExportControls;
+        if (!keepAcceptedExport && exportActivity.BatchActive)
+            exportActivity.StopBatch();
         if (!keepAcceptedExport || exportActivity.Active is { IsAccepted: false })
             exportActivity.Active?.Cancel();
         ClearPreview();
@@ -588,7 +593,7 @@ internal sealed class SpatialPreview : IDisposable
         }
     }
 
-    private bool OutputRenderActive => exportActivity.Active is not null || lutRenderActive;
+    private bool OutputRenderActive => exportActivity.Active is not null || exportActivity.BatchActive || lutRenderActive;
 
     private void UpdateExportControls()
     {
@@ -596,10 +601,160 @@ internal sealed class SpatialPreview : IDisposable
         if (exportActivity.Message is { } message)
             exportStatus.Text = message;
         cancelExport.Visibility = active is { IsAccepted: true } ? Visibility.Visible : Visibility.Collapsed;
-        retryExport.Visibility = active is null && interruptedExport is not null ? Visibility.Visible : Visibility.Collapsed;
-        var resume = exportWasActive && active is null;
-        exportWasActive = active is not null;
+        stopExportBatch.Visibility = exportActivity.BatchActive && !exportActivity.BatchStopped ? Visibility.Visible : Visibility.Collapsed;
+        var busy = active is not null || exportActivity.BatchActive;
+        retryExport.Visibility = !busy && interruptedExport is not null ? Visibility.Visible : Visibility.Collapsed;
+        var resume = exportWasActive && !busy;
+        exportWasActive = busy;
         if (resume) RequestRefresh();
+    }
+
+    private sealed record BatchExport(HostProfile.Target Target, HostImageSource.Snapshot Snapshot, OpticalInput Input,
+        string Encoding, double Strength, string[] Arguments, OutputPathGuard.ApprovedDestination Destination);
+
+    internal async Task<int> ExportBatchAsync(HostProfile.Selection[] selection, Func<Guid, VariantLook> readLook, Window? owner,
+        Func<OpenFolderDialog, Window?, string?> chooseFolder)
+    {
+        if (disposed || OutputRenderActive) return 0;
+        if (selection.Length < 2)
+        {
+            exportActivity.Report(null, "Select at least two images for batch export.");
+            return 0;
+        }
+
+        var token = lifetime.Token;
+        var saved = 0;
+        var failed = 0;
+        var canceled = 0;
+        string? firstError = null;
+        string? summary = null;
+        string? deliveryNote = null;
+        exportActivity.BeginBatch();
+        try
+        {
+            exportActivity.Report(null, "Preparing batch export…");
+            await DrainPreviewWorkersAsync(token);
+            await HostImageSource.WaitForNativeDevelopmentAsync(token);
+            token.ThrowIfCancellationRequested();
+            var sources = new List<(HostProfile.Target Target, HostImageSource.Snapshot Snapshot, OpticalInput Input,
+                string Encoding, double Strength, string[] Arguments)>();
+            foreach (var item in selection)
+            {
+                try
+                {
+                    var target = HostProfile.TargetFor(item.Variant);
+                    var savedLook = readLook(target.VariantId);
+                    var strength = savedLook.Enabled ? savedLook.Look.Strength : 0;
+                    var input = OpticalControls.Inputs.Single(option => option.Id ==
+                        (strength == 0 ? "srgb" : savedLook.Optics.Selections.GetValueOrDefault("input-color", "srgb")));
+                    var encoding = strength == 0 ? "srgb" : savedLook.Optics.Selections.GetValueOrDefault("output-color", "srgb");
+                    ValidateSettings(savedLook.Optics);
+                    var arguments = strength == 0 ? Array.Empty<string>()
+                        : BuildRendererOptions(savedLook.Look, input.Id, encoding, export: true, draft: false, savedLook.Optics);
+                    var snapshot = HostImageSource.CaptureBatchExport(item, target, input.Space);
+                    if (snapshot.Recipe is null)
+                        throw new InvalidOperationException("Select an Export Recipe before starting a batch.");
+                    sources.Add((target, snapshot, input, encoding, strength, arguments));
+                }
+                catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or InvalidOperationException)
+                {
+                    failed++;
+                    firstError ??= error.GetBaseException().Message;
+                    StartupHook.Log("Could not prepare a Spektrafilm batch image: " + error.GetBaseException().Message);
+                }
+            }
+            if (sources.Count == 0 || exportActivity.BatchStopped)
+                return saved;
+
+            var batchRecipe = sources[0].Snapshot.Recipe!;
+            var policy = new SpektraExport.RecipeDelivery(batchRecipe.FormatId, batchRecipe.TiffBits, batchRecipe.CropMode, batchRecipe.Omissions);
+            var isPng = policy.Extension == ".png";
+            deliveryNote = policy.SavedNote(isPng ? PixelFormats.Rgba64 : PixelFormats.Rgb48);
+            var formatLabel = isPng ? "PNG" : "TIFF";
+            var picker = new OpenFolderDialog
+            {
+                Title = $"Export {sources.Count} images as 16-bit {formatLabel}" + (deliveryNote is null ? "" : " · " + deliveryNote),
+                Multiselect = false,
+            };
+            var destination = chooseFolder(picker, owner);
+            if (destination is null || disposed || exportActivity.BatchStopped)
+            {
+                summary = "Batch export canceled.";
+                return saved;
+            }
+            var folder = Path.GetFullPath(destination);
+            var queue = new List<BatchExport>(sources.Count);
+            var reserved = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var item in sources)
+            {
+                try
+                {
+                    var recipe = item.Snapshot.Recipe!;
+                    var extension = recipe.FormatId == "Png" ? ".png" : ".tif";
+                    var name = SpektraExport.SuggestedOutputName(recipe.SuggestedFilename, item.Target.SourcePath, extension);
+                    var approved = ApproveNewBatchDestination(folder, name, item.Target.SourcePath, reserved);
+                    queue.Add(new(item.Target, item.Snapshot, item.Input, item.Encoding, item.Strength, item.Arguments, approved));
+                }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidOperationException)
+                {
+                    failed++;
+                    firstError ??= error.GetBaseException().Message;
+                }
+            }
+            for (var index = 0; index < queue.Count; index++)
+            {
+                if (exportActivity.BatchStopped)
+                {
+                    canceled += queue.Count - index;
+                    break;
+                }
+                var item = queue[index];
+                exportActivity.Report(null, $"Exporting image {index + 1} of {queue.Count}…");
+                var success = await RunExportWithDestinationAsync(true, null, ChooseExportDestination, null, item);
+                if (success) saved++;
+                else if (exportJobs.ReadLatest() is { Stage: ExportStage.Canceled } receipt
+                    && StringComparer.OrdinalIgnoreCase.Equals(receipt.Destination, item.Destination.Path)) canceled++;
+                else
+                {
+                    failed++;
+                    firstError ??= exportActivity.Message;
+                }
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            summary = "Batch export canceled.";
+        }
+        catch (Exception error)
+        {
+            summary = "Could not start the batch export. " + error.GetBaseException().Message;
+            StartupHook.Log(error.ToString());
+        }
+        finally
+        {
+            var details = string.Join(Environment.NewLine, new[] { firstError, deliveryNote }.OfType<string>());
+            var outcome = $"Saved {saved} of {selection.Length} images · {failed} failed · {canceled} canceled";
+            exportActivity.EndBatch(summary ?? (details.Length == 0 ? outcome : outcome + Environment.NewLine + details));
+        }
+        return saved;
+    }
+
+    private static OutputPathGuard.ApprovedDestination ApproveNewBatchDestination(string folder, string filename, string original,
+        HashSet<string> reserved)
+    {
+        var stem = Path.GetFileNameWithoutExtension(filename);
+        var extension = Path.GetExtension(filename);
+        for (var suffix = 0; suffix <= 10_000; suffix++)
+        {
+            var name = suffix == 0 ? filename : $"{stem}-{suffix}{extension}";
+            var path = Path.Combine(folder, name);
+            if (reserved.Contains(path) || File.Exists(path) || Directory.Exists(path)) continue;
+            var approved = OutputPathGuard.Approve(path, original);
+            if (approved.AlreadyExists) continue;
+            reserved.Add(path);
+            return approved;
+        }
+        throw new IOException("There are too many files with the same export name in this folder.");
     }
 
     internal async Task<string> RenderLutAsync(NativeLutExporter.Plan plan, int resolution, double strength, CancellationToken stop)
@@ -633,9 +788,9 @@ internal sealed class SpatialPreview : IDisposable
             : Task.FromResult(false);
 
     private async Task<bool> RunExportWithDestinationAsync(bool useRecipeSize, Window? owner,
-        Func<SaveFileDialog, Window?, string?> chooseDestination, ExportReceipt? interrupted)
+        Func<SaveFileDialog, Window?, string?> chooseDestination, ExportReceipt? interrupted, BatchExport? batch = null)
     {
-        if (disposed || !enabled || exportActivity.Active is not null)
+        if (exportActivity.Active is not null || (batch is null && (disposed || !enabled || exportActivity.BatchActive)))
             return false;
         if (lutRenderActive)
         {
@@ -647,13 +802,14 @@ internal sealed class SpatialPreview : IDisposable
         System.Windows.Forms.FormClosedEventHandler? closed = null;
         try
         {
-            var look = getSettings() ?? throw new InvalidOperationException("Wait for the Spektrafilm controls to finish loading.");
-            var target = HostProfile.CaptureTarget(window);
+            var look = batch is null ? getSettings() ?? throw new InvalidOperationException("Wait for the Spektrafilm controls to finish loading.") : null;
+            var strength = batch?.Strength ?? look!.Strength;
+            var target = batch?.Target ?? HostProfile.CaptureTarget(window);
             if (interrupted is not null && interrupted.VariantId != target.VariantId)
                 throw new InvalidOperationException("Select the image from the interrupted export and try again.");
-            var input = (OpticalInput)inputSpace.SelectedItem;
-            var encoding = ((OpticalOption)outputSpace.SelectedItem).Id;
-            var args = look.Strength > 0 ? RendererOptions(look, input.Id, encoding, export: true) : Array.Empty<string>();
+            var input = batch?.Input ?? (OpticalInput)inputSpace.SelectedItem;
+            var encoding = batch?.Encoding ?? ((OpticalOption)outputSpace.SelectedItem).Id;
+            var args = batch?.Arguments ?? (strength > 0 ? RendererOptions(look!, input.Id, encoding, export: true) : Array.Empty<string>());
             // Reserve the export before yielding so the Viewer cannot start another
             // development while Capture One settles the source for the Save request.
             var work = exportWork = new ExportOperation(target.VariantId);
@@ -668,10 +824,10 @@ internal sealed class SpatialPreview : IDisposable
                 await DrainPreviewWorkersAsync(work.Token);
                 await HostImageSource.WaitForNativeDevelopmentAsync(work.Token);
                 work.Token.ThrowIfCancellationRequested();
-                if (disposed || owner is { IsVisible: false })
+                if (batch is null && (disposed || owner is { IsVisible: false }))
                     return false;
                 var viewerDrainMs = Stopwatch.GetElapsedTime(drainStarted).TotalMilliseconds;
-                var snapshot = HostImageSource.CaptureForExport(window, target,
+                var snapshot = batch?.Snapshot ?? HostImageSource.CaptureForExport(window, target,
                     input.Space, captureRecipe: useRecipeSize);
                 var recipe = snapshot.Recipe;
                 var deliveryProfile = ExportColorProfile.ForRecipe(recipe?.ColorProfileName, recipe?.ColorProfilePath);
@@ -680,7 +836,7 @@ internal sealed class SpatialPreview : IDisposable
                 if (interrupted is not null)
                 {
                     exportActivity.Report(work, "Checking the interrupted export…");
-                    retry = await CaptureRetryDescriptorAsync(snapshot, target.SourcePath, args, look.Strength, encoding,
+                    retry = await CaptureRetryDescriptorAsync(snapshot, target.SourcePath, args, strength, encoding,
                         deliveryProfile, useRecipeSize, work.Token, heldSource);
                     if (retry is null || retry != interrupted.Retry)
                         throw new InvalidOperationException("The source, film settings or Export Recipe changed. Restore them or start a new export.");
@@ -693,7 +849,7 @@ internal sealed class SpatialPreview : IDisposable
                 var dpi = recipe is null ? ExportResolution.DefaultDpi : ExportResolution.DotsPerInch(recipe.Resolution, recipe.ResolutionUnit);
                 var suggestedName = SpektraExport.SuggestedOutputName(recipe?.SuggestedFilename, target.SourcePath, extension,
                     recipe?.SuggestedDirectory, recipe?.AddSuffixToExistingFileName == true);
-                var skipPath = interrupted is null && delivery.CanSkipRecipeOutput && recipe is { SkipExistingOutput: true,
+                var skipPath = batch is null && interrupted is null && delivery.CanSkipRecipeOutput && recipe is { SkipExistingOutput: true,
                     SuggestedFilename: { } stem, ExactDirectory: { } exactDirectory }
                     ? Path.Combine(exactDirectory, stem + extension) : null;
 
@@ -714,7 +870,7 @@ internal sealed class SpatialPreview : IDisposable
                     picker.InitialDirectory = directory;
                 if (skipPath is not null && ExistingRecipeOutput(skipPath, target.SourcePath) is { } existing)
                     return Skip(existing);
-                var destination = chooseDestination(picker, owner);
+                var destination = batch?.Destination.Path ?? chooseDestination(picker, owner);
                 work.Token.ThrowIfCancellationRequested();
                 if (destination is null)
                 {
@@ -725,7 +881,7 @@ internal sealed class SpatialPreview : IDisposable
 
                 if (interrupted is not null && SpektraExport.PixelFormatFor(interrupted.Destination) != SpektraExport.PixelFormatFor(destination))
                     throw new InvalidOperationException("Use the original file format when retrying an interrupted export.");
-                var approved = OutputPathGuard.Approve(destination, target.SourcePath);
+                var approved = batch?.Destination ?? OutputPathGuard.Approve(destination, target.SourcePath);
                 if (approved.AlreadyExists && StringComparer.OrdinalIgnoreCase.Equals(skipPath, approved.Path))
                     return Skip(approved);
                 var outputFormat = SpektraExport.PixelFormatFor(approved.Path);
@@ -738,7 +894,7 @@ internal sealed class SpatialPreview : IDisposable
                     owner.Title = owner.Title[..^ExportFailureTitleSuffix.Length];
                 var jobId = receipt.JobId;
                 var started = Stopwatch.GetTimestamp();
-                retry ??= await CaptureRetryDescriptorAsync(snapshot, target.SourcePath, args, look.Strength, encoding,
+                retry ??= await CaptureRetryDescriptorAsync(snapshot, target.SourcePath, args, strength, encoding,
                     deliveryProfile, useRecipeSize, work.Token);
                 if (retry is not null)
                     receipt = exportJobs.RecordRetry(receipt, retry);
@@ -757,7 +913,7 @@ internal sealed class SpatialPreview : IDisposable
                     StartupHook.Log($"Capture One developed {target.SourceFormat} export input at {source.Width} × {source.Height}, {source.BitDepth}-bit {input.Space}.");
                     byte[]? pixels = null;
                     double? renderMs = null;
-                    if (look.Strength > 0)
+                    if (strength > 0)
                     {
                         Advance(ExportStage.RenderingFilm, "Rendering the Spektrafilm look…");
                         await using var exporter = new OpticalRenderer(export: true)
@@ -791,7 +947,7 @@ internal sealed class SpatialPreview : IDisposable
                         (long)rendered.Crop.Width * rendered.Crop.Height, "Free memory or choose a smaller Export Recipe.");
                     var deliveryFormat = deliveryProfile.RequiresConversion ? PixelFormats.Rgba64 : outputFormat;
                     var encodingStarted = Stopwatch.GetTimestamp();
-                    var image = DecodeExport(source, pixels, look.Strength, input.Space, encoding, deliveryFormat, rendered.Crop, work.Token, dpi);
+                    var image = DecodeExport(source, pixels, strength, input.Space, encoding, deliveryFormat, rendered.Crop, work.Token, dpi);
                     var blendAndCropMs = Stopwatch.GetElapsedTime(encodingStarted).TotalMilliseconds;
                     var profileSetupStarted = Stopwatch.GetTimestamp();
                     var output = deliveryProfile.ConvertSrgb(image, outputFormat);
@@ -825,7 +981,7 @@ internal sealed class SpatialPreview : IDisposable
                     });
                     return (output.PixelWidth, output.PixelHeight);
                 }, work.Token);
-                var counterStatus = form is { IsDisposed: false, Disposing: false } && recipe?.Naming?.AdvanceCounter is { } advance
+                var counterStatus = batch is null && form is { IsDisposed: false, Disposing: false } && recipe?.Naming?.AdvanceCounter is { } advance
                     && StringComparer.OrdinalIgnoreCase.Equals(Path.GetFileNameWithoutExtension(suggestedName),
                         Path.GetFileNameWithoutExtension(approved.Path))
                     ? AdvanceNativeExportCounter(advance, jobId) : "";
@@ -863,7 +1019,7 @@ internal sealed class SpatialPreview : IDisposable
             StartupHook.Log("Spektrafilm export failed: " + error);
             var message = error.GetBaseException().Message;
             Advance(ExportStage.Failed, $"Spektrafilm export failed. {message}", error: message);
-            if (disposed) return false;
+            if (disposed || batch is not null) return false;
             if (interrupted is not null && receipt is null) return false;
             if (receipt is not null)
             {
@@ -1711,7 +1867,10 @@ internal sealed class SpatialPreview : IDisposable
         Array.AsReadOnly(FilmControls.Development.Values.Where(item => item.WorkerKey is not null)
             .Select(item => (item.StateKey, item.WorkerKey!)).ToArray());
 
-    internal string[] RendererOptions(LookSettings look, string inputColor, string outputColor, bool export = false, bool draft = false)
+    internal string[] RendererOptions(LookSettings look, string inputColor, string outputColor, bool export = false, bool draft = false) =>
+        BuildRendererOptions(look, inputColor, outputColor, export, draft, frozen: null);
+
+    private string[] BuildRendererOptions(LookSettings look, string inputColor, string outputColor, bool export, bool draft, Settings? frozen)
     {
         if (look.Mode is "process_negative" or "process_negatives")
             throw new InvalidOperationException("Process Negative requires an encoded negative scan as input.");
@@ -1719,7 +1878,12 @@ internal sealed class SpatialPreview : IDisposable
             throw new InvalidOperationException("Set Developer exhaustion to zero before rendering this optical preview.");
 
         var args = new List<string>();
-        OpticalOption Selected(string key) => (OpticalOption)choices[key].SelectedItem;
+        string Selected(string key) => frozen is null ? ((OpticalOption)choices[key].SelectedItem).Id
+            : frozen.Selections.GetValueOrDefault(key, ((OpticalChoice)OpticalControls.Parameters[key].Parameter).Default);
+        double Number(string key) => frozen is null ? values[key].Value
+            : frozen.Numbers.GetValueOrDefault(key, ((OpticalSlider)OpticalControls.Parameters[key].Parameter).Initial);
+        bool IsOn(string key) => frozen is null ? toggles[key].IsChecked == true
+            : frozen.Switches.GetValueOrDefault(key, ((OpticalToggle)OpticalControls.Parameters[key].Parameter).Initial);
         void Set(string key, string value) { args.Add("--" + key); args.Add(value); }
         void Numeric(string key, double value) => Set(key, RendererParameters.NumberToken(value));
 
@@ -1746,27 +1910,26 @@ internal sealed class SpatialPreview : IDisposable
             Set(option, look.Development.GetValueOrDefault(key, baseline) != baseline ? "true" : "false");
         }
 
-        Func<string, bool> isOn = key => toggles[key].IsChecked == true;
-        bool Send(string key) => OpticalControls.Parameters[key].ShouldSend(!scanning, isOn);
+        bool Send(string key) => OpticalControls.Parameters[key].ShouldSend(!scanning, IsOn);
         foreach (var key in choices.Keys)
             if (Send(key))
-                Set(key, Selected(key).Id);
-        var fastGrain = !export && (draft || fastSynthesis.IsChecked == true) && Selected("grain-model").Id == "synthesis";
-        var grainQuality = Math.Min(values["grain-synthesis-quality"].Value, 2);
-        foreach (var (key, slider) in values)
+                Set(key, Selected(key));
+        var fastGrain = !export && (draft || fastSynthesis.IsChecked == true) && Selected("grain-model") == "synthesis";
+        var grainQuality = Math.Min(Number("grain-synthesis-quality"), 2);
+        foreach (var key in values.Keys)
         {
             if (!Send(key))
                 continue;
-            var value = slider.Value;
+            var value = Number(key);
             if (fastGrain && key == "grain-synthesis-samples")
                 value = Math.Min(value, Math.Floor(2 / grainQuality));
             if (fastGrain && key == "grain-synthesis-quality")
                 value = grainQuality;
             Numeric(key, value);
         }
-        foreach (var (key, toggle) in toggles)
+        foreach (var key in toggles.Keys)
             if (Send(key))
-                Set(key, toggle.IsChecked == true ? "true" : "false");
+                Set(key, IsOn(key) ? "true" : "false");
         return args.ToArray();
     }
 

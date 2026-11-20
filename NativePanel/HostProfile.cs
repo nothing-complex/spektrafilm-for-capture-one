@@ -14,9 +14,10 @@ internal static class HostProfile
         internal string SourceFormat => Path.GetExtension(SourcePath).TrimStart('.').ToUpperInvariant();
     }
 
-    internal static Target CaptureTarget(object window)
+    internal static Target CaptureTarget(object window) => TargetFor(ReadSelection(window).Variant);
+
+    internal static Target TargetFor(ICoreVariant variant)
     {
-        var variant = ReadSelection(window).Variant;
         var image = variant.CoreImage ?? throw new InvalidOperationException("The selected variant has no source image.");
         return new Target(variant.UUID, image.FullpathFilename);
     }
@@ -42,7 +43,10 @@ internal static class HostProfile
         return new Selection(manager.Instance, document, variant);
     }
 
-    internal static Guid[] CaptureSelectedVariants(object window, ICaptureOneDocument expectedDocument)
+    internal static Guid[] CaptureSelectedVariants(object window, ICaptureOneDocument expectedDocument) =>
+        CaptureSelectionSet(window, expectedDocument).Select(item => item.Variant.UUID).ToArray();
+
+    internal static Selection[] CaptureSelectionSet(object window, ICaptureOneDocument expectedDocument)
     {
         var active = ReadSelection(window);
         if (!ReferenceEquals(active.Document, expectedDocument)
@@ -50,12 +54,13 @@ internal static class HostProfile
             || selection.PrimaryVariant?.UUID != active.Variant.UUID || selection.SelectedVariants is not { } selected)
             throw new InvalidOperationException("Capture One’s selection changed. Select the variants again.");
 
-        var ids = selected.Select(variant => variant.UUID).Distinct().Take(VariantLookBatch.MaxVariants + 1).ToArray();
-        if (ids.Length == 0 || ids.Contains(Guid.Empty) || !ids.Contains(active.Variant.UUID))
+        var variants = selected.OfType<ICoreVariant>().DistinctBy(variant => variant.UUID).Take(VariantLookBatch.MaxVariants + 1).ToArray();
+        if (variants.Length == 0 || selected.Any(variant => variant is not ICoreVariant)
+            || variants.Any(variant => variant.UUID == Guid.Empty) || !variants.Any(variant => variant.UUID == active.Variant.UUID))
             throw new InvalidOperationException("Capture One did not return a complete variant selection.");
-        if (ids.Length > VariantLookBatch.MaxVariants)
+        if (variants.Length > VariantLookBatch.MaxVariants)
             throw new InvalidOperationException($"Select up to {VariantLookBatch.MaxVariants:N0} variants at a time.");
-        return ids;
+        return variants.Select(variant => active with { Variant = variant }).ToArray();
     }
 
     internal readonly record struct Selection(object Manager, ICaptureOneDocument Document, ICoreVariant Variant);
