@@ -98,6 +98,7 @@ internal static class SpektraFilmTool
         }
 
         internal InspectorToolWpf Tool { get; }
+        internal ICaptureOneDocument Document => panel.Document;
         internal UserControl DockedContent { get; }
         private ContentControl Holder { get; }
         internal bool IsSpektraExportActive => !disposed && panel.IsSpektraExportActive;
@@ -401,7 +402,9 @@ internal static class SpektraFilmTool
             }
         }
 
-        public void Dispose()
+        public void Dispose() => Retire(keepAcceptedExport: false);
+
+        internal void Retire(bool keepAcceptedExport)
         {
             if (disposed)
                 return;
@@ -415,7 +418,7 @@ internal static class SpektraFilmTool
             finally
             {
                 cloneHook = null;
-                panel.Dispose();
+                panel.Retire(keepAcceptedExport);
                 if (floating is { } window)
                     CloseFloatingForDetach(window);
                 Holder.Content = null;
@@ -554,7 +557,7 @@ internal static class SpektraFilmTool
                     UpdateExportRouteStatus();
             };
             var exports = new ExportJobJournal(Path.Combine(PanelPreferences.UserDataDirectory(), "Export jobs", looks.CatalogIdentity), StartupHook.Log);
-            opticalPreview = SpatialPreview.BuildForPanel(window, CurrentSettings, UseSelectedLook, exports);
+            opticalPreview = SpatialPreview.BuildForPanel(window, document, CurrentSettings, UseSelectedLook, exports);
             layout.Children.Insert(3, opticalPreview.ExportControls);
             opticalPreview.SettingsChanged += SaveLook;
             opticalPreview.SliderDragActivity += UpdateHistoryGesture;
@@ -729,7 +732,9 @@ internal static class SpektraFilmTool
             exportRouteStatus.Visibility = text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
         }
 
-        public void Dispose()
+        public void Dispose() => Retire(keepAcceptedExport: false);
+
+        internal void Retire(bool keepAcceptedExport)
         {
             if (disposed)
                 return;
@@ -747,7 +752,7 @@ internal static class SpektraFilmTool
             {
                 lifetime.Cancel();
                 lifetime.Dispose();
-                opticalPreview.Dispose();
+                opticalPreview.Retire(keepAcceptedExport);
             }
         }
 

@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -17,6 +18,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Microsoft.Win32;
+using P1.C1.Core.ModelEntities;
 using P1.C1.Framework.Win10.ToastNotifications.Templates;
 
 internal sealed class SpatialPreview : IDisposable
@@ -47,6 +49,8 @@ internal sealed class SpatialPreview : IDisposable
     private readonly DispatcherTimer refresh = new() { Interval = TimeSpan.FromMilliseconds(33) };
     private readonly ViewerPreview viewer;
     private readonly ExportJobJournal exportJobs;
+    private static readonly ConditionalWeakTable<ICaptureOneDocument, ExportActivity> ExportActivities = new();
+    private readonly ExportActivity exportActivity;
     private Func<bool> showExportFailureNotice = ShowNativeExportFailureNotice;
     private readonly ViewportQuality viewportQuality = new();
     private readonly ViewerHistogramControl histogram = new();
@@ -120,6 +124,7 @@ internal sealed class SpatialPreview : IDisposable
     private bool frameCurrent;
     private bool saveInProgress;
     private ExportOperation? exportWork;
+    private bool exportWasActive;
     private bool lutRenderActive;
     private Task previewWorkersExited = Task.CompletedTask;
     private readonly CancellationTokenSource lifetime = new();
@@ -131,12 +136,14 @@ internal sealed class SpatialPreview : IDisposable
     private bool originalUnavailable;
     private string? previewDetail;
 
-    private SpatialPreview(object window, Func<LookSettings?> getSettings, Func<Guid, bool> useSelectedLook, ExportJobJournal exportJobs)
+    private SpatialPreview(object window, ICaptureOneDocument document, Func<LookSettings?> getSettings, Func<Guid, bool> useSelectedLook,
+        ExportJobJournal exportJobs)
     {
         this.window = window;
         this.getSettings = getSettings;
         this.useSelectedLook = useSelectedLook;
         this.exportJobs = exportJobs;
+        exportActivity = ExportActivities.GetValue(document, static _ => new ExportActivity());
         viewer = new ViewerPreview(window);
         viewer.StatusChanged += UpdateViewerStatus;
         viewer.PixelChanged += histogram.SetSample;
@@ -176,11 +183,13 @@ internal sealed class SpatialPreview : IDisposable
             RequestRefresh();
         };
         var exportControls = new StackPanel();
-        exportStatus.Text = DescribePreviousExport(exportJobs.ReadLatest());
+        exportStatus.Text = exportActivity.Message ?? DescribePreviousExport(exportJobs.ReadLatest());
         exportControls.Children.Add(exportStatus);
         exportControls.Children.Add(cancelExport);
-        cancelExport.Click += (_, _) => exportWork?.Cancel();
+        cancelExport.Click += (_, _) => exportActivity.Active?.Cancel();
         ExportControls = exportControls;
+        exportActivity.Changed += UpdateExportControls;
+        UpdateExportControls();
     }
 
     internal FrameworkElement Element { get; }
@@ -211,14 +220,18 @@ internal sealed class SpatialPreview : IDisposable
         catch (Exception error) { if (!disposed) ClearFrame(error); }
     }
 
-    public void Dispose()
+    public void Dispose() => Retire(keepAcceptedExport: false);
+
+    internal void Retire(bool keepAcceptedExport)
     {
         if (disposed) return;
         disposed = true;
         enabled = false;
         lifetime.Cancel();
         lifetime.Dispose();
-        exportWork?.Cancel();
+        exportActivity.Changed -= UpdateExportControls;
+        if (!keepAcceptedExport || exportActivity.Active is { IsAccepted: false })
+            exportActivity.Active?.Cancel();
         ClearPreview();
         refresh.Tick -= OnRefreshTick;
         ComparePress.RemoveValueChanged(holdCompare, OnComparePressChanged);
@@ -238,8 +251,8 @@ internal sealed class SpatialPreview : IDisposable
     }
     private int DragLongEdge => ((DragSize)dragPreviewSize.SelectedItem).LongEdge;
 
-    internal static SpatialPreview BuildForPanel(object window, Func<LookSettings?> getSettings, Func<Guid, bool> useSelectedLook,
-        ExportJobJournal exportJobs) => new(window, getSettings, useSelectedLook, exportJobs);
+    internal static SpatialPreview BuildForPanel(object window, ICaptureOneDocument document, Func<LookSettings?> getSettings,
+        Func<Guid, bool> useSelectedLook, ExportJobJournal exportJobs) => new(window, document, getSettings, useSelectedLook, exportJobs);
 
     internal void VerifyRendererOptions(RendererParameters renderer)
     {
@@ -565,7 +578,18 @@ internal sealed class SpatialPreview : IDisposable
         }
     }
 
-    private bool OutputRenderActive => exportWork is not null || lutRenderActive;
+    private bool OutputRenderActive => exportActivity.Active is not null || lutRenderActive;
+
+    private void UpdateExportControls()
+    {
+        var active = exportActivity.Active;
+        if (exportActivity.Message is { } message)
+            exportStatus.Text = message;
+        cancelExport.Visibility = active is { IsAccepted: true } ? Visibility.Visible : Visibility.Collapsed;
+        var resume = exportWasActive && active is null;
+        exportWasActive = active is not null;
+        if (resume) RequestRefresh();
+    }
 
     internal async Task<string> RenderLutAsync(NativeLutExporter.Plan plan, int resolution, double strength, CancellationToken stop)
     {
@@ -591,7 +615,7 @@ internal sealed class SpatialPreview : IDisposable
     private async Task<bool> ExportWithDestinationAsync(bool useRecipeSize, Window? owner,
         Func<SaveFileDialog, Window?, string?> chooseDestination)
     {
-        if (disposed || !enabled || exportWork is not null)
+        if (disposed || !enabled || exportActivity.Active is not null)
             return false;
         if (lutRenderActive)
         {
@@ -599,7 +623,8 @@ internal sealed class SpatialPreview : IDisposable
             return false;
         }
         ExportReceipt? receipt = null;
-        CancellationToken exportToken = default;
+        var form = (System.Windows.Forms.Form)window;
+        System.Windows.Forms.FormClosedEventHandler? closed = null;
         try
         {
             var look = getSettings() ?? throw new InvalidOperationException("Wait for the Spektrafilm controls to finish loading.");
@@ -609,10 +634,13 @@ internal sealed class SpatialPreview : IDisposable
             var args = look.Strength > 0 ? RendererOptions(look, input.Id, encoding, export: true) : Array.Empty<string>();
             // Reserve the export before yielding so the Viewer cannot start another
             // development while Capture One settles the source for the Save request.
-            using var work = new ExportOperation(target.VariantId);
-            exportToken = work.Token;
-            exportWork = work;
-            try
+            var work = exportWork = new ExportOperation(target.VariantId);
+            exportActivity.Begin(work);
+            closed = (_, _) => work.Cancel();
+            form.FormClosed += closed;
+            return await RunExportAsync();
+
+            async Task<bool> RunExportAsync()
             {
                 var drainStarted = Stopwatch.GetTimestamp();
                 await DrainPreviewWorkersAsync(work.Token);
@@ -660,11 +688,11 @@ internal sealed class SpatialPreview : IDisposable
                 var outputFormat = SpektraExport.PixelFormatFor(approved.Path);
                 var deliveryNote = delivery.SavedNote(outputFormat);
                 receipt = exportJobs.Accept(work.VariantId, approved.Path);
+                work.IsAccepted = true;
                 if (owner is { IsVisible: true } && owner.Title.EndsWith(ExportFailureTitleSuffix, StringComparison.Ordinal))
                     owner.Title = owner.Title[..^ExportFailureTitleSuffix.Length];
                 var jobId = receipt.JobId;
                 var started = Stopwatch.GetTimestamp();
-                cancelExport.Visibility = Visibility.Visible;
                 Advance(ExportStage.DevelopingSource, "Developing export pixels in Capture One…");
                 var result = await Task.Run(async () =>
                 {
@@ -698,9 +726,8 @@ internal sealed class SpatialPreview : IDisposable
                                 if (!exportStatus.Dispatcher.HasShutdownStarted)
                                     _ = exportStatus.Dispatcher.InvokeAsync(() =>
                                     {
-                                        if (!disposed && ReferenceEquals(exportWork, work) && !work.Token.IsCancellationRequested
-                                            && receipt?.Stage == ExportStage.RenderingFilm)
-                                            exportStatus.Text = text;
+                                        if (receipt?.Stage == ExportStage.RenderingFilm)
+                                            exportActivity.Report(work, text);
                                     });
                             },
                         };
@@ -749,7 +776,7 @@ internal sealed class SpatialPreview : IDisposable
                     });
                     return (output.PixelWidth, output.PixelHeight);
                 }, work.Token);
-                var counterStatus = !disposed && recipe?.Naming?.AdvanceCounter is { } advance
+                var counterStatus = form is { IsDisposed: false, Disposing: false } && recipe?.Naming?.AdvanceCounter is { } advance
                     && StringComparer.OrdinalIgnoreCase.Equals(Path.GetFileNameWithoutExtension(suggestedName),
                         Path.GetFileNameWithoutExtension(approved.Path))
                     ? AdvanceNativeExportCounter(advance, jobId) : "";
@@ -773,17 +800,8 @@ internal sealed class SpatialPreview : IDisposable
                     return true;
                 }
             }
-            finally
-            {
-                exportWork = null;
-                if (!disposed)
-                {
-                    cancelExport.Visibility = Visibility.Collapsed;
-                    RequestRefresh();
-                }
-            }
         }
-        catch (OperationCanceledException error) when (exportToken.IsCancellationRequested)
+        catch (OperationCanceledException error) when (exportWork?.Token.IsCancellationRequested == true)
         {
             ReportStagingCleanup(error);
             Advance(ExportStage.Canceled, "Spektrafilm export canceled.");
@@ -810,6 +828,17 @@ internal sealed class SpatialPreview : IDisposable
                 MessageBox.Show(message, "Could not export with Spektrafilm", MessageBoxButton.OK, MessageBoxImage.Error);
             return false;
         }
+        finally
+        {
+            if (closed is not null)
+                form.FormClosed -= closed;
+            if (exportWork is { } work)
+            {
+                exportWork = null;
+                try { exportActivity.End(work); }
+                finally { work.Dispose(); }
+            }
+        }
 
         static void ReportStagingCleanup(Exception error)
         {
@@ -821,16 +850,13 @@ internal sealed class SpatialPreview : IDisposable
         {
             if (receipt is not null)
                 receipt = exportJobs.Report(receipt, stage, width, height, error, deliveryNote);
-            if (exportStatus.Dispatcher.CheckAccess())
-            {
-                if (!disposed) exportStatus.Text = message;
-                return;
-            }
             var current = exportWork;
-            if (!exportStatus.Dispatcher.HasShutdownStarted)
+            if (exportStatus.Dispatcher.CheckAccess())
+                exportActivity.Report(current, message);
+            else if (!exportStatus.Dispatcher.HasShutdownStarted)
                 _ = exportStatus.Dispatcher.InvokeAsync(() =>
                 {
-                    if (!disposed && ReferenceEquals(exportWork, current)) exportStatus.Text = message;
+                    if (receipt?.Stage == stage) exportActivity.Report(current, message);
                 });
         }
     }

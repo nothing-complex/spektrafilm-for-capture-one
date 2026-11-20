@@ -3600,7 +3600,8 @@
         "An accepted export failure uses Capture One's Windows notification presenter when both its native dialog and panel status are hidden. A clean message directs the user to the detailed durable result. Two licensed layout runs each pass 104 assertions and preserve protected TIFF bytes on failure. The optional clearly labelled test submission was accepted by the actual Capture One presenter.",
         "Newly created approved output staging uses Windows delete disposition until the writer has verified, flushed and revalidated the destination. Stopping its process during real encoding removes exactly the owned stage. The licensed fixture observed 1,325,155 completed WIC write bytes, preserved the previous TIFF, unrelated temporary file and saved 1.37 EV look, passed 17/22 assertions and reopened the explicitly retried 24 MP RGB48 film result. Host-independent checks include a separate terminated writer and active 24 MP TIFF/PNG cancellation. Real native commands passed 114 effects and grain assertions on both launches, and the general suite passed 344/348.",
         "Inject the Windows disk-full HRESULT after writing protected staging bytes. The transaction preserves the exact original exception, source and prior output, and removes its owned partial file. The combined Viewer and export suite passes 12,406 checks. This exercises the failure path using an injected write error.",
-        "Record a changed Capture One source snapshot as a failed export with reason and explicit retry. A signaled export token records a cancellation. Forty licensed checks on launch and forty on restart cover a native exposure change after snapshot capture, byte-exact preservation of the approved existing TIFF, same-dialog retry, matching film and optics in RGB48 TIFF and RGBA64 PNG, and the exact recipe ICC. Only the low-resolution revision counter increased during the injected exposure edit, and all nine recipe files verified after both launches."
+        "Record a changed Capture One source snapshot as a failed export with reason and explicit retry. A signaled export token records a cancellation. Forty licensed checks on launch and forty on restart cover a native exposure change after snapshot capture, byte-exact preservation of the approved existing TIFF, same-dialog retry, matching film and optics in RGB48 TIFF and RGBA64 PNG, and the exact recipe ICC. Only the low-resolution revision counter increased during the injected exposure edit, and all nine recipe files verified after both launches.",
+        "Keep an accepted export attached to the same native document across palette rebuild. A replacement panel observes the existing job, shows its Cancel action and refuses a duplicate without changing the approved path. Old progress callbacks are gated by operation identity. The 82-check licensed workspace fixture completes an accepted 16-bit TIFF after replacing the tool, then cancels an accepted overwrite from a newly attached tool while preserving the file SHA-256 and updating the same receipt. Both native commands retain applied effects after workspace switches. The 39-check licensed concurrent-catalog fixture verifies actual form close cancels an export held in native development and preserves the previous file and saved look. Pass 12,530 local Viewer/export assertions."
       ],
       "evidence_paths": [
         "NativePanel/SpatialPreview.cs",
@@ -3638,7 +3639,11 @@
         ".test-results/contracts-updated-identity-native-export-20261120/ViewerContracts.log",
         "NativePanel/HostImageSource.cs",
         ".test-results/host-export-source-revision-20261120/host-smoke.log",
-        ".test-results/host-export-source-revision-20261120/panel.log"
+        ".test-results/host-export-source-revision-20261120/panel.log",
+        "qa/HostSmoke/WatchdogHost.cs",
+        ".test-results/sf-export-palette-handoff/host-smoke.log",
+        ".test-results/sf-export-handoff-close/host-smoke.log",
+        ".test-results/export-palette-handoff-contracts.log"
       ],
       "remaining_work": [
         "Add resumable authorized descriptors and an explicit batch queue with per-image isolation. Current receipts preserve progress and outcome for a single accepted export.",

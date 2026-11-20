@@ -205,7 +205,7 @@ internal static class StartupHook
             }
 
             if (ReferenceEquals(form, window) && ReferenceEquals(palette, owner) && tab is not null && palette.Tabs.Contains(tab)
-                && hostedTool is { } existing && tab.AllTools.Contains(existing.Tool))
+                && hostedTool is { } existing && ReferenceEquals(existing.Document, document) && tab.AllTools.Contains(existing.Tool))
             {
                 existing.CheckSelectionAndSave();
                 AdvanceWatchdog(existing.LookRecoveryPending);
@@ -214,7 +214,8 @@ internal static class StartupHook
             }
 
             EnsureRecoveryWatchdog();
-            Detach();
+            var keepAcceptedExport = ReferenceEquals(form, window) && ReferenceEquals(hostedTool?.Document, document);
+            RetireAttachment(saveWorkspace: false, keepAcceptedExport);
             Attach(form, palette, document);
             hostedTool?.ReportLaunchHealth();
         }
@@ -374,7 +375,9 @@ internal static class StartupHook
         }
     }
 
-    private static void Detach(bool saveWorkspace = false)
+    private static void Detach(bool saveWorkspace = false) => RetireAttachment(saveWorkspace, keepAcceptedExport: false);
+
+    private static void RetireAttachment(bool saveWorkspace, bool keepAcceptedExport)
     {
         if (tab is not { } oldTab || owner is not { } oldOwner)
             return;
@@ -397,7 +400,7 @@ internal static class StartupHook
         try { oldExport?.Dispose(); }
         finally
         {
-            try { oldTool?.Dispose(); }
+            try { oldTool?.Retire(keepAcceptedExport); }
             finally
             {
                 if (oldOwner.Tabs.Contains(oldTab))

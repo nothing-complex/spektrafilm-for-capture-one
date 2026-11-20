@@ -4,9 +4,16 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using Microsoft.Win32;
 using Forms = System.Windows.Forms;
 
 public static partial class StartupHook
@@ -42,10 +49,10 @@ public static partial class StartupHook
         Check(ReferenceEquals(hostedField.GetValue(null), hosted) && ReferenceEquals(exportField.GetValue(null), oldExport),
             "hiding Spektrafilm behind a native tool tab preserves the existing tool and Export binding");
 
+        var file = Path.Combine(folder, "workspace-accepted-export.tif");
+        var (job, operation, jobId) = await StartExport(hosted);
         // Exercise the real palette collection after the workspace removes the temporary tab.
-        tabs.Remove(oldTab);
-        tick(null, EventArgs.Empty);
-        var restored = hostedField.GetValue(null) ?? throw new InvalidOperationException("Spektrafilm did not reattach.");
+        var restored = ResetPalette(oldTab);
         var restoredTab = tabField.GetValue(null);
         Check(!ReferenceEquals(restored, hosted) && Field(hosted, "disposed") is true
             && restoredTab is not null && tabs.Contains(restoredTab) && !tabs.Contains(oldTab)
@@ -55,14 +62,92 @@ public static partial class StartupHook
             && exportField.GetValue(null) is { } replacement && !ReferenceEquals(replacement, oldExport)
             && Prop(Field(restored, "panel")!, "ExportBridgeStatus")?.ToString() == "Connected",
             "palette recovery respects native tab selection and binds Export once to the replacement");
-        var started = Stopwatch.GetTimestamp();
-        while (Prop(Field(restored, "panel")!, "StocksReady") is not true)
+
+        var replacementPreview = Preview(restored);
+        Check(ReferenceEquals(Prop(Field(replacementPreview, "exportActivity")!, "Active"), operation)
+            && ((Button)Field(replacementPreview, "cancelExport")!).Visibility == Visibility.Visible
+            && Prop(replacementPreview, "OutputRenderActive") is true
+            && !((CancellationToken)Prop(operation, "Token")!).IsCancellationRequested,
+            "the replacement panel shows and can cancel the same accepted export while the original panel retires");
+        Call(replacementPreview, "SetEnabled", true);
+        var duplicate = await Save(replacementPreview, (_, _) => throw new InvalidOperationException("Duplicate Save opened."));
+        Check(!duplicate, "a replacement panel refuses a second export while the accepted job is active");
+        Check(await job.WaitAsync(TimeSpan.FromSeconds(45)), "the approved export completes after the native palette rebuild");
+        var completed = Receipt(replacementPreview)!;
+        Check(Equals(Prop(completed, "JobId"), jobId) && Prop(completed, "Stage")?.ToString() == "Completed"
+            && Equals(Prop(completed, "Destination"), file)
+            && ((TextBlock)Field(replacementPreview, "exportStatus")!).Text.StartsWith("Saved 16-bit", StringComparison.Ordinal),
+            "the replacement panel shows the original receipt's completed outcome at its approved path");
+        using (var stream = File.OpenRead(file))
         {
-            if (Stopwatch.GetElapsedTime(started) > TimeSpan.FromSeconds(12))
-                throw new TimeoutException("The replacement Spektrafilm panel did not load.");
-            await Task.Delay(50);
+            var frame = BitmapDecoder.Create(stream, BitmapCreateOptions.PreservePixelFormat | BitmapCreateOptions.IgnoreColorProfile,
+                BitmapCacheOption.OnDemand).Frames.Single();
+            Check(frame.Format == PixelFormats.Rgb48 && frame.ColorContexts is { Count: 1 },
+                "the preserved export reopens with 16 bits per channel and an embedded profile");
         }
-        return restored;
+        var published = SHA256.HashData(File.ReadAllBytes(file));
+        await WaitForStocks(restored);
+
+        var (overwrite, _, overwriteId) = await StartExport(restored);
+        var last = ResetPalette(restoredTab!);
+        var lastPreview = Preview(last);
+        var cancel = (Button)Field(lastPreview, "cancelExport")!;
+        Check(cancel.Visibility == Visibility.Visible, "the replacement tool exposes Cancel for the accepted overwrite");
+        cancel.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Check(!await overwrite.WaitAsync(TimeSpan.FromSeconds(45)), "Cancel on the replacement panel stops the in-flight export");
+        var canceled = Receipt(lastPreview)!;
+        Check(Equals(Prop(canceled, "JobId"), overwriteId) && Prop(canceled, "Stage")?.ToString() == "Canceled"
+            && ((TextBlock)Field(lastPreview, "exportStatus")!).Text.Contains("canceled", StringComparison.Ordinal)
+            && cancel.Visibility == Visibility.Collapsed && SHA256.HashData(File.ReadAllBytes(file)).SequenceEqual(published),
+            "the canceled overwrite preserves all existing bytes and shows the matching terminal receipt on the replacement");
+        await WaitForStocks(last);
+        return last;
+
+        object ResetPalette(object removing)
+        {
+            select.Invoke(null, new[] { palette, nativeTab });
+            tabs.Remove(removing);
+            tick(null, EventArgs.Empty);
+            return hostedField.GetValue(null) ?? throw new InvalidOperationException("Spektrafilm did not reattach.");
+        }
+
+        static object Preview(object tool) => Field(Field(tool, "panel")!, "opticalPreview")!;
+        static object? Receipt(object preview) => Call(Field(preview, "exportJobs")!, "ReadLatest");
+        static Task<bool> Save(object preview, Func<SaveFileDialog, Window?, string?> choose) =>
+            (Task<bool>)Call(preview, "ExportWithDestinationAsync", false, null, choose)!;
+
+        async Task<(Task<bool> Job, object Operation, Guid JobId)> StartExport(object tool)
+        {
+            var panel = Field(tool, "panel")!;
+            ((CheckBox)Field(panel, "enableSpektraFilm")!).IsChecked = true;
+            var strength = Field(panel, "strength")!;
+            strength.GetType().GetProperty("Value", Flags)!.SetValue(strength, 100d);
+            var preview = Preview(tool);
+            var previous = Receipt(preview);
+            var task = Save(preview, (_, _) => file);
+            var started = Stopwatch.GetTimestamp();
+            while (!task.IsCompleted && Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(20))
+            {
+                if (Field(preview, "exportWork") is { } active && Prop(active, "IsAccepted") is true
+                    && Receipt(preview) is { } receipt && Prop(receipt, "Finished") is false
+                    && Prop(receipt, "JobId") is Guid id && (previous is null || !Equals(Prop(previous, "JobId"), id))
+                    && Equals(Prop(receipt, "Destination"), file))
+                    return (task, active, id);
+                await Task.Delay(10);
+            }
+            throw new InvalidOperationException("The native palette fixture did not observe an accepted export.");
+        }
+
+        static async Task WaitForStocks(object tool)
+        {
+            var started = Stopwatch.GetTimestamp();
+            while (Prop(Field(tool, "panel")!, "StocksReady") is not true)
+            {
+                if (Stopwatch.GetElapsedTime(started) > TimeSpan.FromSeconds(12))
+                    throw new TimeoutException("The replacement Spektrafilm panel did not load.");
+                await Task.Delay(50);
+            }
+        }
     }
 
     private static async Task TestAdaptiveWatchdog(Type hook, object panel, Guid expected)

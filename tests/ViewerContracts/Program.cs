@@ -90,6 +90,7 @@ internal static partial class Program
         TestExportMetadata(folder);
         TestExportResolution();
         TestExportJobJournal(folder);
+        TestExportActivity();
         TestColorSampling();
         TestFractionalColorSampling();
         TestColorPrecision();
@@ -198,6 +199,33 @@ internal static partial class Program
             "an unresolved subfolder is a Save hint while a recipe with no subfolder uses the exact root");
         Check(SpektraExport.ExistingRecipeLocation("relative-root", "Prints", true) == (null, null),
             "a relative recipe root is left to Save's ordinary location selection");
+    }
+
+    private static void TestExportActivity()
+    {
+        var activity = new ExportActivity();
+        using var first = new ExportOperation(Guid.NewGuid());
+        using var second = new ExportOperation(Guid.NewGuid());
+        Check(activity.Active is null, "a new native document has no active export");
+        activity.Begin(first);
+        first.IsAccepted = true;
+        activity.Report(first, "Developing");
+        Action observed = () => Check(activity.Active == first && activity.Message == "Encoding",
+            "a replacement observer receives the existing accepted operation and its current stage");
+        activity.Changed += observed;
+        activity.Report(first, "Encoding");
+        activity.Changed -= observed;
+        activity.End(first);
+        activity.Begin(second);
+        activity.Report(second, "Rendering");
+        activity.Report(first, "Late result");
+        activity.End(first);
+        Check(activity.Active == second && activity.Message == "Rendering", "late callbacks from the old job cannot replace the current state");
+        activity.Active!.Cancel();
+        Check(second.Token.IsCancellationRequested && !first.Token.IsCancellationRequested,
+            "canceling the active operation cannot cancel a previous export");
+        activity.End(second);
+        Check(activity.Active is null, "a terminal export releases the native document's live slot");
     }
 
     private static void TestExportJobJournal(string folder)
