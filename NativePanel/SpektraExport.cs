@@ -24,6 +24,28 @@ internal static class SpektraExport
         return name + extension;
     }
 
+    internal static string? ExistingRecipeDirectory(string? root, string? subfolder)
+    {
+        if (string.IsNullOrWhiteSpace(root) || !Path.IsPathFullyQualified(root)) return null;
+        try
+        {
+            var baseDirectory = Path.GetFullPath(root);
+            if (!string.IsNullOrWhiteSpace(subfolder) && !Path.IsPathRooted(subfolder))
+            {
+                var candidate = Path.GetFullPath(subfolder, baseDirectory);
+                var relative = Path.GetRelativePath(baseDirectory, candidate);
+                if (relative != ".." && !relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+                    && !Path.IsPathRooted(relative) && Directory.Exists(candidate))
+                    return candidate;
+            }
+            return Directory.Exists(baseDirectory) ? baseDirectory : null;
+        }
+        catch (Exception error) when (error is IOException or ArgumentException or NotSupportedException)
+        {
+            return null;
+        }
+    }
+
     internal static PixelFormat PixelFormatFor(string path) => Path.GetExtension(path).ToLowerInvariant() switch
     {
         ".tif" or ".tiff" => PixelFormats.Rgb48,

@@ -1053,7 +1053,15 @@ Evidence is in `.test-results/host-native-tiff-compression-final-20261120`. The 
 - [x] On first launch and restart, compare the offered stem to Capture One's actual Naming tool in the Export dialog. Both native commands offer the same stem. The output counter stays unchanged and the accepted files retain the measured Spektrafilm effects at 16 bits. Both licensed launches passed 62 checks.
 - [x] Pass the Windows contracts, including Unicode and dotted names and rejection of invalid paths in the filename field. The Viewer/export suite passed 12,386 checks. Its optional symlink case was skipped because the test process lacks that privilege.
 
-Evidence is under `.test-results/host-native-recipe-naming-async-20261120` and `.test-results/contracts-native-naming-display-20261120`. Dynamic recipe subfolders, native occupied-name policies and counter advancement remain open. [Capture One Naming tool](https://support.captureone.com/hc/en-us/articles/360020905117-Naming-tool)
+Evidence is under `.test-results/host-native-recipe-naming-async-20261120` and `.test-results/contracts-native-naming-display-20261120`. Native occupied-name policies and counter advancement remain open. [Capture One Naming tool](https://support.captureone.com/hc/en-us/articles/360020905117-Naming-tool)
+
+## Native recipe location suggestion
+
+- [x] Use the host's root location and subfolder naming manager to offer the existing recipe location in Save. Keep the existing root when a resolved subfolder is absent or cannot be used. The suggestion does not create a directory or approve a destination.
+- [x] Pass 87 licensed assertions each on launch and restart. The native Location tool and Spektrafilm agree on the actual Recipe Name token path. Previous Settings opens Save in the existing nested literal folder or the root when the subfolder is absent. Six explicitly approved RGB48 TIFFs reopened in those exact isolated folders with the selected recipe ICC and dimensions. The other ten effect and control files retest normal routing.
+- [x] All nine original recipe files matched their verified backups after each launch. The Windows Viewer and export suite passed 12,390 assertions, including absolute and parent-folder rejection for subfolder hints and leaving missing directories uncreated. Its optional symlink case requires a privilege unavailable locally.
+
+Evidence is in `.test-results/host-native-location-accepted-paths-20261120`. Repeat with `Run-HostSmoke.ps1 -NativeEffectFolders` and the exact host's `-NativeSettingsConfig`. This source update is newer than the verified audit.23 package.
 
 ## Status maintenance
 

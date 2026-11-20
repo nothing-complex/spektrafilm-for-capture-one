@@ -1579,7 +1579,8 @@
         "Both native Export commands passed on DNG/sRGB, CR3/Adobe RGB, RAF/ProPhoto and NEF/Linear Rec.2020, all using the exact Adobe RGB recipe profile at 6.00–7.53 MP in RGB48 TIFF and RGBA64 PNG. Across 32 accepted outputs and 159 assertions each at first launch and restart, film changed mean RGB code by 6.23–11.66% of full scale and camera diffusion added 2.43–4.76%. Native command outputs differed by at most 1.21e-6 mean full-scale code.",
         "Both real native Export commands passed with film, camera diffusion, halation and scatter active together. Native TIFF and previous-settings PNG matched within 8.81e-7 mean full-scale RGB, retained exact Adobe RGB and reopened at 16 bits. Across four cameras and two launches the fixture passed 191 assertions each and accepted 40 outputs. Halation plus scatter alone added 0.095–0.892% mean full-scale RGB change.",
         "Run both native commands against an explicitly selected TIFF recipe in ZIP, LZW and uncompressed modes. Two launches each passed 108 assertions, with 12 compression comparison TIFFs reopening in RGB48 at 3000 by 2000 with the exact selected ICC. Full-pixel comparison stays below 0.05 average 16-bit code including repeated ZIP reference measurements. Both launches verify all nine native recipe files against their backups. An earlier test let the host persist two settings in one preset. Its exact original bytes have been restored, and the final fixture holds recipe variations in memory.",
-        "Both native Export routes prefill the selected Capture One recipe's resolved filename stem. The first and restarted host pass 62 checks each, including comparison to the actual Capture One Naming tool in the real Export dialog and confirmation that the output counter is unchanged. Save still approves a TIFF or PNG destination and refuses the original path."
+        "Both native Export routes prefill the selected Capture One recipe's resolved filename stem. The first and restarted host pass 62 checks each, including comparison to the actual Capture One Naming tool in the real Export dialog and confirmation that the output counter is unchanged. Save still approves a TIFF or PNG destination and refuses the original path.",
+        "Save suggests the existing native recipe root or resolved child directory. The licensed run agrees with Capture One's real Location tool for Recipe Name token resolution, preserves a nested literal path and leaves a missing directory uncreated. Both launches pass 87 checks and commit six RGB48 effects TIFFs to the exact approved fixture folders. All nine backed-up recipe files independently verify after each launch."
       ],
       "evidence_paths": [
         "NativePanel/SpektraFilmTool.cs",
@@ -1604,10 +1605,11 @@
         ".test-results/host-native-tiff-compression-final-20261120",
         ".test-results/host-native-tiff-compression-parity-20261120/native-recipe-restoration.json",
         ".test-results/host-native-recipe-naming-async-20261120/host-smoke.log",
-        ".test-results/contracts-native-naming-display-20261120/ViewerContracts.log"
+        ".test-results/contracts-native-naming-display-20261120/ViewerContracts.log",
+        ".test-results/host-native-location-accepted-paths-20261120"
       ],
       "remaining_work": [
-        "Compare selected RGB recipe output against additional native profile references. Dynamic subfolder naming, native counter advancement, duplicate-name handling, tiling and other format and quality settings beyond the explicit 16-bit TIFF/PNG save policy remain open."
+        "Compare selected RGB recipe output against additional native profile references. Directory creation and the full location token matrix, native counter advancement, duplicate-name handling, tiling and other format and quality settings beyond the explicit 16-bit TIFF/PNG save policy remain open."
       ],
       "original_acceptance_tests": [
         "Table-driven JPEG, PNG, TIFF 8/16-bit, unknown-format, custom ICC, image-folder/custom-folder/subfolder/token/suffix and duplicate-name cases.",

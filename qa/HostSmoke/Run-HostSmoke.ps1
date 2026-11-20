@@ -28,6 +28,7 @@ param(
     [switch] $NativeEffectExportMatrix,
     [switch] $NativeEffectGrain,
     [switch] $NativeEffectCompression,
+    [switch] $NativeEffectFolders,
     [switch] $NativeEffectClone,
     [ValidateSet('DevelopingSource','RenderingFilm','Encoding')][string] $NativeExportInterruption,
     [switch] $OriginalAvailabilityProbe,
@@ -39,13 +40,15 @@ param(
 )
 $ErrorActionPreference='Stop'
 if ($NativeEffectClone) { $NativeEffectGrain=$true; $SkipRestart=$true }
-if ($NativeEffectCompression -and (!$NativeSettingsConfig -or $NativeEffectGrain -or $NativeEffectExportMatrix -or $UpgradeFromPackage)) {
-    throw 'The native TIFF compression fixture needs its own selected recipe and a verified preferences backup.'
+if (($NativeEffectCompression -or $NativeEffectFolders) -and
+    (!$NativeSettingsConfig -or $NativeEffectGrain -or $NativeEffectExportMatrix -or $UpgradeFromPackage -or
+    ($NativeEffectCompression -and $NativeEffectFolders))) {
+    throw 'A native recipe settings fixture needs its own selected recipe and a verified preferences backup.'
 }
 if ($NativeEffectGrain -and $NativeEffectExportMatrix) {
     throw 'The native grain comparison uses one RAW in its own effects Export fixture.'
 }
-if ($NativeEffectExportMatrix -or $NativeEffectGrain -or $NativeEffectCompression) { $NativeEffectExport=$true }
+if ($NativeEffectExportMatrix -or $NativeEffectGrain -or $NativeEffectCompression -or $NativeEffectFolders) { $NativeEffectExport=$true }
 if ($NativeExportInterruption -and (!$NativeSettingsConfig -or $SkipRestart -or $NativeEffectExport -or $ColorMatrix -or
     $CatalogIsolation -or $ConcurrentCatalogs -or $SessionIsolation -or $ViewerLayouts -or $ViewerChurn -or
     $ViewerTelemetrySeconds -or $NativeLifetimeCycles -or $DurableSliderEdits -or $MetadataFixtureRoot -or
@@ -370,7 +373,7 @@ if ($NativeSettingsConfig) {
 }
 $nativeRecipes=$null
 $recipeHashes=@{}
-if ($NativeEffectCompression) {
+if ($NativeEffectCompression -or $NativeEffectFolders) {
     $nativeRecipes=Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'CaptureOne\Recipes143'
     $recipeRoot=Get-Item -LiteralPath $nativeRecipes -Force
     if (!$recipeRoot.PSIsContainer -or ($recipeRoot.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
@@ -501,7 +504,7 @@ try {
     $env:SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX=if($NativeSourceMutations){'source-mutations'}elseif($ColorMatrix){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_VIEWER_STRESS=if($ViewerStress){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_PANEL_INVENTORY=if($PanelInventory){'1'}else{$null}
-    $env:SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT=if($NativeEffectExportMatrix){'matrix'}elseif($NativeEffectClone){'clone'}elseif($NativeEffectGrain){'grain'}elseif($NativeEffectCompression){'compression'}elseif($NativeEffectExport){'1'}else{$null}
+    $env:SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT=if($NativeEffectExportMatrix){'matrix'}elseif($NativeEffectClone){'clone'}elseif($NativeEffectGrain){'grain'}elseif($NativeEffectCompression){'compression'}elseif($NativeEffectFolders){'folders'}elseif($NativeEffectExport){'1'}else{$null}
     $env:SPEKTRAFILM_EXPECTED_CONTROL_INVENTORY=Join-Path $root 'qa\panel-controls.json'
     $env:SPEKTRAFILM_SHOW_TOOL=if($ShowTool){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_PROOF_TEST=if($NativeSettingsConfig -and !$CatalogIsolation -and !$ViewerLayouts -and !$DurableSliderEdits -and !$MetadataFixtureRoot -and !$ViewerChurn -and !$ConcurrentCatalogs){'1'}else{$null}

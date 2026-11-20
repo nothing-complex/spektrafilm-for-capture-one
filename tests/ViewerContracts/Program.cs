@@ -77,6 +77,7 @@ internal static partial class Program
         TestDevelopedFrameDescription();
         TestExport(folder);
         TestExportFilenameSuggestion();
+        TestExportFolderSuggestion(folder);
         TestTiffCompression(folder);
         TestExportProfiles(folder);
         TestExportMetadata(folder);
@@ -118,6 +119,22 @@ internal static partial class Program
         foreach (var unsafeName in new[] { null, "", "..\\outside", "C:\\outside", "image:stream", new string('z', 201) })
             Check(SpektraExport.SuggestedOutputName(unsafeName, source, ".tif") == "raw-Spektrafilm",
                 "an unavailable or unusable recipe suggestion keeps the ordinary source-based name");
+    }
+
+    private static void TestExportFolderSuggestion(string folder)
+    {
+        var root = Directory.CreateDirectory(Path.Combine(folder, "recipe-root")).FullName;
+        var nested = Directory.CreateDirectory(Path.Combine(root, "Prints", "Proofs")).FullName;
+        var outside = Directory.CreateDirectory(Path.Combine(folder, "recipe-root-other")).FullName;
+        Check(SpektraExport.ExistingRecipeDirectory(root, Path.Combine("Prints", "Proofs")) == nested,
+            "the recipe suggests an existing nested output folder");
+        Check(SpektraExport.ExistingRecipeDirectory(root, "Uncreated") == root && !Directory.Exists(Path.Combine(root, "Uncreated")),
+            "an absent recipe subfolder leaves Save at the root without creating folders");
+        Check(SpektraExport.ExistingRecipeDirectory(root, Path.Combine("..", "recipe-root-other")) == root
+            && SpektraExport.ExistingRecipeDirectory(root, outside) == root,
+            "a recipe subfolder cannot redirect the dialog away from its output root");
+        Check(SpektraExport.ExistingRecipeDirectory("relative-root", "Prints") is null,
+            "a relative recipe root is left to Save's ordinary location selection");
     }
 
     private static void TestExportJobJournal(string folder)

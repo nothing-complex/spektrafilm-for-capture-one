@@ -54,6 +54,8 @@ With Spektrafilm enabled, select the photo and one enabled Export Recipe, then o
 
 The Save dialog uses the selected recipe's Capture One naming preview when it resolves to a valid filename. Edit the suggestion before saving if needed. Spektrafilm reads the naming counter without advancing it. [Capture One Naming tool](https://support.captureone.com/hc/en-us/articles/360020905117-Naming-tool)
 
+Save opens in the recipe's resolved subfolder when that folder exists. For a missing subfolder, it opens at the existing recipe root and lets you choose the final destination. [Capture One Export Recipes](https://support.captureone.com/hc/en-us/articles/360021057158-Export-Recipes)
+
 Native recipe exports include the permitted copyright, creator, title, headline, description, capture date and rating when available. The **All**, **None** and **From selected keyword libraries** settings control flat and hierarchical keywords. Supported fields are written as XMP. GPS is omitted, and the remaining Capture One metadata fields and watermarks are outside the current 16-bit export policy. The **Export with Spektrafilm** button in the panel uses the selected image, sRGB and 96 DPI. **Save preview PNG** saves the on-screen comparison frame.
 
 Once you choose a destination, the panel reports Capture One development, film rendering and saving. Closing the Export dialog leaves an accepted job running. **Cancel export** stops it from the Spektrafilm tool. If a write fails while Capture One's Export dialog is still open, the dialog title reports the failure and you can choose a fresh destination. After restarting Capture One, the tool shows the last export outcome or an unfinished job. Start a new export to retry an interrupted job.

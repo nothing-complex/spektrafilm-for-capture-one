@@ -39,6 +39,12 @@ internal static class HostImageSource
         .GetMethod("GetDestinationDocumentManager", new[] { typeof(ICaptureOneDocument) });
     private static readonly MethodInfo? GetExportNamingManager = HostProperty("DocumentManager").PropertyType
         .GetMethod("GetExportNamingManager", new[] { typeof(ICaptureOneDocument) });
+    private static readonly MethodInfo? GetRecipeSubfolderNamingManager = HostProperty("DocumentManager").PropertyType
+        .GetMethod("GetOutputRecipeSubFolderNamingManager", new[] { typeof(ICaptureOneDocument) });
+    private static readonly MethodInfo? GetExportRootLocation = ProgramType.Assembly
+        .GetType("P1.C1.Components.ExportDialog.Tools.ExportDestination")
+        ?.GetMethod("GetRootLocation", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static, null,
+            new[] { typeof(ICaptureOneDocument), typeof(IDestinationProcessingSettings), typeof(IImage) }, null);
     internal sealed record Frame(int Width, int Height, byte[] FloatBytes, int BitDepth, FrameDescription? Description = null);
     internal sealed record ExportFrame(Frame Image, Rectangle Crop);
     internal sealed class DevelopmentDeadlineException(string message) : TimeoutException(message);
@@ -46,7 +52,7 @@ internal static class HostImageSource
         string CropMode, string RootFolderMode, string CustomRootFolder, string Subfolder, string Filename,
         string Suffix, int TiffBits, int JpegQuality, int Width, int Height, double Scale, bool IgnoreCrop,
         double Resolution, string ResolutionUnit, ExportMetadata Metadata, TiffCompressOption TiffCompression,
-        string? SuggestedFilename);
+        string? SuggestedFilename, string? SuggestedDirectory);
 
     internal static (Guid VariantId, NativeImageRevision AdjustmentKey, bool OriginalAvailable) GetSelectedSourceState(object window)
     {
@@ -129,7 +135,37 @@ internal static class HostImageSource
             recipe.CropExportMethod.ToString(), recipe.DestinationRootFolder.ToString(), recipe.DestinationCustomRootFolder,
             recipe.DestinationSubFolder, recipe.DestinationFilename, recipe.DestinationSubName, recipe.TiffBits, recipe.JpegQuality,
             scale.ScaledPixelWidth, scale.ScaledPixelHeight, scale.Scale, ignoreCrop, recipe.Resolution, recipe.ResolutionUnit.ToString(),
-            metadata, compression, ReadSuggestedFilename(selection, recipe));
+            metadata, compression, ReadSuggestedFilename(selection, recipe), ReadSuggestedDirectory(selection, recipe));
+    }
+
+    private static string? ReadSuggestedDirectory(HostProfile.Selection selection, IDestinationProcessingSettings recipe)
+    {
+        var variant = selection.Variant;
+        if (variant.CoreImage is not { } image) return null;
+        var root = recipe.DestinationRootFolder.ToString() switch
+        {
+            "CustomPath" => recipe.DestinationCustomRootFolder,
+            "ImageFolder" => image.PathToImageDirectory,
+            _ => null,
+        };
+        string? subfolder = null;
+        try
+        {
+            root = GetExportRootLocation?.Invoke(null, new object[] { selection.Document, recipe, image }) as string ?? root;
+            if (!string.IsNullOrWhiteSpace(root) && !string.IsNullOrWhiteSpace(recipe.DestinationSubFolder)
+                && GetRecipeSubfolderNamingManager?.Invoke(selection.Manager, new object[] { selection.Document }) is INamingManager naming
+                && ((ISelectedCollectionsProvider)selection.Document).PrimarySelectedCollection is ISimpleCollection collection)
+            {
+                var now = DateTime.Now;
+                subfolder = naming.RetrieveName(null, image, variant, recipe, collection.Name, null,
+                    0, null, null, now, now, recipe.DestinationSubFolder);
+            }
+        }
+        catch (Exception error) when (error is TargetInvocationException or InvalidOperationException or ArgumentException)
+        {
+            // A missing native preview still permits the manual Save location.
+        }
+        return SpektraExport.ExistingRecipeDirectory(root, subfolder);
     }
 
     private static string? ReadSuggestedFilename(HostProfile.Selection selection, IDestinationProcessingSettings recipe)

@@ -45,7 +45,8 @@ public static partial class StartupHook
     }
 
     private static async Task TestNativeEffectExport(FieldInfo hookField, object hosted, object panel, object spatial, object window,
-        string caseName, bool compareGrain = false, bool compareClone = false, bool compareCompression = false)
+        string caseName, bool compareGrain = false, bool compareClone = false, bool compareCompression = false,
+        bool compareFolders = false)
     {
         var toggle = (CheckBox)Field(panel, "enableSpektraFilm")!;
         var inputEncoding = (string)Prop(((ComboBox)Field(spatial, "inputSpace")!).SelectedItem, "Id")!;
@@ -98,6 +99,7 @@ public static partial class StartupHook
         var destination = string.Empty;
         Task<bool>? job = null;
         string? offeredFilename = null;
+        string? offeredDirectory = null;
         Task<bool> Route()
         {
             routeCount++;
@@ -106,6 +108,7 @@ public static partial class StartupHook
                 (Func<SaveFileDialog, Window?, string?>)((picker, _) =>
                 {
                     offeredFilename = picker.FileName;
+                    offeredDirectory = picker.InitialDirectory;
                     return destination;
                 }))!;
             return job;
@@ -165,6 +168,7 @@ public static partial class StartupHook
 
             var grain = compareGrain ? await CompareGrain(fullEffects) : null;
             var compressionComparison = compareCompression ? await CompareCompression(fullEffects) : null;
+            if (compareFolders) await CheckFolders();
             if (compareGrain) await CheckReadOnlyDestination();
             toggle.IsChecked = false;
             bool clicked = false;
@@ -176,7 +180,7 @@ public static partial class StartupHook
                 native.Close();
                 return true;
             });
-            var expectedRoutes = 5 + (compareGrain ? 8 : 0) + (compareCompression ? 6 : 0);
+            var expectedRoutes = 5 + (compareGrain ? 8 : 0) + (compareCompression ? 6 : 0) + (compareFolders ? 3 : 0);
             Check(clicked && routeCount == expectedRoutes && Prop(bridge, "Dialog") is null,
                 "the master switch delegates to the ordinary Capture One Export dialog without a Spektrafilm job");
             ((IDisposable)bridge).Dispose();
@@ -190,21 +194,91 @@ public static partial class StartupHook
                 nativeExportCallbacks = routeCount, masterOffDelegated = clicked, timings,
             }, new JsonSerializerOptions { WriteIndented = true }));
 
-            async Task<object> CompareCompression(BitmapSource reference)
+            async Task CheckFolders()
+            {
+                var selected = SelectedRecipeForTest(out var notifications);
+                var type = selected.GetType();
+                var mode = type.GetProperty("DestinationRootFolder", Flags)!;
+                var root = type.GetProperty("DestinationCustomRootFolder", Flags)!;
+                var subfolder = type.GetProperty("DestinationSubFolder", Flags)!;
+                var originalMode = mode.GetValue(selected)!;
+                var originalRoot = root.GetValue(selected);
+                var originalSubfolder = subfolder.GetValue(selected);
+                var fixtureRoot = Directory.CreateDirectory(Path.Combine(folder, "native-recipe-location")).FullName;
+                var relative = Path.Combine("Prints", "Proofs");
+                var nested = Directory.CreateDirectory(Path.Combine(fixtureRoot, relative)).FullName;
+                var recipeName = (string)Prop(selected, "Name")!;
+                if (string.IsNullOrWhiteSpace(recipeName) || recipeName is "." or ".."
+                    || recipeName != recipeName.TrimEnd('.', ' ') || recipeName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+                    throw new InvalidOperationException("The folder fixture requires a selected recipe with a valid directory name.");
+                var byRecipe = Directory.CreateDirectory(Path.Combine(fixtureRoot, recipeName)).FullName;
+                var missing = Path.Combine(fixtureRoot, "Uncreated");
+                notifications.SetValue(selected, true);
+                try
+                {
+                    mode.SetValue(selected, Enum.Parse(mode.PropertyType, "CustomPath"));
+                    root.SetValue(selected, fixtureRoot);
+                    subfolder.SetValue(selected, relative);
+                    await Render("existing-recipe-folder", ".tif", true, fixtureOutputDirectory: nested);
+                    Check(string.Equals(offeredDirectory, nested, StringComparison.OrdinalIgnoreCase),
+                        "Previous Settings opens Save in the existing nested recipe folder");
+                    subfolder.SetValue(selected, RecipeNameToken());
+                    await Render("token-recipe-folder", ".tif", false, expectedNativeLocation: byRecipe, fixtureOutputDirectory: byRecipe);
+                    Check(string.Equals(offeredDirectory, byRecipe, StringComparison.OrdinalIgnoreCase),
+                        "the real native Export dialog passes its resolved Recipe Name folder to Save");
+                    subfolder.SetValue(selected, Path.GetFileName(missing));
+                    await Render("missing-recipe-folder", ".tif", true, fixtureOutputDirectory: fixtureRoot);
+                    Check(string.Equals(offeredDirectory, fixtureRoot, StringComparison.OrdinalIgnoreCase) && !Directory.Exists(missing),
+                        "Previous Settings suggests the recipe root when its subfolder has not been created");
+                }
+                finally
+                {
+                    try
+                    {
+                        mode.SetValue(selected, originalMode);
+                        root.SetValue(selected, originalRoot);
+                        subfolder.SetValue(selected, originalSubfolder);
+                    }
+                    finally { notifications.SetValue(selected, false); }
+                }
+                Check(Equals(mode.GetValue(selected), originalMode) && Equals(root.GetValue(selected), originalRoot)
+                    && Equals(subfolder.GetValue(selected), originalSubfolder), "the live recipe location is restored");
+
+                static string RecipeNameToken()
+                {
+                    var core = AppDomain.CurrentDomain.GetAssemblies().Single(a => a.GetName().Name == "P1.C1.ImageCoreWrapper");
+                    const string ns = "P1.C1.Common.DestinationNaming.";
+                    var tokenType = core.GetType(ns + "NameTokenType", true)!;
+                    var token = Activator.CreateInstance(core.GetType(ns + "NameToken", true)!, Enum.Parse(tokenType, "RecipeName"));
+                    var tokens = Array.CreateInstance(core.GetType(ns + "NameTokenBase", true)!, 1);
+                    tokens.SetValue(token, 0);
+                    var nativeName = Activator.CreateInstance(core.GetType(ns + "DestinationName", true)!, new object[] { tokens })!;
+                    return (string)Prop(nativeName, "TokenNameRepresentation")!;
+                }
+            }
+
+            object SelectedRecipeForTest(out FieldInfo notifications)
             {
                 Check(File.Exists(Path.Combine(folder, "native-recipe-backup.json")),
-                    "the selected native recipe compression test has a verified recipe backup");
+                    "the native recipe settings test has a verified recipe backup");
                 var destinations = ((Delegate)Field(bridge!, "destinations")!).DynamicInvoke()!;
                 var selected = Prop(destinations, "SelectedDestination")!;
+                var guard = selected.GetType().GetField("m_suppressNotifications", Flags);
+                if (guard?.FieldType != typeof(bool) || guard.GetValue(selected) is not false)
+                    throw new InvalidOperationException("The verified host recipe notification guard is unavailable.");
+                notifications = guard;
+                return selected;
+            }
+
+            async Task<object> CompareCompression(BitmapSource reference)
+            {
+                var selected = SelectedRecipeForTest(out var notifications);
                 var format = selected.GetType().GetProperty("FileType", Flags)!;
                 var originalFormat = format.GetValue(selected)!;
                 var bits = selected.GetType().GetProperty("TiffBits", Flags)!;
                 var originalBits = bits.GetValue(selected)!;
                 var setting = selected.GetType().GetProperty("TiffCompression", Flags)!;
                 var original = setting.GetValue(selected)!;
-                var notifications = selected.GetType().GetField("m_suppressNotifications", Flags);
-                if (notifications?.FieldType != typeof(bool) || notifications.GetValue(selected) is not false)
-                    throw new InvalidOperationException("The verified host recipe notification guard is unavailable.");
                 var measurements = new List<object>();
                 var comparisonSource = ReadPixelCodes(reference);
                 // The same object serves the live command and the app recipe writer.
@@ -479,12 +553,14 @@ public static partial class StartupHook
             }
 
             async Task<BitmapSource> Render(string kind, string extension, bool usePrevious, bool closeAfterAcceptance = false,
-                TiffCompressOption? expectedCompression = null)
+                TiffCompressOption? expectedCompression = null, string? expectedNativeLocation = null,
+                string? fixtureOutputDirectory = null)
             {
                 var before = routeCount;
                 job = null;
                 offeredFilename = null;
-                destination = Path.Combine(folder, caseName + "-" + kind + extension);
+                offeredDirectory = null;
+                destination = Path.Combine(fixtureOutputDirectory ?? folder, caseName + "-" + kind + extension);
                 if (usePrevious)
                 {
                     if (kind == "both-grains-previous")
@@ -502,6 +578,8 @@ public static partial class StartupHook
                             ?? throw new InvalidOperationException("The native Export window does not expose its confirmation command.");
                         if (!confirm.CanExecute(null)) return false;
                         if (kind == "film-only" && suggestedStem is not null && !CheckNativeNamingSample(owner, suggestedStem))
+                            return false;
+                        if (expectedNativeLocation is not null && !CheckNativeLocationSample(owner, expectedNativeLocation))
                             return false;
                         confirm.Execute(null);
                         if (closeAfterAcceptance)
@@ -571,13 +649,7 @@ public static partial class StartupHook
 
             static bool CheckNativeNamingSample(Window owner, string suggestedStem)
             {
-                var toolList = Field(owner, "m_exportToolsList")
-                    ?? throw new InvalidOperationException("The Export dialog has no native tool list.");
-                var tools = ((IEnumerable)Prop(toolList, "AllScrollTools")!).Cast<object>()
-                    .Concat(((IEnumerable)Prop(toolList, "AllPinnedTools")!).Cast<object>());
-                // Capture One builds its export tools asynchronously after showing the dialog.
-                var namingTool = tools.Select(item => Prop(item, "Tool")).FirstOrDefault(tool =>
-                    tool?.GetType().FullName == "P1.C1.Components.ExportDialog.Tools.ExportNaming");
+                var namingTool = FindExportTool(owner, "ExportNaming");
                 if (namingTool is null) return false;
                 var content = Prop(namingTool, "ToolContent")
                     ?? throw new InvalidOperationException("The native Naming content is unavailable.");
@@ -587,6 +659,29 @@ public static partial class StartupHook
                 Check(Path.GetFileNameWithoutExtension(sample) == suggestedStem,
                     "Spektrafilm uses the same stem as the visible Capture One Naming tool sample");
                 return true;
+            }
+
+            static bool CheckNativeLocationSample(Window owner, string expected)
+            {
+                var tool = FindExportTool(owner, "ExportDestination");
+                if (tool is null) return false;
+                var viewModel = Field(tool, "m_contentViewModel")!;
+                var sample = Prop(viewModel, "SamplePath") as string;
+                if (string.IsNullOrWhiteSpace(sample) || !Path.IsPathFullyQualified(sample)) return false;
+                Check(string.Equals(expected, Path.TrimEndingDirectorySeparator(sample), StringComparison.OrdinalIgnoreCase),
+                    "Capture One's native Location tool shows the matching nested recipe path");
+                return true;
+            }
+
+            static object? FindExportTool(Window owner, string typeName)
+            {
+                var toolList = Field(owner, "m_exportToolsList")
+                    ?? throw new InvalidOperationException("The Export dialog has no native tool list.");
+                var tools = ((IEnumerable)Prop(toolList, "AllScrollTools")!).Cast<object>()
+                    .Concat(((IEnumerable)Prop(toolList, "AllPinnedTools")!).Cast<object>());
+                // Capture One builds its export tools asynchronously after showing the dialog.
+                return tools.Select(item => Prop(item, "Tool")).FirstOrDefault(tool =>
+                    tool?.GetType().FullName == "P1.C1.Components.ExportDialog.Tools." + typeName);
             }
 
             async Task<JsonElement> WaitForTiming(Guid jobId)

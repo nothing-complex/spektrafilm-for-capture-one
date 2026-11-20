@@ -737,10 +737,8 @@ internal sealed class SpatialPreview : IDisposable
                 AddExtension = true,
                 OverwritePrompt = true,
             };
-            if (recipe is { RootFolderMode: "CustomPath" } && Directory.Exists(recipe.CustomRootFolder))
-                picker.InitialDirectory = recipe.CustomRootFolder;
-            if (recipe is { RootFolderMode: "ImageFolder" })
-                picker.InitialDirectory = Path.GetDirectoryName(target.SourcePath)!;
+            if (recipe?.SuggestedDirectory is { } directory)
+                picker.InitialDirectory = directory;
             // The save dialog pumps UI events. Reserve the captured request before
             // opening it so a second export or a selection change cannot retarget it.
             using var work = new ExportOperation(target.VariantId);
