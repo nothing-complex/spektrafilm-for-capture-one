@@ -22,7 +22,7 @@ internal static class Program
         try
         {
             foreach (var malformed in new[] { "status", "fatal", "wrong-request", "length", "truncated", "truncated-header", "error-size",
-                "bad-error-text", "bad-json", "old-version", "bad-json-type", "bad-contract", "bad-precision", "bad-endian", "bad-limits",
+                "bad-error-text", "bad-device-lost", "bad-json", "old-version", "bad-json-type", "bad-contract", "bad-precision", "bad-endian", "bad-limits",
                 "bad-reply-layout", "bad-float-layout", "bad-packed-layout" })
             {
                 var root = Setup(scratch, malformed);
@@ -34,6 +34,34 @@ internal static class Program
                 var trace = File.ReadAllLines(Path.Combine(root, "renderer", "trace.txt"));
                 Check(trace.Count(l => l.Contains("HELLO")) == 2, "renegotiated " + malformed);
                 Check(trace.Select(l => l.Split(':')[0]).Distinct().Count() == 2, "worker replaced " + malformed);
+            }
+            {
+                var root = Setup(scratch, "valid");
+                await using var renderer = new OpticalRenderer(nativePreview: true);
+                var pixels = Pixels(1);
+                await renderer.RenderAsync(1, 1, pixels, [], default);
+                var scenario = Path.Combine(root, "renderer", "scenario.txt");
+                File.WriteAllText(scenario, "device-lost");
+                await Throws<RendererDeviceLostException>(() => renderer.RenderAsync(1, 1, pixels, [], default));
+                File.WriteAllText(scenario, "valid");
+                var recovered = await renderer.RenderAsync(1, 1, pixels, [], default);
+                Check(recovered.AsSpan().SequenceEqual(pixels), "the same complete source succeeds after a Vulkan device loss");
+                var trace = File.ReadAllLines(Path.Combine(root, "renderer", "trace.txt"));
+                Check(trace.Count(line => line.Contains(" FRAME ")) == 2 && trace.Count(line => line.Contains(" REUSE ")) == 1,
+                    "a Vulkan device loss invalidates the old worker source identity");
+            }
+            {
+                var root = Setup(scratch, "hang");
+                await using var renderer = new OpticalRenderer();
+                var pixels = Pixels(1);
+                await Throws<RendererDeadlineException>(() =>
+                    renderer.RenderAsync(1, 1, pixels, [], default).WaitAsync(TimeSpan.FromSeconds(27)));
+                File.WriteAllText(Path.Combine(root, "renderer", "scenario.txt"), "valid");
+                Check((await renderer.RenderAsync(1, 1, pixels, [], default)).Length == 16,
+                    "a renderer that exceeds its real deadline is replaced before the same source can succeed");
+                var trace = File.ReadAllLines(Path.Combine(root, "renderer", "trace.txt"));
+                Check(trace.Count(line => line.Contains(":HELLO 2")) == 2 && trace.Count(line => line.Contains(" FRAME ")) == 2,
+                    "deadline recovery negotiates a fresh worker and sends the complete source");
             }
             {
                 var root = Setup(scratch, "valid");
@@ -691,6 +719,8 @@ internal static class Program
             {
                 case "status": Reply(output, 99, pixels, request: request); break;
                 case "fatal": Reply(output, 2, "Invalid envelope"u8.ToArray(), request: request); break;
+                case "device-lost": Reply(output, RendererProtocol.DeviceLost, "VK_ERROR_DEVICE_LOST"u8.ToArray(), request: request); break;
+                case "bad-device-lost": Reply(output, RendererProtocol.DeviceLost, [], request: request); break;
                 case "wrong-request": Reply(output, 0, pixels, request: request + 1); break;
                 case "length": Reply(output, 0, new byte[pixels.Length + 1], request: request); break;
                 case "error-size": Reply(output, 1, new byte[65536], request: request); break;

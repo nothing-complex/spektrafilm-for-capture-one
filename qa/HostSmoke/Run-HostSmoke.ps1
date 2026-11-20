@@ -23,12 +23,41 @@ param(
     [switch] $PanelInventory,
     [switch] $NativeEffectExport,
     [switch] $OriginalAvailabilityProbe,
+    [switch] $NativeDevelopmentDeadline,
+    [string] $DeviceLossFixtureDirectory,
     [string] $CalibrationChart,
     [string] $ResultsDirectory
 )
 $ErrorActionPreference='Stop'
 if ($OriginalAvailabilityProbe -and !$CalibrationChart) {
     throw 'The original availability fixture requires a private calibrated RAW chart.'
+}
+if ($NativeDevelopmentDeadline) {
+    if (!$NativeSettingsConfig -or $NativeEffectExport -or $ColorMatrix -or $NativeSourceMutations -or $CatalogIsolation -or
+        $ConcurrentCatalogs -or $ViewerLayouts -or $ViewerChurn -or $DurableSliderEdits -or $MetadataFixtureRoot -or
+        $ViewerStress -or $PanelInventory -or $CheckOrdinaryLaunch -or $CalibrationChart -or $UpgradeFromPackage) {
+        throw 'The native development deadline fixture requires its own launch and a native preferences backup.'
+    }
+    $SkipRestart=$true
+}
+if ($DeviceLossFixtureDirectory) {
+    if (!$NativeSettingsConfig -or $PackagedRuntime -or $UpgradeFromPackage -or $NativeDevelopmentDeadline -or
+        $NativeEffectExport -or $ColorMatrix -or $NativeSourceMutations -or $CatalogIsolation -or $ConcurrentCatalogs -or
+        $ViewerLayouts -or $ViewerChurn -or $DurableSliderEdits -or $MetadataFixtureRoot -or $ViewerStress -or
+        $PanelInventory -or $CheckOrdinaryLaunch -or $CalibrationChart) {
+        throw 'The injected device-loss fixture requires its own development launch and native preferences backup.'
+    }
+    $fixtureDirectory=Get-Item -LiteralPath $DeviceLossFixtureDirectory -Force
+    if (!$fixtureDirectory.PSIsContainer -or ($fixtureDirectory.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        throw 'The device-loss worker must be in a regular fixture directory.'
+    }
+    $fixtureExecutable=Join-Path $fixtureDirectory.FullName 'SpektraStillRenderer.exe'
+    $fixtureReceipt=Join-Path $fixtureDirectory.FullName 'device-loss-fixture.sha256'
+    $expectedHash=[IO.File]::ReadAllText($fixtureReceipt).Trim()
+    if ($expectedHash -notmatch '^[a-fA-F0-9]{64}$' -or (Get-FileHash -LiteralPath $fixtureExecutable).Hash -ine $expectedHash) {
+        throw 'The injected worker does not match its disposable build receipt.'
+    }
+    $SkipRestart=$true
 }
 if ($NativeSourceMutations) {
     if (!$NativeSettingsConfig) { throw 'The native source mutation matrix requires a verified preferences backup.' }
@@ -250,6 +279,7 @@ if ($MetadataFixtureRoot) {
 $runtimeSource=$root
 $panelBuild=Join-Path $root 'NativePanel\bin\Release\net8.0-windows\NativePanel.dll'
 $rendererBuild=Join-Path $root 'build\still-renderer\Release'
+if ($DeviceLossFixtureDirectory) { $rendererBuild=$fixtureDirectory.FullName }
 if ($PackagedRuntime) {
     $runtimeSource=(Resolve-Path -LiteralPath $PackagedRuntime).ProviderPath
     . (Join-Path $root 'ReleaseManifest.ps1')
@@ -350,7 +380,8 @@ $names=@(
     'SPEKTRAFILM_SHOW_TOOL','SPEKTRAFILM_HOST_PROOF_TEST','SPEKTRAFILM_HOST_CATALOG_ISOLATION',
     'SPEKTRAFILM_HOST_VIEWER_LAYOUTS','SPEKTRAFILM_HOST_DURABLE_EDITS','SPEKTRAFILM_HOST_METADATA_FIXTURE',
     'SPEKTRAFILM_HOST_VIEWER_CHURN','SPEKTRAFILM_HOST_NATIVE_VIEWER_BASELINE','SPEKTRAFILM_HOST_OTHER_CATALOG',
-    'SPEKTRAFILM_HOST_SESSION','SPEKTRAFILM_HOST_CALIBRATION','SPEKTRAFILM_HOST_ORIGINAL_AVAILABILITY_PROBE'
+    'SPEKTRAFILM_HOST_SESSION','SPEKTRAFILM_HOST_CALIBRATION','SPEKTRAFILM_HOST_ORIGINAL_AVAILABILITY_PROBE',
+    'SPEKTRAFILM_HOST_NATIVE_DEVELOPMENT_DEADLINE','SPEKTRAFILM_HOST_DEVICE_LOSS'
 )
 $prior=@{}
 foreach($name in $names){$prior[$name]=[Environment]::GetEnvironmentVariable($name,'Process')}
@@ -379,6 +410,8 @@ try {
     $env:SPEKTRAFILM_HOST_SESSION=$sessionDatabase
     $env:SPEKTRAFILM_HOST_CALIBRATION=$fixtureChart
     $env:SPEKTRAFILM_HOST_ORIGINAL_AVAILABILITY_PROBE=if($OriginalAvailabilityProbe){'1'}else{$null}
+    $env:SPEKTRAFILM_HOST_NATIVE_DEVELOPMENT_DEADLINE=if($NativeDevelopmentDeadline){'1'}else{$null}
+    $env:SPEKTRAFILM_HOST_DEVICE_LOSS=if($DeviceLossFixtureDirectory){'1'}else{$null}
     $phases=if($CatalogIsolation){@('A-first','B-first','A-restart','B-restart')}elseif($SkipRestart -or $ViewerLayouts){@('first')}else{@('first','restart')}
     if (!$SkipRestart -and !$CatalogIsolation -and !$ViewerLayouts -and !$DurableSliderEdits) { [IO.File]::WriteAllText((Join-Path $folder 'verify-grain-restart.marker'), 'test only') }
     foreach($phase in $phases){
@@ -398,7 +431,7 @@ try {
                 $ready=Wait-SpektrafilmPanel $process $status $env:SPEKTRAFILM_LAUNCH_ID 90
                 $ready | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $folder ($phase+'.ready.json'))
             }
-            $deadline=[DateTime]::UtcNow.AddMinutes($(if($ViewerChurn){10}else{4}))
+            $deadline=[DateTime]::UtcNow.AddMinutes($(if($ViewerChurn){10}elseif($NativeDevelopmentDeadline){6}else{4}))
             $result=Join-Path $folder ($phase+'.passed')
             $failure=Join-Path $folder 'failed.txt'
             while(!(Test-Path -LiteralPath $result)){

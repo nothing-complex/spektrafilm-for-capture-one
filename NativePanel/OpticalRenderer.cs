@@ -12,6 +12,8 @@ internal sealed class RendererConnectionInterruptedException(IOException inner)
     : IOException("The connection to the Spektrafilm renderer ended.", inner);
 
 internal sealed class RendererDeadlineException(string message) : TimeoutException(message);
+internal sealed class RendererDeviceLostException(string detail)
+    : InvalidOperationException("The Spektrafilm renderer lost its Vulkan device. " + detail);
 
 internal sealed class OpticalRenderer(bool export = false, bool nativePreview = false) : IDisposable, IAsyncDisposable
 {
@@ -133,7 +135,7 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
                 synchronizedCancellation = true;
                 stop.ThrowIfCancellationRequested();
             }
-            if (code is 1 or 2 && size is >= 1 and <= 4096)
+            if (code is 1 or 2 or RendererProtocol.DeviceLost && size is >= 1 and <= 4096)
             {
                 var error = new byte[size];
                 await output.ReadExactlyAsync(error, replyToken).ConfigureAwait(false);
@@ -146,6 +148,8 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
                     synchronizedCancellation = true;
                     stop.ThrowIfCancellationRequested();
                 }
+                if (code == RendererProtocol.DeviceLost)
+                    throw new RendererDeviceLostException(message);
                 throw new InvalidOperationException(message);
             }
             if (code != 0 || size != (displayPixels ? rgba.Length / sizeof(float) : rgba.Length))

@@ -6,4 +6,5 @@ internal static class RendererProtocol
     internal const int ReplyHeaderBytes = 16;
     internal const int Canceled = 3;
     internal const int Progress = 4;
+    internal const int DeviceLost = 5;
 }

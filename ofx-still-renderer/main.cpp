@@ -32,6 +32,9 @@
 namespace {
 
 struct RenderCanceled {};
+struct RenderDeviceLost : std::runtime_error {
+    using std::runtime_error::runtime_error;
+};
 
 enum class WorkerStage : uint8_t { SourceAccepted = 1, Preparing, Vulkan, Verifying, Sending };
 void writeProgress(std::optional<uint64_t> request, WorkerStage stage);
@@ -772,7 +775,11 @@ FrameMetrics renderFrame(Renderer &renderer, const InputFrame &input, RenderPara
     writeProgress(progress, WorkerStage::Vulkan);
     const bool rendered = renderer.render(source, destination, frame, params, 0.0);
     if (stop) stop->check();
-    if (!rendered) throw std::runtime_error(renderer.lastError());
+    if (!rendered) {
+        const auto error = renderer.lastError();
+        if (error.find("VK_ERROR_DEVICE_LOST") != std::string::npos) throw RenderDeviceLost(error);
+        throw std::runtime_error(error);
+    }
     writeProgress(progress, WorkerStage::Verifying);
     if (!hasFinitePixels(output, stop)) throw std::runtime_error("Renderer produced a non-finite pixel.");
     return metrics;
@@ -884,9 +891,12 @@ void writePackedPreview(const InputFrame &input, const std::vector<float> &rende
     flushReply();
 }
 
-void writeError(std::string_view message, std::optional<uint64_t> request = std::nullopt, bool fatal = false) {
+enum class ReplyError : uint32_t { Rejected = 1, Desynchronized = 2, DeviceLost = 5 };
+
+void writeError(std::string_view message, std::optional<uint64_t> request = std::nullopt, ReplyError kind = ReplyError::Rejected) {
     if (message.size() > 4096) message = message.substr(0, 4096);
-    writeReply(fatal && request ? 2 : 1, message.data(), static_cast<uint32_t>(message.size()), request);
+    const auto status = request ? static_cast<uint32_t>(kind) : static_cast<uint32_t>(ReplyError::Rejected);
+    writeReply(status, message.data(), static_cast<uint32_t>(message.size()), request);
 }
 
 void writeCapabilities(const FrameLimit &limit, int protocol, bool cancelAvailable, bool progressAvailable) {
@@ -1094,7 +1104,8 @@ void processStream(const FrameLimit &limit) {
                 renderer.reset();
                 enlarger.clear();
                 metrics = {};
-                writeError(error.what(), request);
+                const auto kind = dynamic_cast<const RenderDeviceLost *>(&error) ? ReplyError::DeviceLost : ReplyError::Rejected;
+                writeError(error.what(), request, kind);
                 continue;
             }
             writeProgress(progress, WorkerStage::Sending);
@@ -1108,7 +1119,7 @@ void processStream(const FrameLimit &limit) {
             }
         }
     } catch (const std::exception &error) {
-        if (std::cout) writeError(error.what(), request, true);
+        if (std::cout) writeError(error.what(), request, ReplyError::Desynchronized);
         throw;
     }
 }

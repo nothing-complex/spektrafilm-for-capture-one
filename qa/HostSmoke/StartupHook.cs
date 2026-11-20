@@ -156,6 +156,16 @@ public static partial class StartupHook
                 await TestNativeEffectExport(hookField, hosted, panel, spatial, window);
                 return;
             }
+            if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_NATIVE_DEVELOPMENT_DEADLINE") == "1")
+            {
+                await TestNativeDevelopmentDeadline(panel, spatial);
+                return;
+            }
+            if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_DEVICE_LOSS") == "1")
+            {
+                await TestNativeDeviceLossRecovery(panel, spatial, store, variant);
+                return;
+            }
             var exposure = Field(panel, "exposure")!;
             var toggle = (CheckBox)Field(panel, "enableSpektraFilm")!;
             await TestLaunchHealth(hosted, spatial, toggle);

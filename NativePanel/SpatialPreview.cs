@@ -1172,13 +1172,16 @@ internal sealed class SpatialPreview : IDisposable
                 queued = true;
         }
         catch (Exception error) when (settingsVersion == inputRevision && !job.IsCancellationRequested
-            && (error is RendererConnectionInterruptedException or RendererDeadlineException)
+            && (error is RendererConnectionInterruptedException or RendererDeadlineException or RendererDeviceLostException
+                or HostImageSource.DevelopmentDeadlineException)
             && rendererRetry.Schedule(retryKey, Environment.TickCount64))
         {
             ReleaseRenderer();
             ClearFrame(error);
             queued = true;
-            status.Text = "Restarting the Spektrafilm Viewer renderer…";
+            status.Text = error is HostImageSource.DevelopmentDeadlineException
+                ? "Retrying Capture One image development…"
+                : "Restarting the Spektrafilm Viewer renderer…";
         }
         catch (Exception error) when (settingsVersion == inputRevision)
         {

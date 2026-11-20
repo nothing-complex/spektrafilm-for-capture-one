@@ -37,6 +37,7 @@ internal static class HostImageSource
         .GetMethod("GetDestinationDocumentManager", new[] { typeof(ICaptureOneDocument) });
     internal sealed record Frame(int Width, int Height, byte[] FloatBytes, int BitDepth, FrameDescription? Description = null);
     internal sealed record ExportFrame(Frame Image, Rectangle Crop);
+    internal sealed class DevelopmentDeadlineException(string message) : TimeoutException(message);
     internal sealed record RecipeInfo(string Name, string FormatId, string ColorProfileName, string ColorProfilePath,
         string CropMode, string RootFolderMode, string CustomRootFolder, string Subfolder, string Filename,
         string Suffix, int TiffBits, int JpegQuality, int Width, int Height, double Scale, bool IgnoreCrop,
@@ -270,7 +271,7 @@ internal static class HostImageSource
             }
             catch (OperationCanceledException) when (!token.IsCancellationRequested && workToken.IsCancellationRequested)
             {
-                throw new TimeoutException($"Capture One did not finish developing the image in {timeout.TotalSeconds:0} seconds.");
+                throw new DevelopmentDeadlineException($"Capture One did not finish developing the image in {timeout.TotalSeconds:0} seconds.");
             }
             finally
             {

@@ -656,9 +656,10 @@ To repeat, run `python qa/prepare-metadata-fixture.py <closed-catalog> <RAW-samp
 - [x] Negotiate a per-worker Windows event and a numbered cancellation reply. Samples can stop before or between GPU tiles and after full-frame work. Drain a complete late reply without publishing it. A broken or stalled connection falls back to bounded shutdown before retry. [Windows named event API](https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-openeventa)
 - [x] Expose validated progress for source, preparation, Vulkan, verification and readback. The export label honors the current accepted job. Optional messages leave the ordinary live Viewer transport unchanged.
 - [x] Pass 157 managed worker checks, including blocked upload, delayed output, stale-reply drainage, timeout and invalid stage order. On the RTX 3090, 27 checks passed and an in-flight full-frame cancellation returned in 26.65 ms while keeping the same worker. Ten independent 24-tile trials had median 0.56 ms and maximum 1.75 ms from signal to reply, with each recovered frame matching its baseline hash. Licensed Capture One passed 265 and 269 first-launch and restart assertions.
-- [ ] Inject physical Vulkan device loss and repeat on slower hardware. An already submitted full-frame GPU command must finish before graceful acknowledgment. The process watchdog bounds an unresponsive child. [Vulkan fence behavior](https://docs.vulkan.org/refpages/latest/refpages/source/vkWaitForFences.html)
+- [x] Substitute `VK_ERROR_DEVICE_LOST` after a real GPU fence completes in a separately built fixture. Protocol 2 returns typed status 5 and protocol 1 returns ordinary status 1. Both recover the same pixel hash as the production worker. An actual Capture One run with that worker repainted the exact durable look from the same high-depth source in 561 ms using a replacement process. Export stayed connected.
+- [ ] Exercise loss caused by a device or driver and repeat cancellation on slower hardware. An already submitted full-frame GPU command must finish before graceful acknowledgment. The process watchdog bounds an unresponsive child. [Vulkan fence behavior](https://docs.vulkan.org/refpages/latest/refpages/source/vkWaitForFences.html)
 
-Evidence is under `.test-results/cooperative-vulkan-runtime-20261120`, `.test-results/contracts-cooperative-progress-20261120` and `.test-results/host-cooperative-renderer-20261120`. Use `qa/renderer-cancel-probe.py` to repeat the independent tiled trials.
+Evidence is under `.test-results/cooperative-vulkan-runtime-20261120`, `.test-results/contracts-cooperative-progress-20261120`, `.test-results/host-cooperative-renderer-20261120` and `.test-results/host-native-device-loss-20261120`. Use `qa/renderer-cancel-probe.py` for tiled cancellation trials and `qa/Build-DeviceLossFixture.ps1` plus `qa/device-loss-probe.py` for the disposable Vulkan fault fixture. The licensed fixture uses `Run-HostSmoke.ps1 -DeviceLossFixtureDirectory` and the exact native settings backup.
 
 ## Installer linked paths and failed rollback
 
@@ -775,9 +776,10 @@ Evidence is under `.test-results/host-panel-inventory-verified-20261120`, `.test
 
 - [x] Remove the unused 8-bit Capture One proxy source, its retry branch and its display-code buffer. Native Viewer, scaled Viewer, drag draft and Export use the original Capture One image handle and the high-depth bitmap destination. RGB16, RGBA16 and RGB32F are accepted. Display conversion and the explicit Viewer PNG command retain their existing display precision.
 - [x] Test the lowest-depth rejection at the actual native bitmap copy entry point, separately for each of the four RAWs. Both licensed colour runs passed 135 assertions, including identical native 16-bit TIFF samples, and the full first-launch and restart runs passed 310 and 314 checks. All Windows and Vulkan contracts passed.
-- [ ] Test native development deadline recovery and measure the behavior of disconnected originals. The old proxy-pending route is no longer part of the film path.
+- [x] Hold only the plugin's native development admission slot until the licensed 180-second deadline. Capture One's still-selected original repainted in 703 ms after admission returned, with the saved look and Native Export connection intact. The 17-check run used `-NativeDevelopmentDeadline`.
+- [ ] Evaluate a stall inside native development independently of the admission fixture. Recovery from a disconnected original is verified in its own section below.
 
-Source verification used `.test-results/host-high-depth-only-color-20261120`, `.test-results/host-high-depth-only-full-20261120` and `.test-results/contracts-high-depth-only-20261120`. The audit.15 development ZIP predates this source simplification.
+Source verification used `.test-results/host-high-depth-only-color-20261120`, `.test-results/host-high-depth-only-full-20261120`, `.test-results/contracts-high-depth-only-20261120`, `.test-results/host-native-development-deadline-20261120` and `.test-results/contracts-device-loss-and-deadline-20261120`. The audit.15 development ZIP predates this source simplification.
 
 ## Native Grain history commits after success
 
@@ -802,6 +804,14 @@ Evidence and TIFF/PNG examples are under `.test-results/host-native-effect-expor
 - [x] Verify the fixture bytes are restored exactly, native recipe export refuses the disconnected source and the persistent look is identical. The final 29-check run measured about 307 ms to suspend and 1.72 seconds to repaint. Full Windows and Vulkan contracts, 311 plus 315 full native checks and 39 plus 39 native effects export checks passed.
 
 Evidence is under `.test-results/host-original-availability-baseline-20261120`, `.test-results/host-original-availability-final-20261120`, `.test-results/host-original-availability-full-20261120` and `.test-results/host-original-availability-export-20261120`. Use `-CalibrationChart` and `-OriginalAvailabilityProbe` with the exact preferences backup.
+
+## Native Viewer and float export worker scale
+
+- [x] Run colour and optical cases at 24, 45, 61 and 100 MP on the exact packaged worker, using only the NVIDIA RTX 3090 ICD. All 16 cases and 80 requests completed. Each case includes one cold request and four warm requests.
+- [x] At 100 MP, packed Viewer warm p95 was 0.43 s for colour and 5.30 s for optics. Float export took 2.20 s and 8.51 s respectively. The 100 MP optical export peaked at 6.33 GiB of worker commit. Its 800 tiles used 3.09 GiB of transient GPU cache and transferred 9.38 GB from the device for a 1.60 GB frame reply. The physical host had 35.68 GiB available before the benchmark.
+- [ ] Measure overlap in the tiled output readback. Verify that central-region transfer and adaptive tile dimensions preserve exact output, alpha, cancellation and admission. The reported worker timing excludes Capture One development, ICC conversion and file encoding.
+
+Evidence is in `.test-results/matrix-24-45-61-100mp-20261120/nvidia.json` and its adapter summary.
 
 ## Status maintenance
 
