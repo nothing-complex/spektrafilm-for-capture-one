@@ -1148,12 +1148,17 @@
       "id": "RC-04",
       "title": "Remove resolution-dependent physical blur truncation",
       "priority": "P2",
-      "status": "pending",
-      "implemented": [],
-      "evidence_paths": [],
+      "status": "partial",
+      "implemented": [
+        "Added a compiled-parameter-aware baseline probe. It measures discrete capped-kernel mass, second moment and normalized L1 error in 48 cases across Standard 8, Standard 35 and IMAX 70, plus 12 genuine Vulkan scanner impulse responses with unchanged alpha.",
+        "At 16,384 px on Standard 8, a 100 µm scanner unsharp sigma measured 41.81 µm with the current 256 px cap. The same setting measured 99.53 µm at 1,200 px. The ideal finite 3-sigma kernel predicts 98.66 µm at 16,384 px."
+      ],
+      "evidence_paths": [
+        "qa/blur-support.py",
+        ".test-results/physical-blur-support-reference-20261120.json"
+      ],
       "remaining_work": [
-        "Enumerate reachable sigma and selected blur backends",
-        "Measure impulse tail/energy/second moment vs reference",
+        "Extend the direct impulse/energy experiments to DIR, grain and other blur backends. The initial reports for those capped kernels are analytical.",
         "Implement validated multiscale or recursive large-sigma path",
         "Recompute tile overlap from actual chosen support",
         "Version appearance changes and coordinate upstream"
@@ -2887,8 +2892,8 @@
   "counts": {
     "total": 70,
     "implemented": 21,
-    "partial": 45,
-    "pending": 4
+    "partial": 46,
+    "pending": 3
   },
   "last_reconciled": "2026-11-20",
   "handover": "HANDOVER.md",

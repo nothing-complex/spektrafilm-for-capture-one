@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 21 bounded primary fixes implemented, 45 partial items and 4 pending items. It includes feasibility investigations and enhancements.
+Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 21 bounded primary fixes implemented, 46 partial items and 3 pending items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -525,6 +525,14 @@ Evidence is under `.test-results/host-workspace-selection-20261120` and `.test-r
 - [ ] Verify color-managed paint, separate recipe profiles, wide-gamut displays, custom proof and HDR against independent numerical patches.
 
 Evidence is under `.test-results/host-recipe-proofing-final-20261120`.
+
+## Physical blur baseline
+
+- [x] Quantify capped scanner, DIR and grain kernels against the uncapped finite kernels in 48 cases. Confirm scanner response in 12 real Vulkan renders across 8 mm, 35 mm and IMAX film at four resolutions.
+- [x] Reproduce the resolution drift. Standard 8 scanner unsharp at 100 µm measured 99.53 µm at 1,200 px and 41.81 µm at 16,384 px. The capped DIR longest lobe has the largest analytical tail loss.
+- [ ] Validate an appearance-versioned larger-support filter and tile margins. Compare energy, resolution, boundaries, full/tiled parity and performance before enabling it.
+
+Evidence is in `.test-results/physical-blur-support-reference-20261120.json`.
 
 ## Status maintenance
 
