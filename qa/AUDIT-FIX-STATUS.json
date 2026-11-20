@@ -3743,8 +3743,8 @@
   ],
   "counts": {
     "total": 70,
-    "implemented": 39,
-    "partial": 31,
+    "implemented": 40,
+    "partial": 30,
     "pending": 0
   },
   "last_reconciled": "2026-11-20",
