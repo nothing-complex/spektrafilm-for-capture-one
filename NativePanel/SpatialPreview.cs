@@ -625,7 +625,8 @@ internal sealed class SpatialPreview : IDisposable
                     input.Space, captureRecipe: useRecipeSize);
                 var recipe = snapshot.Recipe;
                 var deliveryProfile = ExportColorProfile.ForRecipe(recipe?.ColorProfileName, recipe?.ColorProfilePath);
-                var delivery = new SpektraExport.RecipeDelivery(recipe?.FormatId, recipe?.TiffBits ?? 0, recipe?.CropMode);
+                var delivery = new SpektraExport.RecipeDelivery(recipe?.FormatId, recipe?.TiffBits ?? 0, recipe?.CropMode,
+                    recipe?.Omissions ?? SpektraExport.RecipeOmission.None);
                 var extension = delivery.Extension;
                 var dpi = recipe is null ? ExportResolution.DefaultDpi : ExportResolution.DotsPerInch(recipe.Resolution, recipe.ResolutionUnit);
                 var suggestedName = SpektraExport.SuggestedOutputName(recipe?.SuggestedFilename, target.SourcePath, extension,

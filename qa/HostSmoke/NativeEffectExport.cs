@@ -843,9 +843,17 @@ public static partial class StartupHook
                 var filename = type.GetProperty("DestinationFilename", Flags)!;
                 var format = type.GetProperty("FileType", Flags)!;
                 var cropMode = type.GetProperty("CropExportMethod", Flags)!;
+                var watermark = type.GetProperty("WatermarkType", Flags)!;
+                var watermarkText = type.GetProperty("WatermarkTextSerialized", Flags)!;
+                var sharpening = type.GetProperty("SharpeningOutputControl", Flags)!;
+                var annotations = type.GetProperty("IncludeAnnotations", Flags)!;
                 var initialName = filename.GetValue(selected);
                 var initialFormat = format.GetValue(selected);
                 var initialCropMode = cropMode.GetValue(selected);
+                var initialWatermark = watermark.GetValue(selected);
+                var initialText = watermarkText.GetValue(selected);
+                var initialSharpening = sharpening.GetValue(selected);
+                var initialAnnotations = annotations.GetValue(selected);
                 var counter = counterProperty ?? throw new MissingMemberException(document.GetType().FullName, "OutputCounter");
                 var increment = document.GetType().GetProperty("OutputCounterIncrement", Flags)!;
                 var firstLaunch = caseName == "first";
@@ -869,7 +877,7 @@ public static partial class StartupHook
                             : "reopening the copy loads the counter advanced by the first native export and its original increment");
                     filename.SetValue(selected, "Restart " + NativeNameToken("Counter"));
                     var expected = $"Restart {before:D3}.tif";
-                    await Render("counter-restart", ".tif", usePrevious: !firstLaunch,
+                    var baseline = await Render("counter-restart", ".tif", usePrevious: !firstLaunch,
                         fixtureOutputDirectory: namingDirectory, fixtureOutputFileName: expected);
                     Check(offeredFilename == expected && Read(counter) == before + 3 && Read(increment) == 3,
                         "the actual native export accepts the expected numbered TIFF and advances the persisted counter once");
@@ -879,6 +887,27 @@ public static partial class StartupHook
                             "the restart export is written beside the earlier TIFF under its own counter instead of replacing it");
                         return;
                     }
+
+                    filename.SetValue(selected, initialName);
+                    watermarkText.SetValue(selected, "Spektrafilm test watermark");
+                    watermark.SetValue(selected, Enum.Parse(watermark.PropertyType, "Text"));
+                    sharpening.SetValue(selected, Enum.Parse(sharpening.PropertyType, "Screen"));
+                    Check(Prop(CaptureRecipe(), "Omissions")?.ToString() == "Watermark, Sharpening",
+                        "the selected native recipe captures its configured text watermark and screen sharpening mode");
+                    var disclosedExport = await Render("watermark-and-sharpening-omissions", ".tif", true);
+                    const string omitted = "recipe watermark, recipe sharpening mode";
+                    const string omissionNote = "The export omitted " + omitted + ".";
+                    var omissionsReceipt = Call(Field(spatial, "exportJobs")!, "ReadLatest")!;
+                    Check(offeredTitle?.Contains("omits " + omitted, StringComparison.Ordinal) == true
+                        && (Prop(omissionsReceipt, "DeliveryNote") as string)?.EndsWith(omissionNote, StringComparison.Ordinal) == true
+                        && ((TextBlock)Field(spatial, "exportStatus")!).Text.Contains(omissionNote, StringComparison.Ordinal),
+                        "Save, the completed receipt and panel status identify both omitted settings");
+                    var unchanged = Difference(baseline, disclosedExport);
+                    Check(unchanged.Mean < 8d / 65535 && unchanged.Maximum < .01,
+                        "the disclosed alternative preserves the same RGB16 film result as the baseline");
+                    watermark.SetValue(selected, initialWatermark);
+                    watermarkText.SetValue(selected, initialText);
+                    sharpening.SetValue(selected, initialSharpening);
 
                     var profile = panel.GetType().Assembly.GetType("HostProfile", true)!;
                     var selection = profile.GetMethod("ReadSelection", Flags)!.Invoke(null, new[] { window })!;
@@ -902,17 +931,19 @@ public static partial class StartupHook
 
                         format.SetValue(selected, Enum.Parse(format.PropertyType, "Psd"));
                         cropMode.SetValue(selected, Enum.Parse(cropMode.PropertyType, "AsPath"));
+                        annotations.SetValue(selected, true);
                         var pathRecipe = CaptureRecipe();
                         Check(Prop(pathRecipe, "FormatId") is "Psd" && Prop(pathRecipe, "CropMode") is "AsPath"
-                            && Dimensions(pathRecipe) == full, "Capture One supplies a full-canvas PSD crop-path recipe for the cropped RAW");
+                            && Dimensions(pathRecipe) == full && Prop(pathRecipe, "Omissions")?.ToString() == "PsdLayers",
+                            "Capture One supplies a full-canvas PSD recipe with a crop path and annotation layer requested");
                         var png = await Render("psd-crop-path-alternative", ".png", false, expectedGeometry: full);
-                        Check(offeredTitle?.StartsWith("Recipe requests PSD · Save 16-bit TIFF or PNG · full image, crop path omitted", StringComparison.Ordinal) == true,
-                            "the native Save title discloses the format and crop-path substitution before approval");
-                        const string note = "Recipe requested PSD. Saved 16-bit PNG. Saved the full image. The recipe’s crop path was omitted.";
+                        Check(offeredTitle?.StartsWith("Recipe requests PSD · Save 16-bit TIFF or PNG · full image, crop path omitted · omits PSD layers", StringComparison.Ordinal) == true,
+                            "the native Save title discloses the format, crop path and PSD layers before approval");
+                        const string note = "Recipe requested PSD. Saved 16-bit PNG. Saved the full image. The recipe’s crop path was omitted. The export omitted PSD layers.";
                         var receipt = Call(Field(spatial, "exportJobs")!, "ReadLatest")!;
                         Check(Equals(Prop(receipt, "DeliveryNote"), note)
                             && ((TextBlock)Field(spatial, "exportStatus")!).Text.Contains(note, StringComparison.Ordinal),
-                            "the completed receipt records the actual PNG and the omitted crop path");
+                            "the completed receipt records the actual PNG and the omitted crop path and layers");
                         var parity = Difference(uncut, png);
                         Check(parity.Mean < 8d / 65535 && parity.Maximum < .01,
                             "the PSD substitute preserves the same full-canvas effect pixels as the Ignore Crop reference TIFF");
@@ -927,6 +958,10 @@ public static partial class StartupHook
                         format.SetValue(selected, initialFormat);
                         filename.SetValue(selected, initialName);
                         cropMode.SetValue(selected, initialCropMode);
+                        watermark.SetValue(selected, initialWatermark);
+                        watermarkText.SetValue(selected, initialText);
+                        sharpening.SetValue(selected, initialSharpening);
+                        annotations.SetValue(selected, initialAnnotations);
                     }
                     finally { notifications.SetValue(selected, false); }
                 }

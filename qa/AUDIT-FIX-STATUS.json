@@ -1676,7 +1676,8 @@
         "The Save picker names an unsupported format or depth before the user approves a 16-bit substitute. Completed receipts preserve the actual chosen format when it differs. Cancel, failure and Skip produce no saved-format note. The policy also discloses full-image delivery for an omitted crop path. Portable tests cover TIFF 8/16-bit, PNG, JPEG, unknown formats, direct export, crop-path notices and receipt reload.",
         "A 175-check native 16.4 launch covers a JPEG recipe through Export and an 8-bit TIFF recipe through Previous Settings. Both identify the replacement before Save, persist the note after publication and produce actual 3000 by 2000 RGB16 TIFFs with the exact ICC and decoded low bits. Both native commands also honor PNG Skip. The five Skip jobs have no renderer events. All nine recipe files and the source catalog verify. Pass 12,519 portable Viewer/export checks.",
         "The exact audit.34 package passes 91 launch and 72 restart checks with the counter deliberately retained on the copied catalog. Native Export writes Restart 041.tif and advances the counter from 41 to 44. After clean close and relaunch, Previous Settings reads 44 with increment 3, writes Restart 044.tif and advances to 47. Both open as RGB16 TIFFs with the selected ICC. A real asymmetric crop and PSD AsPath recipe in the same run offer a disclosed full-canvas PNG alternative. The resulting RGBA16 PNG matches the Ignore Crop TIFF within the native fixture's pixel tolerances, and an independent reader verifies its dimensions, depth and exact ICC. All nine native recipe files and the source catalog verify.",
-        "An occupied 8-bit TIFF recipe path set to Skip now opens Save for the explicitly disclosed 16-bit alternative. The source build passes 185 licensed 16.4 checks including the alternative export, the unchanged occupied file and normal 16-bit TIFF/PNG Skip. All nine backed-up recipe files and the source catalog verify. Pass 12,519 host-independent assertions."
+        "An occupied 8-bit TIFF recipe path set to Skip now opens Save for the explicitly disclosed 16-bit alternative. The source build passes 185 licensed 16.4 checks including the alternative export, the unchanged occupied file and normal 16-bit TIFF/PNG Skip. All nine backed-up recipe files and the source catalog verify. Pass 12,519 host-independent assertions.",
+        "Save and completed history identify omitted recipe watermarks, non-default sharpening modes, and requested PSD annotation, overlay or guide layers. The licensed 16.4 fixture exercises a text watermark and screen sharpening on a TIFF recipe, plus an annotation layer and editable crop path on a PSD recipe. The alternatives reopen at 16 bits with the exact ICC, and the film result matches its high-depth reference within the fixture tolerances. Pass 100 launch and 72 restart checks plus 12,521 host-independent assertions. The source catalog and all nine original recipes verify. Signed 16.7.8.3529 reference build matches all 574 host references."
       ],
       "evidence_paths": [
         "NativePanel/SpektraFilmTool.cs",
@@ -1720,11 +1721,14 @@
         ".test-results/host-native-recipe-restart-20261120/host-smoke.log",
         ".test-results/host-native-recipe-restart-20261120/independent-recipe-delivery.json",
         ".test-results/host-native-recipe-skip-alternative-v3-20261120/host-smoke.log",
-        ".test-results/native-recipe-skip-alternative-contracts-20261120.log"
+        ".test-results/native-recipe-skip-alternative-contracts-20261120.log",
+        ".test-results/host-native-recipe-omissions-20261120/host-smoke.log",
+        ".test-results/recipe-effects-contract-20261120/reference-comparison.json",
+        ".test-results/native-recipe-omissions-final-contracts-20261120.log"
       ],
       "remaining_work": [
         "Directory creation and the full location token matrix, automatic Overwrite behavior, tiling and other format and quality settings beyond the explicit 16-bit TIFF/PNG save policy remain open.",
-        "Characterize Capture One’s remaining delivery settings and sidecars, including PSD path publication. The full-image, high-depth alternative for a PSD crop-path recipe and catalog-local counter continuity across clean shutdown are verified. Explicit overwrite still requires Save approval."
+        "Implement and compare native watermark compositing, recipe sharpening overrides, PSD paths and layers, and the remaining delivery settings and sidecars. The 16-bit alternative explicitly discloses the proven omissions. Explicit overwrite still requires Save approval."
       ],
       "original_acceptance_tests": [
         "Table-driven JPEG, PNG, TIFF 8/16-bit, unknown-format, custom ICC, image-folder/custom-folder/subfolder/token/suffix and duplicate-name cases.",
@@ -3316,10 +3320,13 @@
         ".test-results/host-shared-admission-effects-20261120/failed.txt",
         ".test-results/host-audit33-delivery-20261120/panel.log",
         ".test-results/host-audit34-delivery-20261120/host-smoke.log",
-        ".test-results/host-audit34-source-change-20261120/host-smoke.log"
+        ".test-results/host-audit34-source-change-20261120/host-smoke.log",
+        ".test-results/recipe-output-final/panel.log",
+        ".test-results/recipe-output-final/failed.txt"
       ],
       "remaining_work": [
-        "Finish admission across separate host processes and reclaim idle resident GPU buffers under pressure. Collect a synchronized, unheld p50/p95 comparison using the managed scheduler across more GPUs, parent memory, tile allocations and cancellation stages."
+        "Finish admission across separate host processes and reclaim idle resident GPU buffers under pressure. Collect a synchronized, unheld p50/p95 comparison using the managed scheduler across more GPUs, parent memory, tile allocations and cancellation stages.",
+        "A later native source fixture reproduced a separate in-development revision mismatch. HighRes advanced from 11 to 12 on the same image while LowRes and Geometry stayed at 1 and 6, with no fixture edit. The product failed closed during development. Find a verified adjustment comparison for this case and preserve detection of genuine post-approval edits. The running race is distinct from the earlier before-development wait."
       ],
       "original_acceptance_tests": [
         "Instrument fake and real workers: maximum active high-cost jobs conforms to budget; warmup is lowest priority.",

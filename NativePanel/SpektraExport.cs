@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.IO;
@@ -11,7 +12,17 @@ internal static class SpektraExport
 {
     internal const string FileFilter = "16-bit TIFF image|*.tif|16-bit PNG image|*.png";
 
-    internal readonly record struct RecipeDelivery(string? Format, int TiffBits, string? CropMode)
+    [Flags]
+    internal enum RecipeOmission
+    {
+        None = 0,
+        Watermark = 1,
+        Sharpening = 2,
+        PsdLayers = 4,
+    }
+
+    internal readonly record struct RecipeDelivery(string? Format, int TiffBits, string? CropMode,
+        RecipeOmission Omissions = RecipeOmission.None)
     {
         internal string Extension => Format == "Png" ? ".png" : ".tif";
         internal bool CanSkipRecipeOutput => Format is "Png" || Format is "Tiff" && TiffBits == 16;
@@ -35,17 +46,34 @@ internal static class SpektraExport
                 return $"Save 16-bit Spektrafilm export ({profile})";
             var prefix = RequiresFormatChange ? $"Recipe requests {RequestedFormat} · " : "";
             var crop = CropPath ? " · full image, crop path omitted" : "";
-            return $"{prefix}Save 16-bit TIFF or PNG{crop} · {width} × {height} · {profile}";
+            var omissions = DescribeOmissions();
+            var effects = omissions is null ? "" : $" · omits {omissions}";
+            return $"{prefix}Save 16-bit TIFF or PNG{crop}{effects} · {width} × {height} · {profile}";
         }
 
         internal string? SavedNote(PixelFormat outputFormat)
         {
             var png = outputFormat == PixelFormats.Rgba64;
             var changed = RequiresFormatChange || Format is "Png" && !png || Format is "Tiff" && png;
-            var format = changed ? $"Recipe requested {RequestedFormat}. Saved 16-bit {(png ? "PNG" : "TIFF")}." : null;
-            const string crop = "Saved the full image. The recipe’s crop path was omitted.";
-            if (!CropPath) return format;
-            return format is null ? crop : format + " " + crop;
+            var notes = new List<string>(3);
+            if (changed)
+                notes.Add($"Recipe requested {RequestedFormat}. Saved 16-bit {(png ? "PNG" : "TIFF")}.");
+            if (CropPath)
+                notes.Add("Saved the full image. The recipe’s crop path was omitted.");
+            if (DescribeOmissions() is { } omissions)
+                notes.Add($"The export omitted {omissions}.");
+            return notes.Count == 0 ? null : string.Join(" ", notes);
+        }
+
+        private string? DescribeOmissions()
+        {
+            if (Omissions == RecipeOmission.None)
+                return null;
+            var names = new List<string>(3);
+            if ((Omissions & RecipeOmission.Watermark) != 0) names.Add("recipe watermark");
+            if ((Omissions & RecipeOmission.Sharpening) != 0) names.Add("recipe sharpening mode");
+            if ((Omissions & RecipeOmission.PsdLayers) != 0) names.Add("PSD layers");
+            return string.Join(", ", names);
         }
     }
 

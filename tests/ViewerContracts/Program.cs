@@ -146,6 +146,15 @@ internal static partial class Program
         var direct = new SpektraExport.RecipeDelivery(null, 0, null);
         Check(direct.SavedNote(PixelFormats.Rgb48) is null && direct.SaveTitle(0, 0, "sRGB").Contains("(sRGB)", StringComparison.Ordinal),
             "a direct panel save has no native recipe substitution");
+        var optionalEffects = new SpektraExport.RecipeDelivery("Tiff", 16, "Respect",
+            SpektraExport.RecipeOmission.Watermark | SpektraExport.RecipeOmission.Sharpening);
+        Check(optionalEffects.SaveTitle(3000, 2000, "sRGB").Contains("omits recipe watermark, recipe sharpening mode", StringComparison.Ordinal)
+            && optionalEffects.SavedNote(PixelFormats.Rgb48) == "The export omitted recipe watermark, recipe sharpening mode.",
+            "a matching output format still discloses active recipe pixel effects in Save and completed history");
+        var layered = cropPath with { Omissions = SpektraExport.RecipeOmission.PsdLayers };
+        Check(layered.SaveTitle(3000, 2000, "sRGB").Contains("crop path omitted · omits PSD layers", StringComparison.Ordinal)
+            && layered.SavedNote(PixelFormats.Rgba64)?.EndsWith("The export omitted PSD layers.", StringComparison.Ordinal) == true,
+            "PSD layer disclosures accompany format and crop-path substitutions");
     }
 
     private static void TestExportFilenameSuggestion(string folder)

@@ -61,7 +61,7 @@ internal static class HostImageSource
         string Suffix, int TiffBits, int JpegQuality, int Width, int Height, double Scale, bool IgnoreCrop,
         double Resolution, string ResolutionUnit, ExportMetadata Metadata, TiffCompressOption TiffCompression,
         RecipeNaming? Naming, string? SuggestedDirectory, string? ExactDirectory,
-        bool AddSuffixToExistingFileName, bool SkipExistingOutput)
+        bool AddSuffixToExistingFileName, bool SkipExistingOutput, SpektraExport.RecipeOmission Omissions)
     {
         internal string? SuggestedFilename => Naming?.Stem;
     }
@@ -159,6 +159,13 @@ internal static class HostImageSource
             TiffCompressionMethod.Zip => TiffCompressOption.Zip,
             _ => throw new InvalidOperationException("Choose uncompressed, LZW or ZIP in Capture One’s TIFF recipe."),
         } : TiffCompressOption.Zip;
+        var omissions = SpektraExport.RecipeOmission.None;
+        if (recipe.WatermarkType != WatermarkType.None)
+            omissions |= SpektraExport.RecipeOmission.Watermark;
+        if (recipe.SharpeningOutputControl != SharpeningOutputControl.LensAndSharpening)
+            omissions |= SpektraExport.RecipeOmission.Sharpening;
+        if (format == FileFormat.Psd && (recipe.IncludeAnnotations || recipe.IncludeOverlay || recipe.IncludeGuides))
+            omissions |= SpektraExport.RecipeOmission.PsdLayers;
         var (suggestedDirectory, exactDirectory) = ReadRecipeLocation(selection, recipe);
         return new RecipeInfo(recipe.Name, format.ToString(), recipe.ColorProfileName, recipe.ColorProfilePath,
             recipe.CropExportMethod.ToString(), recipe.DestinationRootFolder.ToString(), recipe.DestinationCustomRootFolder,
@@ -166,7 +173,7 @@ internal static class HostImageSource
             scale.ScaledPixelWidth, scale.ScaledPixelHeight, scale.Scale, ignoreCrop, recipe.Resolution, recipe.ResolutionUnit.ToString(),
             metadata, compression, ReadRecipeNaming(selection, recipe), suggestedDirectory, exactDirectory,
             recipe.FileOverwriteAction == ProcessedFileOverwriteAction.Rename,
-            recipe.FileOverwriteAction == ProcessedFileOverwriteAction.Skip);
+            recipe.FileOverwriteAction == ProcessedFileOverwriteAction.Skip, omissions);
     }
 
     private static (string? Suggested, string? Exact) ReadRecipeLocation(HostProfile.Selection selection, IDestinationProcessingSettings recipe)
