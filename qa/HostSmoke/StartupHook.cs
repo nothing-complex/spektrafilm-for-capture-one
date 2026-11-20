@@ -65,6 +65,7 @@ public static partial class StartupHook
                 return;
             }
             timer!.Stop();
+            TestWorkspaceAttachment(hook!);
             var window = Field(hosted, "mainWindow")!;
             TestHostLookups(panelAssembly!, panel, (Forms.Form)window);
             var hookField = hook!.GetField("exportHook", Flags)!;
@@ -185,6 +186,27 @@ public static partial class StartupHook
             timer?.Stop();
             File.WriteAllText(Path.Combine(folder, "failed.txt"), error.ToString());
         }
+    }
+
+    static void TestWorkspaceAttachment(Type hook)
+    {
+        var findSlot = hook.GetMethod("FindFreeTabSlot", Flags);
+        if (findSlot is null) return;
+        var allSlots = Enumerable.Range(1, 18).Select(index => $"Custom{index}PaletteTab").ToArray();
+        Check(findSlot.Invoke(null, new object[] { allSlots }) is null,
+            "all occupied native custom slots are refused without replacing any workspace tab");
+        Check(Equals(findSlot.Invoke(null, new object[] { allSlots.Where((_, index) => index != 7) }), allSlots[7]),
+            "native slot selection uses a free registered position only");
+        var owner = hook.GetField("owner", Flags)!.GetValue(null)!;
+        var previous = hook.GetField("previousTab", Flags)!.GetValue(null);
+        var tool = hook.GetField("tab", Flags)!.GetValue(null)!;
+        var actual = Prop(owner, "Current");
+        var requested = Environment.GetEnvironmentVariable("SPEKTRAFILM_SHOW_TOOL") == "1";
+        Check(ReferenceEquals(actual, requested || previous is null ? tool : previous),
+            requested ? "explicit tool launch selects Spektrafilm once" : "startup preserves the workspace's selected native tab");
+        Check(((IEnumerable)Prop(owner, "Tabs")!).Cast<object>().Count(tab => ReferenceEquals(tab, tool)) == 1,
+            "the live Capture One workspace has one Spektrafilm tab");
+        hook.GetMethod("SelectTab", Flags)!.Invoke(null, new[] { owner, tool });
     }
 
     static JsonElement ReadLaunchHealth()

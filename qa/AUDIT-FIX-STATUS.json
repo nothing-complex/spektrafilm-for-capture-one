@@ -2481,14 +2481,21 @@
       "id": "HS-13",
       "title": "Temporary tab cannot be a fully native workspace tool",
       "priority": "P2",
-      "status": "pending",
-      "implemented": [],
-      "evidence_paths": [],
+      "status": "partial",
+      "implemented": [
+        "Ordinary launches keep Capture One’s existing workspace selection while they initialize the attached Spektrafilm tool, Viewer and Export bridge. An explicit -ShowTool or desktop shortcut request selects it once.",
+        "The production slot selector refuses all 18 occupied native IDs and selects only an available registered custom position. The real workspace contains one attached instance. Tests do not populate the user’s saved workspace with extra tabs.",
+        "Licensed ordinary mode passed 197 initial and 201 restart assertions. An explicit tool-show launch passed 196 checks with a copied catalog."
+      ],
+      "evidence_paths": [
+        "NativePanel/StartupHook.cs",
+        "Start-Spektrafilm.ps1",
+        ".test-results/host-workspace-selection-20261120/host-smoke.log",
+        ".test-results/host-workspace-explicit-20261120/host-smoke.log"
+      ],
       "remaining_work": [
-        "feasibility spike for safe inspector-tool factory registration and native workspace serialization using stable namespaced ID",
-        "test add/remove/reorder/reset workspace and C1 launch without plugin. If unavailable, provide an application-owned placement preference and reuse designated custom tab without replacing user tools",
-        "preserve last active tab unless first-run user action",
-        "explicit diagnostic for slot exhaustion. Keep removal/backup safeguards until host can safely reopen missing custom tool."
+        "Determine whether a registered factory and stable namespaced ID can serialize this tool natively. The temporary slot remains the verified route.",
+        "Test actual reorder, explicit removal and saved-workspace reopen with and without the launcher using a backed-up workspace fixture."
       ],
       "original_acceptance_tests": [
         "all slots used, custom tab reorder, user removes plugin tab, saved workspace reopen with and without launcher, one-instance guarantee, no duplicated tab on retry."
@@ -2872,8 +2879,8 @@
   "counts": {
     "total": 70,
     "implemented": 21,
-    "partial": 43,
-    "pending": 6
+    "partial": 44,
+    "pending": 5
   },
   "last_reconciled": "2026-11-20",
   "handover": "HANDOVER.md",

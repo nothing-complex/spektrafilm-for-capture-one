@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.IO;
@@ -19,6 +20,7 @@ internal static class StartupHook
     internal const string BrandName = "Spektrafilm";
     private static readonly string[] CustomTabIds = Enumerable.Range(1, 18)
         .Select(index => $"Custom{index}PaletteTab").ToArray();
+    private static bool showToolOnLaunch = Environment.GetEnvironmentVariable("SPEKTRAFILM_SHOW_TOOL") == "1";
 
     private static Forms.Timer? timer;
     private static InspectorPaletteViewModel? owner;
@@ -154,8 +156,7 @@ internal static class StartupHook
     {
         var bus = MessageBusProvider.DefaultInstance;
         var lastUserTab = palette.Current;
-        var names = palette.Tabs.Select(item => item.Name).ToHashSet(StringComparer.Ordinal);
-        var id = CustomTabIds.FirstOrDefault(name => !names.Contains(name))
+        var id = FindFreeTabSlot(palette.Tabs.Select(item => item.Name))
             ?? throw new InvalidOperationException($"Remove an unused custom tool tab to make room for {ProductName}.");
         var newTab = new FilmToolsTab(id, bus.GlobalBus, document)
         {
@@ -171,7 +172,8 @@ internal static class StartupHook
             // a factory-registered caption. Add the hosted control to its area.
             newTab.ScrollAreaViewModel.AddTool(hosted.Tool);
             palette.Tabs.Add(newTab);
-            SelectTab(palette, newTab);
+            var selected = showToolOnLaunch || lastUserTab is null ? newTab : lastUserTab;
+            if (!ReferenceEquals(palette.Current, selected)) SelectTab(palette, selected);
         }
         catch
         {
@@ -189,8 +191,16 @@ internal static class StartupHook
         previousTab = lastUserTab;
         window = form;
         window.FormClosing += OnFormClosing;
+        showToolOnLaunch = false;
         LogState($"Attached {ProductName} to the selected catalog as {id}.");
         AttachExport(form, hosted);
+        hosted.LoadControls();
+    }
+
+    private static string? FindFreeTabSlot(IEnumerable<string> occupied)
+    {
+        var used = occupied.ToHashSet(StringComparer.Ordinal);
+        return CustomTabIds.FirstOrDefault(name => !used.Contains(name));
     }
 
     private static void AttachExport(Forms.Form form, SpektraFilmTool.HostedTool hosted)

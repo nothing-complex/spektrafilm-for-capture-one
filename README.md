@@ -36,6 +36,8 @@ Updates also preserve custom files inside bundled folders. If a new package conf
 
 Each Spektrafilm launch writes a status file under `%LOCALAPPDATA%/FilmToolsForCaptureOne/Launch status`. It records whether the panel is ready, whether native Export connected, and whether the Viewer is disabled, waiting, rendering, showing an image or reporting a processing error. For diagnosis from PowerShell, run `Start-Spektrafilm.ps1 -CatalogPath <database> -WaitForPanel`. A slow startup remains open if the readiness wait expires.
 
+The PowerShell and portable launchers keep the workspace’s selected tab. Add `-ShowTool` to open the Spektrafilm tab immediately. The desktop shortcut opens that tab for you.
+
 ## Saved looks
 
 Spektrafilm automatically saves every change to the selected Capture One variant, including the enable switch, stocks and sliders. Preview resolution, comparison and panel layout are separate from the look. Each change is committed immediately, so Capture One can reopen the last complete save after a crash. Choose the same catalog through the desktop shortcut to restore its saved looks. If Capture One cannot save a change to either location, stay open when prompted and restore access to storage so Spektrafilm can retry.

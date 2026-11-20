@@ -4,6 +4,7 @@ param(
     [string] $CaptureOnePath,
     [switch] $CheckOnly,
     [switch] $WaitForPanel,
+    [switch] $ShowTool,
     [ValidateRange(1, 180)][int] $PanelTimeoutSeconds = 45,
     [switch] $Shortcut
 )
@@ -401,6 +402,7 @@ try {
     $launchId = [Guid]::NewGuid().ToString('N')
     $launchStatus = Join-Path (Join-Path $userData 'Launch status') ($launchId + '.json')
     $start.EnvironmentVariables['SPEKTRAFILM_LAUNCH_ID'] = $launchId
+    if ($ShowTool -or $Shortcut) { $start.EnvironmentVariables['SPEKTRAFILM_SHOW_TOOL'] = '1' }
     if ($python) { $start.EnvironmentVariables['SPEKTRAFILM_PYTHON'] = $python }
     else { [void] $start.EnvironmentVariables.Remove('SPEKTRAFILM_PYTHON') }
     $process = [Diagnostics.Process]::Start($start)

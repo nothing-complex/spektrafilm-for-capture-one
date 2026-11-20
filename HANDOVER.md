@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 21 bounded primary fixes implemented, 43 partial items and 6 pending items. It includes feasibility investigations and enhancements.
+Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 21 bounded primary fixes implemented, 44 partial items and 5 pending items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -508,6 +508,15 @@ Evidence is under `.test-results/metering-cache-smoke-20261120.log` and `.test-r
 - [ ] Verify actual keyboard/pointer gestures, locale-aware numeric entry, screen-reader navigation and physical DPI.
 
 Evidence is under `.test-results/host-native-controls-20261120`, `.test-results/contracts-stock-favorites-20261120` and `.test-results/host-stock-favorites-20261120`.
+
+## Workspace selection and tool placement
+
+- [x] Preserve Capture One’s active tool tab on ordinary launch while loading Spektrafilm controls and bindings. An explicit `-ShowTool` argument or the desktop shortcut requests selection.
+- [x] Keep one live tool instance and refuse occupied slots. The known slot selector passes a full-list exhaustion test without writing new workspace tabs.
+- [x] Pass 197 ordinary first-launch and 201 restart checks. The explicit selection path passes 196 native checks.
+- [ ] Reproduce native workspace serialization and actual reorder/removal/reopen in a dedicated fixture. Permanent factory registration remains unsupported pending proof.
+
+Evidence is under `.test-results/host-workspace-selection-20261120` and `.test-results/host-workspace-explicit-20261120`.
 
 ## Status maintenance
 

@@ -6,6 +6,7 @@ param(
     [string] $PackagedRuntime,
     [switch] $SkipRestart,
     [switch] $CheckOrdinaryLaunch,
+    [switch] $ShowTool,
     [switch] $ColorMatrix,
     [string] $ResultsDirectory
 )
@@ -76,7 +77,7 @@ $testHook=$TestHookPath
 if(!(Test-Path -LiteralPath $testHook)){throw 'Build qa/HostSmoke and NativePanel first.'}
 Copy-Item -LiteralPath $testHook -Destination $runtime
 $testHook=Join-Path $runtime 'HostSmoke.dll'
-$names=@('DOTNET_STARTUP_HOOKS','SPEKTRAFILM_ROOT','SPEKTRAFILM_CATALOG','SPEKTRAFILM_DATA_ROOT','SPEKTRAFILM_PANEL_LOG','SPEKTRAFILM_HOST_SMOKE','SPEKTRAFILM_LAUNCH_ID','SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX')
+$names=@('DOTNET_STARTUP_HOOKS','SPEKTRAFILM_ROOT','SPEKTRAFILM_CATALOG','SPEKTRAFILM_DATA_ROOT','SPEKTRAFILM_PANEL_LOG','SPEKTRAFILM_HOST_SMOKE','SPEKTRAFILM_LAUNCH_ID','SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX','SPEKTRAFILM_SHOW_TOOL')
 $prior=@{}
 foreach($name in $names){$prior[$name]=[Environment]::GetEnvironmentVariable($name,'Process')}
 try {
@@ -87,6 +88,7 @@ try {
     $env:SPEKTRAFILM_PANEL_LOG=Join-Path $folder 'panel.log'
     $env:SPEKTRAFILM_HOST_SMOKE=$folder
     $env:SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX=if($ColorMatrix){'1'}else{$null}
+    $env:SPEKTRAFILM_SHOW_TOOL=if($ShowTool){'1'}else{$null}
     $phases=if($SkipRestart){@('first')}else{@('first','restart')}
     if (!$SkipRestart) { [IO.File]::WriteAllText((Join-Path $folder 'verify-grain-restart.marker'), 'test only') }
     foreach($phase in $phases){

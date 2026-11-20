@@ -90,6 +90,7 @@ internal static class SpektraFilmTool
         internal UserControl DockedContent { get; }
         private ContentControl Holder { get; }
         internal bool IsSpektraExportActive => !disposed && panel.IsSpektraExportActive;
+        internal void LoadControls() => panel.LoadStocks();
         internal void CheckSelectionAndSave()
         {
             panel.SyncSelection();
@@ -1280,7 +1281,7 @@ internal static class SpektraFilmTool
             return slider;
         }
 
-        private void LoadStocks()
+        internal void LoadStocks()
         {
             if (disposed || options is not null)
                 return;
