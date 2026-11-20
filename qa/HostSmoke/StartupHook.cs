@@ -1279,17 +1279,22 @@ public static partial class StartupHook
         Refresh();
         Check(applyButton.IsEnabled && effective.Text.Contains("Current in Capture One", StringComparison.Ordinal),
             "effective native grain and Apply remain available with Spektrafilm switched off");
+        var undo = Field(panel, "nativeUndo")!;
+        var model = AppDomain.CurrentDomain.GetAssemblies().Single(item => item.GetName().Name == "P1.C1.ModelEntities");
+        var history = model.GetType("P1.C1.ModelEntities.UndoInterfaces.IUndoManager", true)!;
+        var actionName = history.GetProperty("TryGetUndoActionName")!;
+        var priorAction = actionName.GetValue(undo);
         applyButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, applyButton));
         Check(CanRestore(), "native grain transaction applied with verified restore receipt");
         Check(restoreButton.IsEnabled && effective.Text.Contains("Impact 37", StringComparison.Ordinal)
             && effective.Text.Contains("Matches the grain applied", StringComparison.Ordinal), "effective grain shows the applied native values");
 
-        var undo = Field(panel, "nativeUndo")!;
-        var model = AppDomain.CurrentDomain.GetAssemblies().Single(item => item.GetName().Name == "P1.C1.ModelEntities");
-        var history = model.GetType("P1.C1.ModelEntities.UndoInterfaces.IUndoManager", true)!;
+        Check(Equals(actionName.GetValue(undo), "Spektrafilm: Capture One Grain"),
+            "one successful native Grain transaction registers its named Undo entry");
         history.GetMethod("Undo", new[] { typeof(bool) })!.Invoke(undo, new object[] { true });
         Refresh();
-        Check(before.Equals(Read()) && !restoreButton.IsEnabled, "native Undo updates the effective grain and Restore state");
+        Check(before.Equals(Read()) && !restoreButton.IsEnabled && Equals(actionName.GetValue(undo), priorAction),
+            "one native Undo restores every grain field and the previous history item");
         history.GetMethod("Redo")!.Invoke(undo, null);
         Refresh();
         Check(restoreButton.IsEnabled && effective.Text.Contains("Impact 37", StringComparison.Ordinal), "native Redo restores the effective grain and receipt match");

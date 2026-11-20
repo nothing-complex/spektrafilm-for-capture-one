@@ -2882,11 +2882,12 @@
       "id": "HS-19",
       "title": "Native grain partial updates are not rolled back on failure",
       "priority": "P2",
-      "status": "partial",
+      "status": "implemented",
       "implemented": [
         "Native grain validates property shapes, rolls back partial setter failures and verifies actual receipt after success/failure.",
         "A durable receipt is written before native setters, read back after applying and checked against the same native values before restore. Restart and conflicting native edit passed.",
-        "Native Grain binds the undo group to the captured approved document. Guards recheck the intended native variant before each setter and verify the full native value tuple before closing. A failed group close attempts compensating restoration through the same document manager in a no-undo scope. Real disposable native setters, a real mid-step selection swap and compensation after an injected close error verified actual values, untouched second variant, and receipt and pre-existing Undo history in the no-undo fixture."
+        "Native Grain binds the undo group to the captured approved document. Guards recheck the intended native variant before each setter and verify the full native value tuple before closing. A failed group close attempts compensating restoration through the same document manager in a no-undo scope. Real disposable native setters, a real mid-step selection swap and compensation after an injected close error verified actual values, untouched second variant, and receipt and pre-existing Undo history in the no-undo fixture.",
+        "Run native grain setters in a no-undo scope and register one named native history action only after all fields and the scope close succeed. This keeps a failed setter or close from recording an adjustment. Replay targets the captured native variant and checks its expected values before writing. The licensed fault fixtures and actual Apply, one-step Undo, Redo, Restore and restart all passed. The exact source passed 311 first-launch and 315 restart checks."
       ],
       "evidence_paths": [
         "NativePanel/NativeGrain.cs",
@@ -2896,11 +2897,10 @@
         ".test-results/host-grain-receipt-20261119/host-smoke.log",
         "qa/HostSmoke/NativeGrainFaults.cs",
         ".test-results/host-viewer-grain-conditional-20261120/host-smoke.log",
-        ".test-results/contracts-grain-transaction-20261120/summary.json"
+        ".test-results/contracts-grain-transaction-20261120/summary.json",
+        ".test-results/host-grain-atomic-history-20261120/host-smoke.log"
       ],
-      "remaining_work": [
-        "Confirm failed production KeepAll history cannot leave an Undo entry if EndScope records the group before throwing. Exact native value compensation and the separately scoped no-undo fixture are verified."
-      ],
+      "remaining_work": [],
       "original_acceptance_tests": [
         "injected failure at each setter and EndScope",
         "unchanged selection vs changed selection",
@@ -3135,8 +3135,8 @@
   ],
   "counts": {
     "total": 70,
-    "implemented": 26,
-    "partial": 44,
+    "implemented": 27,
+    "partial": 43,
     "pending": 0
   },
   "last_reconciled": "2026-11-20",
@@ -3192,7 +3192,7 @@
       "generated_capabilities_sha256": "e5281940406abf421f6ca2c338d673c212a4b088c1a209cfd1158d6fb6d6b0e9",
       "native_control_count": 196,
       "version3_native_preset_verified": true,
-      "isolated_install_and_checkonly": "pending for audit.15; exact extracted package verified",
+      "isolated_install_and_checkonly": "passed audit.14 to audit.15 with real native readiness and exact installed capability report",
       "exact_package_host_tests": {
         "first_launch": 310,
         "restart": 314,

@@ -46,8 +46,7 @@ internal static class NativeGrain
 
         // Persist the baseline and expected host values before touching any native setter.
         var receipt = looks.GrainReceipts.Prepare(expectedVariantId, current.Values, next.Values);
-        ChangeWithReceipt(target.Variant, looks.GrainReceipts, receipt, next,
-            () => SetValues(window, target, next, current, "Spektrafilm: Capture One Grain"));
+        CommitChange(window, target, looks.GrainReceipts, receipt, current, next, "Spektrafilm: Capture One Grain");
     }
 
     internal static bool HasApplied(object window, VariantLookStore looks, Guid expectedVariantId)
@@ -83,8 +82,27 @@ internal static class NativeGrain
         var original = new GrainSettings(expectedVariantId, receipt.Original.Type, receipt.Original.Impact, receipt.Original.Granularity);
         // Keep the receipt if native persistence lags behind the successful restore.
         // A restored value invalidates ownership on both this and future launches.
-        ChangeWithReceipt(target.Variant, looks.GrainReceipts, receipt, original,
-            () => SetValues(window, target, original, current, "Spektrafilm: Restore Capture One Grain"));
+        CommitChange(window, target, looks.GrainReceipts, receipt, current, original, "Spektrafilm: Restore Capture One Grain");
+    }
+
+    private static void CommitChange(object window, HostProfile.Selection target, GrainReceiptStore store,
+        GrainReceipt receipt, GrainSettings before, GrainSettings after, string operation)
+    {
+        var undo = (target.Document as IUndo)?.UndoManager;
+        if (undo is not IGroupingUndoManager scopes)
+            throw new InvalidOperationException("Capture One Undo is unavailable for this catalog.");
+        var variant = target.Variant;
+        ChangeWithReceipt(variant, store, receipt, after, () => SetValues(variant, scopes, after, before, operation, () =>
+        {
+            if (!ReferenceEquals(SelectedTarget(window, after.VariantId).Document, target.Document))
+                throw new InvalidOperationException("The selected catalog changed. Choose the grain settings again.");
+        }));
+        // Only a verified transaction contributes an item to the native Undo history.
+        try { undo.Do(new GrainHistoryAction(variant, scopes, before, after, operation)); }
+        catch (Exception error)
+        {
+            throw new InvalidOperationException("Capture One accepted the grain settings but could not add an Undo entry. Use the Spektrafilm grain controls to check its current values.", error);
+        }
     }
 
     private static void ChangeWithReceipt(ICoreVariant target, GrainReceiptStore store,
@@ -124,19 +142,17 @@ internal static class NativeGrain
         new(variant.UUID, (int)variant.FilmGrainType, variant.FilmGrainAmount, variant.FilmGrainGranularity);
 
     private static void SetValues(
-        object window,
-        HostProfile.Selection target,
+        ICoreVariant variant,
+        IGroupingUndoManager manager,
         GrainSettings values,
         GrainSettings current,
-        string operation)
+        string operation,
+        Action? verifySelection = null)
     {
-        var variant = target.Variant;
         var grainType = typeof(ICoreVariant).GetProperty(nameof(ICoreVariant.FilmGrainType))
             ?? throw new MissingMemberException(typeof(ICoreVariant).FullName, nameof(ICoreVariant.FilmGrainType));
         if (!grainType.CanWrite || !grainType.PropertyType.IsEnum)
             throw new InvalidOperationException("This Capture One version exposes an incompatible grain type.");
-        if ((target.Document as IUndo)?.UndoManager is not IGroupingUndoManager manager)
-            throw new InvalidOperationException("Capture One Undo is unavailable for this catalog.");
         var steps = new List<NativeAdjustmentTransaction.Step>();
         if (values.Type != current.Type)
             steps.Add(new("grain type",
@@ -150,23 +166,48 @@ internal static class NativeGrain
             steps.Add(new("amount",
                 () => variant.FilmGrainAmount = (float)values.Impact,
                 () => variant.FilmGrainAmount = (float)current.Impact));
-        VerifySelection();
-        var scope = manager.UndoGroupingKeepAllScope(operation);
+        verifySelection?.Invoke();
+        var scope = manager.NoUndoScope(operation);
         NativeAdjustmentTransaction.Execute(steps, scope.EndScope, restore =>
         {
             var rollback = manager.NoUndoScope(operation + " rollback");
             try { restore(); }
             finally { rollback.EndScope(); }
-        }, VerifySelection, () =>
+        }, verifySelection, () =>
         {
             if (ReadValues(variant) != values)
                 throw new InvalidOperationException("Capture One did not accept all grain settings.");
         });
+    }
 
-        void VerifySelection()
+    private sealed class GrainHistoryAction(ICoreVariant variant, IGroupingUndoManager manager,
+        GrainSettings before, GrainSettings after, string operation) : IUndoableAction
+    {
+        private bool registered;
+        public bool CanUndo => true;
+        public string Name => operation;
+
+        public void Do()
         {
-            if (!ReferenceEquals(SelectedTarget(window, values.VariantId).Document, target.Document))
-                throw new InvalidOperationException("The selected catalog changed. Choose the grain settings again.");
+            if (!registered)
+            {
+                registered = true;
+                return;
+            }
+            Replay(before, after);
+        }
+
+        public void Undo() => Replay(after, before);
+
+        private void Replay(GrainSettings expected, GrainSettings desired)
+        {
+            try
+            {
+                if (ReadValues(variant) != expected)
+                    throw new InvalidOperationException("Capture One Grain no longer matches the recorded values.");
+                SetValues(variant, manager, desired, expected, operation);
+            }
+            catch (Exception error) { StartupHook.Log("Spektrafilm Grain Undo: " + error.GetBaseException().Message); }
         }
     }
 

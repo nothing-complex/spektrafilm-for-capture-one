@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The 70-item integration audit tracks 26 bounded primary fixes implemented and 44 partial items. It includes feasibility investigations and enhancements.
+Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The 70-item integration audit tracks 27 bounded primary fixes implemented and 43 partial items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -766,7 +766,8 @@ Evidence is in `.test-results/host-viewer-grain-conditional-20261120`, `.test-re
 - [x] Generate the package's capability table from the recorded panel inventory and verified worker description. Fail generation on an unknown capability, unknown worker option, duplicate control or malformed Markdown cell. Thirty-one Windows PowerShell 5.1 manifest assertions and all Windows and Vulkan contracts passed.
 - [x] Use the panel's window owner when saving the displayed Viewer PNG. Both licensed Viewer stress launches passed 37 checks. The output reopened with the displayed dimensions, one colour context and the identical sampled BGRA pixel. A fixture initially treated a dotless file extension as an error and entered the production error dialog. The exact disposable process was terminated, its test-only catalog entry was removed using the verified backup and the corrected fixture passed both launches.
 - [x] Build `0.2.0-audit.15` from clean `cc24e45`. Verify all 153 package records, 19 critical records and byte-identical regeneration of the capability report. The archive SHA-256 is `3c3ad963f8c560cde990409ef4fdc7bff52e73ab1204208790dbed08a1a56eb4` and the report SHA-256 is `e5281940406abf421f6ca2c338d673c212a4b088c1a209cfd1158d6fb6d6b0e9`. The exact extraction passed 19 inventory, 310 first-launch, 314 restart, 131 four-RAW checks on each launch and 28 physical GPU checks. The regular installed manifest still identifies `ffc4819`. [Public Windows checks](https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44687634647)
-- [ ] Finish conditional command coverage on the licensed host and verify audit.15 in a separate installer upgrade fixture.
+- [x] Upgrade audit.14 to audit.15 in a short-path disposable installation. CheckOnly retained the previous generation. Real panel readiness and connected native Export retired it only after saved user-file checks. The installed capability report matched the package SHA-256. Evidence is at `D:/Library AI testing/sf-audit15-ready-20261120/installed-upgrade-receipt.json`.
+- [ ] Finish conditional command coverage on the licensed host.
 
 Evidence is under `.test-results/host-panel-inventory-verified-20261120`, `.test-results/host-native-preview-png-final-20261120`, `.test-results/contracts-panel-control-caps-final-20261120` and `.test-results/audit15-package-verify-20261120`. The latest verified development ZIP is under `dist/`.
 
@@ -777,6 +778,13 @@ Evidence is under `.test-results/host-panel-inventory-verified-20261120`, `.test
 - [ ] Test native development deadline recovery and measure the behavior of disconnected originals. The old proxy-pending route is no longer part of the film path.
 
 Source verification used `.test-results/host-high-depth-only-color-20261120`, `.test-results/host-high-depth-only-full-20261120` and `.test-results/contracts-high-depth-only-20261120`. The audit.15 development ZIP predates this source simplification.
+
+## Native Grain history commits after success
+
+- [x] Execute all native Grain setters and compensation without recording intermediate history. Record one named Capture One Undo action only after the verified values and scope close succeed. Replaying it applies to the captured native variant and checks the exact expected grain tuple before writing.
+- [x] Verify an actual Apply adds one native action, a single Undo restores every field and the previous history item, Redo restores the applied grain and Restore keeps the previous durable settings. The licensed setter, scope-close and selection-change faults preserve the prior history in the same native no-undo scope used by the product. The full suite passed 311 first-launch and 315 restart assertions.
+
+Evidence is under `.test-results/host-grain-atomic-history-20261120`. The current package remains audit.15 and predates this change.
 
 ## Status maintenance
 
