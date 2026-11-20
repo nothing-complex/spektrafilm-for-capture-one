@@ -5,8 +5,10 @@ using System.Runtime.InteropServices;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
+using System.Threading;
 using System.Windows;
 using System.Windows.Media;
+using System.Windows.Threading;
 using P1.C1.Controls.Inspector.WPF;
 using P1.C1.Core.Messaging;
 using P1.C1.Core.ModelEntities;
@@ -23,6 +25,14 @@ internal static class StartupHook
     private static bool showToolOnLaunch = Environment.GetEnvironmentVariable("SPEKTRAFILM_SHOW_TOOL") == "1";
 
     private static Forms.Timer? timer;
+    private static Dispatcher? dispatcher;
+    private static HostDocumentAccess.Manager? observedManager;
+    private static IDisposable? documentChanges;
+    private static int checkQueued;
+    private static int quietChecks;
+    private const int RecoveryWatchdogMs = 1000;
+    private const int IdleWatchdogMs = 4000;
+
     private static InspectorPaletteViewModel? owner;
     private static InspectorPaletteTabViewModel? tab;
     private static SpektraFilmTool.HostedTool? hostedTool;
@@ -85,6 +95,8 @@ internal static class StartupHook
             check.Tick -= OnTick;
             check.Dispose();
         }
+        dispatcher = null;
+        ObserveManager(null);
         try { Detach(); }
         catch (Exception error) { Log(error.ToString()); }
         finally
@@ -109,7 +121,8 @@ internal static class StartupHook
                 return;
 
             Forms.Application.Idle -= OnApplicationIdle;
-            timer = new Forms.Timer { Interval = 1000 };
+            dispatcher = Dispatcher.CurrentDispatcher;
+            timer = new Forms.Timer { Interval = RecoveryWatchdogMs };
             timer.Tick += OnTick;
             timer.Start();
             OnTick(sender, args);
@@ -121,14 +134,60 @@ internal static class StartupHook
         }
     }
 
+    private static void ObserveManager(HostDocumentAccess.Manager? manager)
+    {
+        if (ReferenceEquals(manager, observedManager)) return;
+        var previous = documentChanges;
+        documentChanges = null;
+        observedManager = manager;
+        try { previous?.Dispose(); }
+        catch (Exception error) { Log("Could not remove Capture One document notifications: " + error.GetBaseException().Message); }
+        try { documentChanges = manager?.ObserveChanges(QueueHostCheck); }
+        catch (Exception error) { Log("Capture One document notifications are unavailable: " + error.GetBaseException().Message); }
+    }
+
+    private static void QueueHostCheck()
+    {
+        if (dispatcher is not { HasShutdownStarted: false } ownerDispatcher || Interlocked.Exchange(ref checkQueued, 1) != 0)
+            return;
+        _ = ownerDispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+        {
+            Interlocked.Exchange(ref checkQueued, 0);
+            if (!ReferenceEquals(dispatcher, ownerDispatcher) || timer is not { Enabled: true }) return;
+            EnsureRecoveryWatchdog();
+            OnTick(null, EventArgs.Empty);
+        }));
+    }
+
+    internal static void EnsureRecoveryWatchdog()
+    {
+        quietChecks = 0;
+        if (timer is { } check && check.Interval != RecoveryWatchdogMs)
+            check.Interval = RecoveryWatchdogMs;
+    }
+
+    private static void AdvanceWatchdog(bool hasPendingState)
+    {
+        if (hasPendingState || documentChanges is null)
+        {
+            EnsureRecoveryWatchdog();
+            return;
+        }
+        if (quietChecks < 3) quietChecks++;
+        if (quietChecks == 3 && timer is { } check && check.Interval != IdleWatchdogMs)
+            check.Interval = IdleWatchdogMs;
+    }
+
     private static void OnTick(object? sender, EventArgs args)
     {
         try
         {
             var manager = HostDocumentAccess.Current();
+            ObserveManager(manager);
             var document = manager?.ActiveDocument();
             if (document is null || !ApprovedCatalog.IsApproved(manager?.ActivePath(), document.Path))
             {
+                EnsureRecoveryWatchdog();
                 if (window is { IsDisposed: true })
                     Detach();
                 LaunchHealth.Report(LaunchPhase.WaitingForCatalog, ExportBridgeState.Detached);
@@ -140,6 +199,7 @@ internal static class StartupHook
             var palette = HostDocumentAccess.Palette(form);
             if (document is null || form is not { IsHandleCreated: true, IsDisposed: false } || palette is null)
             {
+                EnsureRecoveryWatchdog();
                 LaunchHealth.Report(LaunchPhase.WaitingForPalette);
                 LogState("Waiting for the selected catalog’s tool palette.");
                 return;
@@ -149,16 +209,19 @@ internal static class StartupHook
                 && hostedTool is { } existing && tab.AllTools.Contains(existing.Tool))
             {
                 existing.CheckSelectionAndSave();
+                AdvanceWatchdog(existing.LookRecoveryPending);
                 existing.ReportLaunchHealth();
                 return;
             }
 
+            EnsureRecoveryWatchdog();
             Detach();
             Attach(form, palette, document);
             hostedTool?.ReportLaunchHealth();
         }
         catch (Exception error)
         {
+            EnsureRecoveryWatchdog();
             LaunchHealth.Report(LaunchPhase.Failed);
             LogState(error.ToString());
         }

@@ -112,6 +112,7 @@ public static partial class StartupHook
             var exposure = Field(panel, "exposure")!;
             var toggle = (CheckBox)Field(panel, "enableSpektraFilm")!;
             await TestLaunchHealth(hosted, spatial, toggle);
+            await TestAdaptiveWatchdog(hook!, panel, variant);
             await TestFloatingWorkArea(panelAssembly!, hosted, panel);
             var restart = File.Exists(Path.Combine(folder, "restart.expected"));
             if (restart)
@@ -1391,6 +1392,8 @@ public static partial class StartupHook
                 && warning.Text.Contains("retry", StringComparison.OrdinalIgnoreCase),
                 "temporarily inaccessible saved look pauses editing and reports retry");
             Check(Call(store, "IsBlocked", variant) is false, "sharing violation leaves corrupt-state recovery inactive");
+            var watchdog = (Forms.Timer)panel.GetType().Assembly.GetType("StartupHook", true)!.GetField("timer", Flags)!.GetValue(null)!;
+            Check(watchdog.Interval == 1000, "a real sharing violation wakes the fast persistence watchdog immediately");
             using var support = JsonDocument.Parse((string)Call(panel, "BuildSupportDetails")!);
             Check(support.RootElement.GetProperty("LookStorage").GetString() == "ReadUnavailable"
                 && support.RootElement.GetProperty("NativeExportRoute").GetString() == "LookUnavailable",

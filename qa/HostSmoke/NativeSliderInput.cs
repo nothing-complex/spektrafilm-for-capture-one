@@ -1,8 +1,12 @@
 using System;
 using System.Globalization;
+using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Automation;
+using System.Windows.Automation.Peers;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -61,25 +65,47 @@ public static partial class StartupHook
             editor.Focus();
             var presentation = PresentationSource.FromVisual(editor)
                 ?? throw new InvalidOperationException("The numeric editor is detached from the native presentation source.");
+            Check(AutomationProperties.GetName(control) == "Film exposure" && AutomationProperties.GetHelpText(control).Contains("Double-click", StringComparison.Ordinal),
+                "visible film slider provides its full accessible name and reset instructions");
+            var peer = UIElementAutomationPeer.CreatePeerForElement(editor);
+            Check(peer?.GetPattern(PatternInterface.Value) is System.Windows.Automation.Provider.IValueProvider provider && !provider.IsReadOnly,
+                "the actual Capture One numeric editor exposes the editable UI Automation Value pattern");
             var culture = input.GetType().GetProperty("CultureInfo", Flags)!;
             var previousCulture = culture.GetValue(input);
+            async Task RouteKey(string text, Key key)
+            {
+                editor.SetCurrentValue(TextBox.TextProperty, text);
+                foreach (var routedEvent in new[] { Keyboard.PreviewKeyDownEvent, Keyboard.KeyDownEvent, Keyboard.KeyUpEvent })
+                    editor.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, presentation, Environment.TickCount, key)
+                    {
+                        RoutedEvent = routedEvent,
+                        Source = editor,
+                    });
+                await editor.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+            }
             try
             {
                 foreach (var (language, number, expected) in new[] { ("da-DK", "1,4", 1.4), ("en-US", "-0.8", -0.8) })
                 {
                     culture.SetValue(input, CultureInfo.GetCultureInfo(language));
-                    editor.SetCurrentValue(TextBox.TextProperty, number);
-                    foreach (var routedEvent in new[] { Keyboard.PreviewKeyDownEvent, Keyboard.KeyDownEvent, Keyboard.KeyUpEvent })
-                    {
-                        editor.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, presentation, Environment.TickCount, Key.Enter)
-                        {
-                            RoutedEvent = routedEvent,
-                            Source = editor,
-                        });
-                    }
-                    await editor.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+                    await RouteKey(number, Key.Enter);
                     Confirm(expected, $"native Enter commits a {language} decimal to the durable film look");
                 }
+                await RouteKey("8", Key.Enter);
+                Confirm(8, "native editor accepts the exact positive exposure bound");
+                await RouteKey("-8", Key.Enter);
+                Confirm(-8, "native editor accepts the exact negative exposure bound");
+                var path = (string)Call(store, "GetPath", variant)!;
+                var before = File.ReadAllBytes(path);
+                await RouteKey("2.4", Key.Escape);
+                Confirm(-8, "Escape discards uncommitted numeric text");
+                Check(File.ReadAllBytes(path).SequenceEqual(before), "canceling a numeric change keeps the committed bytes");
+                foreach (var invalid in new[] { "NaN", "Infinity", "exposure?" })
+                {
+                    await RouteKey(invalid, Key.Enter);
+                    Confirm(-8, $"native editor rejects malformed value {invalid}");
+                }
+                Check(File.ReadAllBytes(path).SequenceEqual(before), "invalid numeric text never writes a saved look");
             }
             finally { culture.SetValue(input, previousCulture); }
         }

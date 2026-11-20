@@ -669,6 +669,14 @@ Evidence is under `.test-results/cooperative-vulkan-runtime-20261120`, `.test-re
 
 Evidence is under `.test-results/audit11-package-verify-20261120`, `.test-results/audit12-package-verify-20261120` and `.test-results/contracts-installer-failed-rollback-20261120`.
 
+## Native watchdog and accessible numeric editing
+
+- [x] Subscribe to the actual document manager and dispatch lifecycle changes with one queued check. Back off to a 4-second defensive poll after steady attachment and return to a 1-second cadence after notification or a persistence error. A real sharing violation recovered without input. Two 1,000-tick measurements averaged 8.03 and 7.70 microseconds per stable UI tick on this host.
+- [x] Verify the native embedded text editor's editable UI Automation Value pattern and the outer full label and reset instructions. Exact ±8 EV values commit. Escape, NaN, Infinity and malformed text leave the saved file byte-identical. The first and forced-restart suites passed 282 and 286 assertions.
+- [ ] Exercise actual concurrent-document and form replacement, unavailable network paths, external screen readers, narrow layouts and physical mixed-DPI monitors. The coalescing fixture invokes the registered notification path under the licensed UI dispatcher.
+
+Evidence is under `.test-results/host-adaptive-watchdog-accessibility-20261120`.
+
 ## Status maintenance
 
 `qa/AUDIT-FIX-STATUS.json` owns task IDs, status, implemented substeps, remaining acceptance work and evidence. This handover owns context, runtime identity and resume instructions. `.test-results/FINAL-RESULT.json` is the completed runtime delivery receipt; keep its runtime commit/package identity distinct from later documentation-only commits.

@@ -91,6 +91,7 @@ internal static class SpektraFilmTool
         private ContentControl Holder { get; }
         internal bool IsSpektraExportActive => !disposed && panel.IsSpektraExportActive;
         internal void LoadControls() => panel.LoadStocks();
+        internal bool LookRecoveryPending => panel.HasPendingLookWrites || panel.AwaitingLookRead;
         internal void CheckSelectionAndSave()
         {
             panel.SyncSelection();
@@ -1057,8 +1058,11 @@ internal static class SpektraFilmTool
             }
         }
 
+        internal bool AwaitingLookRead => retryLookReadAt is not null;
+
         private void ShowSaveError(string message)
         {
+            if (looks.HasPending || AwaitingLookRead) StartupHook.EnsureRecoveryWatchdog();
             if (saveError.Visibility != Visibility.Visible || saveError.Text != message)
                 StartupHook.Log(message);
             saveError.Text = message;

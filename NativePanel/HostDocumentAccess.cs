@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using P1.C1.Core.ModelEntities;
 using P1.C1.Controls.Inspector.WPF;
 using P1.C1.ViewModels.Controls.Inspector;
+using P1.C1.ViewModels.DocumentManagement;
 using Forms = System.Windows.Forms;
 
 internal static class HostDocumentAccess
@@ -47,5 +48,19 @@ internal static class HostDocumentAccess
         internal Func<ICaptureOneDocument?> ActiveDocument { get; } =
             Getter(instance.GetType(), "ActiveDocument").CreateDelegate<Func<ICaptureOneDocument?>>(instance);
         internal Func<string?> ActivePath { get; } = Getter(instance.GetType(), "ActiveDocumentPath").CreateDelegate<Func<string?>>(instance);
+
+        internal IDisposable? ObserveChanges(Action changed)
+        {
+            var eventInfo = Instance.GetType().GetEvent("ActiveDocumentChanged", BindingFlags.Instance | BindingFlags.Public);
+            if (eventInfo?.EventHandlerType != typeof(EventHandler<DocumentManagerEventArgs>)) return null;
+            EventHandler<DocumentManagerEventArgs> handler = (_, _) => changed();
+            eventInfo.AddEventHandler(Instance, handler);
+            return new DocumentSubscription(Instance, eventInfo, handler);
+        }
+    }
+
+    private sealed class DocumentSubscription(object manager, EventInfo change, Delegate handler) : IDisposable
+    {
+        public void Dispose() => change.RemoveEventHandler(manager, handler);
     }
 }

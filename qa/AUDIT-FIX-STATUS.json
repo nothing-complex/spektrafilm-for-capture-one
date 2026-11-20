@@ -1770,17 +1770,21 @@
       "implemented": [
         "Cache the exact host manager, active document/path and main-form property delegates. A weakly keyed palette binding follows form instances without holding an old form alive.",
         "Recurring catalog authorization compares the actual native document database with the selected database and checks the manager path. Directory-form manager paths resolve by document identity, so recurring authorization never enumerates catalog directories.",
-        "The periodic watchdog retries pending writes without flushing an empty queue. Four lookup routes were checked against the real host on both launches, including mismatched document and unrelated network path refusal."
+        "The periodic watchdog retries pending writes without flushing an empty queue. Four lookup routes were checked against the real host on both launches, including mismatched document and unrelated network path refusal.",
+        "Subscribe to the native document manager’s active-document event and coalesce notifications into one captured UI dispatcher check. Stable attachment reduces the defensive poll from 1 to 4 seconds. A real transient read or pending write wakes the fast persistence check immediately.",
+        "Licensed startup confirmed the real subscription. Two queued notifications produced one check. The defensive tick recovered a deliberately missed selection synchronization, and a real sharing violation reached the 1-second recovery interval. Two 1,000-call timings averaged 8.03 and 7.70 microseconds per stable UI tick."
       ],
       "evidence_paths": [
         "NativePanel/HostDocumentAccess.cs",
         "NativePanel/ApprovedCatalog.cs",
         "NativePanel/StartupHook.cs",
-        ".test-results/host-cached-identity-20261119/host-smoke.log"
+        ".test-results/host-cached-identity-20261119/host-smoke.log",
+        "qa/HostSmoke/WatchdogHost.cs",
+        ".test-results/host-adaptive-watchdog-accessibility-20261120/watchdog-first.json",
+        ".test-results/host-adaptive-watchdog-accessibility-20261120/watchdog-restart.json"
       ],
       "remaining_work": [
-        "Measure real idle UI thread time and adopt event-led form/document reattach with an adaptive watchdog.",
-        "Exercise physical document or workspace replacement, event loss and startup on an unavailable network catalog."
+        "Exercise physical multi-document or form replacement, native workspace reset and unavailable network catalog. Current callback coalescing and event-loss checks use the exact licensed helper and a synthetic missed selection state."
       ],
       "original_acceptance_tests": [
         "measure idle UI thread cost/IO and zero-change work",
@@ -2699,7 +2703,8 @@
         "Native stock picker context menus add and remove favourites by stable film or paper ID without changing the selected look. Favourites display first and are restored on restart.",
         "Recent presets use the existing approved save and apply paths. Up to six deduplicated existing files are displayed in recent order. Preference state lives separately from creative looks. A future format is preserved without rewriting it.",
         "Pass 12,678 host-independent checks and 193 new-launch plus 197 restart assertions. The real stock selection and durable look were unchanged by adding a favourite, and the restart placed it first. The actual preset Save route updated the recent file list.",
-        "The real native label and track each restored and durably saved the film exposure default through WPF double-click routing. The live numeric editor committed Danish 1,4 and U.S. English -0.8 through Enter and the fixture restored the prior look. All 207 host assertions passed."
+        "The real native label and track each restored and durably saved the film exposure default through WPF double-click routing. The live numeric editor committed Danish 1,4 and U.S. English -0.8 through Enter and the fixture restored the prior look. All 207 host assertions passed.",
+        "The real visible native numeric control exposes an editable Windows UI Automation Value pattern and carries accessible full label/reset instructions. Licensed editor accepted both ±8 EV limits, canceled an uncommitted 2.4 EV with Escape and rejected NaN, Infinity and malformed text without changing the committed bytes. First and restart passed 282/286 checks."
       ],
       "evidence_paths": [
         "NativePanel/NativeSlider.cs",
@@ -2710,10 +2715,11 @@
         ".test-results/contracts-stock-favorites-20261120/summary.json",
         ".test-results/host-stock-favorites-20261120/host-smoke.log",
         "qa/HostSmoke/NativeSliderInput.cs",
-        ".test-results/host-native-slider-keyboard-20261120/host-smoke.log"
+        ".test-results/host-native-slider-keyboard-20261120/host-smoke.log",
+        ".test-results/host-adaptive-watchdog-accessibility-20261120/host-smoke.log"
       ],
       "remaining_work": [
-        "Test cancel/invalid/limit input, focus traversal, physical DPI and a screen reader. The current default reset and decimal entry tests route synthetic events through native WPF controls."
+        "Exercise wheel, arrows, fine increments, keyboard focus traversal, narrow/different DPI hardware and a screen-reader session. Extend canonical per-control manifest annotations under HS-11."
       ],
       "original_acceptance_tests": [
         "Keyboard and pointer edit/reset/cancel sequences produce identical persisted values and one intended undo gesture.",
