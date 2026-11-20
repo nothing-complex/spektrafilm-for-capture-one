@@ -6,7 +6,7 @@ Updated 2026-11-20. The critical-fix batch is implemented, tested, installed loc
 
 1. Read this file, `AGENTS.md` and `qa/AUDIT-FIX-STATUS.json` before changing code. The JSON is the authoritative task-progress ledger; its `remaining_work` and original acceptance tests matter more than a short status label.
 2. Check `git status`, current branch and PR head. Do not discard existing edits or switch the installed build merely because this documentation has a newer commit.
-3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP is `0.2.0-audit.22` from clean `6e6c6a9`. The extracted package passed both native effects export campaigns, the full licensed host suite, physical Vulkan checks and a private upgrade.
+3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP is `0.2.0-audit.23` from clean `042bdc0`. The extracted package passed the native effects, grain and TIFF compression campaigns, the full licensed host suite, physical Vulkan checks and a private upgrade.
 4. Choose an unresolved task and an exact ownership boundary. Do not repeat the completed installation, crash test or old defect reproductions as if nothing had happened.
 5. Update task evidence and the delivery ledger at each completed milestone. Never mark a broad parent task complete because one mitigation shipped.
 
@@ -917,6 +917,15 @@ The combined receipt is `.test-results/audit21-package-verify-20261120/result.js
 - [x] Upgrade privately from audit.21 to audit.22. The previous runtime remained available until Capture One 16.4.6.2414 reported Ready and native Export Connected. The private upgrade preserved its external preset and custom file.
 
 The combined receipt is `.test-results/audit22-package-verify-20261120/result.json`. Individual runs are in `.test-results/host-audit22-native-effects-20261120`, `.test-results/host-audit22-native-grain-20261120` and `.test-results/host-audit22-native-full-20261120`. The upgrade receipt is at `D:/Library AI testing/sf-audit22-ready-20261120/installed-upgrade-receipt.json`.
+
+## Development package audit.23
+
+- [x] Build clean `042bdc050bb2ba47e272a1bb9070df4d3c27fec7` and verify 153 package entries, 19 critical runtime entries and regenerated capability bytes. The ZIP SHA-256 is `5f0487b483f1d8a4a16293765e1c01a34aa22b48b71825dc04edc84ef5f7930c`. [Windows 2022 and 2025 checks](https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44728585175)
+- [x] Pass 207 effects checks across DNG, CR3, RAF and NEF, 114 native and optical grain checks, and 112 native TIFF compression checks in each of two launches. These tests produced 84 accepted 16-bit effect and control files with verified ICC, geometry and stage receipts. They exercise the actual Capture One Export and Previous Settings commands, check native filename suggestions, and verify all nine existing recipe files in both compression launches.
+- [x] Pass 344 first-launch and 348 restart general host assertions and 32 managed physical Vulkan checks. The package's Viewer presentation report matches the independent display profile fingerprint.
+- [x] Rehearse the private upgrade from audit.22 to audit.23. The previous runtime remained available until Capture One 16.4.6.2414 reported Ready with native Export Connected. The installed test fixture retained its external preset and custom file.
+
+The combined receipt is `.test-results/audit23-package-verify-20261120/result.json`. Individual runs are in `.test-results/host-audit23-native-effects-20261120`, `.test-results/host-audit23-native-grain-20261120`, `.test-results/host-audit23-tiff-compression-20261120` and `.test-results/host-audit23-native-full-20261120`. The upgrade receipt is at `D:/Library AI testing/sf-audit23-ready-20261120/installed-upgrade-receipt.json`.
 
 ## Accepted export dialog and storage failure
 
