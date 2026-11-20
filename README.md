@@ -60,7 +60,7 @@ Native recipe exports include the permitted copyright, creator, title, headline,
 
 Once you choose a destination, the panel reports Capture One development, film rendering and saving. Closing the Export dialog leaves an accepted job running. **Cancel export** stops it from the Spektrafilm tool. If a write fails while Capture One's Export dialog is still open, the dialog title reports the failure and you can choose a fresh destination. When both the dialog and tool are hidden, Spektrafilm reports the failure through Capture One's Windows notifications. After restarting Capture One, the tool shows the last export outcome or an unfinished job. Start a new export to retry an interrupted job.
 
-The export path is for the selected image with one recipe. Export supports a canvas up to 100 megapixels and 16,384 pixels per edge when system and GPU memory allow it. Grain synthesis supports up to 32 megapixels. Choose a smaller Export Recipe if a requested frame exceeds these limits. Turn off **Enable Spektrafilm** to export through Capture One alone.
+The export path is for the selected image with one recipe. If Capture One is set to export all selected variants and a selected variant has an enabled Spektrafilm look, select that variant on its own. Export supports a canvas up to 100 megapixels and 16,384 pixels per edge when system and GPU memory allow it. Grain synthesis supports up to 32 megapixels. Choose a smaller Export Recipe if a requested frame exceeds these limits. Turn off **Enable Spektrafilm** for the variants you want to export through Capture One alone.
 
 ### .cube export
 

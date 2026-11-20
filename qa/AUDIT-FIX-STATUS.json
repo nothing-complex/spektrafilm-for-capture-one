@@ -1138,7 +1138,8 @@
         "The real Capture One Export command, its visible native confirmation, and Export with Previous Settings write the selected variant through the current film pipeline. Each of four licensed runs reopened 3000 by 2000 RGB48 TIFF and RGBA64 PNG with the exact Adobe RGB recipe profile. Across 41,238 sampled 16-bit RGB codes per run, the film look changed the RGB codes by a mean 11.66% of full scale and camera diffusion changed them a further 4.76%. The two native routes agreed within about one millionth of full-scale RGB on average. Each command accepted exactly one job. Switch-off delegated to the ordinary native Export dialog.",
         "A changed native callback name failed before any mutation. Detach restored each native callback exactly once, repeated detach preserved both invocation lists, and reattachment reported Connected. The exact audit.15 build and current source each passed 39 checks on first launch and restart.",
         "Both native Export commands passed on DNG/sRGB, CR3/Adobe RGB, RAF/ProPhoto and NEF/Linear Rec.2020, all using the exact Adobe RGB recipe profile at 6.00–7.53 MP in RGB48 TIFF and RGBA64 PNG. Across 32 accepted outputs and 159 assertions each at first launch and restart, film changed mean RGB code by 6.23–11.66% of full scale and camera diffusion added 2.43–4.76%. Native command outputs differed by at most 1.21e-6 mean full-scale code.",
-        "Both real native Export commands passed with film, camera diffusion, halation and scatter active together. Native TIFF and previous-settings PNG matched within 8.81e-7 mean full-scale RGB, retained exact Adobe RGB and reopened at 16 bits. Across four cameras and two launches the fixture passed 191 assertions each and accepted 40 outputs. Halation plus scatter alone added 0.095–0.892% mean full-scale RGB change."
+        "Both real native Export commands passed with film, camera diffusion, halation and scatter active together. Native TIFF and previous-settings PNG matched within 8.81e-7 mean full-scale RGB, retained exact Adobe RGB and reopened at 16 bits. Across four cameras and two launches the fixture passed 191 assertions each and accepted 40 outputs. Halation plus scatter alone added 0.095–0.892% mean full-scale RGB change.",
+        "Native batch preflight now checks selected secondary variants when the primary is disabled. An enabled or unresolved saved secondary look prevents silent native fallback. With real Browser selection, the production bridge flags a mixed batch, delegates primary-only and all-disabled selection, and permits the enabled secondary to export alone. The actual four-RAW commands still apply the effects across 40 accepted 16-bit files and pass 213 assertions per launch."
       ],
       "evidence_paths": [
         "NativePanel/StartupHook.cs",
@@ -1153,7 +1154,9 @@
         ".test-results/host-four-raw-native-effects-20261120/host-smoke.log",
         ".test-results/host-four-raw-native-effects-20261120/restart-NEF-native-effect-export.json",
         ".test-results/host-composed-native-effects-20261120/host-smoke.log",
-        ".test-results/host-composed-native-effects-20261120/restart-DNG-native-effect-export.json"
+        ".test-results/host-composed-native-effects-20261120/restart-DNG-native-effect-export.json",
+        ".test-results/host-native-export-mixed-selection-20261120/first-export-selection.json",
+        ".test-results/host-native-export-mixed-selection-20261120/restart-export-selection.json"
       ],
       "remaining_work": [
         "Extend confirmation-stage diagnostics when the independent 16.7 compatibility work establishes a supported native adapter."

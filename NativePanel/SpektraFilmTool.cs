@@ -90,6 +90,7 @@ internal static class SpektraFilmTool
         internal UserControl DockedContent { get; }
         private ContentControl Holder { get; }
         internal bool IsSpektraExportActive => !disposed && panel.IsSpektraExportActive;
+        internal bool WouldLoseSavedLook(Guid variant) => !disposed && panel.WouldLoseSavedLook(variant);
         internal void LoadControls() => panel.LoadStocks();
         internal bool LookRecoveryPending => panel.HasPendingLookWrites || panel.AwaitingLookRead;
         internal void CheckSelectionAndSave()
@@ -712,6 +713,11 @@ internal static class SpektraFilmTool
         }
 
         internal bool IsSpektraExportActive => SyncSelection() && IsSpektraFilmEnabled;
+        internal bool WouldLoseSavedLook(Guid variant)
+        {
+            var outcome = looks.ReadOutcome(variant);
+            return outcome.ReadOnly || outcome.Look?.Enabled == true;
+        }
         internal Task<bool> ExportAsync(bool useRecipeSize, Window? owner = null) =>
             IsSpektraExportActive ? opticalPreview.ExportAsync(useRecipeSize, owner) : Task.FromResult(false);
         internal bool StocksReady => !disposed && options is not null;

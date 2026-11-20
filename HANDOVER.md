@@ -1126,6 +1126,12 @@ Evidence is in `.test-results/contracts-catalog-restore-durable-20261120`, `.tes
 
 Use `dotnet build -c Release` for both `NativePanel` and `qa/HostSmoke` before a source fixture. The initial checks reused an older Release build. The runner now rejects stale default binaries before it copies a catalog or starts Capture One. Explicitly pinned package and fixture binaries remain usable. The fresh-build interruption fixture measures confirmed WIC writes because an exclusive Windows handle can leave directory metadata stale. Evidence is in `.test-results/host-native-crash-owned-{encoding-built,ordinary,full}-20261120`, `.test-results/contracts-crash-owned-export-encoder-counter-20261120` and `.test-results/encoder-crash-owned-20261120`. This source checkpoint follows audit.25. Interruption immediately before final rename, filesystem fallback and physical power loss remain open.
 
+## Mixed selection and native Export
+
+- [x] For Capture One's edit-all selection, check secondary variants when the primary master is off. If a secondary has an enabled saved look or its saved state is temporarily unavailable, require one selected variant. A primary-only export with its master off delegates normally. An all-disabled selection also delegates.
+- [x] Select actual RAW variants in the licensed Browser and verify the production bridge's routing decisions. With the primary off and secondary on, native batch preflight recognizes the saved look and requires a single variant. Selecting the secondary on its own enables export. Disabling both permits the native selection, and the last export receipt remains exact.
+- [x] The full four-RAW matrix still applies film, diffusion, halation and scatter through the real Export and Previous Settings commands. It passes 213 assertions per launch and saves 40 verified 16-bit controls and processed images. Evidence is in `.test-results/host-native-export-mixed-selection-20261120`. Applied batch processing remains a separate audit item.
+
 ## Status maintenance
 
 `qa/AUDIT-FIX-STATUS.json` owns task IDs, status, implemented substeps, remaining acceptance work and evidence. This handover owns context, runtime identity and resume instructions. `.test-results/FINAL-RESULT.json` is the completed runtime delivery receipt; keep its runtime commit/package identity distinct from later documentation-only commits.

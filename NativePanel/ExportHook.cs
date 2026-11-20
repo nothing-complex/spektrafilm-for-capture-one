@@ -25,6 +25,7 @@ internal sealed class ExportHook : IDisposable
     private readonly PropertyInfo exportWindow;
     private readonly Func<IDestinationDocumentManager> destinations;
     private readonly Func<bool> isActive;
+    private readonly Func<Guid, bool> wouldLoseSavedLook;
     private readonly Func<Task<bool>> export;
     private readonly Action<string> reportUnavailable;
     private readonly CommandBinding normal;
@@ -36,10 +37,12 @@ internal sealed class ExportHook : IDisposable
     private string? confirmationError;
     private bool disposed;
 
-    internal ExportHook(Forms.Form window, Func<bool> isActive, Func<Task<bool>> export, Action<string> reportUnavailable)
+    internal ExportHook(Forms.Form window, Func<bool> isActive, Func<Task<bool>> export, Action<string> reportUnavailable,
+        Func<Guid, bool> wouldLoseSavedLook)
     {
         this.window = window;
         this.isActive = isActive;
+        this.wouldLoseSavedLook = wouldLoseSavedLook;
         this.export = export;
         this.reportUnavailable = reportUnavailable;
         var program = window.GetType().Assembly.GetType("P1.C1.Program", throwOnError: true)!;
@@ -81,13 +84,24 @@ internal sealed class ExportHook : IDisposable
         !window.IsDisposed && ReferenceEquals(activeDocument.GetValue(manager), document)
         && ApprovedCatalog.IsApproved(activePath.GetValue(manager) as string, document.Path);
 
-    private bool ShouldIntercept() => !disposed && IsApprovedDocument() && isActive();
+    private bool ShouldIntercept(bool editMultiple) => !disposed && IsApprovedDocument() && RequiresSpektrafilm(editMultiple);
+
+    private bool RequiresSpektrafilm(bool editMultiple)
+    {
+        if (isActive()) return true;
+        // A primary variant with its master switch off still participates in a
+        // native batch alongside other variants with their own saved looks.
+        return editMultiple && document is ISelectedCollectionsProvider
+        {
+            PrimarySelectedCollectionSelection: { PrimaryVariant: { } primary, SelectedVariants: { Count: > 1 } selected },
+        } && selected.Any(variant => variant.UUID != primary.UUID && wouldLoseSavedLook(variant.UUID));
+    }
 
     private void OpenDialog(Command command, bool editMultiple)
     {
         try
         {
-            if (!ShouldIntercept())
+            if (!ShouldIntercept(editMultiple))
             {
                 normal.Original(command, editMultiple);
                 return;
@@ -116,7 +130,7 @@ internal sealed class ExportHook : IDisposable
         {
             if (disposed || !IsApprovedDocument() || Busy)
                 return false;
-            if (!isActive())
+            if (!RequiresSpektrafilm(editMultiple))
                 return native();
             if (!HasSingleSelection(editMultiple))
             {
@@ -139,7 +153,7 @@ internal sealed class ExportHook : IDisposable
     {
         try
         {
-            if (!ShouldIntercept())
+            if (!ShouldIntercept(editMultiple))
             {
                 previous.Original(command, editMultiple);
                 return;

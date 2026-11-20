@@ -42,6 +42,56 @@ public static partial class StartupHook
             }
             finally { input.SelectedItem = prior; }
         }
+        TestMixedNativeExportSelection(hookField.GetValue(null)!, panel, spatial, selection, phase);
+    }
+
+    private static void TestMixedNativeExportSelection(object bridge, object panel, object spatial,
+        FixtureSelection selection, string phase)
+    {
+        var originallyDisplayed = (Guid)Field(panel, "displayedVariant")!;
+        var primary = selection.Variants[0];
+        var secondary = selection.Variants[1];
+        var toggle = (CheckBox)Field(panel, "enableSpektraFilm")!;
+        var exposure = Field(panel, "exposure")!;
+        var exposureValue = exposure.GetType().GetProperty("Value", Flags)!;
+        var jobs = Field(spatial, "exportJobs")!;
+        var lastJob = Call(jobs, "ReadLatest");
+        bool Guarded(bool editMultiple) => Call(bridge, "ShouldIntercept", editMultiple) is true;
+        selection.Select(primary, primary);
+        var primaryEnabled = toggle.IsChecked;
+        toggle.IsChecked = false;
+        selection.Select(secondary, secondary);
+        var secondaryEnabled = toggle.IsChecked;
+        var secondaryExposure = (double)exposureValue.GetValue(exposure)!;
+        try
+        {
+            toggle.IsChecked = true;
+            exposureValue.SetValue(exposure, 1.37);
+            selection.Select(primary, primary, secondary);
+            Check(Prop(panel, "IsSpektraExportActive") is false && Call(bridge, "HasSingleSelection", true) is false,
+                "the real browser selection includes an enabled secondary look while the primary master is off");
+            Check(Guarded(true), "both native batch export routes retain the active secondary look at preflight");
+            Check(!Guarded(false), "the normal primary-only native command still delegates when its master is off");
+
+            selection.Select(secondary, secondary);
+            Check(Guarded(true) && Call(bridge, "HasSingleSelection", true) is true,
+                "selecting the active variant alone can use the Spektrafilm export route");
+            toggle.IsChecked = false;
+            selection.Select(primary, primary, secondary);
+            Check(!Guarded(true), "a real multiple-variant selection with both masters off delegates to Capture One");
+            Check(Equals(lastJob, Call(jobs, "ReadLatest")), "selection eligibility neither accepted a job nor changed the last completed export");
+            File.WriteAllText(Path.Combine(folder, phase + "-export-selection.json"),
+                JsonSerializer.Serialize(new { mixedBatchGuarded = true, primaryOnlyDelegated = true, allDisabledDelegated = true }));
+        }
+        finally
+        {
+            selection.Select(secondary, secondary);
+            exposureValue.SetValue(exposure, secondaryExposure);
+            toggle.IsChecked = secondaryEnabled;
+            selection.Select(primary, primary);
+            toggle.IsChecked = primaryEnabled;
+            selection.Select(originallyDisplayed, originallyDisplayed);
+        }
     }
 
     private static async Task TestNativeEffectExport(FieldInfo hookField, object hosted, object panel, object spatial, object window,
@@ -128,7 +178,8 @@ public static partial class StartupHook
             }
             bridge = Activator.CreateInstance(current.GetType(), Flags, null,
                 new object[] { window, (Func<bool>)(() => Prop(panel, "IsSpektraExportActive") is true),
-                    (Func<Task<bool>>)Route, (Action<string>)(reason => throw new InvalidOperationException(reason)) }, null)!;
+                    (Func<Task<bool>>)Route, (Action<string>)(reason => throw new InvalidOperationException(reason)),
+                    (Func<Guid, bool>)(variant => Call(hosted, "WouldLoseSavedLook", variant) is true) }, null)!;
             var normal = Field(Field(bridge, "normal")!, "command")!;
             var previous = Field(Field(bridge, "previous")!, "command")!;
             toggle.IsChecked = true;

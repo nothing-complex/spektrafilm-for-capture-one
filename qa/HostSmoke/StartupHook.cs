@@ -1700,7 +1700,8 @@ public static partial class StartupHook
             bridge = Activator.CreateInstance(original.GetType(), Flags, null,
                 new object[] { window, (Func<bool>)(() => Prop(panel, "IsSpektraExportActive") is true), (Func<Task<bool>>)Start,
                     (Action<string>)(message => Call(panel, "SetExportBridgeStatus", Prop(panel, "ExportBridgeStatus")!.GetType()
-                        .GetField("Unavailable")!.GetValue(null), message)) }, null)!;
+                        .GetField("Unavailable")!.GetValue(null), message)),
+                    (Func<Guid, bool>)(variant => Call(hosted, "WouldLoseSavedLook", variant) is true) }, null)!;
             var destinations = ((Delegate)Field(bridge, "destinations")!).DynamicInvoke()!;
             var enabled = ((IEnumerable)Prop(destinations, "EnabledDestinations")!).Cast<object>().ToArray();
             Check(enabled.Length == 1 && Equals(Prop(enabled[0], "Name"), Prop(Prop(destinations, "SelectedDestination")!, "Name")),
