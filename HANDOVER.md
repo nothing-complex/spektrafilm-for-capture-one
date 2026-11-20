@@ -6,7 +6,7 @@ Updated 2026-11-20. The critical-fix batch is implemented, tested, installed loc
 
 1. Read this file, `AGENTS.md` and `qa/AUDIT-FIX-STATUS.json` before changing code. The JSON is the authoritative task-progress ledger; its `remaining_work` and original acceptance tests matter more than a short status label.
 2. Check `git status`, current branch and PR head. Do not discard existing edits or switch the installed build merely because this documentation has a newer commit.
-3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP identifies clean source `46894ed`. Its verification used an isolated installation. The normal app stayed on `ffc4819`.
+3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP identifies clean source `c0505c3`. Its verification used an isolated installation. The normal app stayed on `ffc4819`.
 4. Choose an unresolved task and an exact ownership boundary. Do not repeat the completed installation, crash test or old defect reproductions as if nothing had happened.
 5. Update task evidence and the delivery ledger at each completed milestone. Never mark a broad parent task complete because one mitigation shipped.
 
@@ -548,9 +548,10 @@ Evidence is under `.test-results/host-catalog-isolation-painted-20261120`.
 
 - [x] Paint the Spektrafilm preview on the unique visible view of the selected image while the native Viewer shows one, two or four images. Re-read the live native list and reject stale callbacks from earlier view attachments.
 - [x] Inspect the actual drawing tree as the selection changes in two- and four-image layouts and after returning to one image. Pass 22 focused layout checks, 202 first-launch and 206 restart checks, and 12,678 host-independent contracts. Symlink and junction creation were skipped in the sandbox.
-- [ ] Verify actual Before/After halves, external viewers, fullscreen, virtualization and DPI before permitting additional simultaneous film previews.
+- [x] Turn on native Before/After in its FullScreen comparison mode. The before view exists and Spektrafilm stops painting. The regular Viewer restores the identical cached film bitmap. The licensed fixture passed 26 assertions and restored the starting setting.
+- [ ] Verify split comparison, external viewers, OS fullscreen, virtualization and DPI before permitting additional simultaneous film previews.
 
-Evidence is under `.test-results/host-viewer-layouts-selection-20261120`, `.test-results/host-viewer-reattachment-regression-20261120` and `.test-results/contracts-viewer-reattachment-20261120`.
+Evidence is under `.test-results/host-viewer-layouts-selection-20261120`, `.test-results/host-viewer-reattachment-regression-20261120`, `.test-results/contracts-viewer-reattachment-20261120` and `.test-results/host-viewer-native-comparison-exact-20261120`.
 
 ## Packed Vulkan Viewer readback
 
@@ -597,9 +598,10 @@ Evidence is in `.test-results/audit-capabilities-generated-20261120.md` and `.te
 - [x] Verify ProPhoto and Linear Rec.2020 in both RGB48 TIFF and RGBA64 PNG. Reopened color codes and PNG alpha match the WIC conversion exactly. Confirm the captured ICC remains stable if its backing path is locked or replaced. Scoped color contexts keep handles out of global state.
 - [x] Pass 12,706 host-independent checks and 210 first-launch plus 214 forced-restart assertions. The licensed test verifies the exact Adobe RGB profile in the native recipe route and the complete 6000 × 4000 RGB48 direct export.
 - [x] Compare SDR patch results against the actual three ICC matrix/TRC descriptions. P95 Delta E 2000 ranged from 0.031 to 0.159, with a maximum of 0.803. [Windows Imaging Component format contract](https://learn.microsoft.com/en-us/windows/win32/api/wincodec/nf-wincodec-iwiccolortransform-initialize)
+- [x] Build `0.2.0-audit.9` from clean `c0505c3`. Verify 152 package and 19 runtime files, the installed capability guide, 24 managed GPU assertions and 210 first-launch, 214 restart and 115 RAW assertions on the exact package. [Windows Contracts](https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44662945600)
 - [ ] Compare additional native recipe profile references and implement format-quality and naming policies within the 16-bit export requirement.
 
-Evidence is under `.test-results/host-recipe-icc-final-20261120`, `.test-results/contracts-recipe-icc-final-20261120` and `.test-results/wic-icc16-probe-20261120`.
+Evidence is under `.test-results/host-recipe-icc-final-20261120`, `.test-results/contracts-recipe-icc-final-20261120`, `.test-results/wic-icc16-probe-20261120` and `.test-results/audit9-package-verify-20261120`.
 
 ## Status maintenance
 

@@ -563,7 +563,7 @@
     "Spektrafilm editing is outside native undo/redo/copy/apply/clone semantics.",
     "Native histograms, pickers, proofing and monitor ICC behavior are not proven to describe the Spektrafilm overlay.",
     "Current source is Capture One-developed bounded16-bit data converted to float32, not proven pre-tone-map scene-linear RAW.",
-    "Export remains16-bit sRGB TIFF/PNG; recipe exports follow its print resolution and direct exports use96DPI. Recipe profiles, metadata, naming and watermarks remain open.",
+    "Export uses 16-bit TIFF/PNG. Recipe exports follow its resolution, local RGB ICC profile and supported metadata flags. Direct exports use sRGB and 96 DPI. Native naming, JPEG quality and watermarks remain open.",
     "Export remains capped at32MP/8192side; native preview100MP/16384side and grain-synthesis32MP constraints remain.",
     "Floating preference Sections property is not wired; section expansion/scroll/dock-state are not persisted.",
     "State backups remain path-keyed archives, not portable catalog identity or automatic cross-directory restore.",
@@ -2356,18 +2356,20 @@
       "implemented": [
         "In native one-, two- and four-image layouts, bind one film preview to the unique visible view of the selected document and variant. Recheck the live native viewed list and current document in every paint.",
         "Each paint delegate captures its actual attachment. A callback retained by a retired painter cannot draw a newer attachment's bitmap. Ambiguous views and Before/After remain guarded.",
-        "Passed 22 actual layout assertions with selection changes inside multi-image layouts and one-to-four view transitions. WPF paint tree checks confirmed the selected film drawing and absence of recorded film bitmaps in the other views. The full licensed suite passed 202 first and 206 restart assertions."
+        "Passed 22 actual layout assertions with selection changes inside multi-image layouts and one-to-four view transitions. WPF paint tree checks confirmed the selected film drawing and absence of recorded film bitmaps in the other views. The full licensed suite passed 202 first and 206 restart assertions.",
+        "A focused 26-assertion live fixture activated Capture One Before/After in its FullScreen comparison mode. The before view existed, WPF contained no film drawing, and returning to the regular Viewer repainted the identical cached film bitmap. The fixture restored the initial native preference."
       ],
       "evidence_paths": [
         "NativePanel/ViewerPreview.cs",
         "qa/HostSmoke/ViewerLayouts.cs",
         ".test-results/host-viewer-layouts-selection-20261120",
         ".test-results/host-viewer-reattachment-regression-20261120",
-        ".test-results/contracts-viewer-reattachment-20261120"
+        ".test-results/contracts-viewer-reattachment-20261120",
+        ".test-results/host-viewer-native-comparison-exact-20261120/host-smoke.log"
       ],
       "remaining_work": [
         "Expand beyond the sole selected attachment only after a shared memory/GPU budget and per-view identity registry are verified.",
-        "Test virtualization, replacement, fullscreen and secondary display on the native host. Confirm layout change event ownership.",
+        "Test virtualization, replacement, OS fullscreen, split comparison and secondary display on the native host. Confirm layout change event ownership.",
         "Define Before/After semantics explicitly: native pre-adjustments, Capture One-developed source before film, or original raw baseline are distinct.",
         "Implement comparison and multi-view as separate capability-gated increments; preserve safe suspension until each mode is tested."
       ],
@@ -2397,7 +2399,8 @@
         "Development 0.2.0-audit.4 was built from clean b1766d0, including renderer protocol 2. The ZIP matches its SHA-256, contains all 151 payload and 19 critical runtime records, rejects a changed capability file, and passed isolated Windows PowerShell 5.1 installation and shortcut verification, actual Vulkan, 558 parameter probes and the 480-render spectral matrix. The regular installation stays at ffc4819.",
         "The audit.5 ZIP from clean bbeae73 verified all 151 package and 19 critical runtime files, its production shortcut, actual GPU renderer, and a real version 3 preset in the licensed host.",
         "The audit.6 ZIP from clean fd7056d verified the installed 151-file package, 19 critical runtime hashes, scoped branded shortcut, CheckOnly, Windows CI and 24 GPU assertions. The exact package also passed 202 first-launch, 206 restart and 115 native RAW checks. The real saved preset matched the package's source, parameter and asset fingerprints.",
-        "The audit.8 ZIP from clean 46894ed verified all 152 package files and 19 critical assets in the isolated install. The generated 137-option guide survived installation and altered bytes were rejected. The package passed 24 GPU, 208 first-launch, 212 restart and 115 RAW assertions. The regular install remains ffc4819."
+        "The audit.8 ZIP from clean 46894ed verified all 152 package files and 19 critical assets in the isolated install. The generated 137-option guide survived installation and altered bytes were rejected. The package passed 24 GPU, 208 first-launch, 212 restart and 115 RAW assertions.",
+        "The audit.9 ZIP from clean c0505c3 verifies the same 152 package and 19 critical runtime records plus the new ICC delivery. The installed package passed 24 managed GPU, 210 initial, 214 restart and 115 RAW checks. The regular installation remains ffc4819."
       ],
       "evidence_paths": [
         "ReleaseManifest.ps1",
@@ -2417,7 +2420,8 @@
         ".test-results/audit4-package-verify-20261120/spectral-matrix.log",
         ".test-results/audit5-package-verify-20261120/result.json",
         ".test-results/audit6-package-verify-20261120/result.json",
-        ".test-results/audit8-package-verify-20261120/result.json"
+        ".test-results/audit8-package-verify-20261120/result.json",
+        ".test-results/audit9-package-verify-20261120/result.json"
       ],
       "remaining_work": [],
       "original_acceptance_tests": [
@@ -2990,13 +2994,13 @@
     "original_test_catalog_hash_unchanged": true,
     "local_evidence_note": "Paths under .test-results/build/dist are ignored local artifacts and are not present in a public clone.",
     "latest_development_package": {
-      "version": "0.2.0-audit.8",
-      "archive": "dist/Spektrafilm-for-Capture-One-v0.2.0-audit.8-windows-x64.zip",
-      "sha256": "be967b51dc55631a8113f29aafe3d276f2c775d0d153d65c822bdc891cdce710",
+      "version": "0.2.0-audit.9",
+      "archive": "dist/Spektrafilm-for-Capture-One-v0.2.0-audit.9-windows-x64.zip",
+      "sha256": "3c6c2fe02fcab955689cdc63c3256e41ccd32b6c97caeeae2cbfd826a94cd7e8",
       "source": {
-        "commit": "46894ed6c23058f3be5dfdce2b7e2c9f02c1c8e8",
+        "commit": "c0505c30e494ec060184affb4b308effa6216b05",
         "dirty": false,
-        "treeDigest": "f8b9dfff66f089dad682c3af8c1484c129413ed59c4f0e40afb45f9d6c97bcc5"
+        "treeDigest": "092006bc2acedda985a4c57f0233eab96df846015e2210db5de7c9008ef3ebbb"
       },
       "verified_package_entries": 152,
       "verified_runtime_entries": 19,
@@ -3007,14 +3011,14 @@
       "version3_native_preset_verified": true,
       "isolated_install_and_checkonly": "passed",
       "exact_package_host_tests": {
-        "first_launch": 208,
-        "restart": 212,
+        "first_launch": 210,
+        "restart": 214,
         "raw_matrix": 115,
         "managed_gpu": 24
       },
-      "remote_windows_contracts": "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44661185246",
+      "remote_windows_contracts": "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44662945600",
       "normal_installed_revision": "ffc481988eb2e6e7ef7a1379486c4a8b2656ac81",
-      "receipt": ".test-results/audit8-package-verify-20261120/result.json"
+      "receipt": ".test-results/audit9-package-verify-20261120/result.json"
     }
   },
   "completed_milestones": [
