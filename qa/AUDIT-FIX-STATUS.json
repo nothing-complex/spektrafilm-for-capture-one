@@ -864,7 +864,8 @@
         "Normal viewer input now stays high-depth at small resolutions; documentation distinguishes developed bounded output from raw scene-linear data.",
         "A licensed native RAW matrix exercised Canon CR3, Fujifilm RAF, Nikon NEF and Ricoh DNG in sRGB, Adobe RGB, ProPhoto RGB and Linear Rec.2020. All 16 cases used high-depth Capture One development with the same per-image geometry, converted to float32 and rendered a finite linear Rec.709 film result with exact alpha.",
         "An independent Colour Science transform mapped each declared profile to common sRGB. Over comparable in-gamut regions, it lowered p95 error versus misreading the native codes as sRGB in every case. Adobe and ProPhoto p95 ranged 0.000685–0.008187. Linear Rec.2020 p95 ranged 0.006365–0.033348 across these files.",
-        "All source RAW checksums matched the pre-existing published sample list. The source catalog hash remained unchanged."
+        "All source RAW checksums matched the pre-existing published sample list. The source catalog hash remained unchanged.",
+        "Each captured frame carries a typed input encoding, actual ICC SHA-256, variant UUID, source extension and native adjustment revision. Draft reductions retain that description. Viewer source reuse checks the exact variant, encoding, dimensions request and native revision; export validates the copied descriptor against its captured snapshot. All 16 native frames declared the expected identity and each encoding had one distinct ICC fingerprint across cameras."
       ],
       "evidence_paths": [
         "NativePanel/HostImageSource.cs",
@@ -875,10 +876,14 @@
         "qa/analyze-native-colour.py",
         ".test-results/host-native-colour-matrix-20261120/host-smoke.log",
         ".test-results/host-native-colour-matrix-20261120/color-matrix/common-srgb.json",
-        ".test-results/host-native-colour-matrix-20261120/color-matrix/source-checksums.txt"
+        ".test-results/host-native-colour-matrix-20261120/color-matrix/source-checksums.txt",
+        ".test-results/host-frame-description-matrix-20261120/color-matrix/matrix.json",
+        ".test-results/host-frame-description-matrix-20261120/color-matrix/profile-identities.txt",
+        ".test-results/host-frame-description-matrix-20261120/color-matrix/common-srgb.json",
+        ".test-results/host-frame-description-20261120/host-smoke.log"
       ],
       "remaining_work": [
-        "Attach the immutable profile/range/variant/revision descriptor to developed frames and use it in source reuse keys.",
+        "Fill out any additional profile and pipeline-stage diagnostics. Verify descriptor coverage for all render caches and how an externally replaced ICC profile should be invalidated during an open document.",
         "Add calibrated exposure ramp, white balance, highlight recovery and same-stage native TIFF comparisons. Verify any earlier scene-linear host seam before adding a scene-linear or camera-log label."
       ],
       "original_acceptance_tests": [

@@ -11,7 +11,8 @@ using System.Threading.Tasks;
 
 public static partial class StartupHook
 {
-    private sealed record ColorProbe(string Source, string InputEncoding, int Width, int Height, string NativePixels, string FilmPixels);
+    private sealed record ColorProbe(string Source, string InputEncoding, int Width, int Height, string ProfileSha256,
+        string NativePixels, string FilmPixels);
 
     private static async Task RunColorMatrix(Assembly assembly, object panel, object window, object spatial)
     {
@@ -56,9 +57,14 @@ public static partial class StartupHook
                 var width = (int)Prop(frame, "Width")!;
                 var height = (int)Prop(frame, "Height")!;
                 var bytes = (byte[])Prop(frame, "FloatBytes")!;
+                var description = Prop(frame, "Description")!;
+                var digest = (string)Prop(description, "ProfileSha256")!;
                 Check(Prop(frame, "BitDepth") is 16 && Math.Max(width, height) == 480
                     && bytes.LongLength == width * height * 16L && (dimensions is null || dimensions == (width, height)),
                     $"{source} develops as native 16-bit RGBA32F in {encoding} on identical geometry");
+                Check(Equals(Prop(description, "InputEncoding"), space) && Equals(Prop(description, "VariantId"), Prop(target, "VariantId"))
+                    && Equals(Prop(description, "AdjustmentKey"), Prop(snapshot, "AdjustmentKey")) && digest.Length == 64 && digest.All(Uri.IsHexDigit),
+                    $"{source} {encoding} frame identifies its selected variant, native revision and exact ICC bytes");
                 dimensions = (width, height);
                 var options = (string[])Call(spatial, "RendererOptions", look, encoding, "linear_rec709", false, false)!;
                 var film = await (Task<byte[]>)Call(renderer, "RenderAsync", width, height, bytes, options, CancellationToken.None, false)!;
@@ -67,7 +73,7 @@ public static partial class StartupHook
                 var filmFile = source + "-" + encoding + "-rec709.f32";
                 File.WriteAllBytes(Path.Combine(directory, rawFile), bytes);
                 File.WriteAllBytes(Path.Combine(directory, filmFile), film);
-                matrix.Add(new ColorProbe(source, encoding, width, height, rawFile, filmFile));
+                matrix.Add(new ColorProbe(source, encoding, width, height, digest, rawFile, filmFile));
             }
         }
         Check(remaining.Count == 0 && matrix.Count == 16, "all four camera RAW formats exercised with all four native working profiles");

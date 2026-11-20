@@ -42,7 +42,9 @@ internal static class HostImageSource
     private static readonly float[] Bgra8Values = CreateByteLookup();
 
     internal readonly record struct Revision(long HighRes, long LowRes, long Geometry);
-    internal sealed record Frame(int Width, int Height, byte[] Codes, byte[] FloatBytes, int BitDepth);
+    internal sealed record FrameDescription(Guid VariantId, string SourceFormat, PreviewInputSpace InputEncoding,
+        string ProfileSha256, Revision AdjustmentKey);
+    internal sealed record Frame(int Width, int Height, byte[] Codes, byte[] FloatBytes, int BitDepth, FrameDescription? Description = null);
     internal sealed record ExportFrame(Frame Image, Rectangle Crop);
     internal sealed record RecipeInfo(string Name, string FormatId, string ColorProfileName, string ColorProfilePath,
         string CropMode, string RootFolderMode, string CustomRootFolder, string Subfolder, string Filename,
@@ -78,7 +80,8 @@ internal static class HostImageSource
         if (ReadRevision(variant) != revision)
             throw new OperationCanceledException("Capture One settings changed while acquiring the preview source.");
 
-        var output = Utf8Marshaled_IC_MAX_PATH.Create(ResolvePreviewProfile(inputSpace));
+        var (profilePath, profileSha256) = ResolvePreviewProfile(inputSpace);
+        var output = Utf8Marshaled_IC_MAX_PATH.Create(profilePath);
         settings.colorProfileList.profile2 = output;
         settings.colorProfileList.profile3 = output;
         settings.colorProfileList.count = 3;
@@ -94,7 +97,8 @@ internal static class HostImageSource
             ?? throw new InvalidOperationException("Capture One’s image scheduler is unavailable.");
         var proxyManager = GetProxyManager?.Invoke(selection.Manager, new object[] { selection.Document }) as IProxyManager;
         var recipe = captureRecipe ? ReadRecipe(selection, ref settings) : null;
-        return new Snapshot(scheduler, selection.Document, variant, target.SourcePath, settings, revision, proxyManager, recipe);
+        var description = new FrameDescription(target.VariantId, target.SourceFormat, inputSpace, profileSha256, revision);
+        return new Snapshot(scheduler, selection.Document, variant, target.SourcePath, settings, description, proxyManager, recipe);
     }
 
     private static RecipeInfo? ReadRecipe(HostProfile.Selection selection, ref IC_ProcessSettings settings)
@@ -142,7 +146,7 @@ internal static class HostImageSource
         ProgramType.GetProperty(name, BindingFlags.Static | BindingFlags.Public)
         ?? throw new MissingMemberException(ProgramType.FullName, name);
 
-    private static string ResolvePreviewProfile(PreviewInputSpace space)
+    private static (string Path, string Sha256) ResolvePreviewProfile(PreviewInputSpace space)
     {
         var (label, path, digest) = space switch
         {
@@ -156,13 +160,13 @@ internal static class HostImageSource
         };
         if (string.IsNullOrEmpty(path) || !File.Exists(path))
             throw new FileNotFoundException($"The {label} preview ICC profile is missing{(path is null ? "." : $" at {path}.")}", path);
-        if (digest is not null)
-        {
-            using var data = File.OpenRead(path);
-            if (data.Length > 4096 || Convert.ToHexString(SHA256.HashData(data)) != digest)
-                throw new InvalidDataException($"The {label} preview ICC profile is invalid. Run make_preview_profiles.py to restore {path}.");
-        }
-        return path;
+        using var data = File.OpenRead(path);
+        if (digest is not null && data.Length > 4096)
+            throw new InvalidDataException($"The {label} preview ICC profile is invalid. Run make_preview_profiles.py to restore {path}.");
+        var hash = Convert.ToHexString(SHA256.HashData(data));
+        if (digest is not null && hash != digest)
+            throw new InvalidDataException($"The {label} preview ICC profile is invalid. Run make_preview_profiles.py to restore {path}.");
+        return (path, hash);
 
         static ColorProfileLibrary ProfileLibrary() => ColorProfilesProperty.GetValue(null) as ColorProfileLibrary
             ?? throw new InvalidOperationException("Capture One’s output profile library is unavailable.");
@@ -176,9 +180,9 @@ internal static class HostImageSource
     }
 
     internal sealed class Snapshot(ImageCoreScheduler scheduler, ICaptureOneDocument document, ICoreVariant variant,
-        string sourcePath, IC_ProcessSettings settings, Revision revision, IProxyManager? proxyManager, RecipeInfo? recipe)
+        string sourcePath, IC_ProcessSettings settings, FrameDescription description, IProxyManager? proxyManager, RecipeInfo? recipe)
     {
-        internal Revision AdjustmentKey => revision;
+        internal Revision AdjustmentKey => description.AdjustmentKey;
         internal RecipeInfo? Recipe => recipe;
 
         internal Frame Render(int maxDimension, CancellationToken token) =>
@@ -208,7 +212,8 @@ internal static class HostImageSource
             {
                 try
                 {
-                    return ScheduleRender(options, requestProxyCheck, token);
+                    var rendered = ScheduleRender(options, requestProxyCheck, token);
+                    return rendered with { Image = rendered.Image with { Description = description } };
                 }
                 catch (ProxyPendingException) when (attemptsLeft > 0)
                 {
@@ -239,7 +244,7 @@ internal static class HostImageSource
                 var request = new QueuedRenderRequest<ICoreVariant, ExportFrame>(source =>
                 {
                     workToken.ThrowIfCancellationRequested();
-                    if (source.UUID != variant.UUID || ReadRevision(source) != revision)
+                    if (source.UUID != description.VariantId || ReadRevision(source) != description.AdjustmentKey)
                         throw new OperationCanceledException("Capture One settings changed before the image could render.");
                     return RenderOnScheduler(source, options, requestProxyCheck, workToken);
                 }, () => SchedulerSlot.Release());
@@ -358,7 +363,7 @@ internal static class HostImageSource
             }
             if (result != IC_Result.resOK)
                 throw new InvalidOperationException($"Capture One could not develop the {(options.ForExport ? "export source" : "preview")} ({result}).");
-            if (ReadRevision(source) != revision)
+            if (ReadRevision(source) != description.AdjustmentKey)
                 throw new OperationCanceledException("Capture One settings changed during image development.");
             var imageFrame = CopyPixels(bitmap, pixelLimit, token, options.Purpose);
             var pixelCrop = options.ForExport ? ViewerGeometry.ScaleCrop(crop, canvas, imageFrame.Width, imageFrame.Height)

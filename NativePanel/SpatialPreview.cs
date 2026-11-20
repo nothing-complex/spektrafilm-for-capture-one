@@ -75,14 +75,12 @@ internal sealed class SpatialPreview : IDisposable
     private bool dragging;
     private long lastDragChange;
     private HostImageSource.Frame? source;
-    private HostImageSource.Revision? sourceRevision;
     private HostImageSource.Revision? failedRevision;
     private byte[]? renderedPixels;
     private string[]? renderedArguments;
     private BitmapSource? sourceDisplay;
     private BitmapSource? renderedDisplay;
     private double renderedStrength;
-    private PreviewInputSpace? sourceSpace;
     private PreviewInputSpace? failedSpace;
     private readonly ComboBox inputSpace = new()
     {
@@ -718,8 +716,9 @@ internal sealed class SpatialPreview : IDisposable
                 {
                     var rendered = snapshot.RenderExport(null, work.Token, useRecipeSize);
                     var source = rendered.Image;
-                    if (source.BitDepth < 16)
-                        throw new InvalidDataException("Capture One did not produce high-bit-depth image data for this export.");
+                    if (source.BitDepth < 16 || source.Description is not { } description
+                        || description.VariantId != work.VariantId || description.InputEncoding != input.Space)
+                        throw new InvalidDataException("Capture One did not produce the captured high-bit-depth input for this export.");
                     StartupHook.Log($"Capture One developed {target.SourceFormat} export input at {source.Width} × {source.Height}, {source.BitDepth}-bit {input.Space}.");
                     byte[]? pixels = null;
                     if (look.Strength > 0)
@@ -825,8 +824,6 @@ internal sealed class SpatialPreview : IDisposable
         ResetDraft(keepRenderer: keepDraftRenderer);
         viewportQuality.Reset();
         source = null;
-        sourceRevision = null;
-        sourceSpace = null;
         sourceSize = null;
         failedRevision = null;
         failedSpace = null;
@@ -903,7 +900,8 @@ internal sealed class SpatialPreview : IDisposable
         // Resolution is a sampling choice, never a silent bit-depth/source change.
         const bool highDepthPreview = true;
         var dragEdge = DragLongEdge;
-        var needsSource = source is null || sourceRevision != revision || sourceSpace != space || sourceSize != size;
+        var needsSource = source?.Description is not { } description || description.VariantId != selectedVariant
+            || description.AdjustmentKey != revision || description.InputEncoding != space || sourceSize != size;
         if (highDepthPreview && !needsSource && WantsDragPreview
             && source is { } liveSource && Math.Max(liveSource.Width, liveSource.Height) > dragEdge)
         {
@@ -975,8 +973,6 @@ internal sealed class SpatialPreview : IDisposable
                 }
                 ResetDraft(keepRenderer: highDepthPreview);
                 source = developed;
-                sourceRevision = snapshot.AdjustmentKey;
-                sourceSpace = space;
                 sourceSize = size;
                 sourceDisplay = null;
                 renderedPixels = null;
@@ -1047,7 +1043,7 @@ internal sealed class SpatialPreview : IDisposable
             job.Token.ThrowIfCancellationRequested();
             if (settingsVersion != inputRevision)
                 return;
-            if (HostImageSource.GetRevision(window, selectedVariant) != sourceRevision)
+            if (HostImageSource.GetRevision(window, selectedVariant) != input.Description?.AdjustmentKey)
             {
                 queued = true;
                 return;

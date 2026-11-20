@@ -71,7 +71,7 @@ internal static class ViewerDraftSource
                 }
             }
         });
-        return new HostImageSource.Frame(width, height, Array.Empty<byte>(), draft, frame.BitDepth);
+        return frame with { Width = width, Height = height, Codes = Array.Empty<byte>(), FloatBytes = draft };
     }
 
     private static Vector4 Linear(Vector4 value, PreviewInputSpace space) => new(

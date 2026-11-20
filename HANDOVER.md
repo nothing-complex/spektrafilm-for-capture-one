@@ -406,6 +406,15 @@ Evidence is under `.test-results/host-export-progress-20261120` and `.test-resul
 
 Run `Run-HostSmoke.ps1 -ColorMatrix -SkipRestart` with the four-camera test catalog, then `python qa/analyze-native-colour.py <results-directory>/color-matrix`. The local evidence is under `.test-results/host-native-colour-matrix-20261120`.
 
+## Developed frame identity
+
+- [x] Carry the exact captured ICC fingerprint, working encoding, native adjustment revision, selected variant and format on developed and derived draft frames. Use the captured identity when reusing Viewer sources and validating export snapshots.
+- [x] Pass 59 native colour checks across four RAW formats and four working profiles. All four camera fixtures reported the same exact ICC fingerprint for each encoding, and the four encodings had distinct fingerprints. The independent common-sRGB analysis still passed all twelve profile comparisons.
+- [x] Pass 12,547 host-independent assertions and 177 new-launch plus 182 restart checks in a copied Capture One catalog.
+- [ ] Verify external profile replacement, calibrated native exposure/white balance/highlights and same-stage TIFF parity.
+
+Evidence is under `.test-results/host-frame-description-matrix-20261120` and `.test-results/host-frame-description-20261120`.
+
 ## Status maintenance
 
 `qa/AUDIT-FIX-STATUS.json` owns task IDs, status, implemented substeps, remaining acceptance work and evidence. This handover owns context, runtime identity and resume instructions. `.test-results/FINAL-RESULT.json` is the completed runtime delivery receipt; keep its runtime commit/package identity distinct from later documentation-only commits.
