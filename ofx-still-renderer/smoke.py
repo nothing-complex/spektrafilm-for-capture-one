@@ -360,10 +360,11 @@ def check_packed_readback(exe, base):
         assert render_metrics["tiled"] == reference_metrics["tiled"] == (tiling == "tiled"), name
         if tiling == "tiled":
             assert render_metrics["tileCount"] > 1
-        expected_gpu_bytes = reference_metrics["readbackBytes"] // 4 + 4 * max(1, render_metrics["tileCount"])
-        assert render_metrics["readbackBytes"] == (reference_metrics["readbackBytes"] if expect_cpu else expected_gpu_bytes), name
+        assert reference_metrics["readbackBytes"] == frame.nbytes, name
+        expected_gpu_bytes = height * width * 4 + 4 * max(1, render_metrics["tileCount"])
+        assert render_metrics["readbackBytes"] == (frame.nbytes if expect_cpu else expected_gpu_bytes), name
         assert render_metrics["renderSequence"] == 1 and reference_metrics["renderSequence"] == (1 if expect_cpu else 2), name
-    print("GPU BGRA8 matched the scalar reference over five full/tiled/crop cases, with original alpha and float reuse checks")
+    print("GPU BGRA8 matched the scalar reference over five full/tiled/crop cases, with exact readback size, original alpha and float reuse")
 
 
 def check_metering_cache(exe, frame, base):
@@ -435,8 +436,11 @@ def check_tiled_parity(exe, base):
     }
     clean = {key: value for key, value in os.environ.items()
              if not key.upper().startswith("SPEKTRAFILM_") and key.upper() != "DOTNET_STARTUP_HOOKS"}
-    for label, options in cases.items():
-        frame = scanner_chart if label == "stacked scanner kernels" else chart
+    graphs = [(label, options, scanner_chart if label == "stacked scanner kernels" else chart)
+              for label, options in cases.items()]
+    graphs.append(("stacked scanner kernels, full-width tiles", cases["stacked scanner kernels"],
+                   np.ascontiguousarray(scanner_chart.transpose(1, 0, 2))))
+    for label, options, frame in graphs:
         pictures = []
         for mode in ("legacy", "tiled"):
             environment = {**clean, "SPEKTRAFILM_VULKAN_TILE_MODE": mode}
@@ -448,15 +452,17 @@ def check_tiled_parity(exe, base):
             assert np.isfinite(picture).all(), label
             alpha = reference_crop(frame, 1.3, .03, -.02)[..., 3] if label == "enlarger" else frame[..., 3]
             np.testing.assert_allclose(picture[..., 3], alpha, rtol=0, atol=4e-7, err_msg=f"Alpha: {label}")
-            if label == "stacked scanner kernels":
+            if label.startswith("stacked scanner kernels"):
                 np.testing.assert_array_equal(picture[..., 3], alpha)
             metrics = json.loads(replies[1][1])
             assert metrics["tiled"] == (mode == "tiled"), (label, mode, metrics)
+            assert metrics["readbackBytes"] == frame.nbytes, (label, mode, metrics)
             if mode == "tiled":
                 assert metrics["tileCount"] > 1, (label, metrics)
             pictures.append(picture)
         np.testing.assert_allclose(pictures[0], pictures[1], rtol=0, atol=2e-6, err_msg=f"Tile parity: {label}")
-        print(f"Tile parity {label}: max code difference {np.max(np.abs(pictures[0] - pictures[1])):.8g}")
+        print(f"Tile parity {label}: max code difference {np.max(np.abs(pictures[0] - pictures[1])):.8g}, "
+              f"{frame.nbytes} readback bytes")
 
 
 def check_gpu_budget(exe, base):

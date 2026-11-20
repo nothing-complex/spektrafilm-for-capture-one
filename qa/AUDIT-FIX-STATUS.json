@@ -1709,7 +1709,8 @@
         "Ran the exact audit.14 worker with isolated NVIDIA system, physical Intel integrated and SwiftShader CPU Vulkan ICDs. Four nontrivial graphs per path preserved alpha exactly, matched their own scalar display packing, and reduced each 65 by 47 GPU readback from 48,880 to 12,224 bytes. The largest RGB differences from NVIDIA were 9.47e-7 for Intel and 6.70e-6 for SwiftShader in float sRGB, and one packed code for each.",
         "The exact audit.14 worker passed the full standalone Vulkan smoke suite on isolated physical Intel integrated graphics, including packed/scalar parity, float stability, all seven multi-tile cases and the 128 MiB pressure fixture. Intel tile parity worst difference was 1.20e-7.",
         "The exact audit.15 worker completed all 16 renderer/transport cases and 80 requests at 24, 45, 61 and 100 MP on RTX 3090. Both colour-only and optical cases used packed Viewer and float image export. At 100 MP, warm p95 was 428 ms or 5.30 s in the Viewer and 2.20 s or 8.51 s for float export, from four warm requests per case. The optical export used 6.33 GiB peak worker commit and 3.09 GiB transient cache. Its 800 tiled results returned 9.38 GB of GPU readback for the 1.60 GB float reply, identifying tile overlap transfer as the main measured candidate for improvement. These timings exclude Capture One development, ICC conversion and file encoding.",
-        "The standalone and licensed Viewer tests recovered from a Vulkan device-loss status substituted after real GPU completion. The worker rebuilt its backend and repainted the same source. Protocol 2 preserves the typed error, while legacy protocol 1 keeps its ordinary request-error semantics."
+        "The standalone and licensed Viewer tests recovered from a Vulkan device-loss status substituted after real GPU completion. The worker rebuilt its backend and repainted the same source. Protocol 2 preserves the typed error, while legacy protocol 1 keeps its ordinary request-error semantics.",
+        "The Vulkan tiled readback now gathers only the centre rows into tightly packed staging and copies them directly into the final image. Full optical halos remain on-device and packed validation still covers the working tile. Across the same 80-request RTX 3090 matrix, 100 MP optical readback fell from 9.38 GB to 1.60 GB for float and 2.34 GB to 0.40 GB for packed. Warm medians fell from 8.40 s to 5.95 s and 5.27 s to 4.81 s respectively. All four complete 100 MP reply hashes matched the prior binary. Windows contracts, eight full/tile graphs and padded-row half/float parity passed on physical NVIDIA and Intel."
       ],
       "evidence_paths": [
         "upstream-ofx/shaders/vulkan/SpektraFormatConvert.comp",
@@ -1726,7 +1727,12 @@
         ".test-results/swiftshader-differential-20261120/intel-full-smoke.log",
         ".test-results/matrix-24-45-61-100mp-20261120/nvidia.json",
         ".test-results/matrix-24-45-61-100mp-20261120/adapter.txt",
-        ".test-results/host-native-device-loss-20261120/native-vulkan-device-loss.json"
+        ".test-results/host-native-device-loss-20261120/native-vulkan-device-loss.json",
+        ".test-results/matrix-tile-centres-20261120/nvidia.json",
+        ".test-results/tile-centre-100mp-parity-20261120/before.json",
+        ".test-results/tile-centre-100mp-parity-20261120/after.json",
+        ".test-results/contracts-tile-centre-20261120/summary.json",
+        ".test-results/contracts-tile-centre-20261120/intel-half-and-float.log"
       ],
       "remaining_work": [
         "Explore GPU linear-strength blending and pre-transform source alpha for the enlarger. Both retain their existing exact fallback.",

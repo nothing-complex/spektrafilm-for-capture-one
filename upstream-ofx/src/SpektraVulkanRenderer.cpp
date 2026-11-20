@@ -371,49 +371,6 @@ bool copyMappedBytesToWindow(
   return true;
 }
 
-bool copyMappedBytesRegionToWindow(
-  const void *sourceBytes,
-  size_t sourceByteCount,
-  int32_t sourceWidth,
-  int32_t sourceHeight,
-  int32_t sourceX,
-  int32_t sourceY,
-  const MutableImageView &destination,
-  const RenderWindow &window,
-  int32_t width,
-  int32_t height
-) {
-  if (!sourceBytes || !destination.data || sourceWidth <= 0 || sourceHeight <= 0 ||
-      sourceX < 0 || sourceY < 0 || sourceX + width > sourceWidth || sourceY + height > sourceHeight ||
-      !windowFitsView(destination, window, width, height)) {
-    return false;
-  }
-
-  const int32_t pixelBytes = destination.components * destination.bytesPerComponent;
-  const int32_t sourceRowBytes = sourceWidth * pixelBytes;
-  const int32_t copyRowBytes = width * pixelBytes;
-  const size_t requiredBytes =
-    static_cast<size_t>(sourceHeight) * static_cast<size_t>(sourceRowBytes);
-  if (sourceByteCount < requiredBytes) {
-    return false;
-  }
-
-  const auto *sourceBase = static_cast<const uint8_t *>(sourceBytes);
-  auto *destinationBase = static_cast<uint8_t *>(destination.data);
-  const int32_t destinationX = window.x1 - destination.x1;
-  const int32_t destinationY0 = window.y1 - destination.y1;
-  for (int32_t y = 0; y < height; ++y) {
-    const uint8_t *src = sourceBase +
-      static_cast<size_t>(sourceY + y) * static_cast<size_t>(sourceRowBytes) +
-      static_cast<size_t>(sourceX) * static_cast<size_t>(pixelBytes);
-    uint8_t *dst = destinationBase +
-      static_cast<size_t>(destinationY0 + y) * static_cast<size_t>(destination.rowBytes) +
-      static_cast<size_t>(destinationX) * static_cast<size_t>(pixelBytes);
-    std::memcpy(dst, src, static_cast<size_t>(copyRowBytes));
-  }
-  return true;
-}
-
 uint32_t halfToFloatBits(uint16_t h) {
   const uint32_t sign = (static_cast<uint32_t>(h & 0x8000u)) << 16;
   uint32_t exponent = (h >> 10) & 0x1fu;
@@ -4919,8 +4876,25 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
   const VkDeviceSize grainLayerByteCount = static_cast<VkDeviceSize>(grainLayerByteCount64);
   const bool destinationIsHalf = destination.bytesPerComponent == 2;
   const bool destinationFormatConvert = destinationIsHalf || destinationIsBgra8;
-  const VkDeviceSize destinationPayloadBytes = pixelCount * 4u * destination.bytesPerComponent;
-  const VkDeviceSize destinationReadbackBytes = destinationPayloadBytes + (destinationIsBgra8 ? sizeof(uint32_t) : 0u);
+  const VkDeviceSize outputPixelBytes = 4u * destination.bytesPerComponent;
+  const VkDeviceSize destinationPayloadBytes = pixelCount * outputPixelBytes;
+  const VkDeviceSize validationBytes = destinationIsBgra8 ? sizeof(uint32_t) : 0u;
+  const VkDeviceSize destinationConversionBytes = destinationPayloadBytes + validationBytes;
+  const int32_t readX = activeTileContext.enabled ? static_cast<int32_t>(activeTileContext.centerOriginX) : 0;
+  const int32_t readY = activeTileContext.enabled ? static_cast<int32_t>(activeTileContext.centerOriginY) : 0;
+  const int32_t readWidth = activeTileContext.enabled ? static_cast<int32_t>(activeTileContext.centerWidth) : width;
+  const int32_t readHeight = activeTileContext.enabled ? static_cast<int32_t>(activeTileContext.centerHeight) : height;
+  if (readX < 0 || readY < 0 || readWidth <= 0 || readHeight <= 0
+      || readWidth > width - readX || readHeight > height - readY) {
+    lastError = "The destination readback region does not fit in the Vulkan working tile.";
+    return false;
+  }
+  const bool readFullWindow = readWidth == width && readHeight == height;
+  const VkDeviceSize readRowBytes = static_cast<VkDeviceSize>(readWidth) * outputPixelBytes;
+  const VkDeviceSize readPayloadBytes = readRowBytes * readHeight;
+  const VkDeviceSize destinationReadbackBytes = readPayloadBytes + validationBytes;
+  const RenderWindow readWindow{window.x1 + readX, window.y1 + readY,
+    window.x1 + readX + readWidth, window.y1 + readY + readHeight};
   const uint32_t coordinateWidth =
     activeTileContext.enabled ? std::max(activeTileContext.fullWidth, 1u) : static_cast<uint32_t>(width);
   const uint32_t coordinateHeight =
@@ -5201,7 +5175,7 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
     return false;
   }
   if (destinationFormatConvert) {
-    if (!ensurePrivateScratchBuffer(coreFrame.destinationConverted, destinationReadbackBytes, "core converted destination",
+    if (!ensurePrivateScratchBuffer(coreFrame.destinationConverted, destinationConversionBytes, "core converted destination",
           VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT) ||
         !ensureReadbackScratchBuffer(
           coreFrame.destinationConvertedStaging,
@@ -5213,7 +5187,7 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
     }
   } else if (!ensureReadbackScratchBuffer(
                coreFrame.destinationStaging,
-               byteCount,
+               destinationReadbackBytes,
                "core destination staging",
                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
              )) {
@@ -5570,7 +5544,7 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
   VkDescriptorBufferInfo destinationConvertedBufferInfo{};
   destinationConvertedBufferInfo.buffer = coreFrame.destinationConverted.buffer;
   destinationConvertedBufferInfo.offset = 0;
-  destinationConvertedBufferInfo.range = destinationReadbackBytes;
+  destinationConvertedBufferInfo.range = destinationConversionBytes;
   VkDescriptorBufferInfo filmDensityBufferInfo{};
   filmDensityBufferInfo.buffer = coreFrame.filmDensity.buffer;
   filmDensityBufferInfo.offset = 0;
@@ -6814,10 +6788,6 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
       0,
       nullptr
     );
-
-    VkBufferCopy destinationDownloadRegion{};
-    destinationDownloadRegion.size = destinationReadbackBytes;
-    vkCmdCopyBuffer(commandBuffer, coreFrame.destinationConverted.buffer, coreFrame.destinationConvertedStaging.buffer, 1, &destinationDownloadRegion);
   } else {
     VkMemoryBarrier readbackBarrier{};
     readbackBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
@@ -6835,16 +6805,29 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
       0,
       nullptr
     );
+  }
 
-    VkBufferCopy destinationDownloadRegion{};
-    destinationDownloadRegion.size = pixelStorageByteCount;
-    vkCmdCopyBuffer(
-      commandBuffer,
-      coreFrame.destination.buffer,
-      coreFrame.destinationStaging.buffer,
-      1,
-      &destinationDownloadRegion
-    );
+  const VkBuffer readbackSource = destinationFormatConvert ? coreFrame.destinationConverted.buffer : coreFrame.destination.buffer;
+  ScratchBuffer &readbackStaging = destinationFormatConvert ? coreFrame.destinationConvertedStaging : coreFrame.destinationStaging;
+  if (readFullWindow) {
+    const VkBufferCopy region{0, 0, destinationReadbackBytes};
+    vkCmdCopyBuffer(commandBuffer, readbackSource, readbackStaging.buffer, 1, &region);
+  } else {
+    // Discard halos on the GPU. Keep the packed validator, which still covers the full working tile.
+    const VkDeviceSize workingRowBytes = static_cast<VkDeviceSize>(width) * outputPixelBytes;
+    const VkDeviceSize readOffset = readY * workingRowBytes + readX * outputPixelBytes;
+    std::vector<VkBufferCopy> regions;
+    if (readWidth == width) {
+      regions.reserve(1 + (destinationIsBgra8 ? 1u : 0u));
+      regions.push_back({readOffset, 0, readPayloadBytes});
+    } else {
+      regions.reserve(readHeight + (destinationIsBgra8 ? 1u : 0u));
+      for (int32_t row = 0; row < readHeight; ++row) {
+        regions.push_back({readOffset + row * workingRowBytes, row * readRowBytes, readRowBytes});
+      }
+    }
+    if (destinationIsBgra8) regions.push_back({destinationPayloadBytes, readPayloadBytes, validationBytes});
+    vkCmdCopyBuffer(commandBuffer, readbackSource, readbackStaging.buffer, static_cast<uint32_t>(regions.size()), regions.data());
   }
 
   VkMemoryBarrier hostBarrier{};
@@ -6898,7 +6881,6 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
   diagnostics.commandBufferMs = elapsedMilliseconds(commandStart, commandEnd);
 
   const PerfClock::time_point outputCopyStart = PerfClock::now();
-  ScratchBuffer &readbackStaging = destinationFormatConvert ? coreFrame.destinationConvertedStaging : coreFrame.destinationStaging;
   if (!readbackStaging.mapped) {
     lastError = "Vulkan destination staging buffer is not mapped.";
     return false;
@@ -6908,7 +6890,7 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
   }
   if (destinationIsBgra8) {
     uint32_t invalidPixels = 0;
-    std::memcpy(&invalidPixels, static_cast<const uint8_t *>(readbackStaging.mapped) + destinationPayloadBytes, sizeof(invalidPixels));
+    std::memcpy(&invalidPixels, static_cast<const uint8_t *>(readbackStaging.mapped) + readPayloadBytes, sizeof(invalidPixels));
     if (invalidPixels != 0) {
       lastError = "Renderer produced a non-finite pixel.";
       return false;
@@ -6916,11 +6898,11 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
   }
   if (!copyMappedBytesToWindow(
         readbackStaging.mapped,
-        static_cast<size_t>(destinationPayloadBytes),
+        static_cast<size_t>(readPayloadBytes),
         destination,
-        window,
-        width,
-        height
+        readWindow,
+        readWidth,
+        readHeight
       )) {
     lastError = "The requested render window does not fit inside the Vulkan destination image view.";
     return false;
@@ -7763,7 +7745,6 @@ bool VulkanRenderer::Impl::renderTiledBootstrap(
   aggregate.tileOverlap = overlap;
   aggregate.uploadBytes = uploadSource ? static_cast<uint64_t>(fullSourceByteCount) : 0u;
 
-  const int32_t pixelBytes = destination.components * destination.bytesPerComponent;
   bool capturedPassList = false;
   uint32_t tileIndex = 0u;
   for (uint32_t tileY = 0u; tileY < tileRows; ++tileY) {
@@ -7800,28 +7781,6 @@ bool VulkanRenderer::Impl::renderTiledBootstrap(
         return false;
       }
 
-      const uint64_t tileByteCount =
-        static_cast<uint64_t>(workingWidth) *
-        static_cast<uint64_t>(workingHeight) *
-        static_cast<uint64_t>(pixelBytes);
-      if (tileByteCount > static_cast<uint64_t>(std::numeric_limits<size_t>::max())) {
-        lastError = "The Vulkan tiled planner produced a tile larger than host address space.";
-        diagnostics = aggregate;
-        updateSharedDiagnostics();
-        return false;
-      }
-
-      std::vector<uint8_t> tileOutput(static_cast<size_t>(tileByteCount));
-      MutableImageView tileDestination{};
-      tileDestination.data = tileOutput.data();
-      tileDestination.x1 = workingX0;
-      tileDestination.y1 = workingY0;
-      tileDestination.width = workingWidth;
-      tileDestination.height = workingHeight;
-      tileDestination.rowBytes = workingWidth * pixelBytes;
-      tileDestination.components = destination.components;
-      tileDestination.bytesPerComponent = destination.bytesPerComponent;
-
       activeTileContext.enabled = true;
       activeTileContext.fullWidth = static_cast<uint32_t>(fullWidth);
       activeTileContext.fullHeight = static_cast<uint32_t>(fullHeight);
@@ -7834,7 +7793,7 @@ bool VulkanRenderer::Impl::renderTiledBootstrap(
       activeTileContext.halationBoostMilestoneEnabled = halationBoostMilestoneEnabled;
       activeTileContext.fullFrameSource = true;
       const RenderWindow workingWindow{workingX0, workingY0, workingX1, workingY1};
-      const bool tileOk = renderCoreBootstrap(source, tileDestination, workingWindow, tileParams, time);
+      const bool tileOk = renderCoreBootstrap(source, destination, workingWindow, tileParams, time);
       activeTileContext = {};
 
       const RendererDiagnostics tileDiagnostics = diagnostics;
@@ -7919,25 +7878,6 @@ bool VulkanRenderer::Impl::renderTiledBootstrap(
           "] working=[" + std::to_string(workingX0) + "," + std::to_string(workingY0) +
           "-" + std::to_string(workingX1) + "," + std::to_string(workingY1) +
           "]: " + tileError;
-        diagnostics = aggregate;
-        updateSharedDiagnostics();
-        return false;
-      }
-
-      const RenderWindow centerWindow{centerX0, centerY0, centerX1, centerY1};
-      if (!copyMappedBytesRegionToWindow(
-            tileOutput.data(),
-            tileOutput.size(),
-            workingWidth,
-            workingHeight,
-            centerX0 - workingX0,
-            centerY0 - workingY0,
-            destination,
-            centerWindow,
-            centerWidth,
-            centerHeight
-          )) {
-        lastError = "Vulkan tiled render failed to copy a tile center into the destination image view.";
         diagnostics = aggregate;
         updateSharedDiagnostics();
         return false;

@@ -809,9 +809,11 @@ Evidence is under `.test-results/host-original-availability-baseline-20261120`, 
 
 - [x] Run colour and optical cases at 24, 45, 61 and 100 MP on the exact packaged worker, using only the NVIDIA RTX 3090 ICD. All 16 cases and 80 requests completed. Each case includes one cold request and four warm requests.
 - [x] At 100 MP, packed Viewer warm p95 was 0.43 s for colour and 5.30 s for optics. Float export took 2.20 s and 8.51 s respectively. The 100 MP optical export peaked at 6.33 GiB of worker commit. Its 800 tiles used 3.09 GiB of transient GPU cache and transferred 9.38 GB from the device for a 1.60 GB frame reply. The physical host had 35.68 GiB available before the benchmark.
-- [ ] Measure overlap in the tiled output readback. Verify that central-region transfer and adaptive tile dimensions preserve exact output, alpha, cancellation and admission. The reported worker timing excludes Capture One development, ICC conversion and file encoding.
+- [x] Render each existing halo on-device, then read only the tile centre into the final frame. Keep the full-tile nonfinite validator for packed pixels. At 100 MP the before-and-after RTX 3090 run transferred 1.60 GB instead of 9.38 GB for float optics and 0.40 GB instead of 2.34 GB for packed optics. Warm medians fell from 8.40 s to 5.95 s and 5.27 s to 4.81 s respectively. These timings cover the renderer worker and its transport. Four full 100 MP reply hashes matched across the prior and optimized binaries, including two exposure levels in each format.
+- [x] Verify exact transfer counts and full/tile parity for eight optical and colour graphs, including wide and tall partial tiles. Complete Windows contracts and standalone smoke passed on physical NVIDIA and Intel. The padded-row OFX fixture passed with identical float values and at most one half-float code in the Hanatos 2026 optical graph on both adapters.
+- [ ] Evaluate adaptive tile dimensions separately from centre-only readback. Measure a wider range of optical settings under real lower-memory and competing-renderer loads.
 
-Evidence is in `.test-results/matrix-24-45-61-100mp-20261120/nvidia.json` and its adapter summary.
+Evidence is under `.test-results/matrix-24-45-61-100mp-20261120`, `.test-results/matrix-tile-centres-20261120`, `.test-results/tile-centre-100mp-parity-20261120` and `.test-results/contracts-tile-centre-20261120`. Run `qa/renderer-benchmark.py` on the two binaries with the same dimensions, routes and scene flags. Add `--hash-replies` for a separate byte comparison, since hashing also contributes to its elapsed time.
 
 ## Status maintenance
 

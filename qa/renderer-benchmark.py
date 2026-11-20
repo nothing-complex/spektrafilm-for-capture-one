@@ -92,7 +92,7 @@ def command_json(child, command):
     return json.loads(read_exact(child.stdout, size))
 
 
-def run_case(executable, shape, scene, route, repetitions, timeout, simulated_cap_mib):
+def run_case(executable, shape, scene, route, repetitions, timeout, simulated_cap_mib, hash_replies):
     packed = route == "viewer"
     width, height = shape
     pixels = width * height
@@ -125,20 +125,26 @@ def run_case(executable, shape, scene, route, repetitions, timeout, simulated_ca
             size = reply_size(child)
             if size != pixels * (4 if packed else 16):
                 raise ValueError("The actual worker payload length does not match its frame.")
+            digest = hashlib.sha256() if hash_replies else None
             for offset in range(0, size, BLOCK_BYTES):
-                read_exact(child.stdout, min(BLOCK_BYTES, size - offset))
+                block = read_exact(child.stdout, min(BLOCK_BYTES, size - offset))
+                if digest is not None:
+                    digest.update(block)
             milliseconds = (time.perf_counter_ns() - started) / 1e6
             diagnostic = command_json(child, b"METRICS")
             if diagnostic["schema"] != 1 or diagnostic["renderSequence"] != iteration + 1:
                 raise ValueError("The renderer diagnostic is stale or incompatible.")
-            measurements.append({
+            measurement = {
                 "iteration": iteration + 1,
                 "sentSource": iteration == 0,
                 "wallMs": milliseconds,
                 "replyBytes": size,
                 "workerMemory": process_memory(child.pid),
                 "renderer": diagnostic,
-            })
+            }
+            if digest is not None:
+                measurement["replySha256"] = digest.hexdigest()
+            measurements.append(measurement)
         warm = sorted(entry["wallMs"] for entry in measurements[1:])
         return {
             "width": width, "height": height, "route": route, "scene": scene,
@@ -199,6 +205,7 @@ def main():
     parser.add_argument("--repetitions", type=int, default=5)
     parser.add_argument("--case-timeout", type=int, default=180)
     parser.add_argument("--simulate-gpu-cap-mib", type=int, help="Test-only cap for the renderer allocator. Does not change physical VRAM.")
+    parser.add_argument("--hash-replies", action="store_true", help="Include the SHA-256 of each frame. Wall time then includes hashing.")
     args = parser.parse_args()
     if os.name != "nt" or args.repetitions < 1 or args.case_timeout < 1:
         parser.error("Use Windows and positive repetition and timeout values.")
@@ -210,6 +217,7 @@ def main():
     result = {
         "schema": 1,
         "simulatedGpuAllocatorCapMiB": args.simulate_gpu_cap_mib,
+        "hashedReplies": args.hash_replies,
         "timingScope": "Worker request and reply. The first request transfers input; later requests re-render edited parameters.",
         "memoryScope": "Worker process and renderer diagnostics. Driver workspace and Capture One host memory are outside this report.",
         "cases": [],
@@ -223,7 +231,8 @@ def main():
         for scene in args.scene or ("color",):
             for shape in args.size or ((1200, 800), (3000, 2000), (6000, 4000)):
                 try:
-                    case = run_case(executable, shape, scene, route, args.repetitions, args.case_timeout, args.simulate_gpu_cap_mib)
+                    case = run_case(executable, shape, scene, route, args.repetitions, args.case_timeout,
+                                    args.simulate_gpu_cap_mib, args.hash_replies)
                 except Exception as error:
                     result["failure"] = {"route": route, "scene": scene, "size": shape, "reason": str(error)}
                     update_result(result, args.output)
