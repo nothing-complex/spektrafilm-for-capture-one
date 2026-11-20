@@ -695,6 +695,14 @@ Repeat with `qa/HostSmoke/Run-HostSmoke.ps1 -ViewerChurn 100` using the disposab
 
 Evidence is under `.test-results/contracts-release-required-checks-20261120`.
 
+## Concurrent licensed Capture One catalog windows
+
+- [x] Open byte-identical disposable catalog copies in two real native windows. The host File Open helper creates the second form. Enable the native multiple-window preference only within this scoped fixture. Across three focus cycles, the unapproved catalog never displayed or exported the approved look, never received a plugin look directory, and never changed the approved saved file. On return, the same tool and exact exposure were restored. Closing the other catalog left the approved one active. The repeat passed 26 licensed assertions. [Capture One multiple-window setting](https://support.captureone.com/hc/en-us/articles/360002649858-How-do-I-open-more-than-one-Catalog-or-Session-at-a-time)
+- [x] Restore only the exact test paths from recent and last-open document lists and the prior native multiple-window setting. The first attempt exposed that Capture One can record one path in both lists. Verified backups were used to restore both fields and preserve unrelated settings. The final repeat exercised both restore paths automatically.
+- [ ] Test real approved-window replacement, session creation and tether arrivals. A compatible installer for a second licensed host is still required to verify 16.7. Capture One distributes older versions through the account download page. [Capture One historical downloads](https://support.captureone.com/hc/en-us/articles/14996282988957-Download-an-Older-Version-of-Capture-One)
+
+Evidence is under `.test-results/host-concurrent-exact-preference-restore-20261120`, `.test-results/concurrent-preferences-cleanup-20261120` and `.test-results/concurrent-window-default-recovery-20261120`.
+
 ## Status maintenance
 
 `qa/AUDIT-FIX-STATUS.json` owns task IDs, status, implemented substeps, remaining acceptance work and evidence. This handover owns context, runtime identity and resume instructions. `.test-results/FINAL-RESULT.json` is the completed runtime delivery receipt; keep its runtime commit/package identity distinct from later documentation-only commits.

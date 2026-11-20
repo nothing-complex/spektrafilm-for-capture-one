@@ -6,6 +6,7 @@ param(
     [string] $PackagedRuntime,
     [Alias('ProofingSettingsConfig')][string] $NativeSettingsConfig,
     [switch] $CatalogIsolation,
+    [switch] $ConcurrentCatalogs,
     [switch] $ViewerLayouts,
     [ValidateRange(0,200)][int] $ViewerChurn=0,
     [switch] $DurableSliderEdits,
@@ -25,6 +26,12 @@ if ($ViewerLayouts -and (!$NativeSettingsConfig -or $CatalogIsolation -or $Color
 }
 if ($DurableSliderEdits -and ($CatalogIsolation -or $ViewerLayouts -or $SkipRestart -or $ColorMatrix -or $CheckOrdinaryLaunch)) {
     throw 'The durable slider fixture requires its own first launch and restart.'
+}
+if ($ConcurrentCatalogs) {
+    if (!$NativeSettingsConfig -or $CatalogIsolation -or $ViewerLayouts -or $DurableSliderEdits -or $ColorMatrix -or $ViewerChurn -or $MetadataFixtureRoot -or $CheckOrdinaryLaunch) {
+        throw 'The concurrent catalog fixture controls both disposable catalogs in one licensed launch.'
+    }
+    $SkipRestart=$true
 }
 if ($ViewerChurn) {
     if (!$NativeSettingsConfig -or $CatalogIsolation -or $ViewerLayouts -or $DurableSliderEdits -or $ColorMatrix -or $CheckOrdinaryLaunch -or $MetadataFixtureRoot) {
@@ -71,13 +78,16 @@ function Clear-TestCrashMarkers([datetime] $started,[string] $phase) {
         Remove-Item -LiteralPath $marker.FullName
     }
 }
-function Restore-TestCatalogPreferences([string] $profile,[string] $backup,[string[]] $catalogs,[string] $folder) {
+function Restore-TestCatalogPreferences([string] $profile,[string] $backup,[string[]] $catalogs,[string] $folder,[bool] $restoreWindowPreference=$false) {
     if(Get-Process CaptureOne -ErrorAction SilentlyContinue){throw 'Capture One is still active. Its verified preference backup was retained.'}
     $original=(Get-FileHash -LiteralPath $backup).Hash
     $observed=(Get-FileHash -LiteralPath $profile).Hash
+    $removedFixtureCatalogs=$false
+    $rewroteWindowPreference=$false
     if($original -ne $observed){
         $before=[xml](Get-Content -Raw -LiteralPath $backup)
-        $xmlPath="//setting[@name='DocumentManagerSettings']/value//string"
+        $container="//setting[@name='DocumentManagerSettings']/value/DocumentManagerSettings"
+        $xmlPath="$container/RecentlyUsedDocuments/internalList/string | $container/LastOpenDocumentList/string"
         if(@($before.SelectNodes($xmlPath) | Where-Object {$catalogs -ccontains $_.InnerText}).Count){
             throw 'The disposable catalog was already in the settings backup.'
         }
@@ -86,15 +96,41 @@ function Restore-TestCatalogPreferences([string] $profile,[string] $backup,[stri
         if((Get-FileHash -LiteralPath $captured).Hash -ne $observed){throw 'Could not verify changed preferences.'}
         $after=[xml](Get-Content -Raw -LiteralPath $captured)
         $entries=@($after.SelectNodes($xmlPath) | Where-Object {$catalogs -ccontains $_.InnerText})
-        if(@($entries | Group-Object InnerText | Where-Object Count -gt 1).Count){
-            throw 'Several recent entries matched one disposable catalog.'
+        $removedFixtureCatalogs=$entries.Count -gt 0
+        $settingParent='/configuration/userSettings/P1.C1.ApplicationSettings'
+        $settingPath="$settingParent/setting[@name='MultipleSessions']"
+        $priorWindowSetting=$before.SelectSingleNode($settingPath)
+        $currentWindowSetting=$after.SelectSingleNode($settingPath)
+        $rewroteWindowPreference=$restoreWindowPreference -and $priorWindowSetting.OuterXml -cne $currentWindowSetting.OuterXml
+        function Restore-WindowSetting([xml] $document) {
+            if (!$rewroteWindowPreference) { return }
+            $existing=$document.SelectSingleNode($settingPath)
+            if ($priorWindowSetting) {
+                $node=$document.ImportNode($priorWindowSetting,$true)
+                if ($existing) { [void]$existing.ParentNode.ReplaceChild($node,$existing) }
+                else {
+                    $parent=$document.SelectSingleNode($settingParent)
+                    if (!$parent) { throw 'The native multiple-window settings group is missing.' }
+                    [void]$parent.AppendChild($node)
+                }
+            } elseif ($existing) {
+                $blank=$existing.PreviousSibling
+                if ($null -ne $blank -and $blank.NodeType -eq [Xml.XmlNodeType]::Whitespace) {
+                    [void]$existing.ParentNode.RemoveChild($blank)
+                }
+                [void]$existing.ParentNode.RemoveChild($existing)
+            }
         }
-        if($entries.Count -eq 0){
-            [ordered]@{before=$original;afterTest=$observed;restored=$observed;removedRecentCatalog=$false} |
+        if(@($entries | Group-Object -Property {$_.ParentNode.LocalName}, InnerText | Where-Object Count -gt 1).Count){
+            throw 'Several entries in one document list matched a single disposable catalog.'
+        }
+        if(!$removedFixtureCatalogs -and !$rewroteWindowPreference){
+            [ordered]@{before=$original;afterTest=$observed;restored=$observed;removedRecentCatalog=$false;restoredWindowPreference=$false} |
                 ConvertTo-Json | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $folder 'proof-settings-receipt.json')
             return
         }
         foreach($entry in $entries){[void]$entry.ParentNode.RemoveChild($entry)}
+        Restore-WindowSetting $after
         $id=[Guid]::NewGuid().ToString('N')
         $temp=$profile+'.'+$id+'.restore'
         $replaced=$profile+'.'+$id+'.previous'
@@ -113,6 +149,7 @@ function Restore-TestCatalogPreferences([string] $profile,[string] $backup,[stri
                     }
                     [void]$entry.ParentNode.RemoveChild($entry)
                 }
+                Restore-WindowSetting $preserved
                 $preserved.Save($temp)
                 $candidate=[xml](Get-Content -Raw -LiteralPath $temp)
                 if($candidate.OuterXml -cne $after.OuterXml){throw 'The candidate did not preserve other Capture One preferences.'}
@@ -128,7 +165,7 @@ function Restore-TestCatalogPreferences([string] $profile,[string] $backup,[stri
             [IO.File]::Delete($replaced)
         } finally { if([IO.File]::Exists($temp)){[IO.File]::Delete($temp)} }
     }
-    [ordered]@{before=$original;afterTest=$observed;restored=(Get-FileHash -LiteralPath $profile).Hash;removedRecentCatalog=($original -ne $observed)} |
+    [ordered]@{before=$original;afterTest=$observed;restored=(Get-FileHash -LiteralPath $profile).Hash;removedRecentCatalog=$removedFixtureCatalogs;restoredWindowPreference=$rewroteWindowPreference} |
         ConvertTo-Json | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $folder 'proof-settings-receipt.json')
 }
 function Test-FixtureRawFiles([string] $root, $marker) {
@@ -180,7 +217,7 @@ if ($NativeSettingsConfig) {
 $catalog=Join-Path $folder 'Host Smoke.cocatalogdb'
 $sourceHash=(Get-FileHash -LiteralPath $source).Hash
 $fixtureCatalogs=@($catalog)
-if($CatalogIsolation){
+if($CatalogIsolation -or $ConcurrentCatalogs){
     $fixtureCatalogs=foreach($copy in 'A','B'){
         $directory=Join-Path $folder $copy
         [void][IO.Directory]::CreateDirectory($directory)
@@ -192,6 +229,7 @@ if($CatalogIsolation){
 } else {
     Copy-Item -LiteralPath $source -Destination $catalog
 }
+if($ConcurrentCatalogs){$catalog=$fixtureCatalogs[0]}
 [IO.File]::WriteAllText((Join-Path $folder 'disposable-catalog.marker'),$sourceHash)
 $runtime=Join-Path $folder 'runtime'
 [void][IO.Directory]::CreateDirectory($runtime)
@@ -206,7 +244,7 @@ $testHook=$TestHookPath
 if(!(Test-Path -LiteralPath $testHook)){throw 'Build qa/HostSmoke and NativePanel first.'}
 Copy-Item -LiteralPath $testHook -Destination $runtime
 $testHook=Join-Path $runtime 'HostSmoke.dll'
-$names=@('DOTNET_STARTUP_HOOKS','SPEKTRAFILM_ROOT','SPEKTRAFILM_CATALOG','SPEKTRAFILM_DATA_ROOT','SPEKTRAFILM_PANEL_LOG','SPEKTRAFILM_HOST_SMOKE','SPEKTRAFILM_LAUNCH_ID','SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX','SPEKTRAFILM_SHOW_TOOL','SPEKTRAFILM_HOST_PROOF_TEST','SPEKTRAFILM_HOST_CATALOG_ISOLATION','SPEKTRAFILM_HOST_VIEWER_LAYOUTS','SPEKTRAFILM_HOST_DURABLE_EDITS','SPEKTRAFILM_HOST_METADATA_FIXTURE','SPEKTRAFILM_HOST_VIEWER_CHURN')
+$names=@('DOTNET_STARTUP_HOOKS','SPEKTRAFILM_ROOT','SPEKTRAFILM_CATALOG','SPEKTRAFILM_DATA_ROOT','SPEKTRAFILM_PANEL_LOG','SPEKTRAFILM_HOST_SMOKE','SPEKTRAFILM_LAUNCH_ID','SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX','SPEKTRAFILM_SHOW_TOOL','SPEKTRAFILM_HOST_PROOF_TEST','SPEKTRAFILM_HOST_CATALOG_ISOLATION','SPEKTRAFILM_HOST_VIEWER_LAYOUTS','SPEKTRAFILM_HOST_DURABLE_EDITS','SPEKTRAFILM_HOST_METADATA_FIXTURE','SPEKTRAFILM_HOST_VIEWER_CHURN','SPEKTRAFILM_HOST_OTHER_CATALOG')
 $prior=@{}
 foreach($name in $names){$prior[$name]=[Environment]::GetEnvironmentVariable($name,'Process')}
 $testError=$null
@@ -219,12 +257,13 @@ try {
     $env:SPEKTRAFILM_HOST_SMOKE=$folder
     $env:SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX=if($ColorMatrix){'1'}else{$null}
     $env:SPEKTRAFILM_SHOW_TOOL=if($ShowTool){'1'}else{$null}
-    $env:SPEKTRAFILM_HOST_PROOF_TEST=if($NativeSettingsConfig -and !$CatalogIsolation -and !$ViewerLayouts -and !$DurableSliderEdits -and !$MetadataFixtureRoot -and !$ViewerChurn){'1'}else{$null}
+    $env:SPEKTRAFILM_HOST_PROOF_TEST=if($NativeSettingsConfig -and !$CatalogIsolation -and !$ViewerLayouts -and !$DurableSliderEdits -and !$MetadataFixtureRoot -and !$ViewerChurn -and !$ConcurrentCatalogs){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_CATALOG_ISOLATION=if($CatalogIsolation){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_VIEWER_LAYOUTS=if($ViewerLayouts){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_DURABLE_EDITS=if($DurableSliderEdits){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_METADATA_FIXTURE=$MetadataFixtureRoot
     $env:SPEKTRAFILM_HOST_VIEWER_CHURN=if($ViewerChurn){[string]$ViewerChurn}else{$null}
+    $env:SPEKTRAFILM_HOST_OTHER_CATALOG=if($ConcurrentCatalogs){$fixtureCatalogs[1]}else{$null}
     $phases=if($CatalogIsolation){@('A-first','B-first','A-restart','B-restart')}elseif($SkipRestart -or $ViewerLayouts){@('first')}else{@('first','restart')}
     if (!$SkipRestart -and !$CatalogIsolation -and !$ViewerLayouts -and !$DurableSliderEdits) { [IO.File]::WriteAllText((Join-Path $folder 'verify-grain-restart.marker'), 'test only') }
     foreach($phase in $phases){
@@ -298,7 +337,7 @@ try {
     throw
 } finally {
     try {
-        if ($NativeSettingsConfig) { Restore-TestCatalogPreferences $profile $backup $fixtureCatalogs $folder }
+        if ($NativeSettingsConfig) { Restore-TestCatalogPreferences $profile $backup $fixtureCatalogs $folder ([bool]$ConcurrentCatalogs) }
         if ($MetadataFixtureRoot) { Test-FixtureRawFiles $MetadataFixtureRoot $metadataMarker }
     } catch {
         if ($null -eq $testError) { throw }

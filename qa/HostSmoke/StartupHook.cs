@@ -102,6 +102,11 @@ public static partial class StartupHook
                 await TestViewerLayouts(panel, spatial, window);
                 return;
             }
+            if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_OTHER_CATALOG") is { Length: > 0 } otherCatalog)
+            {
+                await TestConcurrentNativeCatalogs(panelAssembly!, hook!, hosted, panel, spatial, window, store, variant, catalog, otherCatalog);
+                return;
+            }
             if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_CATALOG_ISOLATION") == "1")
             {
                 await TestCatalogIsolation(panelAssembly!, panel, spatial, window, store, variant, catalog);
