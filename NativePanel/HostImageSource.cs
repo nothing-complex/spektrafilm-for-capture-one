@@ -24,6 +24,9 @@ using P1.ModelCoreWrapper;
 
 internal static class HostImageSource
 {
+    private static readonly Lazy<Func<IGeometryTransformer, ICoreImage, IDestinationProcessingSettings, int, bool, ScaleCalc>> RecipeScale =
+        new(() => NativeRecipeScale.Bind<IGeometryTransformer, ICoreImage, IDestinationProcessingSettings, ScaleCalc>(typeof(ScaleCalcHelpers)));
+    private static readonly NativeBitmapMetadata<IC_FileDestination> BitmapMetadata = new();
     private const int DraftEdgeLimit = 1200;
     private const int ScaledPreviewEdgeLimit = 4096;
     private const int NativePreviewEdgeLimit = RenderFrameLimits.MaxHighDepthEdge;
@@ -128,7 +131,7 @@ internal static class HostImageSource
 
         var ignoreCrop = recipe.CropExportMethod is CropExportMethod.Ignore or CropExportMethod.AsPath;
         var geometry = VariantGeometryTransformer.FromProcessSettings(ref settings);
-        var scale = ScaleCalcHelpers.CreateScaleCalcTakingQuickProofIntoAccount(geometry, selection.Variant.CoreImage,
+        var scale = RecipeScale.Value(geometry, selection.Variant.CoreImage,
             recipe, ApplicationSettings.Default.PreviewSizeInPx, ignoreCrop);
         var variant = selection.Variant;
         var metadata = ReadRecipeMetadata(variant, recipe);
@@ -471,6 +474,7 @@ internal static class HostImageSource
             IC_ProcessSettings renderSettings, ICPStatusCallback status)
         {
             using var emptyMetadata = new UTF8BytyesSafeHandle(string.Empty);
+            using var emptyAuthor = BitmapMetadata.RequiresAuthor ? new UTF8BytyesSafeHandle(string.Empty) : null;
             using var processor = new ImageCoreProcessor("Spektrafilm full-resolution development");
             // Use the primary file's open ImageCore handle with no proxy path.
             var result = processor.SetSource(new SourceSettings(image, string.Empty));
@@ -489,7 +493,7 @@ internal static class HostImageSource
                 xmpMetadata = emptyMetadata,
                 embeddedICCDisplayName = new byte[128],
             };
-            result = processor.AddFileDestination(destination);
+            result = processor.AddFileDestination(BitmapMetadata.SetUnsigned(destination, emptyAuthor));
             return result == IC_Result.resOK
                 ? processor.ProcessToFiles(renderSettings, IC_ProcessQuality.pqBest, status)
                 : result;

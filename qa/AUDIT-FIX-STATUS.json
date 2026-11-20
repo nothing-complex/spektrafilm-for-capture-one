@@ -870,7 +870,9 @@
         "Headless tests refuse unknown version, altered hash, different architecture, malformed manifest and duplicate profiles. Compare packaged host-dependency hashes against the exact installed components on launch.",
         "The exact licensed host loaded and passed the current smoke matrix. Launch CheckOnly verified the installed x64 executable and rendered through the new Vulkan worker.",
         "The launcher reads observed live panel, Export and Viewer status independently; diagnostics were exercised on the licensed supported host, including actual Viewer worker termination and an ordinary launch without injection.",
-        "Reviewed the exact 1eaaf7e contributor branch diff in GitHub PR 2. It proposes a Task<bool> confirmation with an Action callback, a new crop-scale enum, C2PA destination handles and a pre-selection notification. The contributor reports the live Viewer remains unavailable. These are testable hypotheses for the licensed adapter, with no new supported host profile."
+        "Reviewed ZestyLewis’s exact 1eaaf7e contributor branch in GitHub PR 2. It exposes a Task<bool> confirmation with an Action callback, a crop area enum, C2PA destination fields and a pre-selection message. The contributor reports that the live Viewer does not show the applied effects.",
+        "Adapted all four known host API differences in shared source. Built from the same source against the installed 16.4 assemblies and independently against authentic 16.7.8.3529 reference files extracted from the signed installer without installing it. Static metadata confirms the actual six-parameter 16.7 crop overload, optional settings, native async closure, unsigned temporary bitmap fields, selection message and the retained Viewer Paint event. The runtime support manifest still admits only the verified installed 16.4 build.",
+        "The 314-assertion state suite covers the two export callback shapes and lifecycle, both crop calculations, and unsigned bitmap metadata. On the installed 16.4 host, 40 launch and 40 restart checks verify native export failure recovery and 16-bit TIFF/PNG with the selected recipe profile. A second disposable recipe fixture passes 105 checks on each launch including native destination names, collision handling and applied effects. All recipe backups and source catalogs verify."
       ],
       "evidence_paths": [
         "capture-one-hosts.json",
@@ -880,12 +882,19 @@
         ".test-results/contracts-host-manifest-20261119/summary.json",
         ".test-results/host-compatibility-check-20261119/check-only.log",
         "NativePanel/LaunchHealth.cs",
+        "NativePanel/NativeExportConfirmation.cs",
+        "NativePanel/NativeImageCoreCompatibility.cs",
+        "NativePanel/NativeSelectionSubscription.cs",
+        "tests/state/NativeHostShapeContracts.cs",
+        ".test-results/host67-contracts/signed-16.7.8-api-expanded.txt",
+        ".test-results/host-164-cross-version-seams-20261120/host-smoke.log",
+        ".test-results/host-164-shared-recipe-adapter-20261120/host-smoke.log",
         ".test-results/host-launch-full-handshake-20261119/host-smoke.log",
         "https://github.com/nothing-complex/spektrafilm-for-capture-one/pull/2"
       ],
       "remaining_work": [
         "Extend observed capability diagnostics and independent verification to each supported version, native history, floating and catalog teardown.",
-        "Test the exact 16.7 adapter against an installed licensed build, including host version and assembly fingerprints, high-depth develop, native Export, undo, floating and teardown."
+        "Run the shared source against the exact licensed 16.7.8.3529 host in a disposable catalog. Independently verify actual Viewer paint and geometry, RGB16 native development, both native export routes and recipe behavior including C2PA, Undo, floating, persistence, failure fallback and teardown. Only then admit the signed build fingerprint to the stable manifest."
       ],
       "original_acceptance_tests": [
         "mock signature drift plus exact installed supported host integration test on copied catalog",

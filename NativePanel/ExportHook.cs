@@ -121,23 +121,15 @@ internal sealed class ExportHook : IDisposable
         }
     }
 
-    private bool Confirm(Func<bool> native, bool editMultiple)
+    private bool UseNativeConfirmation(bool editMultiple)
     {
-        try
-        {
-            if (disposed || !IsApprovedDocument() || Busy)
-                return false;
-            if (!RequiresSpektrafilm(editMultiple))
-                return native();
-            if (!CheckLookReady(editMultiple) || !CheckRecipe())
-                return false;
+        if (disposed || !IsApprovedDocument() || Busy)
+            return false;
+        if (!RequiresSpektrafilm(editMultiple))
+            return true;
+        if (CheckLookReady(editMultiple) && CheckRecipe())
             _ = ExportAsync();
-        }
-        catch (Exception error)
-        {
-            Fail(error);
-        }
-        // The native dialog command closes itself only when its action returns true.
+        // Spektrafilm closes the native dialog only after its accepted file is saved.
         return false;
     }
 
@@ -185,7 +177,7 @@ internal sealed class ExportHook : IDisposable
 
     private IDisposable BindConfirmation(System.Windows.Input.ICommand command, bool editMultiple)
     {
-        try { return ConfirmationBinding.Attach(command, native => Confirm(native, editMultiple)); }
+        try { return NativeExportConfirmation.Attach(command, () => UseNativeConfirmation(editMultiple), Fail); }
         catch (Exception error)
         {
             confirmationError = "Capture One's Export confirmation is unavailable. Use Export with Spektrafilm in the tool panel.";
@@ -353,39 +345,4 @@ internal sealed class ExportHook : IDisposable
         }
     }
 
-    private sealed class ConfirmationBinding : IDisposable
-    {
-        private readonly object closure;
-        private readonly FieldInfo field;
-        private readonly Func<bool> original;
-        private readonly Func<bool> wrapper;
-
-        private ConfirmationBinding(object closure, FieldInfo field, Func<bool> original, Func<Func<bool>, bool> confirm)
-        {
-            this.closure = closure;
-            this.field = field;
-            this.original = original;
-            wrapper = () => confirm(original);
-            field.SetValue(closure, wrapper);
-        }
-
-        internal static ConfirmationBinding Attach(System.Windows.Input.ICommand command, Func<Func<bool>, bool> confirm)
-        {
-            var actionField = command.GetType().BaseType?.GetField("m_actionToExecute", Instance)
-                ?? throw new MissingFieldException(command.GetType().FullName, "m_actionToExecute");
-            if (actionField.GetValue(command) is not Delegate { Target: { } closure })
-                throw new InvalidOperationException("Capture One did not expose its Export confirmation action.");
-            var exportAction = closure.GetType().GetField("argExportAction", Instance)
-                ?? throw new MissingFieldException(closure.GetType().FullName, "argExportAction");
-            if (exportAction.GetValue(closure) is not Func<bool> native)
-                throw new InvalidOperationException("Capture One’s Export confirmation action has an unexpected type.");
-            return new ConfirmationBinding(closure, exportAction, native, confirm);
-        }
-
-        public void Dispose()
-        {
-            if (ReferenceEquals(field.GetValue(closure), wrapper))
-                field.SetValue(closure, original);
-        }
-    }
 }

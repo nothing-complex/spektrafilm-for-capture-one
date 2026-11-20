@@ -23,7 +23,6 @@ using P1.C1.Components.InspectorTools;
 using P1.C1.Controls.Inspector.Dummy;
 using P1.C1.Core.Interfaces;
 using P1.C1.Core.Messaging;
-using P1.C1.Core.Messaging.ModelMessages;
 using P1.C1.Core.ModelEntities;
 using P1.C1.Framework.Messaging;
 using P1.C1.ViewModels.Menu;
@@ -424,13 +423,14 @@ internal static class SpektraFilmTool
         }
     }
 
-    private sealed class LookPanel : UserControl, IDisposable, IHandleMessage<PrimaryVariantChangedMessage>
+    private sealed class LookPanel : UserControl, IDisposable
     {
         private const string DefaultFilm = "kodak_portra_400";
         private const string DefaultPaper = "kodak_portra_endura";
         private const string DefaultSpectralMethod = "hanatos2025";
         private readonly object window;
         private readonly ICaptureOneDocument document;
+        private readonly IDisposable? selectionMessages;
         private readonly ISelectedCollectionsProvider selections;
         private readonly VariantLookStore looks;
         private readonly ComboBox mode = new() { DisplayMemberPath = nameof(Stock.Label) };
@@ -585,11 +585,15 @@ internal static class SpektraFilmTool
             Loaded += OnLoaded;
             try
             {
-                document.MessageBus.Subscribe<PrimaryVariantChangedMessage>(this);
+                selectionMessages = NativeSelectionSubscription.Attach(document.MessageBus, collection =>
+                {
+                    if (ReferenceEquals(collection, selections.PrimarySelectedCollection))
+                        ScheduleSelectionSync();
+                });
                 try { selections.CollectionsSelectionChanged += OnCollectionsSelectionChanged; }
                 catch
                 {
-                    document.MessageBus.Unsubscribe<PrimaryVariantChangedMessage>(this);
+                    selectionMessages?.Dispose();
                     throw;
                 }
             }
@@ -637,14 +641,6 @@ internal static class SpektraFilmTool
                 batchStatus.Text = "Spektrafilm could not read the previous batch outcome.";
                 batchStatus.Visibility = Visibility.Visible;
             }
-        }
-
-        public Guid Id { get; } = Guid.NewGuid();
-
-        public void Handle(PrimaryVariantChangedMessage message)
-        {
-            if (ReferenceEquals(message.Collection, selections.PrimarySelectedCollection))
-                ScheduleSelectionSync();
         }
 
         private void OnCollectionsSelectionChanged(object? sender, CollectionsSelectionChangedEventArgs args) => ScheduleSelectionSync();
@@ -717,7 +713,7 @@ internal static class SpektraFilmTool
             try
             {
                 selections.CollectionsSelectionChanged -= OnCollectionsSelectionChanged;
-                document.MessageBus.Unsubscribe<PrimaryVariantChangedMessage>(this);
+                selectionMessages?.Dispose();
             }
             finally
             {

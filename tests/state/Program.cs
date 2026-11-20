@@ -8,6 +8,18 @@ if (args is ["--measure-durable-edits", var measurementDirectory])
     return DurableEditProbe.Run(measurementDirectory);
 if (args is ["--measure-diagnostic-log", var diagnosticsDirectory, var seconds])
     return await PanelLogContracts.SoakAsync(diagnosticsDirectory, int.Parse(seconds, System.Globalization.CultureInfo.InvariantCulture));
+if (args is ["--host-signatures"])
+{
+    var passed = 0;
+    await NativeHostShapeContracts.RunAsync((name, valid) =>
+    {
+        if (!valid) throw new InvalidOperationException("FAILED: " + name);
+        Console.WriteLine("PASS " + name);
+        passed++;
+    });
+    Console.WriteLine($"PASS: {passed} host signature assertions.");
+    return 0;
+}
 
 if (args.Length != 0)
 {
@@ -711,6 +723,7 @@ catch (AggregateException error)
     Check("compensating scope error preserves both undo failures after restoring values",
         error.InnerExceptions.Count == 2 && nativeValues.SequenceEqual(untouched));
 }
+await NativeHostShapeContracts.RunAsync(Check);
 await PanelLogContracts.RunAsync(scratch, Check);
 Console.WriteLine($"PASS: {assertions} state/recovery assertions, including separate-process recovery. Fixtures: {scratch}");
 return 0;
