@@ -1022,6 +1022,30 @@ Evidence is under `.test-results/enlarger-resident-pair-20261120/gpu-pair.json`,
 
 Repeat the pointwise comparison with `dotnet run --project tests/renderer/RendererContracts.csproj -c Release -- --lut-sweep <extracted-package> <report.json>`. Use `python qa/compare-legacy-lut.py <full-strength-native.cube> --output <report.json>` with the pinned optional Python environment for the difference report. Evidence is under `.test-results/host-native-lut-cancel-20261120`, `.test-results/lut-pointwise-strict-20261120`, `.test-results/lut-hanatos2026-parity-20261120` and `.test-results/native-legacy-lut-20261120`.
 
+## Read-only Viewer color diagnostics
+
+- [x] Add Viewer encoding, Recipe Proofing state and the optional Windows display ICC fingerprint to **Copy support details**. The query runs on demand, and the report contains no profile or display paths. Windows returned the standard sRGB profile for the single 3072 by 1728 display. The separate GDI probe and the exact licensed host reported the same SHA-256. [Microsoft GetICMProfileW](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-geticmprofilew)
+- [x] Pass 344 native checks on launch and 348 on restart. Verify that the actual proofing switch changes the support value and still suspends and restores the live paint layer.
+- [x] Draw 18 offscreen WPF patches with both bundled alternate ICC profiles. Adding the ICC tag alone preserves all input codes. Explicit conversion changes 16 patches per profile. LittleCMS agrees within one 8-bit code for ProPhoto. Linear Rec.2020 shows two out-of-gamut red channel departures of 18 and 3 codes. These measurements cover the WPF bitmap draw before OS presentation. [Microsoft WPF offscreen bitmap draw](https://learn.microsoft.com/en-us/dotnet/desktop/wpf/graphics-multimedia/how-to-encode-a-visual-to-an-image-file)
+
+Repeat the patch probe using `dotnet run --project tests/ViewerContracts -c Release -- --display-profile-patches <alternate.icc> <report.json>`. Read the measured reports under `.test-results/display-profile-readonly-20261120` and `.test-results/host-display-profile-support-20261120`. A real nonidentity display and Advanced Color measurement remain open. The display report is a source change after the verified audit.22 ZIP.
+
+## Native TIFF recipe compression with effects
+
+- [x] Exercise the actual native Export confirmation and Export with Previous Settings with an explicitly selected TIFF recipe in ZIP, LZW and uncompressed modes. Both launches passed 108 assertions and wrote 22 accepted files in total. The compression subset has 12 RGB48 TIFFs with the exact selected profile at 3000 by 2000. Each TIFF tag and corresponding job timing agree with the selected option.
+- [x] Test the same immutable film, diffusion, halation and scatter settings over all 18 million 16-bit channel codes in each file. The independent repeated ZIP renders show small native rerender variation. All 12 comparisons average below 0.05 of one 16-bit code, with a largest individual departure of 157 codes. The offline encoder round trip checks the exact input codes across all three compression options.
+- [x] Verify all nine original native recipe files after both launches. A prior fixture revision let Capture One persist its temporary recipe format and compression. Restore the exact backed-up bytes and verify the whole recipe set. The final fixture suppresses notifications to keep the variations in memory, restores format, depth and compression, then checks the separate file hashes before restarting.
+
+Evidence is in `.test-results/host-native-tiff-compression-final-20261120`. The original rollback receipt is `.test-results/host-native-tiff-compression-parity-20261120/native-recipe-restoration.json`. Repeat the isolated fixture with `Run-HostSmoke.ps1 -NativeEffectCompression` on the disposable RAW catalog and pass the exact host's `-NativeSettingsConfig`.
+
+## Native recipe naming suggestion
+
+- [x] Resolve the selected recipe's token text using Capture One's actual naming manager and an observation-only counter token. Capture the suggestion before the Save dialog opens. Keep the existing source-derived fallback for missing or invalid names. The final approved path still passes the source and destination identity guard.
+- [x] On first launch and restart, compare the offered stem to Capture One's actual Naming tool in the Export dialog. Both native commands offer the same stem. The output counter stays unchanged and the accepted files retain the measured Spektrafilm effects at 16 bits. Both licensed launches passed 62 checks.
+- [x] Pass the Windows contracts, including Unicode and dotted names and rejection of invalid paths in the filename field. The Viewer/export suite passed 12,386 checks. Its optional symlink case was skipped because the test process lacks that privilege.
+
+Evidence is under `.test-results/host-native-recipe-naming-async-20261120` and `.test-results/contracts-native-naming-display-20261120`. Dynamic recipe subfolders, native occupied-name policies and counter advancement remain open. [Capture One Naming tool](https://support.captureone.com/hc/en-us/articles/360020905117-Naming-tool)
+
 ## Status maintenance
 
 `qa/AUDIT-FIX-STATUS.json` owns task IDs, status, implemented substeps, remaining acceptance work and evidence. This handover owns context, runtime identity and resume instructions. `.test-results/FINAL-RESULT.json` is the completed runtime delivery receipt; keep its runtime commit/package identity distinct from later documentation-only commits.

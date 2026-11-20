@@ -732,7 +732,7 @@ internal sealed class SpatialPreview : IDisposable
                     : $"Save {recipe.Width} × {recipe.Height} 16-bit TIFF or PNG · {deliveryProfile.Label}",
                 Filter = SpektraExport.FileFilter,
                 FilterIndex = extension == ".png" ? 2 : 1,
-                FileName = Path.GetFileNameWithoutExtension(target.SourcePath) + "-Spektrafilm",
+                FileName = SpektraExport.SuggestedOutputName(recipe?.SuggestedFilename, target.SourcePath, extension),
                 DefaultExt = extension,
                 AddExtension = true,
                 OverwritePrompt = true,

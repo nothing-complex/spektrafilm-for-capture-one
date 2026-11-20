@@ -57,6 +57,11 @@ internal static partial class Program
             Console.WriteLine($"PASS: {assertions} native encoder cancellation checks.");
             return;
         }
+        if (args is ["--display-profile-patches", var alternateIcc, var patchReport])
+        {
+            MeasureWpfDisplayPatches(alternateIcc, patchReport);
+            return;
+        }
         var folder = args.Length > 0 ? Path.GetFullPath(args[0]) : Path.Combine(Path.GetTempPath(), "Spektrafilm-viewer-contracts-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(folder);
         TestGeometry();
@@ -71,6 +76,7 @@ internal static partial class Program
         TestDraft();
         TestDevelopedFrameDescription();
         TestExport(folder);
+        TestExportFilenameSuggestion();
         TestTiffCompression(folder);
         TestExportProfiles(folder);
         TestExportMetadata(folder);
@@ -100,6 +106,18 @@ internal static partial class Program
         Check(FloatingWindowBounds.Fit(new Rectangle(-2800, 3000, 4000, 2000), secondaryWorkArea) == secondaryWorkArea,
             "an oversized offscreen tool shrinks into the work area");
         Check(FloatingWindowBounds.Fit(docked, Rectangle.Empty) == docked, "transient absence of a work area leaves placement undisturbed");
+    }
+
+    private static void TestExportFilenameSuggestion()
+    {
+        const string source = "raw.dng";
+        Check(SpektraExport.SuggestedOutputName("Film proof 日 1.2", source, ".tif") == "Film proof 日 1.2.tif",
+            "native naming preview preserves a Unicode and dotted film output stem");
+        Check(SpektraExport.SuggestedOutputName("Film proof. ", source, ".png") == "Film proof.png",
+            "native naming preview uses the selected extension after trimming Windows trailing characters");
+        foreach (var unsafeName in new[] { null, "", "..\\outside", "C:\\outside", "image:stream", new string('z', 201) })
+            Check(SpektraExport.SuggestedOutputName(unsafeName, source, ".tif") == "raw-Spektrafilm",
+                "an unavailable or unusable recipe suggestion keeps the ordinary source-based name");
     }
 
     private static void TestExportJobJournal(string folder)

@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -44,7 +45,7 @@ public static partial class StartupHook
     }
 
     private static async Task TestNativeEffectExport(FieldInfo hookField, object hosted, object panel, object spatial, object window,
-        string caseName, bool compareGrain = false, bool compareClone = false)
+        string caseName, bool compareGrain = false, bool compareClone = false, bool compareCompression = false)
     {
         var toggle = (CheckBox)Field(panel, "enableSpektraFilm")!;
         var inputEncoding = (string)Prop(((ComboBox)Field(spatial, "inputSpace")!).SelectedItem, "Id")!;
@@ -72,6 +73,12 @@ public static partial class StartupHook
         var expectedWidth = (int)Prop(recipe, "Width")!;
         var expectedHeight = (int)Prop(recipe, "Height")!;
         var compression = (TiffCompressOption)Prop(recipe, "TiffCompression")!;
+        var suggestedStem = recipe.GetType().GetProperty("SuggestedFilename", Flags)?.GetValue(recipe) as string;
+        var expectedSuggestedFile = suggestedStem is null ? null : suggestedStem.TrimEnd('.', ' ')
+            + ((string)Prop(recipe, "FormatId")! == "Png" ? ".png" : ".tif");
+        var document = Field(panel, "document")!;
+        var counterProperty = document.GetType().GetProperty("OutputCounter", Flags);
+        var initialCounter = counterProperty?.GetValue(document);
         var originalNormal = Field(current, "normal")!;
         var originalPrevious = Field(current, "previous")!;
         var normalCommand = Field(originalNormal, "command")!;
@@ -90,12 +97,17 @@ public static partial class StartupHook
         var timings = new List<JsonElement>();
         var destination = string.Empty;
         Task<bool>? job = null;
+        string? offeredFilename = null;
         Task<bool> Route()
         {
             routeCount++;
             var owner = (Window?)Prop(bridge!, "Dialog");
             job = (Task<bool>)Call(spatial, "ExportWithDestinationAsync", true, owner,
-                (Func<SaveFileDialog, Window?, string?>)((_, _) => destination))!;
+                (Func<SaveFileDialog, Window?, string?>)((picker, _) =>
+                {
+                    offeredFilename = picker.FileName;
+                    return destination;
+                }))!;
             return job;
         }
         try
@@ -132,6 +144,11 @@ public static partial class StartupHook
             Value(4, .65);
             var fullEffects = await Render("film-diffusion-halation-scatter", ".tif", false);
             var previousWithEffects = await Render("previous-with-effects", ".png", true);
+            if (expectedSuggestedFile is not null)
+            {
+                Check(counterProperty is not null && Equals(initialCounter, counterProperty.GetValue(document)),
+                    "native naming suggestions leave Capture One's output counter unchanged");
+            }
 
             var filmDifference = Difference(unprocessed, filmOnly);
             var opticsDifference = Difference(filmOnly, filmAndDiffusion);
@@ -147,6 +164,7 @@ public static partial class StartupHook
                 "native Export TIFF and Export with Previous Settings PNG retain the same processed RGB16 image");
 
             var grain = compareGrain ? await CompareGrain(fullEffects) : null;
+            var compressionComparison = compareCompression ? await CompareCompression(fullEffects) : null;
             if (compareGrain) await CheckReadOnlyDestination();
             toggle.IsChecked = false;
             bool clicked = false;
@@ -158,7 +176,8 @@ public static partial class StartupHook
                 native.Close();
                 return true;
             });
-            Check(clicked && routeCount == (compareGrain ? 13 : 5) && Prop(bridge, "Dialog") is null,
+            var expectedRoutes = 5 + (compareGrain ? 8 : 0) + (compareCompression ? 6 : 0);
+            Check(clicked && routeCount == expectedRoutes && Prop(bridge, "Dialog") is null,
                 "the master switch delegates to the ordinary Capture One Export dialog without a Spektrafilm job");
             ((IDisposable)bridge).Dispose();
             ((IDisposable)bridge).Dispose();
@@ -167,9 +186,114 @@ public static partial class StartupHook
             File.WriteAllText(Path.Combine(folder, caseName + "-native-effect-export.json"), JsonSerializer.Serialize(new
             {
                 width = expectedWidth, height = expectedHeight, iccSha256 = iccSha, tiffCompression = compression.ToString(),
-                filmDifference, opticsDifference, halationScatterDifference, commandDifference, grain,
+                filmDifference, opticsDifference, halationScatterDifference, commandDifference, grain, compressionComparison,
                 nativeExportCallbacks = routeCount, masterOffDelegated = clicked, timings,
             }, new JsonSerializerOptions { WriteIndented = true }));
+
+            async Task<object> CompareCompression(BitmapSource reference)
+            {
+                Check(File.Exists(Path.Combine(folder, "native-recipe-backup.json")),
+                    "the selected native recipe compression test has a verified recipe backup");
+                var destinations = ((Delegate)Field(bridge!, "destinations")!).DynamicInvoke()!;
+                var selected = Prop(destinations, "SelectedDestination")!;
+                var format = selected.GetType().GetProperty("FileType", Flags)!;
+                var originalFormat = format.GetValue(selected)!;
+                var bits = selected.GetType().GetProperty("TiffBits", Flags)!;
+                var originalBits = bits.GetValue(selected)!;
+                var setting = selected.GetType().GetProperty("TiffCompression", Flags)!;
+                var original = setting.GetValue(selected)!;
+                var notifications = selected.GetType().GetField("m_suppressNotifications", Flags);
+                if (notifications?.FieldType != typeof(bool) || notifications.GetValue(selected) is not false)
+                    throw new InvalidOperationException("The verified host recipe notification guard is unavailable.");
+                var measurements = new List<object>();
+                var comparisonSource = ReadPixelCodes(reference);
+                // The same object serves the live command and the app recipe writer.
+                // Keep the fixture rotation in memory, then restore every changed field.
+                notifications.SetValue(selected, true);
+                try
+                {
+                    format.SetValue(selected, Enum.Parse(format.PropertyType, "Tiff"));
+                    SetCompression("Zip", TiffCompressOption.Zip);
+                    var zip = await Render("export-zip", ".tif", false, expectedCompression: TiffCompressOption.Zip);
+                    Measure("export-zip", TiffCompressOption.Zip, zip);
+                    comparisonSource = ReadPixelCodes(zip);
+                    var repeat = await Render("previous-zip-repeat", ".tif", true, expectedCompression: TiffCompressOption.Zip);
+                    Measure("previous-zip-repeat", TiffCompressOption.Zip, repeat);
+                    foreach (var (name, expected) in new[] { ("None", TiffCompressOption.None), ("LZW", TiffCompressOption.Lzw) })
+                    {
+                        SetCompression(name, expected);
+                        foreach (var usePrevious in new[] { false, true })
+                        {
+                            var kind = (usePrevious ? "previous-" : "export-") + name.ToLowerInvariant();
+                            var frame = await Render(kind, ".tif", usePrevious, expectedCompression: expected);
+                            Measure(kind, expected, frame);
+                        }
+                    }
+                }
+                finally
+                {
+                    try
+                    {
+                        format.SetValue(selected, originalFormat);
+                        bits.SetValue(selected, originalBits);
+                        setting.SetValue(selected, original);
+                    }
+                    finally { notifications.SetValue(selected, false); }
+                }
+                Check(Equals(format.GetValue(selected), originalFormat) && Equals(bits.GetValue(selected), originalBits)
+                    && Equals(setting.GetValue(selected), original) && notifications.GetValue(selected) is false,
+                    "the live Capture One recipe format, TIFF depth, compression and notifications are restored");
+                return measurements;
+
+                void SetCompression(string name, TiffCompressOption expected)
+                {
+                    setting.SetValue(selected, Enum.Parse(setting.PropertyType, name));
+                    var currentRecipe = host.GetMethod("ActiveRecipe", Flags)!.Invoke(null, new[] { window })!;
+                    var currentFormat = Prop(currentRecipe, "FormatId");
+                    var currentCompression = Prop(currentRecipe, "TiffCompression");
+                    Check(Equals(currentFormat, "Tiff") && Equals(currentCompression, expected),
+                        $"the live Capture One recipe selects TIFF {expected} (captured {currentFormat}/{currentCompression})");
+                }
+
+                void Measure(string kind, TiffCompressOption expected, BitmapSource frame)
+                {
+                    var candidate = ReadPixelCodes(frame);
+                    var (mean, max, changed, aboveEight) = CodeDifferences(comparisonSource, candidate);
+                    // An independent native develop plus film render has small
+                    // run-to-run variation even when TIFF compression is unchanged.
+                    Check(mean <= .2 && max <= 256 && aboveEight <= candidate.Length / 1000,
+                        $"{kind} preserves the processed RGB16 image within native rerender tolerance ({mean:F4} mean, {max} max codes)");
+                    measurements.Add(new { command = kind, compression = expected.ToString(),
+                        pixelHash = Convert.ToHexString(SHA256.HashData(candidate)), mean, max, changed, aboveEight });
+                }
+
+                static byte[] ReadPixelCodes(BitmapSource image)
+                {
+                    var stride = checked(image.PixelWidth * 6);
+                    var pixels = new byte[checked(stride * image.PixelHeight)];
+                    image.CopyPixels(pixels, stride, 0);
+                    return pixels;
+                }
+
+                static (double Mean, int Max, int Changed, int AboveEight) CodeDifferences(byte[] left, byte[] right)
+                {
+                    var baseline = MemoryMarshal.Cast<byte, ushort>(left.AsSpan());
+                    var candidate = MemoryMarshal.Cast<byte, ushort>(right.AsSpan());
+                    long total = 0;
+                    var max = 0;
+                    var changed = 0;
+                    var aboveEight = 0;
+                    for (var index = 0; index < baseline.Length; index++)
+                    {
+                        var error = Math.Abs(baseline[index] - candidate[index]);
+                        total += error;
+                        max = Math.Max(error, max);
+                        if (error != 0) changed++;
+                        if (error > 8) aboveEight++;
+                    }
+                    return ((double)total / baseline.Length, max, changed, aboveEight);
+                }
+            }
 
             async Task CheckReadOnlyDestination()
             {
@@ -354,10 +478,12 @@ public static partial class StartupHook
                 }
             }
 
-            async Task<BitmapSource> Render(string kind, string extension, bool usePrevious, bool closeAfterAcceptance = false)
+            async Task<BitmapSource> Render(string kind, string extension, bool usePrevious, bool closeAfterAcceptance = false,
+                TiffCompressOption? expectedCompression = null)
             {
                 var before = routeCount;
                 job = null;
+                offeredFilename = null;
                 destination = Path.Combine(folder, caseName + "-" + kind + extension);
                 if (usePrevious)
                 {
@@ -375,6 +501,8 @@ public static partial class StartupHook
                         var confirm = Prop(model, "ExportCommand") as ICommand
                             ?? throw new InvalidOperationException("The native Export window does not expose its confirmation command.");
                         if (!confirm.CanExecute(null)) return false;
+                        if (kind == "film-only" && suggestedStem is not null && !CheckNativeNamingSample(owner, suggestedStem))
+                            return false;
                         confirm.Execute(null);
                         if (closeAfterAcceptance)
                         {
@@ -392,6 +520,8 @@ public static partial class StartupHook
                     Check(Prop(bridge, "Dialog") is null, "closing the actual export dialog releases its native confirmation binding");
                 Check(routeCount == before + 1 && job is not null && await job.WaitAsync(TimeSpan.FromSeconds(45)),
                     $"{kind} took exactly one accepted job through Capture One's native command");
+                if (expectedSuggestedFile is not null && kind is ("film-only" or "previous-with-effects"))
+                    Check(offeredFilename == expectedSuggestedFile, $"{kind} offers the captured native recipe name in Save");
                 using var file = File.OpenRead(destination);
                 var frame = BitmapDecoder.Create(file, BitmapCreateOptions.PreservePixelFormat | BitmapCreateOptions.IgnoreColorProfile,
                     BitmapCacheOption.OnLoad).Frames[0];
@@ -403,13 +533,14 @@ public static partial class StartupHook
                 if (extension == ".tif")
                 {
                     var compressionTag = (frame.Metadata as BitmapMetadata)?.GetQuery("/ifd/{ushort=259}");
-                    var matches = (compression, compressionTag) switch
+                    var selectedCompression = expectedCompression ?? compression;
+                    var matches = (selectedCompression, compressionTag) switch
                     {
                         (TiffCompressOption.None, (ushort)1) or (TiffCompressOption.Lzw, (ushort)5)
                             or (TiffCompressOption.Zip, (ushort)8 or (ushort)32946) => true,
                         _ => false,
                     };
-                    Check(matches, $"{kind} uses the selected Capture One TIFF compression {compression}");
+                    Check(matches, $"{kind} uses the selected Capture One TIFF compression {selectedCompression}");
                 }
                 var receipt = Call(Field(spatial, "exportJobs")!, "ReadLatest")!;
                 Check(Equals(Prop(receipt, "Destination"), destination) && Equals(Prop(receipt, "VariantId"), expectedVariant)
@@ -426,6 +557,8 @@ public static partial class StartupHook
                     && detail.GetProperty("OutputWidth").GetInt32() == expectedWidth
                     && detail.GetProperty("OutputHeight").GetInt32() == expectedHeight
                     && detail.GetProperty("OutputFormat").GetString() == (extension == ".tif" ? "TIFF" : "PNG")
+                    && detail.GetProperty("TiffCompression").GetString() == (extension == ".tif"
+                        ? (expectedCompression ?? compression).ToString() : null)
                     && detail.GetProperty("TransformsDeliveryProfile").ValueKind is JsonValueKind.True or JsonValueKind.False
                     && stages.All(value => double.IsFinite(value) && value >= 0)
                     && detail.GetProperty("TotalMs").GetDouble() >= stages.Sum() + filmMs
@@ -434,6 +567,26 @@ public static partial class StartupHook
                     $"{kind} logs the native-to-file stages for its job with high-depth geometry and without paths");
                 timings.Add(detail);
                 return frame;
+            }
+
+            static bool CheckNativeNamingSample(Window owner, string suggestedStem)
+            {
+                var toolList = Field(owner, "m_exportToolsList")
+                    ?? throw new InvalidOperationException("The Export dialog has no native tool list.");
+                var tools = ((IEnumerable)Prop(toolList, "AllScrollTools")!).Cast<object>()
+                    .Concat(((IEnumerable)Prop(toolList, "AllPinnedTools")!).Cast<object>());
+                // Capture One builds its export tools asynchronously after showing the dialog.
+                var namingTool = tools.Select(item => Prop(item, "Tool")).FirstOrDefault(tool =>
+                    tool?.GetType().FullName == "P1.C1.Components.ExportDialog.Tools.ExportNaming");
+                if (namingTool is null) return false;
+                var content = Prop(namingTool, "ToolContent")
+                    ?? throw new InvalidOperationException("The native Naming content is unavailable.");
+                var naming = Field(content, "m_viewModel")
+                    ?? throw new InvalidOperationException("The native Naming sample model is unavailable.");
+                var sample = (string)Call(naming, "GetSampleText")!;
+                Check(Path.GetFileNameWithoutExtension(sample) == suggestedStem,
+                    "Spektrafilm uses the same stem as the visible Capture One Naming tool sample");
+                return true;
             }
 
             async Task<JsonElement> WaitForTiming(Guid jobId)

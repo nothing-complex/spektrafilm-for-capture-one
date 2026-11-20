@@ -170,14 +170,15 @@ public static partial class StartupHook
                 await TestNativeExportInterruption(panel, spatial, interruption);
                 return;
             }
-            if (exportFixture is "1" or "matrix" or "grain" or "clone")
+            if (exportFixture is "1" or "matrix" or "grain" or "clone" or "compression")
             {
                 var phase = File.ReadAllText(Path.Combine(folder, "phase.txt"));
                 if (exportFixture == "matrix")
                     await TestNativeEffectExportMatrix(hookField, hosted, panel, spatial, window, phase);
                 else
                     await TestNativeEffectExport(hookField, hosted, panel, spatial, window, phase,
-                        compareGrain: exportFixture is "grain" or "clone", compareClone: exportFixture == "clone");
+                        compareGrain: exportFixture is "grain" or "clone", compareClone: exportFixture == "clone",
+                        compareCompression: exportFixture == "compression");
                 File.WriteAllText(Path.Combine(folder, phase + ".passed"), $"PASS {checks} native effects export assertions");
                 return;
             }
@@ -227,7 +228,7 @@ public static partial class StartupHook
             TestStockFavorites(panel, store, variant, restart);
             await TestViewerHistogram(hook, spatial, restart);
             if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_PROOF_TEST") == "1")
-                await TestProofing(spatial);
+                await TestProofing(panel, spatial);
             await TestLockedLook(panel, store, variant, exposure, toggle);
             TestBlockedLookInputs(panel, store, variant, exposure, toggle);
             var optics = Call(spatial, "CaptureSettings")!;
@@ -677,7 +678,7 @@ public static partial class StartupHook
             "the actual stock pickers search their displayed names");
     }
 
-    static async Task TestProofing(object spatial)
+    static async Task TestProofing(object panel, object spatial)
     {
         if (!File.Exists(Path.Combine(folder, "Capture One user.config.before-proofing")))
             throw new InvalidOperationException("A verified Capture One preferences backup is required for the proofing fixture.");
@@ -687,6 +688,14 @@ public static partial class StartupHook
         var proofing = type.GetProperty("IsProofingRecipeSettings", Flags)!;
         var original = (bool)proofing.GetValue(settings)!;
         var viewer = Field(spatial, "viewer")!;
+
+        void CheckReport(bool expected)
+        {
+            using var report = JsonDocument.Parse((string)Call(panel, "BuildSupportDetails")!);
+            var presentation = report.RootElement.GetProperty("ViewerPresentation");
+            Check(presentation.GetProperty("RecipeProofing").GetBoolean() == expected,
+                "support details reflect native recipe proofing " + (expected ? "on" : "off"));
+        }
 
         async Task WaitUntil(Func<bool> semaphore, string description)
         {
@@ -702,6 +711,7 @@ public static partial class StartupHook
         try
         {
             proofing.SetValue(settings, false);
+            CheckReport(false);
             await WaitUntil(() => Prop(viewer, "HasPainted") is true && Field(spatial, "frameCurrent") is true,
                 "real Viewer displays the settled film frame with recipe proofing off");
             var bitmap = Field(spatial, "viewerFrame");
@@ -709,6 +719,7 @@ public static partial class StartupHook
             Check(ImageLayers(painter).Any(image => ReferenceEquals(image, bitmap)),
                 "native painter contains the unproofed Spektrafilm frame");
             proofing.SetValue(settings, true);
+            CheckReport(true);
             await WaitUntil(() => (Prop(viewer, "UnavailableReason") as string)?.Contains("Recipe Proofing", StringComparison.Ordinal) == true
                     && !ImageLayers(painter).Any(image => ReferenceEquals(image, bitmap)),
                 "native recipe proofing hides the Spektrafilm layer and explains the suspended Viewer");
@@ -1601,10 +1612,18 @@ public static partial class StartupHook
         using (var report = JsonDocument.Parse(connected))
         {
             var names = report.RootElement.EnumerateObject().Select(property => property.Name).ToHashSet(StringComparer.Ordinal);
+            var presentation = report.RootElement.GetProperty("ViewerPresentation");
+            var profile = presentation.GetProperty("WindowsAssociatedIccSha256").GetString();
             Check(names.SetEquals(new[] { "SchemaVersion", "Build", "CaptureOne", "RendererProtocol", "RendererAssets",
-                "Controls", "Viewer", "NativeExportBridge", "NativeExportRoute", "LookStorage", "DroppedLogEntries" })
+                "Controls", "Viewer", "ViewerPresentation", "NativeExportBridge", "NativeExportRoute", "LookStorage", "DroppedLogEntries" })
                 && report.RootElement.GetProperty("NativeExportRoute").GetString() == "Spektrafilm",
                 "support details contain only allow-listed versions and states after native Export reconnects");
+            Check(report.RootElement.GetProperty("SchemaVersion").GetInt32() == 2
+                && presentation.EnumerateObject().Select(property => property.Name).ToHashSet(StringComparer.Ordinal)
+                    .SetEquals(new[] { "Encoding", "RecipeProofing", "WindowsAssociatedIccSha256" })
+                && presentation.GetProperty("Encoding").GetString() == "sRGB"
+                && (profile is null || (profile.Length == 64 && profile.All(Uri.IsHexDigit))),
+                "Viewer presentation support details contain only encoding, proofing and an optional ICC fingerprint");
         }
         File.WriteAllText(Path.Combine(folder, "support-details.json"), connected);
         toggle.IsChecked = false;

@@ -27,6 +27,7 @@ param(
     [switch] $NativeEffectExport,
     [switch] $NativeEffectExportMatrix,
     [switch] $NativeEffectGrain,
+    [switch] $NativeEffectCompression,
     [switch] $NativeEffectClone,
     [ValidateSet('DevelopingSource','RenderingFilm','Encoding')][string] $NativeExportInterruption,
     [switch] $OriginalAvailabilityProbe,
@@ -38,10 +39,13 @@ param(
 )
 $ErrorActionPreference='Stop'
 if ($NativeEffectClone) { $NativeEffectGrain=$true; $SkipRestart=$true }
+if ($NativeEffectCompression -and (!$NativeSettingsConfig -or $NativeEffectGrain -or $NativeEffectExportMatrix -or $UpgradeFromPackage)) {
+    throw 'The native TIFF compression fixture needs its own selected recipe and a verified preferences backup.'
+}
 if ($NativeEffectGrain -and $NativeEffectExportMatrix) {
     throw 'The native grain comparison uses one RAW in its own effects Export fixture.'
 }
-if ($NativeEffectExportMatrix -or $NativeEffectGrain) { $NativeEffectExport=$true }
+if ($NativeEffectExportMatrix -or $NativeEffectGrain -or $NativeEffectCompression) { $NativeEffectExport=$true }
 if ($NativeExportInterruption -and (!$NativeSettingsConfig -or $SkipRestart -or $NativeEffectExport -or $ColorMatrix -or
     $CatalogIsolation -or $ConcurrentCatalogs -or $SessionIsolation -or $ViewerLayouts -or $ViewerChurn -or
     $ViewerTelemetrySeconds -or $NativeLifetimeCycles -or $DurableSliderEdits -or $MetadataFixtureRoot -or
@@ -364,6 +368,44 @@ if ($NativeSettingsConfig) {
         throw 'Could not verify the Capture One preferences backup before proof tests.'
     }
 }
+$nativeRecipes=$null
+$recipeHashes=@{}
+if ($NativeEffectCompression) {
+    $nativeRecipes=Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'CaptureOne\Recipes143'
+    $recipeRoot=Get-Item -LiteralPath $nativeRecipes -Force
+    if (!$recipeRoot.PSIsContainer -or ($recipeRoot.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        throw 'The exact 16.4 native recipe directory was not found.'
+    }
+    $recipeBackup=Join-Path $folder 'native-recipes-before-test'
+    [void][IO.Directory]::CreateDirectory($recipeBackup)
+    foreach ($item in Get-ChildItem -LiteralPath $nativeRecipes -Force -Recurse) {
+        if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Unexpected redirected recipe path.' }
+        if ($item.PSIsContainer) { continue }
+        $relative=$item.FullName.Substring($recipeRoot.FullName.Length+1)
+        $target=Join-Path $recipeBackup $relative
+        [void][IO.Directory]::CreateDirectory((Split-Path -Parent $target))
+        Copy-Item -LiteralPath $item.FullName -Destination $target
+        $digest=(Get-FileHash -LiteralPath $target).Hash
+        if ((Get-FileHash -LiteralPath $item.FullName).Hash -ne $digest) { throw 'Native recipe backup did not verify.' }
+        $recipeHashes[$relative]=$digest
+    }
+    if (!$recipeHashes.Count) { throw 'Native recipe backup did not contain any files.' }
+    $recipeHashes | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $folder 'native-recipe-backup.json')
+}
+function Test-NativeRecipeHashes([string] $phase) {
+    if (!$nativeRecipes) { return }
+    $actual=@(Get-ChildItem -LiteralPath $nativeRecipes -Force -Recurse -File)
+    if ($actual.Count -ne $recipeHashes.Count) { throw "Native recipe file inventory changed. Verified backup: $recipeBackup" }
+    foreach ($item in $actual) {
+        $relative=$item.FullName.Substring($recipeRoot.FullName.Length+1)
+        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+            $recipeHashes[$relative] -ne (Get-FileHash -LiteralPath $item.FullName).Hash) {
+            throw "Native recipe bytes changed. Verified backup: $recipeBackup"
+        }
+    }
+    $recipeHashes | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $folder "$phase-native-recipe-verified.json")
+    Write-Output "PASS $($recipeHashes.Count) native recipe files match their verified backup after $phase."
+}
 $catalog=Join-Path $folder 'Host Smoke.cocatalogdb'
 $sourceHash=(Get-FileHash -LiteralPath $source).Hash
 $fixtureCatalogs=@($catalog)
@@ -459,7 +501,7 @@ try {
     $env:SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX=if($NativeSourceMutations){'source-mutations'}elseif($ColorMatrix){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_VIEWER_STRESS=if($ViewerStress){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_PANEL_INVENTORY=if($PanelInventory){'1'}else{$null}
-    $env:SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT=if($NativeEffectExportMatrix){'matrix'}elseif($NativeEffectClone){'clone'}elseif($NativeEffectGrain){'grain'}elseif($NativeEffectExport){'1'}else{$null}
+    $env:SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT=if($NativeEffectExportMatrix){'matrix'}elseif($NativeEffectClone){'clone'}elseif($NativeEffectGrain){'grain'}elseif($NativeEffectCompression){'compression'}elseif($NativeEffectExport){'1'}else{$null}
     $env:SPEKTRAFILM_EXPECTED_CONTROL_INVENTORY=Join-Path $root 'qa\panel-controls.json'
     $env:SPEKTRAFILM_SHOW_TOOL=if($ShowTool){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_PROOF_TEST=if($NativeSettingsConfig -and !$CatalogIsolation -and !$ViewerLayouts -and !$DurableSliderEdits -and !$MetadataFixtureRoot -and !$ViewerChurn -and !$ConcurrentCatalogs){'1'}else{$null}
@@ -524,6 +566,7 @@ try {
                 }
             }
             Clear-TestCrashMarkers $phaseStarted $phase
+            Test-NativeRecipeHashes $phase
         }
     }
     if($CheckOrdinaryLaunch){

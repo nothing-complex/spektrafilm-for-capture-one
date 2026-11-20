@@ -741,13 +741,19 @@ internal static class SpektraFilmTool
             // variant, paths, metadata and control values stay on the computer.
             return JsonSerializer.Serialize(new
             {
-                SchemaVersion = 1,
+                SchemaVersion = 2,
                 Build = version,
                 CaptureOne = LaunchHealth.HostVersion,
                 RendererProtocol = RendererProtocol.Version,
                 RendererAssets = opticalPreview.VerifiedRendererAssets,
                 Controls = ControlsLoadPhase.ToString(),
                 Viewer = ViewerStatus.ToString(),
+                ViewerPresentation = new
+                {
+                    Encoding = "sRGB",
+                    RecipeProofing = P1.C1.ApplicationSettings.Default.IsProofingRecipeSettings,
+                    WindowsAssociatedIccSha256 = DisplayProfileDiagnostic.ReadAssociatedIccSha256(window),
+                },
                 NativeExportBridge = ExportBridgeStatus.ToString(),
                 NativeExportRoute = SupportExportRoute(storage),
                 LookStorage = storage,

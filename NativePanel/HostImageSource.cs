@@ -19,6 +19,7 @@ using P1.C1.Core.ModelEntities;
 using P1.C1.Framework;
 using P1.C1.ImageCoreWrapper.CoordinateSystem;
 using P1.C1.ImageCoreWrapper.ImageCore;
+using P1.C1.ViewModels.DestinationNaming;
 using P1.ModelCoreWrapper;
 
 internal static class HostImageSource
@@ -36,13 +37,16 @@ internal static class HostImageSource
     private static readonly PropertyInfo ColorProfilesProperty = HostProperty("ColorProfileLibrary");
     private static readonly MethodInfo? GetDestinationManager = HostProperty("DocumentManager").PropertyType
         .GetMethod("GetDestinationDocumentManager", new[] { typeof(ICaptureOneDocument) });
+    private static readonly MethodInfo? GetExportNamingManager = HostProperty("DocumentManager").PropertyType
+        .GetMethod("GetExportNamingManager", new[] { typeof(ICaptureOneDocument) });
     internal sealed record Frame(int Width, int Height, byte[] FloatBytes, int BitDepth, FrameDescription? Description = null);
     internal sealed record ExportFrame(Frame Image, Rectangle Crop);
     internal sealed class DevelopmentDeadlineException(string message) : TimeoutException(message);
     internal sealed record RecipeInfo(string Name, string FormatId, string ColorProfileName, string ColorProfilePath,
         string CropMode, string RootFolderMode, string CustomRootFolder, string Subfolder, string Filename,
         string Suffix, int TiffBits, int JpegQuality, int Width, int Height, double Scale, bool IgnoreCrop,
-        double Resolution, string ResolutionUnit, ExportMetadata Metadata, TiffCompressOption TiffCompression);
+        double Resolution, string ResolutionUnit, ExportMetadata Metadata, TiffCompressOption TiffCompression,
+        string? SuggestedFilename);
 
     internal static (Guid VariantId, NativeImageRevision AdjustmentKey, bool OriginalAvailable) GetSelectedSourceState(object window)
     {
@@ -124,7 +128,30 @@ internal static class HostImageSource
         return new RecipeInfo(recipe.Name, recipe.FileType.ToString(), recipe.ColorProfileName, recipe.ColorProfilePath,
             recipe.CropExportMethod.ToString(), recipe.DestinationRootFolder.ToString(), recipe.DestinationCustomRootFolder,
             recipe.DestinationSubFolder, recipe.DestinationFilename, recipe.DestinationSubName, recipe.TiffBits, recipe.JpegQuality,
-            scale.ScaledPixelWidth, scale.ScaledPixelHeight, scale.Scale, ignoreCrop, recipe.Resolution, recipe.ResolutionUnit.ToString(), metadata, compression);
+            scale.ScaledPixelWidth, scale.ScaledPixelHeight, scale.Scale, ignoreCrop, recipe.Resolution, recipe.ResolutionUnit.ToString(),
+            metadata, compression, ReadSuggestedFilename(selection, recipe));
+    }
+
+    private static string? ReadSuggestedFilename(HostProfile.Selection selection, IDestinationProcessingSettings recipe)
+    {
+        if (string.IsNullOrWhiteSpace(recipe.DestinationFilename)
+            || ((ISelectedCollectionsProvider)selection.Document).PrimarySelectedCollection is not ISimpleCollection collection)
+            return null;
+        try
+        {
+            if (GetExportNamingManager?.Invoke(selection.Manager, new object[] { selection.Document }) is not INamingManager naming)
+                return null;
+            // Use Capture One's own naming preview without advancing or reserving its counter.
+            var counter = naming.CreateNamingCounterToken(NamingCounterType.Output, argIncrementCounter: false);
+            var variant = selection.Variant;
+            var name = naming.RetrieveName(counter, variant.CoreImage, variant, recipe, collection.Name,
+                null, 0, null, null, DateTime.Now, null, recipe.DestinationFilename);
+            return string.IsNullOrWhiteSpace(name) ? null : name;
+        }
+        catch (Exception error) when (error is TargetInvocationException or InvalidOperationException or ArgumentException)
+        {
+            return null;
+        }
     }
 
     private static ExportMetadata ReadRecipeMetadata(ICoreVariant variant, IDestinationProcessingSettings recipe)

@@ -16,6 +16,14 @@ internal static class SpektraExport
         _ => ".tif",
     };
 
+    internal static string SuggestedOutputName(string? recipeName, string sourcePath, string extension)
+    {
+        var name = recipeName?.TrimEnd('.', ' ');
+        if (string.IsNullOrWhiteSpace(name) || name.Length > 200 || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+            return Path.GetFileNameWithoutExtension(sourcePath) + "-Spektrafilm";
+        return name + extension;
+    }
+
     internal static PixelFormat PixelFormatFor(string path) => Path.GetExtension(path).ToLowerInvariant() switch
     {
         ".tif" or ".tiff" => PixelFormats.Rgb48,

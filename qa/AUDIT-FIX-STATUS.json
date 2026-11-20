@@ -1575,9 +1575,11 @@
         "Capture the recipe's local RGB ICC profile before showing Save and color-convert the SDR film result through a genuine 16-bit RGBA64 transform. TIFF drops alpha without changing any converted RGB code; PNG retains alpha. Reopen the encoded file and verify the exact profile digest before atomically publishing it.",
         "The licensed Adobe RGB recipe produced the exact embedded profile in 210 first-launch and 214 restart checks. ProPhoto and Linear Rec.2020 TIFF/PNG fixtures retained the actual converted RGB, alpha where applicable, DPI and ICC. Across three profiles, an independent ICC matrix/TRC reference had p95 Delta E 2000 of 0.031–0.159 and maximum 0.803. The normal direct export remains sRGB.",
         "The real Capture One Export command, its visible native confirmation, and Export with Previous Settings write the selected variant through the current film pipeline. Each of four licensed runs reopened 3000 by 2000 RGB48 TIFF and RGBA64 PNG with the exact Adobe RGB recipe profile. Across 41,238 sampled 16-bit RGB codes per run, the film look changed the RGB codes by a mean 11.66% of full scale and camera diffusion changed them a further 4.76%. The two native routes agreed within about one millionth of full-scale RGB on average. Each command accepted exactly one job. Switch-off delegated to the ordinary native Export dialog.",
-        "Native TIFF delivery now retains the selected TIFF recipe’s lossless compression: Uncompressed, LZW or ZIP. After encoding, the file’s actual TIFF tag is verified alongside 16-bit pixels, ICC and orientation. The Windows tests round-tripped every sample using all three schemes. The licensed active ZIP recipe exported the film look and diffusion again.",
+        "Native TIFF delivery retains the selected TIFF recipe’s lossless compression: Uncompressed, LZW or ZIP. After encoding, the file’s actual TIFF tag is verified alongside 16-bit pixels, ICC and orientation. The Windows tests round-tripped every sample using all three schemes.",
         "Both native Export commands passed on DNG/sRGB, CR3/Adobe RGB, RAF/ProPhoto and NEF/Linear Rec.2020, all using the exact Adobe RGB recipe profile at 6.00–7.53 MP in RGB48 TIFF and RGBA64 PNG. Across 32 accepted outputs and 159 assertions each at first launch and restart, film changed mean RGB code by 6.23–11.66% of full scale and camera diffusion added 2.43–4.76%. Native command outputs differed by at most 1.21e-6 mean full-scale code.",
-        "Both real native Export commands passed with film, camera diffusion, halation and scatter active together. Native TIFF and previous-settings PNG matched within 8.81e-7 mean full-scale RGB, retained exact Adobe RGB and reopened at 16 bits. Across four cameras and two launches the fixture passed 191 assertions each and accepted 40 outputs. Halation plus scatter alone added 0.095–0.892% mean full-scale RGB change."
+        "Both real native Export commands passed with film, camera diffusion, halation and scatter active together. Native TIFF and previous-settings PNG matched within 8.81e-7 mean full-scale RGB, retained exact Adobe RGB and reopened at 16 bits. Across four cameras and two launches the fixture passed 191 assertions each and accepted 40 outputs. Halation plus scatter alone added 0.095–0.892% mean full-scale RGB change.",
+        "Run both native commands against an explicitly selected TIFF recipe in ZIP, LZW and uncompressed modes. Two launches each passed 108 assertions, with 12 compression comparison TIFFs reopening in RGB48 at 3000 by 2000 with the exact selected ICC. Full-pixel comparison stays below 0.05 average 16-bit code including repeated ZIP reference measurements. Both launches verify all nine native recipe files against their backups. An earlier test let the host persist two settings in one preset. Its exact original bytes have been restored, and the final fixture holds recipe variations in memory.",
+        "Both native Export routes prefill the selected Capture One recipe's resolved filename stem. The first and restarted host pass 62 checks each, including comparison to the actual Capture One Naming tool in the real Export dialog and confirmation that the output counter is unchanged. Save still approves a TIFF or PNG destination and refuses the original path."
       ],
       "evidence_paths": [
         "NativePanel/SpektraFilmTool.cs",
@@ -1598,10 +1600,14 @@
         ".test-results/host-four-raw-native-effects-20261120/host-smoke.log",
         ".test-results/host-four-raw-native-effects-20261120/restart-NEF-native-effect-export.json",
         ".test-results/host-composed-native-effects-20261120/host-smoke.log",
-        ".test-results/host-composed-native-effects-20261120/restart-DNG-native-effect-export.json"
+        ".test-results/host-composed-native-effects-20261120/restart-DNG-native-effect-export.json",
+        ".test-results/host-native-tiff-compression-final-20261120",
+        ".test-results/host-native-tiff-compression-parity-20261120/native-recipe-restoration.json",
+        ".test-results/host-native-recipe-naming-async-20261120/host-smoke.log",
+        ".test-results/contracts-native-naming-display-20261120/ViewerContracts.log"
       ],
       "remaining_work": [
-        "Compare selected RGB recipe output against additional native profile references. Exercise Uncompressed and LZW selections in the native dialog as well as their verified high-depth encoders. Native naming, tiling and other format and quality settings beyond the explicit 16-bit TIFF/PNG save policy remain open."
+        "Compare selected RGB recipe output against additional native profile references. Dynamic subfolder naming, native counter advancement, duplicate-name handling, tiling and other format and quality settings beyond the explicit 16-bit TIFF/PNG save policy remain open."
       ],
       "original_acceptance_tests": [
         "Table-driven JPEG, PNG, TIFF 8/16-bit, unknown-format, custom ICC, image-folder/custom-folder/subfolder/token/suffix and duplicate-name cases.",
@@ -1622,17 +1628,24 @@
       "status": "partial",
       "implemented": [
         "Suspend film painting while Capture One Recipe Proofing is enabled and explain how to resume. A proof-state change invalidates the real painter even when the film bitmap stays cached.",
-        "The exact Windows 16.4.6 host passed 201 assertions including inspection of the WPF drawing before, during and after native proofing. The opt-in fixture verifies backups and removes only its disposable recent catalog entry. The remaining two preference changes were Capture One's run counters."
+        "The exact Windows 16.4.6 host passed 201 assertions including inspection of the WPF drawing before, during and after native proofing. The opt-in fixture verifies backups and removes only its disposable recent catalog entry. The remaining two preference changes were Capture One's run counters.",
+        "The support report identifies the published sRGB bitmap encoding, current native Recipe Proofing status and optional SHA-256 of the Windows ICC associated with the host window. The exact host passed 344 and 348 checks across first launch and restart. On the single available display, the report matched a separate GDI probe of the associated standard sRGB profile.",
+        "An offscreen WPF DrawImage fixture compares 18 patches with no ICC tag, an attached alternate ICC and an explicit color conversion. The tag alone leaves all drawn codes unchanged with both bundled alternate profiles. The explicit ProPhoto and Linear Rec.2020 transforms change 16 patches each. Independent LittleCMS comparison agrees to one code for ProPhoto and shows two out-of-gamut red differences of 18 and 3 codes for Linear Rec.2020."
       ],
       "evidence_paths": [
         "NativePanel/ViewerPreview.cs",
+        "NativePanel/DisplayProfileDiagnostic.cs",
         "qa/HostSmoke/Run-HostSmoke.ps1",
+        "tests/ViewerContracts/DisplayProfilePatches.cs",
+        ".test-results/host-display-profile-support-20261120/support-details.json",
+        ".test-results/host-display-profile-support-20261120/host-smoke.log",
+        ".test-results/display-profile-readonly-20261120/wpf-independent-icc-parity.json",
         ".test-results/host-recipe-proofing-final-20261120/host-smoke.log",
         ".test-results/host-recipe-proofing-final-20261120/proof-settings-receipt.json"
       ],
       "remaining_work": [
-        "Build disposable color patch scene and instrument host display/profile/proof state without changing calibration.",
-        "Determine whether the native paint context applies an ICC transform to overlays; compare raw numeric patch expectations and independent color-managed file viewer.",
+        "Present a calibrated chart on a real nonidentity display and measure both the native Viewer and film overlay. The offscreen WPF fixture establishes bitmap tag behavior before the desktop compositor.",
+        "Separate host paint-context behavior from desktop Advanced Color and validate the final on-screen result with an independent color-managed file viewer.",
         "Route through verified host display transform if possible, otherwise maintain explicit monitor ICC output with per-monitor invalidation.",
         "Separate film output encoding, export destination ICC and monitor display transform in types/UI; avoid double transforms.",
         "Verify distinct destination profiles and custom-proof/HDR detection. The known Recipe Proofing toggle is currently guarded."
@@ -1684,7 +1697,8 @@
         "Local panel diagnostics now enqueue bounded JSON records on a background writer with one capped previous generation. Nine contracts cover rotation, newline escaping, concurrent producers, a locked destination and eventual recovery. Final licensed runs passed 240 and 244 assertions.",
         "A 600-second contention test submitted 148,608 records to each of two local async loggers. The writable logger dropped none and retained two files under 1 MiB each. The locked logger dropped all records and recovered cleanly on exit. The pair of enqueue calls took p99 0.0036 ms and at most 0.4652 ms.",
         "Structured event data is optional and serialized by the existing bounded background pump. One event identifies accepted export timing without source or destination paths. Invalid or oversize details are discarded without ending the pump. Portable tests confirm valid structured events still arrive after both errors.",
-        "A native Retry Viewer action is shown after a terminal frame-processing error. The real WPF control restored the saved look after automatic recovery was exhausted, with Export connection preserved."
+        "A native Retry Viewer action is shown after a terminal frame-processing error. The real WPF control restored the saved look after automatic recovery was exhausted, with Export connection preserved.",
+        "The explicitly copied report includes the Viewer encoding, active Recipe Proofing and an optional display ICC fingerprint. The licensed fixture checks the nested allow-list and the actual proof toggle. Display paths stay out of the report."
       ],
       "evidence_paths": [
         "NativePanel/SpektraFilmTool.cs",
@@ -1696,7 +1710,8 @@
         ".test-results/host-protected-look-formats-20261120/host-smoke.log",
         ".test-results/panel-log-ten-minute-20261120/measurement.json",
         ".test-results/contracts-structured-export-compression-20261120/StateContracts.log",
-        ".test-results/host-viewer-manual-retry-20261120/host-smoke.log"
+        ".test-results/host-viewer-manual-retry-20261120/host-smoke.log",
+        ".test-results/host-display-profile-support-20261120/support-details.json"
       ],
       "remaining_work": [
         "Add per-capability native fault scenarios, exercise the user clipboard flow and extend structured event IDs beyond accepted export timings. Ten-minute native interaction telemetry is tracked under VE-17."
