@@ -41,17 +41,20 @@ public static partial class StartupHook
             catch (IOException) { return false; }
         }
         Check(CanOpenForWrite(), "the fixture proves the private ICC has no earlier write lease");
-        var target = assembly.GetType("HostProfile", true)!.GetMethod("CaptureTarget", Flags)!.Invoke(null, new[] { window })!;
         var encoding = Enum.Parse(assembly.GetType("PreviewInputSpace", true)!, "ProPhotoRgb");
-        var snapshot = host.GetMethod("Capture", Flags)!.Invoke(null, new[] { window, target, encoding, false })!;
-        Task<object?> Develop() => Task.Run(() => Call(snapshot, "RenderScaledPreview", 480, CancellationToken.None));
+        Task<object?> DevelopCurrent()
+        {
+            var target = assembly.GetType("HostProfile", true)!.GetMethod("CaptureTarget", Flags)!.Invoke(null, new[] { window })!;
+            var snapshot = host.GetMethod("Capture", Flags)!.Invoke(null, new[] { window, target, encoding, false })!;
+            return Task.Run(() => Call(snapshot, "RenderScaledPreview", 480, CancellationToken.None));
+        }
         var clock = Stopwatch.GetTimestamp();
         double deadlineMs;
         bool heldSlot, heldProfile;
         try
         {
             armed.SetValue(null, 1);
-            var work = Develop();
+            var work = DevelopCurrent();
             await WaitFor(() => entered.IsSet || work.IsCompleted, "The real native development did not reach the disposable release gate.");
             Check(entered.IsSet && slot.CurrentCount == 0 && !CanOpenForWrite(),
                 "the completed native bitmap callback holds the slot and ICC before its caller times out");
@@ -68,7 +71,7 @@ public static partial class StartupHook
         finally { release.Set(); }
         await WaitFor(() => slot.CurrentCount == 1 && CanOpenForWrite(),
             "Finishing the late native callback did not release both resources.");
-        var fresh = await Develop();
+        var fresh = await DevelopCurrent();
         Check(fresh is not null && Prop(fresh, "BitDepth") is 16 && Prop(fresh, "Description") is { } description
             && Equals(Prop(Prop(description, "Source")!, "ProfileSha256"), hash),
             "the next native request still develops the captured high-depth ICC source");

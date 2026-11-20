@@ -1979,7 +1979,13 @@
         "The per-Viewer drag-source pyramid evicts by actual float-buffer byte length with a 128 MiB retention ceiling. Source replacement and switching drag preview Off discard the levels. A render already using an evicted level retains valid ownership until it returns.",
         "Measure 100 settled Capture One visits on DNG, NEF, RAF and CR3 at 2048 px and strength 0%, 50% and 100%. The same-process peak was 7,934,210,048 host private bytes, 700,862,464 worker private bytes and 958,644,384 managed bytes. After explicit drain, the process exited, all 100 sampled source objects became collectible and managed use measured 160,011,408 bytes. Host private bytes include Capture One’s own caches.",
         "Paired 100-visit no-plugin and film runs with the same RAW and 30 interleaved selection sequence measured 5,028,196,352 and 7,954,604,032 host private bytes respectively. Managed peaks were 168,062,504 and 928,270,840 bytes. The film worker independently peaked at 700,903,424 bytes. All sampled film sources were collectible after the worker drained.",
-        "Download checksum-verified Canon EOS R5 CR3 and Sony a7R IV A ARW source samples. The offline Capture One ImageCore metadata probe recognizes both as RAW and reports an actual canvas of 8192 × 5464 and 9504 × 6336 respectively."
+        "Download checksum-verified Canon EOS R5 CR3 and Sony a7R IV A ARW source samples. The offline Capture One ImageCore metadata probe recognizes both as RAW and reports an actual canvas of 8192 × 5464 and 9504 × 6336 respectively.",
+        "Build a read-only-donor, integrity-checked disposable referenced catalog which displays 24.00–60.22 MP DNG, NEF, CR3 and ARW as actual 16-bit developed sources. Both 12-visit runs cover every source at strengths 0%, 50% and 100% and collect parent, managed and Preview process memory every 50 ms. The original donor catalog and all four RAW hashes verify exactly.",
+        "For CPU conversion to the display bitmap, release temporary BGRA rows as soon as WPF owns its copy, including cancellation paths. Compared with packaged audit.32 on the same 12 visits, sampled peak managed allocation decreased from 8,073,213,552 to 7,071,490,880 bytes and combined private commit from 21,400,592,384 to 20,881,649,664 bytes. Settled paint p50/p95 were 1,132/4,371 ms before and 1,195/4,357 ms after. These pooled stage timings are single paired native runs.",
+        "Windows contracts pass 12,506 checks, including exact frozen BGRA across profiles, blended strengths, output alpha, cancellation and bounded calling-thread allocation for a parallel large conversion. The licensed current-source Viewer stress and stacked native exports pass 52 and 146 assertions respectively per launch.",
+        "Run 100 verified native-resolution selections across four RAWs, with 30 interleaved selections, and collect 2,514 memory samples. Disabling Spektrafilm clears the Viewer and exits its workers. One approximately 964 MB developed ARW remains reachable at collection in this earlier build.",
+        "Release a completed native result from the callback handle once it transfers to the caller. Retaining the callback in a managed test no longer retains the delivered byte array. The revised 12-visit licensed fixture collects every sampled source and measures 111,372,360 bytes of managed memory after drain versus 1,074,568,968 before the callback fix.",
+        "Exercise the exact native scheduler with a deliberately delayed callback. Twenty-six real host assertions verify timeout, retained slot and ICC ownership, accepted 16-bit export after release and no publication after detach. Both real native export commands independently reopen with stacked optics and exact profile, with 146 host assertions per launch and 32 verified 16-bit files."
       ],
       "evidence_paths": [
         "NativePanel/RenderMemoryBudget.cs",
@@ -1992,10 +1998,22 @@
         ".test-results/host-native-only-viewer-baseline-20261120/viewer-native-baseline.json",
         ".test-results/host-viewer-paired-live-20261120/viewer-churn.json",
         ".test-results/high-resolution-raw-fixtures-20261120/sources.json",
-        ".test-results/high-resolution-raw-fixtures-20261120/native-defaults.json"
+        ".test-results/high-resolution-raw-fixtures-20261120/native-defaults.json",
+        ".test-results/high-resolution-raw-fixtures-20261120/catalog/fixture.json",
+        "qa/HostSmoke/ViewerChurn.cs",
+        "NativePanel/ViewerDisplayBitmap.cs",
+        "NativePanel/RenderCoordination.cs",
+        ".test-results/viewer-display-scratch-ab-20261120.json",
+        ".test-results/contracts-viewer-display-parallel-20261120/summary.json",
+        ".test-results/host-viewer-scratch-native-effects-20261120/independent-stacked-rgb16.json",
+        ".test-results/host-native-resolution-100-visits-20261120/viewer-memory-timeline.json",
+        ".test-results/contracts-native-result-ownership-20261120/ViewerContracts.log",
+        ".test-results/host-native-result-ownership-12-visits-20261120/viewer-churn.json",
+        ".test-results/host-native-result-ownership-lease-fresh-20261120/host-smoke.log",
+        ".test-results/host-native-result-ownership-effects-20261120/independent-rgb16.json"
       ],
       "remaining_work": [
-        "Measure 24/45/61 MP at all strength values and finalize enforced cache budgets and lifetime ownership across overlapping contexts. The paired 2048 px workload has a true no-plugin baseline."
+        "Finalize enforced cache budgets and lifetime ownership across overlapping contexts. Repeat the 100-visit full-resolution campaign with the completed-result fix and its stricter collection assertion. The paired 2048 px workload has a true no-plugin baseline."
       ],
       "original_acceptance_tests": [
         "Allocation traces for 24/45/61MP at strength 0,0.5,1 and repeated switches; bound retained memory after GC/worker idle.",
@@ -3163,7 +3181,8 @@
       "status": "partial",
       "implemented": [
         "Starting image export cancels pending previews, pauses refresh and separates export status; preview refresh resumes afterward.",
-        "Image and LUT output share the panel output slot. Both retire active and idle Viewer workers and await process exit before starting new GPU work. Preview resumes from the latest queued controls when the output slot releases. Real Vulkan worker PIDs and exclusion verified live."
+        "Image and LUT output share the panel output slot. Both retire active and idle Viewer workers and await process exit before starting new GPU work. Preview resumes from the latest queued controls when the output slot releases. Real Vulkan worker PIDs and exclusion verified live.",
+        "The synchronized worker benchmark measures serialized and overlapped 6 MP packed Viewer and 24 MP float export on RTX 3090 with stacked optics. All 24 paired replies match their serial SHA-256. Warm Viewer p50/p95 grows from 117/118 to 194/198 ms, and export from 1,574/1,590 to 1,674/1,682 ms. This isolates worker transport and optics before adding cross-context admission."
       ],
       "evidence_paths": [
         "NativePanel/SpatialPreview.cs",
@@ -3171,7 +3190,9 @@
         "NativePanel/OpticalRenderer.cs",
         "tests/renderer/Program.cs",
         ".test-results/host-full-raw-24mp-20261119/host-smoke.log",
-        ".test-results/contracts-renderer-drain-20261119/summary.json"
+        ".test-results/contracts-renderer-drain-20261119/summary.json",
+        "qa/renderer-benchmark.py",
+        ".test-results/renderer-overlap-stacked-optics-20261120.json"
       ],
       "remaining_work": [
         "Introduce cross-host/context resource leases and hardware admission. Collect p50/p95, parent memory, GPU allocations and overlap across more GPUs and cancellation stages."

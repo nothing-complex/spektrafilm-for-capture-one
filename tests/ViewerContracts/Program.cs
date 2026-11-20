@@ -93,6 +93,7 @@ internal static partial class Program
         TestFractionalColorSampling();
         TestColorPrecision();
         TestLookStrengthDelivery();
+        TestViewerDisplayBitmap();
         TestOutputProtection(folder);
         TestExportStorageFailures(folder);
         TestCrashOwnedExportStage(folder);
@@ -724,11 +725,11 @@ internal static partial class Program
     {
         using var slot = new SemaphoreSlim(0, 1);
         var invoked = 0;
-        var queued = new QueuedRenderRequest<int, int>(value => { invoked++; return value; }, () => slot.Release());
+        var queued = new QueuedRenderRequest<int, int>(value => { invoked++; return value; }, () => slot.Release(), out var queuedResult);
         queued.Abandon();
         queued.Abandon();
         queued.Run(42);
-        Check(invoked == 0 && queued.Result.IsCanceled && slot.CurrentCount == 1,
+        Check(invoked == 0 && queuedResult.IsCanceled && slot.CurrentCount == 1,
             "an abandoned queued callback gives its slot back once and cannot run");
 
         await slot.WaitAsync();
@@ -740,37 +741,52 @@ internal static partial class Program
             if (!finish.Wait(TimeSpan.FromSeconds(10)))
                 throw new TimeoutException("Native callback fixture did not release its gate.");
             return value;
-        }, () => slot.Release());
+        }, () => slot.Release(), out var runningResult);
         var thread = Task.Run(() => running.Run(88));
         Check(entered.Wait(TimeSpan.FromSeconds(10)), "native callback obtained ownership of the slot");
         try
         {
             running.Abandon();
             running.Abandon();
-            Check(running.Result.IsCanceled && slot.CurrentCount == 0,
+            Check(runningResult.IsCanceled && slot.CurrentCount == 0,
                 "caller cancellation cannot release an executing native callback's slot");
             Check(!await slot.WaitAsync(TimeSpan.FromMilliseconds(20)), "a second development could not enter during native drain");
         }
         finally { finish.Set(); }
         await thread.WaitAsync(TimeSpan.FromSeconds(10));
-        Check(slot.CurrentCount == 1 && running.Result.IsCanceled,
+        Check(slot.CurrentCount == 1 && runningResult.IsCanceled,
             "native completion releases its slot without publishing a canceled frame");
 
         await slot.WaitAsync();
-        var failure = new QueuedRenderRequest<int, int>(_ => throw new IOException("native failure"), () => slot.Release());
+        var failure = new QueuedRenderRequest<int, int>(_ => throw new IOException("native failure"), () => slot.Release(), out var failedResult);
         failure.Run(0);
-        try { await failure.Result; throw new InvalidOperationException("Native failure was swallowed."); }
+        try { await failedResult; throw new InvalidOperationException("Native failure was swallowed."); }
         catch (IOException) { Check(slot.CurrentCount == 1, "native fault releases its slot and surfaces the real error"); }
 
         for (var attempt = 0; attempt < 200; attempt++)
         {
             await slot.WaitAsync();
-            var raced = new QueuedRenderRequest<int, int>(value => value, () => slot.Release());
+            var raced = new QueuedRenderRequest<int, int>(value => value, () => slot.Release(), out var racedResult);
             await Task.WhenAll(Task.Run(() => raced.Run(5)), Task.Run(raced.Abandon));
-            Check(slot.CurrentCount == 1 && (raced.Result.IsCanceled || raced.Result is { IsCompletedSuccessfully: true, Result: 5 }),
+            Check(slot.CurrentCount == 1 && (racedResult.IsCanceled || racedResult is { IsCompletedSuccessfully: true, Result: 5 }),
                 "competing native delivery/cancel leaves one slot and a terminal result");
         }
-        Console.WriteLine("Capture One scheduler contracts: pending cancellation, running drain, native faults and 200 delivery races passed.");
+        var (retainedCallback, deliveredPixels) = DeliverSourceWithRetainedCallback();
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        Check(!deliveredPixels.IsAlive, "a callback retained by Capture One must not keep its delivered pixel buffer alive");
+        GC.KeepAlive(retainedCallback);
+        Console.WriteLine("Capture One scheduler contracts: pending cancellation, running drain, native faults, callback retention and 200 delivery races passed.");
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        static (Action<int> Callback, WeakReference Image) DeliverSourceWithRetainedCallback()
+        {
+            var request = new QueuedRenderRequest<int, byte[]>(size => new byte[size], () => { }, out var result);
+            Action<int> callback = request.Run;
+            callback(1024 * 1024);
+            return (callback, new WeakReference(result.GetAwaiter().GetResult()));
+        }
     }
 
     private static async Task TestScheduling()
@@ -927,6 +943,72 @@ internal static partial class Program
             try {ViewerDraftSource.Downsample(input,edge,cancel.Token);throw new Exception("Expected cancellation");}catch(OperationCanceledException){assertions++;}
         }
         Console.WriteLine("Draft: noninteger/extreme aspect ratios, constant energy, out-of-range channels, alpha, size cap, identity and cancellation passed.");
+    }
+
+    private static void TestViewerDisplayBitmap()
+    {
+        const int width = 3, height = 2;
+        var original = new byte[width * height * 16];
+        float[] source =
+        {
+            .12f, .24f, .49f, .80f, 1.2f, .2f, -.09f, .30f, .75f, .5f, .15f, 1.3f,
+            .71f, .53f, .135f, 0, .024f, .045f, .095f, 1, -.005f, .14f, .28f, -.2f,
+        };
+        var rendered = new byte[original.Length];
+        Buffer.BlockCopy(source, 0, original, 0, original.Length);
+        var changed = source.Select(value => value * .72f + .13f).ToArray();
+        Buffer.BlockCopy(changed, 0, rendered, 0, rendered.Length);
+        var frame = new HostImageSource.Frame(width, height, original, 16);
+        foreach (var space in Enum.GetValues<PreviewInputSpace>())
+        foreach (var strength in new[] { 0d, .5d, 1d })
+        {
+            var image = ViewerDisplayBitmap.Convert(frame, strength == 0 ? null : rendered, strength, space,
+                "linear_rec709", CancellationToken.None);
+            var reference = new SrgbDelivery(space, "linear_rec709", strength);
+            var pixels = new byte[width * height * 4];
+            Task.Run(() => image.CopyPixels(pixels, width * 4, 0)).GetAwaiter().GetResult();
+            Check(image.IsFrozen && image.Format == PixelFormats.Bgra32
+                && image.PixelWidth == width && image.PixelHeight == height,
+                "Viewer pixels must be copied to a frozen cross-thread bitmap before scratch is retired");
+            for (var index = 0; index < pixels.Length; index += 4)
+            {
+                var rgb = reference.GetSrgb(source, changed, index);
+                Check(pixels[index] == (byte)Math.Round(rgb.Blue * 255)
+                    && pixels[index + 1] == (byte)Math.Round(rgb.Green * 255)
+                    && pixels[index + 2] == (byte)Math.Round(rgb.Red * 255)
+                    && pixels[index + 3] == (byte)MathF.Round(255 * Math.Clamp(source[index + 3], 0, 1)),
+                    "Viewer scratch storage must preserve exact BGRA, colour encoding and source alpha");
+            }
+        }
+        using var canceled = new CancellationTokenSource();
+        canceled.Cancel();
+        var threw = false;
+        try { ViewerDisplayBitmap.Convert(frame, null, 0, PreviewInputSpace.Srgb, "srgb", canceled.Token); }
+        catch (OperationCanceledException) { threw = true; }
+        Check(threw, "A canceled Viewer conversion must not publish a bitmap");
+
+        const int wide = 4097, tall = 1025;
+        var large = new HostImageSource.Frame(wide, tall, new byte[wide * tall * 16], 16);
+        var channels = MemoryMarshal.Cast<byte, float>(large.FloatBytes.AsSpan());
+        var rows = new[] { 0, tall / 6, tall / 2, tall - 1 };
+        foreach (var row in rows)
+        {
+            var offset = (row * wide + wide - 1) * 4;
+            channels[offset] = .5f;
+            channels[offset + 1] = .25f;
+            channels[offset + 2] = .125f;
+            channels[offset + 3] = 1;
+        }
+        var allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+        var parallel = ViewerDisplayBitmap.Convert(large, null, 0, PreviewInputSpace.Srgb, "srgb", CancellationToken.None);
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+        Check(allocated < wide * tall, "Parallel Viewer conversion must avoid a full-frame managed BGRA scratch array");
+        foreach (var row in rows)
+        {
+            var pixel = new byte[4];
+            parallel.CopyPixels(new System.Windows.Int32Rect(wide - 1, row, 1, 1), pixel, 4, 0);
+            Check(pixel.SequenceEqual(new byte[] { 32, 64, 128, 255 }), "Finalized parallel rows must retain exact end-of-row BGRA");
+        }
     }
 
     private static void TestDevelopedFrameDescription()

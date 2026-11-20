@@ -114,6 +114,87 @@ public static partial class StartupHook
     private sealed record ViewerVisit(int Index, string Format, int StrengthPercent, double SaveMs, double SettledPaintMs, long ManagedBytes,
         long HostPrivateBytes, long RendererPrivateBytes, double Scale, int PixelWidth, int PixelHeight, int SettingsGeneration);
 
+    private sealed record ViewerMemorySample(int Visit, double ElapsedMs, long ManagedBytes, long HostPrivateBytes,
+        long WorkerPrivateBytes, int LiveWorkers);
+
+    private sealed class ViewerMemoryTrace(object spatial) : IAsyncDisposable
+    {
+        private readonly CancellationTokenSource lifetime = new();
+        private int visit;
+        private Task<List<ViewerMemorySample>>? work;
+
+        internal void Start() => work = Task.Run(SampleAsync);
+        internal void MarkVisit(int value) => Volatile.Write(ref visit, value);
+
+        private async Task<List<ViewerMemorySample>> SampleAsync()
+        {
+            const int sampleIntervalMs = 50;
+            using var host = Process.GetCurrentProcess();
+            var workers = new Dictionary<int, Process>();
+            var samples = new List<ViewerMemorySample>();
+            var started = Stopwatch.GetTimestamp();
+            var token = lifetime.Token;
+            try
+            {
+                while (!token.IsCancellationRequested)
+                {
+                    ObserveWorker("renderer");
+                    ObserveWorker("draftRenderer");
+                    long privateBytes = 0;
+                    foreach (var (id, worker) in workers.ToArray())
+                    {
+                        if (worker.HasExited)
+                        {
+                            worker.Dispose();
+                            workers.Remove(id);
+                            continue;
+                        }
+                        worker.Refresh();
+                        try { privateBytes += worker.PrivateMemorySize64; }
+                        catch (InvalidOperationException) when (worker.HasExited) { }
+                    }
+                    host.Refresh();
+                    samples.Add(new(Volatile.Read(ref visit), Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+                        GC.GetTotalMemory(false), host.PrivateMemorySize64, privateBytes, workers.Count));
+                    await Task.Delay(sampleIntervalMs, token);
+                }
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+            finally
+            {
+                foreach (var worker in workers.Values)
+                    worker.Dispose();
+            }
+            return samples;
+
+            void ObserveWorker(string field)
+            {
+                if (Field(spatial, field) is not { } renderer || Field(renderer, "process") is not Process owned)
+                    return;
+                try
+                {
+                    var id = owned.Id;
+                    if (!workers.ContainsKey(id))
+                        workers.Add(id, Process.GetProcessById(id));
+                }
+                catch (InvalidOperationException) { /* The owned worker was disposed between observations. */ }
+                catch (ArgumentException) { /* The worker exited before it could be observed. */ }
+            }
+        }
+
+        internal async Task<List<ViewerMemorySample>> FinishAsync()
+        {
+            lifetime.Cancel();
+            return work is null ? new() : await work;
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            try { await FinishAsync(); }
+            finally { lifetime.Dispose(); }
+        }
+    }
+
     private static async Task MeasureViewerChurn(object panel, object spatial, object store, int visitCount)
     {
         using var host = Process.GetCurrentProcess();
@@ -128,7 +209,11 @@ public static partial class StartupHook
         var quality = Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_VIEWER_CHURN_RESOLUTION") ?? "2048";
         size.SelectedItem = size.ItemsSource.Cast<object>().Single(item => Equals(Prop(item, "Id"), quality));
         var viewer = Field(spatial, "viewer")!;
+        Call(spatial, "SetEnabled", false);
+        await (Task)Call(spatial, "DrainPreviewWorkersAsync", CancellationToken.None)!;
         Call(spatial, "SetEnabled", true);
+        await using var memoryTrace = quality == "native" ? new ViewerMemoryTrace(spatial) : null;
+        memoryTrace?.Start();
         var samples = new List<ViewerVisit>(visitCount);
         var sources = new List<WeakReference>();
         var superseded = 0;
@@ -144,6 +229,7 @@ public static partial class StartupHook
 
         for (var visit = 0; visit < visitCount; visit++)
         {
+            memoryTrace?.MarkVisit(visit + 1);
             if (visit % 10 == 7)
             {
                 foreach (var offset in new[] { 2, 3, 1 })
@@ -199,6 +285,7 @@ public static partial class StartupHook
         }
 
         var lastSource = Field(spatial, "source")!;
+        memoryTrace?.MarkVisit(visitCount + 1);
         var currentVariant = selection.Variants[(visitCount - 1) % selection.Variants.Length];
         await ChangeLookAndPaint(100d, .71);
         var packedReuse = await ChangeLookAndPaint(100d, .76);
@@ -223,14 +310,41 @@ public static partial class StartupHook
             JsonSerializer.Serialize(new { PackedReuse = warm[packedReuse], FloatReuse = warm[floatReuse], BlendReuse = warm[blendReuse] },
                 new JsonSerializerOptions { WriteIndented = true }));
 
-        Call(spatial, "SetEnabled", false);
+        lastSource = null;
         var runningWorker = Field(spatial, "renderer") is { } owned ? Field(owned, "process") as Process : null;
         using var workerProbe = runningWorker is { HasExited: false } ? Process.GetProcessById(runningWorker.Id) : null;
+        enabled.IsChecked = false;
         await (Task)Call(spatial, "DrainPreviewWorkersAsync", CancellationToken.None)!;
         Check(workerProbe is null || workerProbe.HasExited, "active Viewer worker exits after measured navigation and explicit drain");
+        var draining = Stopwatch.GetTimestamp();
+        while (Field(spatial, "pending") is not null || Field(spatial, "pendingDraft") is not null)
+        {
+            if (Stopwatch.GetElapsedTime(draining) > TimeSpan.FromSeconds(10))
+                throw new TimeoutException("Viewer work survived the drain after disabling Spektrafilm.");
+            await Task.Delay(25);
+        }
+        Check(Field(spatial, "source") is null && Field(spatial, "renderedPixels") is null
+            && Field(spatial, "viewerFrame") is null && Prop(Field(spatial, "draftPyramid")!, "RetainedBytes") is 0L,
+            "disabling the master releases every active Viewer source, rendered buffer, display and draft cache");
+        await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
         var retained = sources.Count(item => item.IsAlive);
-        Check(retained <= 4, "all but the bounded current RAW frames are collectible after navigation and drain");
+        if (memoryTrace is not null)
+        {
+            var timeline = await memoryTrace.FinishAsync();
+            Check(timeline.Any(sample => sample.LiveWorkers > 0) && timeline.Any(sample => sample.LiveWorkers == 0)
+                && samples.All(visit => timeline.Any(sample => sample.Visit == visit.Index)),
+                "native-resolution memory sampling spans every visit and observes live and idle workers");
+            File.WriteAllText(Path.Combine(folder, "viewer-memory-timeline.json"), JsonSerializer.Serialize(new
+            {
+                Scope = "Actual parent and observed Preview worker processes only. Parent includes Capture One caches.",
+                PeakHostPrivateBytes = timeline.Max(sample => sample.HostPrivateBytes),
+                PeakWorkerPrivateBytes = timeline.Max(sample => sample.WorkerPrivateBytes),
+                PeakCombinedPrivateBytes = timeline.Max(sample => sample.HostPrivateBytes + sample.WorkerPrivateBytes),
+                PeakManagedBytes = timeline.Max(sample => sample.ManagedBytes),
+                Samples = timeline,
+            }, new JsonSerializerOptions { WriteIndented = true }));
+        }
         await VerifyViewerStageTimings(samples, quality);
         var detailed = new JsonSerializerOptions { WriteIndented = true };
         File.WriteAllText(Path.Combine(folder, "viewer-churn.json"), JsonSerializer.Serialize(new
@@ -242,6 +356,7 @@ public static partial class StartupHook
             MaxManagedBytes = samples.Max(s => s.ManagedBytes), RetainedSourceObjectsAfterDrain = retained,
             PostDrainManagedBytes = GC.GetTotalMemory(false), Samples = samples,
         }, detailed));
+        Check(retained == 0, "all sampled native RAW buffers are collectible after the Viewer and its workers are drained");
         File.WriteAllText(Path.Combine(folder, "first.passed"), $"PASS {checks} Viewer churn assertions; {visitCount} individually verified drawn frames");
 
         async Task<int> ChangeLookAndPaint(double filmStrength, double filmExposure)
@@ -310,8 +425,9 @@ public static partial class StartupHook
                 && entry.GetProperty("HostAssemblySha256").GetString() is { Length: 64 }
                 && !entry.TryGetProperty("VariantId", out _) && !entry.TryGetProperty("SourcePath", out _)
                 && double.IsFinite(total) && total >= measured.Sum() && measured.All(value => double.IsFinite(value) && value >= 0)
-                && timings[0].GetDouble() > 0 && timings[2].GetDouble() > 0
-                && (film ? timings[1].GetDouble() > 0 && worker.GetProperty("Request").GetUInt64() > 0
+                && timings[0].ValueKind == JsonValueKind.Number && timings[0].GetDouble() > 0
+                && timings[2].ValueKind == JsonValueKind.Number && timings[2].GetDouble() > 0
+                && (film ? timings[1].ValueKind == JsonValueKind.Number && timings[1].GetDouble() > 0 && worker.GetProperty("Request").GetUInt64() > 0
                     && worker.GetProperty("ProcessId").GetInt32() > 0 && worker.GetProperty("SourceUploaded").GetBoolean()
                     && worker.GetProperty("PackedDisplay").GetBoolean() == (visit.StrengthPercent == 100)
                     && worker.GetProperty("ParameterContract").GetString() is { Length: 64 }

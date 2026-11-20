@@ -328,7 +328,7 @@ internal static class HostImageSource
                     if (!string.Equals(Convert.ToHexString(SHA256.HashData(sourceProfile)), description.ProfileSha256, StringComparison.Ordinal))
                         throw new IOException("The input colour profile changed after the Capture One source was captured. Try the render again.");
                     return RenderOnScheduler(source, options, workToken);
-                }, () => SchedulerSlot.Release());
+                }, () => SchedulerSlot.Release(), out var result);
                 releaseSlot = false; // The request now owns release, including a running native callback.
                 try
                 {
@@ -337,7 +337,7 @@ internal static class HostImageSource
                     {
                         scheduler.RequestUpdates(new ImageCoreScheduler.JobAndListener(
                             variant, document, IcSchedulerHandle.ProcessingJobTypes.PreviewForPrint, listener, TimeSpan.Zero, request.Run));
-                        return request.Result.WaitAsync(workToken).GetAwaiter().GetResult();
+                        return result.WaitAsync(workToken).GetAwaiter().GetResult();
                     }
                     finally
                     {

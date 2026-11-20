@@ -2,6 +2,7 @@
 """Measure the Windows worker transport and renderer on deterministic synthetic pixels."""
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import ctypes
 from ctypes import wintypes
 import hashlib
@@ -99,7 +100,7 @@ def command_json(child, command):
 
 
 def run_case(executable, shape, scene, route, repetitions, timeout, simulated_cap_mib, hash_replies, tile_size,
-             source_change_interval):
+             source_change_interval, before_request=None):
     packed = route == "viewer"
     width, height = shape
     pixels = width * height
@@ -130,6 +131,8 @@ def run_case(executable, shape, scene, route, repetitions, timeout, simulated_ca
             mode = ("FRAME8" if packed else "FRAME") if send_source else ("REUSE8" if packed else "REUSE")
             command = (mode, str(width), str(height)) if send_source else (mode,)
             options = SCENES[scene] + ("--film-exposure", f"{iteration % 5 / 10:.1f}")
+            if before_request is not None:
+                before_request()
             started = time.perf_counter_ns()
             child.stdin.write((" ".join(command + options) + "\n").encode("ascii"))
             if send_source:
@@ -146,7 +149,8 @@ def run_case(executable, shape, scene, route, repetitions, timeout, simulated_ca
                 block = read_exact(child.stdout, min(BLOCK_BYTES, size - offset))
                 if digest is not None:
                     digest.update(block)
-            milliseconds = (time.perf_counter_ns() - started) / 1e6
+            finished = time.perf_counter_ns()
+            milliseconds = (finished - started) / 1e6
             diagnostic = command_json(child, b"METRICS")
             if diagnostic["schema"] != 1 or diagnostic["renderSequence"] != iteration + 1:
                 raise ValueError("The renderer diagnostic is stale or incompatible.")
@@ -154,6 +158,8 @@ def run_case(executable, shape, scene, route, repetitions, timeout, simulated_ca
                 "iteration": iteration + 1,
                 "sentSource": send_source,
                 "wallMs": milliseconds,
+                "startedNs": started,
+                "finishedNs": finished,
                 "replyBytes": size,
                 "workerMemory": process_memory(child.pid),
                 "renderer": diagnostic,
@@ -183,6 +189,41 @@ def run_case(executable, shape, scene, route, repetitions, timeout, simulated_ca
             child.wait(timeout=5)
         finally:
             child.stdout.close()
+
+
+def run_overlap(executable, viewer_size, export_size, scene, args):
+    sizes = {"viewer": viewer_size, "export": export_size}
+    options = (args.repetitions, args.case_timeout, args.simulate_gpu_cap_mib,
+               args.hash_replies, args.tile_size, args.source_change_interval)
+    serial = {route: run_case(executable, shape, scene, route, *options) for route, shape in sizes.items()}
+    barrier = threading.Barrier(2, timeout=args.case_timeout)
+
+    def paired(route, shape):
+        try:
+            return run_case(executable, shape, scene, route, *options, before_request=barrier.wait)
+        except BaseException:
+            barrier.abort()
+            raise
+
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        jobs = {route: workers.submit(paired, route, shape) for route, shape in sizes.items()}
+        overlap = {route: job.result() for route, job in jobs.items()}
+
+    windows_ms = []
+    for viewer, export in zip(overlap["viewer"]["measurements"], overlap["export"]["measurements"], strict=True):
+        start = max(viewer["startedNs"], export["startedNs"])
+        finish = min(viewer["finishedNs"], export["finishedNs"])
+        windows_ms.append(max(0, finish - start) / 1e6)
+    if any(duration <= 0 for duration in windows_ms):
+        raise ValueError("A paired request did not overlap the other worker's request window.")
+    parity = None
+    if args.hash_replies:
+        parity = {}
+        for route, case in serial.items():
+            hashes = [sample["replySha256"] for sample in case["measurements"]]
+            actual = [sample["replySha256"] for sample in overlap[route]["measurements"]]
+            parity[route] = hashes == actual
+    return {"serial": serial, "overlap": overlap, "overlapWindowMs": windows_ms, "replyHashesMatch": parity}
 
 
 def dimensions(value):
@@ -225,6 +266,8 @@ def main():
     parser.add_argument("--tile-size", type=dimensions, help="Override tile size in this worker for cases that use tiling.")
     parser.add_argument("--source-change-interval", type=int, default=0,
                         help="Alternate two source charts every N requests. Zero uploads only the first source.")
+    parser.add_argument("--overlap-preview", type=dimensions,
+                        help="Compare serial and paired Viewer/export worker requests. Use --size for the export canvas.")
     args = parser.parse_args()
     if os.name != "nt" or args.repetitions < 1 or args.case_timeout < 1:
         parser.error("Use Windows and positive repetition and timeout values.")
@@ -252,6 +295,18 @@ def main():
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("x", encoding="utf-8") as output:
         json.dump(result, output)
+    if args.overlap_preview:
+        result["overlapCases"] = []
+        for scene in args.scene or ("color",):
+            for size in args.size or ((6000, 4000),):
+                case = run_overlap(executable, args.overlap_preview, size, scene, args)
+                result["overlapCases"].append(case)
+                update_result(result, args.output)
+                for route, paired in case["overlap"].items():
+                    print(f"{route} {scene} {paired['width']}x{paired['height']} "
+                          f"serial p95={case['serial'][route]['warmP95Ms']} ms "
+                          f"overlap p95={paired['warmP95Ms']} ms", flush=True)
+        return
     for route in args.route or ("viewer", "export"):
         for scene in args.scene or ("color",):
             for shape in args.size or ((1200, 800), (3000, 2000), (6000, 4000)):

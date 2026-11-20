@@ -6,7 +6,6 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -1229,7 +1228,7 @@ internal sealed class SpatialPreview : IDisposable
                 if (sourceDisplay is null)
                 {
                     var bitmapStarted = Stopwatch.GetTimestamp();
-                    var display = await Task.Run(() => DecodeResult(input, null, 0, space, encoding.Id, job.Token), job.Token);
+                    var display = await Task.Run(() => ViewerDisplayBitmap.Convert(input, null, 0, space, encoding.Id, job.Token), job.Token);
                     job.Token.ThrowIfCancellationRequested();
                     sourceDisplay = display;
                     bitmapMs = Stopwatch.GetElapsedTime(bitmapStarted).TotalMilliseconds;
@@ -1275,7 +1274,7 @@ internal sealed class SpatialPreview : IDisposable
                     var bitmapStarted = Stopwatch.GetTimestamp();
                     var display = await Task.Run(() => packed is not null
                         ? CreateDisplayBitmap(input, packed)
-                        : DecodeResult(input, completedPixels, strength, space, encoding.Id, job.Token), job.Token);
+                        : ViewerDisplayBitmap.Convert(input, completedPixels, strength, space, encoding.Id, job.Token), job.Token);
                     job.Token.ThrowIfCancellationRequested();
                     renderedDisplay = display;
                     renderedStrength = strength;
@@ -1379,7 +1378,7 @@ internal sealed class SpatialPreview : IDisposable
             var receipt = worker.LastRender;
             var bitmapStarted = Stopwatch.GetTimestamp();
             var display = await Task.Run(() => packed ? CreateDisplayBitmap(frame, pixels)
-                : DecodeResult(frame, pixels, look.Strength, inputColor.Space, encoding.Id, stop), stop);
+                : ViewerDisplayBitmap.Convert(frame, pixels, look.Strength, inputColor.Space, encoding.Id, stop), stop);
             var bitmapMs = Stopwatch.GetElapsedTime(bitmapStarted).TotalMilliseconds;
             stop.ThrowIfCancellationRequested();
             if (version != inputRevision || DragLongEdge != dragEdge || OutputRenderActive
@@ -1449,7 +1448,7 @@ internal sealed class SpatialPreview : IDisposable
             var pixels = draftPixels;
             var bitmapStarted = Stopwatch.GetTimestamp();
             var output = await Task.Run(() => packed is null
-                ? DecodeResult(frame, pixels, look.Strength, inputColor.Space, encoding.Id, job.Token)
+                ? ViewerDisplayBitmap.Convert(frame, pixels, look.Strength, inputColor.Space, encoding.Id, job.Token)
                 : CreateDisplayBitmap(frame, packed), job.Token);
             var bitmapMs = Stopwatch.GetElapsedTime(bitmapStarted).TotalMilliseconds;
             job.Token.ThrowIfCancellationRequested();
@@ -1689,45 +1688,11 @@ internal sealed class SpatialPreview : IDisposable
         return args.ToArray();
     }
 
-    private static BitmapSource DecodeResult(HostImageSource.Frame frame, byte[]? bytes, double strength,
-        PreviewInputSpace space, string outputEncoding, CancellationToken token)
-    {
-        var pixels = ToDisplayPixels(frame, bytes, strength, space, outputEncoding, token);
-        return CreateDisplayBitmap(frame, pixels);
-    }
-
     private static BitmapSource CreateDisplayBitmap(HostImageSource.Frame frame, byte[] pixels)
     {
         var image = BitmapSource.Create(frame.Width, frame.Height, 96, 96, PixelFormats.Bgra32, null, pixels, frame.Width * 4);
         image.Freeze();
         return image;
-    }
-
-    private static byte[] ToDisplayPixels(HostImageSource.Frame original, byte[]? rendered, double strength,
-        PreviewInputSpace space, string outputEncoding, CancellationToken token)
-    {
-        var pixels = GC.AllocateUninitializedArray<byte>(original.FloatBytes.Length / sizeof(float));
-        var transform = new SrgbDelivery(space, outputEncoding, strength);
-        var rowWidth = original.Width * 4;
-        PreviewRows.Process(original.Width, original.Height, token, (first, last) =>
-        {
-            var source = MemoryMarshal.Cast<byte, float>(original.FloatBytes.AsSpan());
-            var floats = MemoryMarshal.Cast<byte, float>(rendered.AsSpan());
-            for (var y = first; y < last; y++)
-            {
-                token.ThrowIfCancellationRequested();
-                var start = y * rowWidth;
-                for (var i = start; i < start + rowWidth; i += 4)
-                {
-                    var rgb = transform.GetSrgb(source, floats, i);
-                    pixels[i] = (byte)Math.Round(rgb.Blue * 255);
-                    pixels[i + 1] = (byte)Math.Round(rgb.Green * 255);
-                    pixels[i + 2] = (byte)Math.Round(rgb.Red * 255);
-                    pixels[i + 3] = (byte)MathF.Round(255 * Math.Clamp(source[i + 3], 0, 1));
-                }
-            }
-        });
-        return pixels;
     }
 
     private static BitmapSource DecodeExport(HostImageSource.Frame frame, byte[]? rendered, double strength,
