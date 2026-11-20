@@ -35,7 +35,7 @@ internal sealed class ViewerPreview : IDisposable
     internal ViewerPreview(object window) => this.window = window;
     internal string? UnavailableReason { get; private set; }
     internal bool HasPainted => UnavailableReason is null && attachment is { HasDrawn: true } current
-        && ReferenceEquals(current.PaintedBitmap, current.Bitmap);
+        && ReferenceEquals(current.PaintedBitmap, current.Bitmap) && Availability(current) is null;
     internal event Action? StatusChanged;
     internal event Action<ViewerPixel?>? PixelChanged;
 

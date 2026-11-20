@@ -7,6 +7,7 @@ param(
     [Alias('ProofingSettingsConfig')][string] $NativeSettingsConfig,
     [switch] $CatalogIsolation,
     [switch] $ViewerLayouts,
+    [ValidateRange(0,200)][int] $ViewerChurn=0,
     [switch] $DurableSliderEdits,
     [string] $MetadataFixtureRoot,
     [switch] $SkipRestart,
@@ -24,6 +25,12 @@ if ($ViewerLayouts -and (!$NativeSettingsConfig -or $CatalogIsolation -or $Color
 }
 if ($DurableSliderEdits -and ($CatalogIsolation -or $ViewerLayouts -or $SkipRestart -or $ColorMatrix -or $CheckOrdinaryLaunch)) {
     throw 'The durable slider fixture requires its own first launch and restart.'
+}
+if ($ViewerChurn) {
+    if (!$NativeSettingsConfig -or $CatalogIsolation -or $ViewerLayouts -or $DurableSliderEdits -or $ColorMatrix -or $CheckOrdinaryLaunch -or $MetadataFixtureRoot) {
+        throw 'The Viewer churn probe requires a dedicated launch and a verified native settings backup.'
+    }
+    $SkipRestart=$true
 }
 if ($MetadataFixtureRoot) {
     if (!$NativeSettingsConfig -or $CatalogIsolation -or $ViewerLayouts -or $DurableSliderEdits -or $ColorMatrix -or $CheckOrdinaryLaunch) {
@@ -199,7 +206,7 @@ $testHook=$TestHookPath
 if(!(Test-Path -LiteralPath $testHook)){throw 'Build qa/HostSmoke and NativePanel first.'}
 Copy-Item -LiteralPath $testHook -Destination $runtime
 $testHook=Join-Path $runtime 'HostSmoke.dll'
-$names=@('DOTNET_STARTUP_HOOKS','SPEKTRAFILM_ROOT','SPEKTRAFILM_CATALOG','SPEKTRAFILM_DATA_ROOT','SPEKTRAFILM_PANEL_LOG','SPEKTRAFILM_HOST_SMOKE','SPEKTRAFILM_LAUNCH_ID','SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX','SPEKTRAFILM_SHOW_TOOL','SPEKTRAFILM_HOST_PROOF_TEST','SPEKTRAFILM_HOST_CATALOG_ISOLATION','SPEKTRAFILM_HOST_VIEWER_LAYOUTS','SPEKTRAFILM_HOST_DURABLE_EDITS','SPEKTRAFILM_HOST_METADATA_FIXTURE')
+$names=@('DOTNET_STARTUP_HOOKS','SPEKTRAFILM_ROOT','SPEKTRAFILM_CATALOG','SPEKTRAFILM_DATA_ROOT','SPEKTRAFILM_PANEL_LOG','SPEKTRAFILM_HOST_SMOKE','SPEKTRAFILM_LAUNCH_ID','SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX','SPEKTRAFILM_SHOW_TOOL','SPEKTRAFILM_HOST_PROOF_TEST','SPEKTRAFILM_HOST_CATALOG_ISOLATION','SPEKTRAFILM_HOST_VIEWER_LAYOUTS','SPEKTRAFILM_HOST_DURABLE_EDITS','SPEKTRAFILM_HOST_METADATA_FIXTURE','SPEKTRAFILM_HOST_VIEWER_CHURN')
 $prior=@{}
 foreach($name in $names){$prior[$name]=[Environment]::GetEnvironmentVariable($name,'Process')}
 $testError=$null
@@ -212,11 +219,12 @@ try {
     $env:SPEKTRAFILM_HOST_SMOKE=$folder
     $env:SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX=if($ColorMatrix){'1'}else{$null}
     $env:SPEKTRAFILM_SHOW_TOOL=if($ShowTool){'1'}else{$null}
-    $env:SPEKTRAFILM_HOST_PROOF_TEST=if($NativeSettingsConfig -and !$CatalogIsolation -and !$ViewerLayouts -and !$DurableSliderEdits -and !$MetadataFixtureRoot){'1'}else{$null}
+    $env:SPEKTRAFILM_HOST_PROOF_TEST=if($NativeSettingsConfig -and !$CatalogIsolation -and !$ViewerLayouts -and !$DurableSliderEdits -and !$MetadataFixtureRoot -and !$ViewerChurn){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_CATALOG_ISOLATION=if($CatalogIsolation){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_VIEWER_LAYOUTS=if($ViewerLayouts){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_DURABLE_EDITS=if($DurableSliderEdits){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_METADATA_FIXTURE=$MetadataFixtureRoot
+    $env:SPEKTRAFILM_HOST_VIEWER_CHURN=if($ViewerChurn){[string]$ViewerChurn}else{$null}
     $phases=if($CatalogIsolation){@('A-first','B-first','A-restart','B-restart')}elseif($SkipRestart -or $ViewerLayouts){@('first')}else{@('first','restart')}
     if (!$SkipRestart -and !$CatalogIsolation -and !$ViewerLayouts -and !$DurableSliderEdits) { [IO.File]::WriteAllText((Join-Path $folder 'verify-grain-restart.marker'), 'test only') }
     foreach($phase in $phases){
@@ -234,7 +242,7 @@ try {
             $status=Join-Path (Join-Path $folder 'Launch status') ($env:SPEKTRAFILM_LAUNCH_ID+'.json')
             $ready=Wait-SpektrafilmPanel $process $status $env:SPEKTRAFILM_LAUNCH_ID 90
             $ready | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $folder ($phase+'.ready.json'))
-            $deadline=[DateTime]::UtcNow.AddMinutes(4)
+            $deadline=[DateTime]::UtcNow.AddMinutes($(if($ViewerChurn){10}else{4}))
             $result=Join-Path $folder ($phase+'.passed')
             $failure=Join-Path $folder 'failed.txt'
             while(!(Test-Path -LiteralPath $result)){

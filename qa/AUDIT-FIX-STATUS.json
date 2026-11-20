@@ -1272,13 +1272,17 @@
       "priority": "P2",
       "status": "partial",
       "implemented": [
-        "Final source no longer waits for optional draft; obsolete settled renders are cancelled and transport serializes requests."
+        "Final source no longer waits for optional draft; obsolete settled renders are cancelled and transport serializes requests.",
+        "A real navigation test reproduced a previous image still reporting painted after a switch. Viewer readiness now rechecks exact current attachment availability rather than relying on cached flag state. The revised licensed test passed 100 settled visits and 30 interleaved selections without any obsolete painted identity."
       ],
       "evidence_paths": [
         "NativePanel/RenderCoordination.cs",
         "NativePanel/SpatialPreview.cs",
         "tests/ViewerContracts",
-        "tests/renderer"
+        "tests/renderer",
+        ".test-results/host-viewer-100-visits-current-paint-20261120/viewer-churn.json",
+        "qa/HostSmoke/ViewerChurn.cs",
+        ".test-results/host-viewer-identity-guard-20261120/host-smoke.log"
       ],
       "remaining_work": [
         "Implement the broader generation-aware latest-request scheduler, adaptive watchdog, retries and exhaustive out-of-order publication tests; no latency improvement claim."
@@ -1349,7 +1353,8 @@
         "Independent process-kill fixtures verified both sides of the atomic replace. They loaded the exact previous bytes after termination following a flushed temporary write and the new bytes after a completed replace.",
         "A licensed Capture One fixture acknowledged and reread every one of 10,000 real WPF control changes across four RAW variants and 100 image visits, then forced process termination. The restarted panel restored all three last acknowledged values, the master switches and byte-identical look files.",
         "With Viewer work paused to isolate persistence, the actual native WPF change plus acknowledgement measured p50 3.10 ms, p95 3.76 ms, p99 6.42 ms and a 97.24 ms maximum. Selection plus load measured p50 7.78 ms, p95 25.33 ms and p99 28.34 ms.",
-        "Repeated 10,000 licensed WPF writes after adding the verified previous generation. Every accepted edit matched the file and the latest state of all four RAW variants survived forced termination. The event/save p50 was 5.66 ms, p95 6.47 ms, p99 7.29 ms and maximum 24.54 ms with the Viewer worker paused. The previous save path had p95 3.76 ms."
+        "Repeated 10,000 licensed WPF writes after adding the verified previous generation. Every accepted edit matched the file and the latest state of all four RAW variants survived forced termination. The event/save p50 was 5.66 ms, p95 6.47 ms, p99 7.29 ms and maximum 24.54 ms with the Viewer worker paused. The previous save path had p95 3.76 ms.",
+        "Observed 100 actual WPF edit/save acknowledgements with the Viewer running during 100 licensed visits. P50 6.01 ms, p95 7.02 ms, p99 7.34 ms and maximum 7.65 ms; every edit was read back from the same variant and no pending writes remained."
       ],
       "evidence_paths": [
         "NativePanel/VariantLookStore.cs",
@@ -1367,7 +1372,8 @@
         ".test-results/host-10000-restart-20261120/edit-latency.json",
         ".test-results/host-10000-restart-20261120/last-acknowledged.json",
         ".test-results/host-10000-restart-20261120/restart.passed",
-        ".test-results/host-10000-edits-previous-generation-20261120/edit-latency.json"
+        ".test-results/host-10000-edits-previous-generation-20261120/edit-latency.json",
+        ".test-results/host-viewer-100-visits-current-paint-20261120/viewer-churn.json"
       ],
       "remaining_work": [
         "Evaluate an ordered durable generation journal and background compaction against the measured WPF latency. Preserve every acknowledged edit and normal backup semantics. Measure live Viewer contention separately.",
@@ -1693,18 +1699,19 @@
       "status": "partial",
       "implemented": [
         "The existing shared managed RAM model gates native development, worker transport and encoding by Windows physical and commit headroom. The Vulkan stage uses separate measured adapter headroom.",
-        "The existing Auto Viewer choice uses native projection and the same managed headroom. Viewer refresh retains one active source plus the bounded draft and display caches, and waits for workers to exit before accepting competing output work."
+        "The existing Auto Viewer choice uses native projection and the same managed headroom. Viewer refresh retains one active source plus the bounded draft and display caches, and waits for workers to exit before accepting competing output work.",
+        "Measure 100 settled Capture One visits on DNG, NEF, RAF and CR3 at 2048 px and strength 0%, 50% and 100%. The same-process peak was 7,934,210,048 host private bytes, 700,862,464 worker private bytes and 958,644,384 managed bytes. After explicit drain, the process exited, all 100 sampled source objects became collectible and managed use measured 160,011,408 bytes. Host private bytes include Capture One’s own caches."
       ],
       "evidence_paths": [
         "NativePanel/RenderMemoryBudget.cs",
         "NativePanel/ViewportQuality.cs",
         "NativePanel/SpatialPreview.cs",
         ".test-results/contracts-grain-backup-policy-20261119/ViewerContracts.log",
-        ".test-results/host-auto-viewport-quality-20261120/host-smoke.log"
+        ".test-results/host-auto-viewport-quality-20261120/host-smoke.log",
+        ".test-results/host-viewer-100-visits-current-paint-20261120/viewer-churn.json"
       ],
       "remaining_work": [
-        "Measure retained managed, native and worker ownership through 100 switches and quantify 24/45/61MP at strength 0, 0.5 and 1.",
-        "Enforce cache byte budgets and explicit lifetime ownership beyond the current request-stage memory reservations. Evaluate any pooled or shared transport only after proving cancellation and process-exit release."
+        "Measure a comparable native-only baseline and 24/45/61 MP at all strength values. Separate process-private memory attributable to Capture One from managed film buffers, and finalize enforced cache budgets and lifetime ownership across overlapping contexts."
       ],
       "original_acceptance_tests": [
         "Allocation traces for 24/45/61MP at strength 0,0.5,1 and repeated switches; bound retained memory after GC/worker idle.",
@@ -1730,7 +1737,8 @@
         "A deterministic 24 MP CPU export benchmark separates the final 16-bit conversion from native RAW development, Vulkan and writing. Cold/warm CPU and allocation matrices are independently runnable.",
         "Worker diagnostics distinguish automatic exposure work and reuse. A repeatable 100-request scene records each hit, stage time and private memory usage.",
         "A deterministic 600-second on-disk log benchmark verified the diagnostic enqueue path independently of Capture One. Across 148,608 messages per logger, writable and locked destinations did not block producers. P99 was 0.0036 ms for two enqueues with a 0.4652 ms maximum.",
-        "The opt-in protocol reports strictly ordered real worker stages tied to a monotonic request ID. Actual GPU and bounded malformed-reply tests validate the order, and the parent ignores publication from a canceled request."
+        "The opt-in protocol reports strictly ordered real worker stages tied to a monotonic request ID. Actual GPU and bounded malformed-reply tests validate the order, and the parent ignores publication from a canceled request.",
+        "In a licensed 100-visit run, event to settled native paint measured p50 395.68 ms, p95 865.12 ms and max 1658.03 ms at 2048 px. A live Viewer was active, and three strength settings and four RAW formats are keyed in the per-visit machine-readable receipt."
       ],
       "evidence_paths": [
         "ofx-still-renderer/main.cpp",
@@ -1745,7 +1753,8 @@
         ".test-results/export-pixels-20261120.json",
         ".test-results/metering-100-edits-20261120.json",
         ".test-results/panel-log-ten-minute-20261120/measurement.json",
-        ".test-results/cooperative-vulkan-runtime-20261120/tile-cancel.json"
+        ".test-results/cooperative-vulkan-runtime-20261120/tile-cancel.json",
+        ".test-results/host-viewer-100-visits-current-paint-20261120/viewer-churn.json"
       ],
       "remaining_work": [
         "No structured end-to-end event model, shared request identity, p50/p95 benchmark matrix or UI latency budget yet.",
@@ -2250,7 +2259,8 @@
         "Tracked pure/GPU/host probes establish initial correctness evidence and retain explicit skipped prerequisites.",
         "Windows worker benchmark saves per-request transport wall time, renderer stages and Vulkan allocations, working-set/commit samples, cold request versus reused-source edit percentiles, and renderer fingerprint in machine-readable JSON.",
         "Added an opt-in native RAW quality matrix for four actual cameras and four working spaces, with raw frame and independent colour metrics written as machine-readable evidence.",
-        "Four real RAW cameras passed same-stage native TIFF/bitmap RGB16 parity and embedded ICC checks using the audited package. The agreed exact sample count is 2,004,657 channel codes."
+        "Four real RAW cameras passed same-stage native TIFF/bitmap RGB16 parity and embedded ICC checks using the audited package. The agreed exact sample count is 2,004,657 channel codes.",
+        "The licensed 2048 px navigation matrix now records 100 visits, four RAW formats, three strengths, 30 interleaved selections, verified exact frame ownership, per-visit timing and memory snapshots. Native capture and hardware baselines beyond this RTX 3090 remain open."
       ],
       "evidence_paths": [
         "tests",
@@ -2263,7 +2273,8 @@
         "qa/HostSmoke/ColorMatrix.cs",
         "qa/analyze-native-colour.py",
         ".test-results/host-native-colour-matrix-20261120/color-matrix/common-srgb.json",
-        ".test-results/host-native-tiff-exact-20261120/color-matrix/native-tiff-comparison.json"
+        ".test-results/host-native-tiff-exact-20261120/color-matrix/native-tiff-comparison.json",
+        ".test-results/host-viewer-100-visits-current-paint-20261120/viewer-churn.json"
       ],
       "remaining_work": [
         "No complete end-to-end hardware/source-format performance and quality acceptance matrix or release budgets yet.",
