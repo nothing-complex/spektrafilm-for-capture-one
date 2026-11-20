@@ -733,7 +733,8 @@
         "Public GitHub Windows workflow passed all seven suites, including six PowerShell child-environment regression assertions.",
         "Ported the independent nonconstant fractional resampling check to the ordinary Windows contract runner.",
         "Stabilized fake renderer cancellation by explicit request markers. Added a deterministic disposable-host late callback seam with abort and no-output replacement tests.",
-        "Reproducible host-independent tests include callback faults, queued cancellation, late delivery and 200 concurrent cancellation/delivery races. Public CI runs fixture-only contracts without licensed binaries and reports host/GPU as distinct tiers."
+        "Reproducible host-independent tests include callback faults, queued cancellation, late delivery and 200 concurrent cancellation/delivery races. Public CI runs fixture-only contracts without licensed binaries and reports host/GPU as distinct tiers.",
+        "The disposable licensed harness can now consume a complete manifest-verified packaged runtime. Actual packaged panel/renderer hashes match the copied binaries, and the built package passed 183 initial, 188 restart and 91 RAW matrix assertions."
       ],
       "evidence_paths": [
         "Test-Windows.ps1",
@@ -745,7 +746,10 @@
         ".test-results/contracts-audit-resolution-20261119/summary.json",
         ".test-results/contracts-audit-integrity-20261119/summary.json",
         ".test-results/contracts-memory-admission-20261119/summary.json",
-        "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44622033511"
+        "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44622033511",
+        "qa/HostSmoke/Run-HostSmoke.ps1",
+        ".test-results/host-audit4-exact-package-20261120/host-smoke.log",
+        ".test-results/host-native-adjustments-restored-20261120/host-smoke.log"
       ],
       "remaining_work": [],
       "original_acceptance_tests": [
@@ -873,7 +877,9 @@
         "A licensed native RAW matrix exercised Canon CR3, Fujifilm RAF, Nikon NEF and Ricoh DNG in sRGB, Adobe RGB, ProPhoto RGB and Linear Rec.2020. All 16 cases used high-depth Capture One development with the same per-image geometry, converted to float32 and rendered a finite linear Rec.709 film result with exact alpha.",
         "An independent Colour Science transform mapped each declared profile to common sRGB. Over comparable in-gamut regions, it lowered p95 error versus misreading the native codes as sRGB in every case. Adobe and ProPhoto p95 ranged 0.000685–0.008187. Linear Rec.2020 p95 ranged 0.006365–0.033348 across these files.",
         "All source RAW checksums matched the pre-existing published sample list. The source catalog hash remained unchanged.",
-        "Each captured frame carries a typed input encoding, actual ICC SHA-256, variant UUID, source extension and native adjustment revision. Draft reductions retain that description. Viewer source reuse checks the exact variant, encoding, dimensions request and native revision; export validates the copied descriptor against its captured snapshot. All 16 native frames declared the expected identity and each encoding had one distinct ICC fingerprint across cameras."
+        "Each captured frame carries a typed input encoding, actual ICC SHA-256, variant UUID, source extension and native adjustment revision. Draft reductions retain that description. Viewer source reuse checks the exact variant, encoding, dimensions request and native revision; export validates the copied descriptor against its captured snapshot. All 16 native frames declared the expected identity and each encoding had one distinct ICC fingerprint across cameras.",
+        "The packaged runtime passed 95 licensed RAW checks. The four cameras record their actual Capture One input profile names and ICC hashes: RicohGR3-Generic, NikonZ6-ProStandard, FujiXT4-Generic and CanonEOSR-ProStandard. The native exposure, white balance and highlights tests operate on copied variants and restore exact white balance multipliers as well as adjustment values.",
+        "At the selected Linear Rec.2020 developed output, +1 EV produced median linear-luminance gains from 1.94 to 2.58 and −1 EV produced 0.316 to 0.369. Gains varied across each image’s interior midtones, verifying that these transfer-encoded-linear pixels retain Capture One’s developed-image tone behavior. White balance moves changed channel values and highlight recovery changed thousands of bright, finite pixels without changing alpha or canvas geometry."
       ],
       "evidence_paths": [
         "NativePanel/HostImageSource.cs",
@@ -888,11 +894,14 @@
         ".test-results/host-frame-description-matrix-20261120/color-matrix/matrix.json",
         ".test-results/host-frame-description-matrix-20261120/color-matrix/profile-identities.txt",
         ".test-results/host-frame-description-matrix-20261120/color-matrix/common-srgb.json",
-        ".test-results/host-frame-description-20261120/host-smoke.log"
+        ".test-results/host-frame-description-20261120/host-smoke.log",
+        "qa/analyze-native-adjustments.py",
+        ".test-results/host-native-camera-icc-20261120/host-smoke.log",
+        ".test-results/host-native-camera-icc-20261120/color-matrix/adjustment-report.json"
       ],
       "remaining_work": [
-        "Fill out any additional profile and pipeline-stage diagnostics. Verify descriptor coverage for all render caches and how an externally replaced ICC profile should be invalidated during an open document.",
-        "Add calibrated exposure ramp, white balance, highlight recovery and same-stage native TIFF comparisons. Verify any earlier scene-linear host seam before adding a scene-linear or camera-log label."
+        "Complete the pipeline-stage descriptor and verify its coverage for all caches, including how an externally replaced ICC profile is invalidated during an open document.",
+        "Compare a native same-stage TIFF on identical settings. A calibrated sensor chart and an earlier scene-linear host seam remain open. The declared input remains Capture One-developed RGB."
       ],
       "original_acceptance_tests": [
         "Camera profile/WB/highlight recovery and ICC source cases",
@@ -1702,15 +1711,20 @@
       "id": "VE-15",
       "title": "Separate source development invalidation from presentation-only changes",
       "priority": "P3",
-      "status": "pending",
-      "implemented": [],
-      "evidence_paths": [],
+      "status": "partial",
+      "implemented": [
+        "Native exposure, highlight and white balance settings each changed the immutable source revision on CR3, RAF, NEF and DNG. Reopened snapshots confirm the resulting pixels changed while dimensions and alpha stayed stable.",
+        "Existing native rotate, mirror and keystone fixtures verify correct fresh developed pixels. The Viewer reuses the exact source variant, working space, capture dimensions and native revision. Pure tests show pan translation alone keeps projected source resolution stable."
+      ],
+      "evidence_paths": [
+        "NativePanel/HostImageSource.cs",
+        "NativePanel/ViewerGeometry.cs",
+        ".test-results/host-native-camera-icc-20261120/host-smoke.log",
+        ".test-results/host-audit4-exact-package-20261120/host-smoke.log"
+      ],
       "remaining_work": [
-        "Instrument host counters and semantic settings changes for pan, zoom, crop, rotation, keystone, lens correction, native grain and exposure.",
-        "Build SourceKey from all and only source-affecting settings, with conservative fallback to existing counters for unknown fields.",
-        "Use PresentationKey for viewport clip/transform, DisplayKey for monitor/proof, FilmKey for optical parameters and EncodingKey for output.",
-        "Keep crop changes source-free only when full-canvas rendered pixels and spatial coordinate semantics truly remain identical.",
-        "Measure CPU/GPU savings for crop-heavy editing against exact pixel comparison."
+        "Observe actual Viewer pan/zoom and clip changes with render counters and separate presentation keys. Add exact crop, lens correction, native Grain and unknown-adjustment cases to the cross-camera mutation matrix.",
+        "Confirm when crop can retain the full-canvas source without stale optical coordinates. Record presentation and monitor/proof dependencies separately from native revision."
       ],
       "original_acceptance_tests": [
         "Mutation matrix of native tools; each change invalidates the right stages and never reuses stale source.",
@@ -2294,7 +2308,8 @@
         "Fresh complete clean ffc4819 build, renderer smoke,146-file package allowlist/hash verification,17 runtime-file verification, extracted and installed checks passed. Archive checksum is recorded in delivery.package.",
         "Built the exact clean 8bb999e commit twice, including a fresh detached checkout. Generated curves/counts/tables and all packaged shader bytes matched. Recorded C# and native PE binary differences and the 19 source files with only checkout line-ending differences.",
         "Verified explicit ZIP content allowlist and corresponding source link. The original package survived separate tamper probes for a shader, two tables, stocks, helper, panel and host manifest. It installed and ran CheckOnly in isolated folders; branded shortcut points to that installed copy.",
-        "Packaged clean bb0c19e as audit.3 and verified 150 payload records, 19 runtime records, capability metadata, installer, shortcut and Vulkan smoke in an isolated installation."
+        "Packaged clean bb0c19e as audit.3 and verified 150 payload records, 19 runtime records, capability metadata, installer, shortcut and Vulkan smoke in an isolated installation.",
+        "Development 0.2.0-audit.4 was built from clean b1766d0, including renderer protocol 2. The ZIP matches its SHA-256, contains all 151 payload and 19 critical runtime records, rejects a changed capability file, and passed isolated Windows PowerShell 5.1 installation and shortcut verification, actual Vulkan, 558 parameter probes and the 480-render spectral matrix. The regular installation stays at ffc4819."
       ],
       "evidence_paths": [
         "ReleaseManifest.ps1",
@@ -2307,7 +2322,11 @@
         ".test-results/package-tamper-20261119/tamper-report.json",
         ".test-results/build-clean-repro-8bb999e.log",
         ".test-results/audit3-package-verify-20261120/result.json",
-        ".test-results/audit3-complete-build-20261120.log"
+        ".test-results/audit3-complete-build-20261120.log",
+        ".test-results/audit4-package-verify-20261120/result.json",
+        ".test-results/audit4-package-verify-20261120/managed-gpu.log",
+        ".test-results/audit4-package-verify-20261120/parameter-matrix.log",
+        ".test-results/audit4-package-verify-20261120/spectral-matrix.log"
       ],
       "remaining_work": [],
       "original_acceptance_tests": [
@@ -2634,7 +2653,8 @@
         "Observed GitHub Windows contracts success run43916882324 on ffc4819; no secrets or licensed host binaries are required.",
         "Public Windows contracts now run on separate Server 2022 and Server 2025 runners with read-only permissions and no persisted checkout credentials.",
         "Both CI images passed 12,297 fixture assertions after normalizing the worker EOF/cancellation race. Both ran the symbolic-link fixture.",
-        "Windows 2022 and 2025 passed startup and selective preset checkpoints. Diagnosed a prior Windows 2022-only backup collision and added a deterministic frozen-clock regression."
+        "Windows 2022 and 2025 passed startup and selective preset checkpoints. Diagnosed a prior Windows 2022-only backup collision and added a deterministic frozen-clock regression.",
+        "Windows Contracts succeeded for the exact audit.4 source commit that passed the separately licensed packaged host matrix."
       ],
       "evidence_paths": [
         ".github/workflows/contracts.yml",
@@ -2644,7 +2664,8 @@
         ".github/workflows/contracts.yml",
         "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44623654332",
         "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44630864725",
-        "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44632131352"
+        "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44632131352",
+        "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44647341973"
       ],
       "remaining_work": [
         "Verify a real outside-fork PR. Finish automated release gating through tagged build provenance and retain a separate exact licensed-host matrix."
@@ -2800,8 +2821,8 @@
   "counts": {
     "total": 70,
     "implemented": 20,
-    "partial": 41,
-    "pending": 9
+    "partial": 42,
+    "pending": 8
   },
   "last_reconciled": "2026-11-20",
   "handover": "HANDOVER.md",
@@ -2840,20 +2861,27 @@
     "original_test_catalog_hash_unchanged": true,
     "local_evidence_note": "Paths under .test-results/build/dist are ignored local artifacts and are not present in a public clone.",
     "latest_development_package": {
-      "version": "0.2.0-audit.3",
-      "archive": "dist/Spektrafilm-for-Capture-One-v0.2.0-audit.3-windows-x64.zip",
-      "sha256": "72daea1a947362d14ea759f97a633b7c225b962bf372ebd4c080b3ad819dd6cc",
+      "version": "0.2.0-audit.4",
+      "archive": "dist/Spektrafilm-for-Capture-One-v0.2.0-audit.4-windows-x64.zip",
+      "sha256": "dd615403a6fd584c024b4d91d3774aadfc4c219caf4e548c3aa3a8d69bb5423b",
       "source": {
-        "commit": "bb0c19e672aee861c74a03c7bb970c31d85a9180",
+        "commit": "b1766d0c954e59c6dfb4a72ed0ad659f94326d73",
         "dirty": false,
-        "treeDigest": "6a504b9caf2290b917e7839cb03b0d4867238686852fd78989284cbd572097b6"
+        "treeDigest": "8c15df03bdf5ee4878ead5478f9e92d24cc6e55292b9e3d002288966deaea6f2"
       },
-      "verified_package_entries": 150,
+      "verified_package_entries": 151,
       "verified_runtime_entries": 19,
-      "renderer_description_sha256": "dc1e4da9377be4c8cb818d241f2683784ae2116f93e1f86258ab50891db4ed98",
+      "renderer_protocol": 2,
+      "renderer_description_sha256": "d038c5c9996ff86f9b9d37ce1146a382a733ac11247e1756a97d5ddfb669b614",
       "isolated_install_and_checkonly": "passed",
+      "exact_package_host_tests": {
+        "first_launch": 183,
+        "restart": 188,
+        "raw_matrix": 95
+      },
+      "remote_windows_contracts": "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44647341973",
       "normal_installed_revision": "ffc481988eb2e6e7ef7a1379486c4a8b2656ac81",
-      "receipt": ".test-results/audit3-package-verify-20261120/result.json"
+      "receipt": ".test-results/audit4-package-verify-20261120/result.json"
     }
   },
   "completed_milestones": [

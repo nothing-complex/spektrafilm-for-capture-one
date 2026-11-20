@@ -1,12 +1,12 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 20 bounded primary fixes implemented, 41 partial items and 9 pending items. It includes feasibility investigations and enhancements.
+Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 20 bounded primary fixes implemented, 42 partial items and 8 pending items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
 1. Read this file, `AGENTS.md` and `qa/AUDIT-FIX-STATUS.json` before changing code. The JSON is the authoritative task-progress ledger; its `remaining_work` and original acceptance tests matter more than a short status label.
 2. Check `git status`, current branch and PR head. Do not discard existing edits or switch the installed build merely because this documentation has a newer commit.
-3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP identifies clean source `bb0c19e`. Its verification used an isolated installation. The normal app stayed on `ffc4819`.
+3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP identifies clean source `b1766d0`. Its verification used an isolated installation. The normal app stayed on `ffc4819`.
 4. Choose an unresolved task and an exact ownership boundary. Do not repeat the completed installation, crash test or old defect reproductions as if nothing had happened.
 5. Update task evidence and the delivery ledger at each completed milestone. Never mark a broad parent task complete because one mitigation shipped.
 
@@ -450,6 +450,24 @@ Evidence is under `.test-results/contracts-high-depth-final-20261120`, `.test-re
 - [ ] Verify native crop, mask, focus and annotation modes independently. Monitor proofing and native analytic service integration remain open.
 
 Evidence is under `.test-results/contracts-viewer-analysis-edges-20261120` and `.test-results/host-viewer-analysis-painter-20261120`.
+
+## Development package with protocol 2 and Viewer analysis
+
+- [x] Build `0.2.0-audit.4` from clean `b1766d0c954e59c6dfb4a72ed0ad659f94326d73`. The source digest is `8c15df03bdf5ee4878ead5478f9e92d24cc6e55292b9e3d002288966deaea6f2`. The ZIP SHA-256 is `dd615403a6fd584c024b4d91d3774aadfc4c219caf4e548c3aa3a8d69bb5423b`.
+- [x] Verify all 151 payload and 19 essential runtime entries. Reject a changed compiled description. Install into a disposable folder and verify its film-icon shortcut, Windows PowerShell 5.1 launcher and Vulkan check. Pass 19 managed GPU checks, 558 parameter probes and 480 spectral renders.
+- [x] Pass the licensed host suite using the installed package’s exact panel and renderer binaries. There were 183 new-launch, 188 restart and 95 RAW colour checks. The tested catalog files retained their original hashes. [Windows Contracts](https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44647341973) passed for the packaged source.
+- [x] Confirm the regular installation still identifies `ffc4819`. This ZIP is a local development package. The source changes remain on the draft PR branch.
+
+Use `Run-HostSmoke.ps1 -PackagedRuntime <installed-or-extracted-package> -SourceCatalog <copied-catalog>` to copy the exact verified binaries into a new host test fixture. Evidence is under `.test-results/audit4-package-verify-20261120` and `.test-results/host-audit4-exact-package-20261120`.
+
+## Native camera adjustments and ICC identity
+
+- [x] Run the four RAW cameras through the installed development package. Record the actual Capture One camera ICC names and byte hashes. A separate analysis independently verifies the working-profile transforms.
+- [x] Vary native exposure by one stop in each direction, then test white balance and highlight recovery. The 95-check suite verifies changed source revisions, unchanged canvas and alpha, and exact restoration of the native adjustment values and white balance multipliers on the copies.
+- [x] Measure the Linear Rec.2020 developed data. Median +1 EV gain was 1.94–2.58 and −1 EV gain was 0.316–0.369, with gains varying within each image. Those values describe Capture One’s native developed response.
+- [ ] Compare a same-stage native TIFF under identical settings. Calibrated sensor-chart and earlier host seams remain open.
+
+Evidence is under `.test-results/host-native-camera-icc-20261120` and `.test-results/host-native-adjustments-restored-20261120`. Run `python qa/analyze-native-adjustments.py <results>/color-matrix` to reproduce the exposure and white balance report.
 
 ## Status maintenance
 

@@ -1,10 +1,12 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -13,15 +15,20 @@ public static partial class StartupHook
 {
     private sealed record ColorProbe(string Source, string InputEncoding, int Width, int Height, string ProfileSha256,
         string NativePixels, string FilmPixels);
+    private sealed record AdjustmentProbe(string Source, string CameraProfile, string CameraProfileSha256, int Width, int Height,
+        double Exposure, double Temperature, double Highlight, double MinusEv, double PlusEv, double WarmTemperature, double RecoveredHighlight,
+        Dictionary<string, string> Pixels);
 
     private static async Task RunColorMatrix(Assembly assembly, object panel, object window, object spatial)
     {
         var directory = Path.Combine(folder, "color-matrix");
         Directory.CreateDirectory(directory);
         var matrix = new List<ColorProbe>();
+        var adjustments = new List<AdjustmentProbe>();
         var document = Field(panel, "document")!;
         var core = AppDomain.CurrentDomain.GetAssemblies().Single(item => item.GetName().Name == "P1.C1.Core");
         var provider = core.GetType("P1.C1.Core.Interfaces.ISelectedCollectionsProvider", true)!;
+        var coreVariant = core.GetType("P1.C1.Core.ICoreVariant", true)!;
         var collection = provider.GetProperty("PrimarySelectedCollection")!.GetValue(document)!;
         var variants = ((IEnumerable)core.GetType("P1.C1.Core.ModelEntities.ISimpleCollection", true)!
             .GetMethod("GetAllFilteredAndVisibleVariants")!.Invoke(collection, null)!).Cast<object>().ToArray();
@@ -75,9 +82,93 @@ public static partial class StartupHook
                 File.WriteAllBytes(Path.Combine(directory, filmFile), film);
                 matrix.Add(new ColorProbe(source, encoding, width, height, digest, rawFile, filmFile));
             }
+            adjustments.Add(await ProbeNativeAdjustments(source, item, target, dimensions!.Value, capture, window,
+                Enum.Parse(colorEnum, "LinearRec2020"), coreVariant, directory));
         }
         Check(remaining.Count == 0 && matrix.Count == 16, "all four camera RAW formats exercised with all four native working profiles");
         File.WriteAllText(Path.Combine(directory, "matrix.json"), JsonSerializer.Serialize(matrix, new JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllText(Path.Combine(directory, "native-adjustments.json"),
+            JsonSerializer.Serialize(adjustments, new JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    private static async Task<AdjustmentProbe> ProbeNativeAdjustments(string source, object variant, object target,
+        (int Width, int Height) dimensions, MethodInfo capture, object window, object space, Type coreVariant, string directory)
+    {
+        var exposure = coreVariant.GetProperty("Exposure")!;
+        var temperature = coreVariant.GetProperty("WhiteBalanceTemperature")!;
+        var whiteBalance = coreVariant.GetProperty("WhiteBalance")!;
+        var highlight = coreVariant.GetProperty("HighlightRecovery")!;
+        var originalExposure = exposure.GetValue(variant)!;
+        var originalTemperature = temperature.GetValue(variant)!;
+        var originalWhiteBalance = whiteBalance.GetValue(variant)!;
+        var originalHighlight = highlight.GetValue(variant)!;
+        var cameraProfile = coreVariant.GetProperty("ColorProfile")!.GetValue(variant)!;
+        var profileName = (string)Prop(cameraProfile, "displayName")!;
+        var profilePath = (string?)Prop(cameraProfile, "FilePathInLibrary");
+        var embeddedProfile = Prop(cameraProfile, "rawData") as byte[];
+        var cameraProfileSha256 = embeddedProfile is { Length: > 0 }
+            ? Convert.ToHexString(SHA256.HashData(embeddedProfile))
+            : File.Exists(profilePath) ? Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(profilePath!))) : "";
+        Check(!string.IsNullOrWhiteSpace(profileName) && cameraProfileSha256.Length == 64,
+            $"{source} identifies its actual camera ICC profile '{profileName}'");
+        var startExposure = Convert.ToDouble(originalExposure, CultureInfo.InvariantCulture);
+        var startTemperature = Convert.ToDouble(originalTemperature, CultureInfo.InvariantCulture);
+        var startHighlight = Convert.ToDouble(originalHighlight, CultureInfo.InvariantCulture);
+        var warmer = Math.Min(20_000, startTemperature + 1200);
+        var recover = startHighlight < 60 ? 75 : 10;
+        var evidence = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        void Set(PropertyInfo property, double value) =>
+            property.SetValue(variant, Convert.ChangeType(value, property.PropertyType, CultureInfo.InvariantCulture));
+
+        async Task<(object Revision, byte[] Bytes)> Develop(string label)
+        {
+            var snapshot = capture.Invoke(null, new[] { window, target, space, false })!;
+            var frame = (await Task.Run(() => Call(snapshot, "RenderScaledPreview", 480, CancellationToken.None)))!;
+            var bytes = (byte[])Prop(frame, "FloatBytes")!;
+            Check(Prop(frame, "BitDepth") is 16 && Equals(Prop(frame, "Width"), dimensions.Width)
+                && Equals(Prop(frame, "Height"), dimensions.Height), $"{source} {label} native tone probe retains its exact high-depth geometry");
+            var filename = source + "-adjustment-" + label + ".f32";
+            File.WriteAllBytes(Path.Combine(directory, filename), bytes);
+            evidence.Add(label, filename);
+            return (Prop(snapshot, "AdjustmentKey")!, bytes);
+        }
+
+        try
+        {
+            var original = await Develop("original");
+            Set(exposure, startExposure - 1);
+            var darker = await Develop("minus-ev");
+            Set(exposure, startExposure + 1);
+            var brighter = await Develop("plus-ev");
+            Set(highlight, recover);
+            var recovered = await Develop("highlight-recovery");
+            highlight.SetValue(variant, originalHighlight);
+            exposure.SetValue(variant, originalExposure);
+            Set(temperature, warmer);
+            var warm = await Develop("warmer-wb");
+            var cases = new[] { original, darker, brighter, recovered, warm };
+            Check(cases.Select(item => item.Revision).Distinct().Count() == cases.Length,
+                $"{source} native exposure, highlight and white balance each invalidate the source identity");
+            Check(ValidPixels(original.Bytes, darker.Bytes) && ValidPixels(original.Bytes, brighter.Bytes)
+                && ValidPixels(brighter.Bytes, recovered.Bytes) && ValidPixels(original.Bytes, warm.Bytes),
+                $"{source} exposure, white balance and recovery change finite RGB while preserving alpha");
+        }
+        finally
+        {
+            exposure.SetValue(variant, originalExposure);
+            highlight.SetValue(variant, originalHighlight);
+            temperature.SetValue(variant, originalTemperature);
+            // Restore the native multipliers last. Kelvin is a derived value,
+            // and setting it rounds the coefficients through the temperature model.
+            whiteBalance.SetValue(variant, originalWhiteBalance);
+        }
+        var finalTemperature = Convert.ToDouble(temperature.GetValue(variant), CultureInfo.InvariantCulture);
+        Check(Equals(exposure.GetValue(variant), originalExposure) && Equals(highlight.GetValue(variant), originalHighlight)
+            && Equals(whiteBalance.GetValue(variant), originalWhiteBalance) && Math.Abs(finalTemperature - startTemperature) <= .02,
+            $"{source} disposable tone probes restore the native values and white balance multipliers ({startTemperature:F2}→{finalTemperature:F2} K)");
+        return new AdjustmentProbe(source, profileName, cameraProfileSha256, dimensions.Width, dimensions.Height, startExposure, startTemperature, startHighlight,
+            startExposure - 1, startExposure + 1, warmer, recover, evidence);
     }
 
     private static bool ValidPixels(byte[] native, byte[] film)

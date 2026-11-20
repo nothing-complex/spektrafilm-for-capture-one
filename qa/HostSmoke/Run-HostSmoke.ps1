@@ -3,6 +3,7 @@ param(
     [Parameter(Mandatory)][string] $SourceCatalog,
     [string] $CaptureOnePath='C:\Program Files\Capture One\Capture One\CaptureOne.exe',
     [string] $TestHookPath=(Join-Path $PSScriptRoot 'bin\Release\net8.0-windows\HostSmoke.dll'),
+    [string] $PackagedRuntime,
     [switch] $SkipRestart,
     [switch] $CheckOrdinaryLaunch,
     [switch] $ColorMatrix,
@@ -41,7 +42,16 @@ function Clear-TestCrashMarkers([datetime] $started,[string] $phase) {
 $source=(Get-Item -LiteralPath $SourceCatalog).FullName
 if([IO.Path]::GetExtension($source) -ine '.cocatalogdb'){throw 'A catalog database is required.'}
 foreach($suffix in '-wal','-shm','-journal'){if(Test-Path -LiteralPath ($source+$suffix)){throw 'Source catalog has transaction sidecars; close it cleanly first.'}}
+$runtimeSource=$root
+$panelBuild=Join-Path $root 'NativePanel\bin\Release\net8.0-windows\NativePanel.dll'
 $rendererBuild=Join-Path $root 'build\still-renderer\Release'
+if ($PackagedRuntime) {
+    $runtimeSource=(Resolve-Path -LiteralPath $PackagedRuntime).ProviderPath
+    . (Join-Path $root 'ReleaseManifest.ps1')
+    [void](Test-ReleaseManifest $runtimeSource)
+    $panelBuild=Join-Path $runtimeSource 'panel\NativePanel.dll'
+    $rendererBuild=Join-Path $runtimeSource 'renderer'
+}
 if(!(Test-Path -LiteralPath (Join-Path $rendererBuild 'parameter-capabilities.json') -PathType Leaf)){
     throw 'Run Build-Windows.ps1 to build the renderer and generate its parameter capabilities before testing the host.'
 }
@@ -55,10 +65,13 @@ $sourceHash=(Get-FileHash -LiteralPath $source).Hash
 [IO.File]::WriteAllText((Join-Path $folder 'disposable-catalog.marker'),$sourceHash)
 $runtime=Join-Path $folder 'runtime'
 [void][IO.Directory]::CreateDirectory($runtime)
-Copy-Item -LiteralPath (Join-Path $root 'stocks.json') -Destination $runtime
-Copy-Item -LiteralPath (Join-Path $root 'profiles') -Destination $runtime -Recurse
+Copy-Item -LiteralPath (Join-Path $runtimeSource 'stocks.json') -Destination $runtime
+Copy-Item -LiteralPath (Join-Path $runtimeSource 'profiles') -Destination $runtime -Recurse
 Copy-Item -LiteralPath $rendererBuild -Destination (Join-Path $runtime 'renderer') -Recurse
-Copy-Item -LiteralPath (Join-Path $root 'NativePanel\bin\Release\net8.0-windows\NativePanel.dll') -Destination $runtime
+Copy-Item -LiteralPath $panelBuild -Destination $runtime
+if ($PackagedRuntime) {
+    Copy-Item -LiteralPath (Join-Path $runtimeSource 'build-manifest.json') -Destination $runtime
+}
 $testHook=$TestHookPath
 if(!(Test-Path -LiteralPath $testHook)){throw 'Build qa/HostSmoke and NativePanel first.'}
 Copy-Item -LiteralPath $testHook -Destination $runtime
