@@ -25,12 +25,33 @@ param(
     [switch] $NativeEffectExportMatrix,
     [switch] $OriginalAvailabilityProbe,
     [switch] $NativeDevelopmentDeadline,
+    [string] $DevelopmentLeaseFixtureDirectory,
     [string] $DeviceLossFixtureDirectory,
     [string] $CalibrationChart,
     [string] $ResultsDirectory
 )
 $ErrorActionPreference='Stop'
 if ($NativeEffectExportMatrix) { $NativeEffectExport=$true }
+if ($DevelopmentLeaseFixtureDirectory) {
+    if (!$NativeSettingsConfig -or $PackagedRuntime -or $UpgradeFromPackage -or $NativeDevelopmentDeadline -or
+        $DeviceLossFixtureDirectory -or $NativeEffectExport -or $ColorMatrix -or $NativeSourceMutations -or $CatalogIsolation -or
+        $SessionIsolation -or $ViewerLayouts -or $ViewerChurn -or $DurableSliderEdits -or $MetadataFixtureRoot -or
+        $ViewerStress -or $PanelInventory -or $CheckOrdinaryLaunch -or $CalibrationChart) {
+        throw 'The development lease fixture requires its own disposable launch and native preferences backup.'
+    }
+    $leaseFixture=Get-Item -LiteralPath $DevelopmentLeaseFixtureDirectory -Force
+    if (!$leaseFixture.PSIsContainer -or ($leaseFixture.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        throw 'The development lease fixture must use a regular isolated directory.'
+    }
+    $leasePanel=Get-Item -LiteralPath (Join-Path $leaseFixture.FullName 'NativePanel.dll') -Force
+    $leaseReceipt=Join-Path $leaseFixture.FullName 'development-lease-fixture.sha256'
+    $leaseHash=[IO.File]::ReadAllText($leaseReceipt).Trim()
+    if ($leasePanel.PSIsContainer -or ($leasePanel.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+        $leaseHash -notmatch '^[a-fA-F0-9]{64}$' -or (Get-FileHash -LiteralPath $leasePanel.FullName).Hash -ine $leaseHash) {
+        throw 'The test panel must match its isolated development fixture receipt.'
+    }
+    $SkipRestart=$true
+}
 if ($OriginalAvailabilityProbe -and !$CalibrationChart) {
     throw 'The original availability fixture requires a private calibrated RAW chart.'
 }
@@ -280,6 +301,7 @@ if ($MetadataFixtureRoot) {
 }
 $runtimeSource=$root
 $panelBuild=Join-Path $root 'NativePanel\bin\Release\net8.0-windows\NativePanel.dll'
+if ($DevelopmentLeaseFixtureDirectory) { $panelBuild=$leasePanel.FullName }
 $rendererBuild=Join-Path $root 'build\still-renderer\Release'
 if ($DeviceLossFixtureDirectory) { $rendererBuild=$fixtureDirectory.FullName }
 if ($PackagedRuntime) {
@@ -383,7 +405,7 @@ $names=@(
     'SPEKTRAFILM_HOST_VIEWER_LAYOUTS','SPEKTRAFILM_HOST_DURABLE_EDITS','SPEKTRAFILM_HOST_METADATA_FIXTURE',
     'SPEKTRAFILM_HOST_VIEWER_CHURN','SPEKTRAFILM_HOST_NATIVE_VIEWER_BASELINE','SPEKTRAFILM_HOST_OTHER_CATALOG',
     'SPEKTRAFILM_HOST_SESSION','SPEKTRAFILM_HOST_CALIBRATION','SPEKTRAFILM_HOST_ORIGINAL_AVAILABILITY_PROBE',
-    'SPEKTRAFILM_HOST_NATIVE_DEVELOPMENT_DEADLINE','SPEKTRAFILM_HOST_DEVICE_LOSS'
+    'SPEKTRAFILM_HOST_NATIVE_DEVELOPMENT_DEADLINE','SPEKTRAFILM_HOST_DEVICE_LOSS','SPEKTRAFILM_HOST_DEVELOPMENT_LEASE'
 )
 $prior=@{}
 foreach($name in $names){$prior[$name]=[Environment]::GetEnvironmentVariable($name,'Process')}
@@ -413,6 +435,7 @@ try {
     $env:SPEKTRAFILM_HOST_CALIBRATION=$fixtureChart
     $env:SPEKTRAFILM_HOST_ORIGINAL_AVAILABILITY_PROBE=if($OriginalAvailabilityProbe){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_NATIVE_DEVELOPMENT_DEADLINE=if($NativeDevelopmentDeadline){'1'}else{$null}
+    $env:SPEKTRAFILM_HOST_DEVELOPMENT_LEASE=if($DevelopmentLeaseFixtureDirectory){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_DEVICE_LOSS=if($DeviceLossFixtureDirectory){'1'}else{$null}
     $phases=if($CatalogIsolation){@('A-first','B-first','A-restart','B-restart')}elseif($SkipRestart -or $ViewerLayouts){@('first')}else{@('first','restart')}
     if (!$SkipRestart -and !$CatalogIsolation -and !$ViewerLayouts -and !$DurableSliderEdits) { [IO.File]::WriteAllText((Join-Path $folder 'verify-grain-restart.marker'), 'test only') }

@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Controls;
 using Forms = System.Windows.Forms;
@@ -63,9 +64,14 @@ public static partial class StartupHook
                 "the licensed process contains two actual catalogs with separate native windows");
             for (var iteration = 0; iteration < 3; iteration++)
             {
-                _ = Call(manager, "SetActiveDocument", catalogB);
-                secondWindow.Activate();
-                await WaitFor(() => ReferenceEquals(Active(), catalogB), "The second catalog did not become active.");
+                if (iteration == 1 && Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_DEVELOPMENT_LEASE") == "1")
+                    await SwitchDuringLateDevelopment(catalogB, secondWindow);
+                else
+                {
+                    _ = Call(manager, "SetActiveDocument", catalogB);
+                    secondWindow.Activate();
+                    await WaitFor(() => ReferenceEquals(Active(), catalogB), "The second catalog did not become active.");
+                }
                 await Task.Delay(650);
                 Check(Prop(viewer, "HasPainted") is false && Prop(panel, "IsSpektraExportActive") is false,
                     "the unapproved second catalog cannot paint or export the first catalog's film look");
@@ -166,5 +172,41 @@ public static partial class StartupHook
             "Closing the second catalog did not leave the first actual document active.");
         Check(File.ReadAllBytes(lookPath).SequenceEqual(savedA), "closing a different native catalog preserves the approved saved look");
         File.WriteAllText(Path.Combine(folder, "first.passed"), $"PASS {checks} concurrent native catalog assertions");
+
+        async Task SwitchDuringLateDevelopment(object catalogB, Forms.Form secondWindow)
+        {
+            var native = assembly.GetType("HostImageSource", true)!;
+            var entered = (ManualResetEventSlim)native.GetField("DevelopmentLeaseEntered", Flags)!.GetValue(null)!;
+            var release = (ManualResetEventSlim)native.GetField("DevelopmentLeaseContinue", Flags)!.GetValue(null)!;
+            var slot = (SemaphoreSlim)native.GetField("SchedulerSlot", Flags)!.GetValue(null)!;
+            var armed = native.GetField("developmentLeaseArmed", Flags)!;
+            var draft = (ComboBox)Field(spatial, "dragPreviewSize")!;
+            draft.SelectedItem = draft.ItemsSource.Cast<object>().Single(item => Prop(item, "LongEdge") is 0);
+            await WaitFor(() => Field(spatial, "frameCurrent") is true && Field(spatial, "pending") is null
+                && Field(spatial, "pendingDraft") is null && slot.CurrentCount == 1,
+                "The original catalog did not finish its previous Viewer work.");
+            var oldSource = Field(spatial, "source");
+            entered.Reset();
+            release.Reset();
+            try
+            {
+                armed.SetValue(null, 1);
+                picker.SelectedItem = picker.ItemsSource.Cast<object>().Single(item => Prop(item, "Id") is "900");
+                await WaitFor(() => entered.IsSet, "The actual native callback did not enter its disposable pause.");
+                _ = Call(manager, "SetActiveDocument", catalogB);
+                secondWindow.Activate();
+                await WaitFor(() => ReferenceEquals(Active(), catalogB), "The second catalog did not become active during development.");
+                Check(slot.CurrentCount == 0 && Prop(viewer, "HasPainted") is false
+                    && Prop(panel, "IsSpektraExportActive") is false,
+                    "the late callback is still owned by the inactive catalog and cannot paint its other window");
+            }
+            finally { release.Set(); }
+            await WaitFor(() => slot.CurrentCount == 1 && Field(spatial, "pending") is null,
+                "The late native callback did not settle after switching catalogs.");
+            var after = Field(spatial, "source");
+            Check(ReferenceEquals(Active(), catalogB) && (after is null || ReferenceEquals(after, oldSource))
+                && Prop(viewer, "HasPainted") is false && Field(spatial, "frameCurrent") is false,
+                "the late source from the inactive catalog never enters or paints the current window");
+        }
     }
 }

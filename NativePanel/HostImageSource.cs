@@ -238,10 +238,6 @@ internal static class HostImageSource
                 throw new InvalidOperationException("Select a Capture One export recipe and capture it before rendering at its size.");
 
             token.ThrowIfCancellationRequested();
-            // Keep this captured profile stable while Capture One reads it from its pathname.
-            using var sourceProfile = new FileStream(profilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-            if (!string.Equals(Convert.ToHexString(SHA256.HashData(sourceProfile)), description.ProfileSha256, StringComparison.Ordinal))
-                throw new IOException("The input colour profile changed after the Capture One source was captured. Try the render again.");
             return ScheduleRender(options, token);
         }
 
@@ -263,6 +259,10 @@ internal static class HostImageSource
                     workToken.ThrowIfCancellationRequested();
                     if (source.UUID != description.VariantId || ReadRevision(source) != description.AdjustmentKey)
                         throw new OperationCanceledException("Capture One settings changed before the image could render.");
+                    // A timed-out caller can return while the native callback still owns the profile pathname.
+                    using var sourceProfile = new FileStream(profilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    if (!string.Equals(Convert.ToHexString(SHA256.HashData(sourceProfile)), description.ProfileSha256, StringComparison.Ordinal))
+                        throw new IOException("The input colour profile changed after the Capture One source was captured. Try the render again.");
                     return RenderOnScheduler(source, options, workToken);
                 }, () => SchedulerSlot.Release());
                 releaseSlot = false; // The request now owns release, including a running native callback.

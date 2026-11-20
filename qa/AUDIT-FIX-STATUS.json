@@ -912,7 +912,8 @@
         "The immutable source descriptor now includes input primaries, transfer, exact host build and DLL hash, variant, ICC and native revision. The frame describes dimensions, original native sample layout, range, alpha and managed sampling. Exact descriptor and geometry are checked through Viewer source reuse, derived drafts and captured export. Source replacement drops all derived pixels. Renderer reuse still requires reference-identical float bytes and dimensions, with new frame upload identity for a changed source.",
         "Eleven independent descriptor contracts cover all four encodings, identity changes, invalid shape/depth/byte count, opaque and preserved sample layouts, draft metadata and rejection of undeclared transfer. All Windows and Vulkan contracts passed, including 12,266 Viewer assertions. The licensed four-RAW matrix passed 131 assertions and the full first/restart pair passed 295 and 299.",
         "The bounded earlier-stage probe covered actual native Standard/Linear Response output and inspected the exact wrapper's bitmap, file, point-sampler and embedded-preview interfaces. It did not establish a calibrated whole-frame pre-development path, so no sensor-linear or camera-log delivery is exposed.",
-        "Removed the unused ProcessToBitmap and proxy retry route and the 8-bit source adapter. Native, scaled, drag and export development use Capture One’s high-depth bitmap destination. RGB16, RGBA16 and RGB32F are the only production source formats. All four licensed RAW types reject an 8-bit buffer at the copy boundary. Both colour matrix runs passed 135 checks, including exact RGB16 TIFF parity. The licensed full suite passed 310 first-launch and 314 restart checks, and all Windows/Vulkan contracts passed."
+        "Removed the unused ProcessToBitmap and proxy retry route and the 8-bit source adapter. Native, scaled, drag and export development use Capture One’s high-depth bitmap destination. RGB16, RGBA16 and RGB32F are the only production source formats. All four licensed RAW types reject an 8-bit buffer at the copy boundary. Both colour matrix runs passed 135 checks, including exact RGB16 TIFF parity. The licensed full suite passed 310 first-launch and 314 restart checks, and all Windows/Vulkan contracts passed.",
+        "A separately compiled licensed fault fixture paused after real high-depth native bitmap development. The caller timed out at three seconds while its callback still owned the scheduler slot. The old source opened its private ICC for writing prematurely; callback ownership retained the lock until the callback actually returned. The next licensed operation developed the same verified RGB16 profile, with identical private ICC bytes. Production source regressions passed 135 RAW, 58/58 native effects Export, and 317/321 general host assertions."
       ],
       "evidence_paths": [
         "NativePanel/HostImageSource.cs",
@@ -947,7 +948,11 @@
         ".test-results/host-developed-frame-full-20261120/host-smoke.log",
         ".test-results/host-high-depth-only-color-20261120/host-smoke.log",
         ".test-results/host-high-depth-only-full-20261120/host-smoke.log",
-        ".test-results/contracts-high-depth-only-20261120/summary.json"
+        ".test-results/contracts-high-depth-only-20261120/summary.json",
+        "qa/Build-DevelopmentLeaseFixture.ps1",
+        ".test-results/host-development-lease-before-20261120/native-development-lease.json",
+        ".test-results/host-development-lease-after-20261120/native-development-lease.json",
+        ".test-results/host-development-lease-full-20261120/host-smoke.log"
       ],
       "remaining_work": [],
       "original_acceptance_tests": [
@@ -996,7 +1001,8 @@
         "Windows worker benchmark saves per-request transport wall time, renderer stages and Vulkan allocations, working-set/commit samples, cold request versus reused-source edit percentiles, and renderer fingerprint in machine-readable JSON.",
         "Actual Vulkan parity compares full and multi-tile pixels across color, 8 mm halation/scatter, 35 mm diffusion, 70 mm DIR, metering/grain/scanner, and enlarger. Worst code difference was 1.79e-7 on this GPU, with independently checked alpha.",
         "The exact audit.14 worker passed the full standalone Vulkan smoke suite on isolated physical Intel integrated graphics, including packed/scalar parity, float stability, all seven multi-tile cases and the 128 MiB pressure fixture. Intel tile parity worst difference was 1.20e-7.",
-        "Correlated native export timings identify the exact accepted job, processing encoding, pixel depth, geometry, format and end-to-end stage durations. Actual file-level timings now distinguish native development, film and transport, blend, ICC and verified commit."
+        "Correlated native export timings identify the exact accepted job, processing encoding, pixel depth, geometry, format and end-to-end stage durations. Actual file-level timings now distinguish native development, film and transport, blend, ICC and verified commit.",
+        "The exact audit.17 package timed two accepted full-size 24 MP DNG exports at 3.60 and 4.08 s over separate licensed launches. Native RGB16 development took 209–265 ms, film render and transport 1.08–1.41 s, and encoding, verification and commit about 2.12 s both times. Dialog interaction is excluded."
       ],
       "evidence_paths": [
         "ofx-still-renderer/main.cpp",
@@ -1010,7 +1016,8 @@
         ".test-results/gpu-tiled-parity-20261119.log",
         ".test-results/swiftshader-differential-20261120/intel-full-smoke.log",
         ".test-results/host-tile-centre-native-export-20261120/first-native-effect-export.json",
-        ".test-results/matrix-tile-centres-20261120/nvidia.json"
+        ".test-results/matrix-tile-centres-20261120/nvidia.json",
+        ".test-results/audit17-package-verify-20261120/native-export-24mp.json"
       ],
       "remaining_work": [
         "Add frame/build/settings identity to Viewer and worker diagnostics and correlate their stages. Set wider quality and hardware p50/p95/memory budgets.",
@@ -1187,7 +1194,9 @@
       "implemented": [
         "SpatialPreview has explicit disposal that stops/unsubscribes timer and viewer events and cancels owned work; LookPanel delegates disposal.",
         "Added partial construction rollback, ApplicationExit timer cleanup, owned/cancelable selection DispatcherOperation, life-bound preview file writes, and ensured tab cleanup even when another disposer fails. Real-host canceled close and detach covered pending callback and export cancellation.",
-        "Native development slots now belong to queued callbacks until abandoned or to executing callbacks until actual native return. New jobs cannot enter during physical cancellation drain."
+        "Native development slots now belong to queued callbacks until abandoned or to executing callbacks until actual native return. New jobs cannot enter during physical cancellation drain.",
+        "A separately compiled licensed fault fixture paused after real high-depth native bitmap development. The caller timed out at three seconds while its callback still owned the scheduler slot. The old source opened its private ICC for writing prematurely; callback ownership retained the lock until the callback actually returned. The next licensed operation developed the same verified RGB16 profile, with identical private ICC bytes. Production source regressions passed 135 RAW, 58/58 native effects Export, and 317/321 general host assertions.",
+        "The injected late native result was discarded during real detach and during a switch between two actual Capture One catalog windows. The 26-check detach fixture retained both resources until the old callback finished, with no post-disposal paint. The 35-check concurrent fixture retained the old source identity and painted nothing in the unapproved catalog; reactivating and reopening the approved catalog loaded the exact durable look. The licensed stall uses a plugin-owned pause after actual native processing."
       ],
       "evidence_paths": [
         "NativePanel/SpatialPreview.cs",
@@ -1196,7 +1205,14 @@
         ".test-results/host-detach-20261119/host-smoke.log",
         "NativePanel/RenderCoordination.cs",
         ".test-results/contracts-memory-admission-20261119/summary.json",
-        ".test-results/host-memory-admission-20261119/host-smoke.log"
+        ".test-results/host-memory-admission-20261119/host-smoke.log",
+        "qa/Build-DevelopmentLeaseFixture.ps1",
+        ".test-results/host-development-lease-before-20261120/native-development-lease.json",
+        ".test-results/host-development-lease-after-20261120/native-development-lease.json",
+        ".test-results/host-development-lease-full-20261120/host-smoke.log",
+        ".test-results/host-development-lease-detach-20261120/host-smoke.log",
+        ".test-results/host-development-lease-inactive-20261120/host-smoke.log",
+        ".test-results/host-development-lease-inactive-20261120/proof-settings-receipt.json"
       ],
       "remaining_work": [
         "Physical form close and high-cycle attach/detach/float leak baselines. Inject actual running host cancellation stages and verify weak references/handles."
@@ -1339,7 +1355,7 @@
       "id": "VE-07",
       "title": "Introduce a generation-aware preview scheduler with bounded obsolete work",
       "priority": "P2",
-      "status": "partial",
+      "status": "implemented",
       "implemented": [
         "Final source no longer waits for optional draft; obsolete settled renders are cancelled and transport serializes requests.",
         "A real navigation test reproduced a previous image still reporting painted after a switch. Viewer readiness now rechecks exact current attachment availability rather than relying on cached flag state. The revised licensed test passed 100 settled visits and 30 interleaved selections without any obsolete painted identity.",
@@ -1350,7 +1366,10 @@
         "A private calibrated DNG rename reproduced a fully painted cached frame while Capture One reported its original offline. The Viewer now reads the native availability state with the current revision, clears the source and derivatives, stops obsolete work and suspends the overlay. Reconnecting the unmodified bytes automatically redeveloped and painted a new RGB16 frame with the same look. The final measured suspension and repaint took 307 ms and 1.72 seconds. The 29-check fixture also verified native recipe export refuses disconnected originals. Full Windows/Vulkan, 311 first-launch, 315 restart and paired 39-check native effects export regressions passed.",
         "A typed native development deadline and device-loss reply share the existing bounded generation-aware retry. A licensed 17-check fixture exhausted the 180-second development admission deadline and repainted in 703 ms when the slot reopened. A separate 16-check licensed Vulkan fixture recovered in 561 ms after an injected post-fence device loss, preserving the same source, durable look and Export connection. Full licensed 311/315, native effects 39/39, Windows and GPU regressions passed.",
         "All four publication boundaries now recheck both native original availability and the current variant and revision. The 31-check licensed chart fixture directly called the publication guard on the live private RAW and after it was moved offline, then verified repaint from fresh high-depth development after restoring the file.",
-        "After two actual worker interruptions, the native Retry Viewer button restored the same durable look from the same high-depth source with native Export still connected. A second case disabled the Viewer during a verified 4096 px request, drained and exited that worker with no obsolete publication, then re-enabled it from the exact saved bytes. Both licensed stress launches passed 43 assertions."
+        "After two actual worker interruptions, the native Retry Viewer button restored the same durable look from the same high-depth source with native Export still connected. A second case disabled the Viewer during a verified 4096 px request, drained and exited that worker with no obsolete publication, then re-enabled it from the exact saved bytes. Both licensed stress launches passed 43 assertions.",
+        "A separately compiled licensed fault fixture paused after real high-depth native bitmap development. The caller timed out at three seconds while its callback still owned the scheduler slot. The old source opened its private ICC for writing prematurely; callback ownership retained the lock until the callback actually returned. The next licensed operation developed the same verified RGB16 profile, with identical private ICC bytes. Production source regressions passed 135 RAW, 58/58 native effects Export, and 317/321 general host assertions.",
+        "The 24-check licensed delayed callback test accepted a real recipe export while an earlier Viewer job still owned the native slot. The canceled job never published, the new result reopened as ICC-tagged RGB48 TIFF, and the current Viewer repainted after export.",
+        "The injected late native result was discarded during real detach and during a switch between two actual Capture One catalog windows. The 26-check detach fixture retained both resources until the old callback finished, with no post-disposal paint. The 35-check concurrent fixture retained the old source identity and painted nothing in the unapproved catalog; reactivating and reopening the approved catalog loaded the exact durable look. The licensed stall uses a plugin-owned pause after actual native processing."
       ],
       "evidence_paths": [
         "NativePanel/RenderCoordination.cs",
@@ -1376,11 +1395,17 @@
         ".test-results/host-renderer-device-loss-contract-full-20261120/host-smoke.log",
         ".test-results/host-renderer-device-loss-contract-export-20261120/host-smoke.log",
         ".test-results/host-original-available-at-publication-20261120/host-smoke.log",
-        ".test-results/host-viewer-manual-retry-20261120/host-smoke.log"
+        ".test-results/host-viewer-manual-retry-20261120/host-smoke.log",
+        "qa/Build-DevelopmentLeaseFixture.ps1",
+        ".test-results/host-development-lease-before-20261120/native-development-lease.json",
+        ".test-results/host-development-lease-after-20261120/native-development-lease.json",
+        ".test-results/host-development-lease-full-20261120/host-smoke.log",
+        ".test-results/host-development-lease-export-ownership-20261120/host-smoke.log",
+        ".test-results/host-development-lease-detach-20261120/host-smoke.log",
+        ".test-results/host-development-lease-inactive-20261120/host-smoke.log",
+        ".test-results/host-development-lease-inactive-20261120/proof-settings-receipt.json"
       ],
-      "remaining_work": [
-        "Exercise a stall inside native development beyond the verified admission deadline. Test delayed publication explicitly across detached, inactive and export-owned contexts. The active-disable path and manual retry are verified."
-      ],
+      "remaining_work": [],
       "original_acceptance_tests": [
         "Deterministic virtual clock and delayed fake renderer: latest settled request publishes; out-of-order final/draft completions never regress quality or variant.",
         "Burst 100 slider changes: queue stays bounded, no 100-job backlog; current source reused if native adjustments unchanged.",
@@ -1883,7 +1908,8 @@
         "A paired 100-visit licensed baseline ran Capture One without loading the plugin. It verified the selected native image layer for each visit and recorded p50 17.30 ms and p95 50.64 ms. The separate live film run measured p50 359.52 ms and p95 771.35 ms to settled 2048 px paint. The receipts distinguish the timing endpoints and contain all individual visits.",
         "The exact audit.15 worker completed all 16 renderer/transport cases and 80 requests at 24, 45, 61 and 100 MP on RTX 3090. Both colour-only and optical cases used packed Viewer and float image export. At 100 MP, warm p95 was 428 ms or 5.30 s in the Viewer and 2.20 s or 8.51 s for float export, from four warm requests per case. The optical export used 6.33 GiB peak worker commit and 3.09 GiB transient cache. Its 800 tiled results returned 9.38 GB of GPU readback for the 1.60 GB float reply, identifying tile overlap transfer as the main measured candidate for improvement. These timings exclude Capture One development, ICC conversion and file encoding.",
         "The structured export.performance.v1 event uses the accepted journal job ID and records elapsed Viewer drain, native RGB16 development, Vulkan work and transport, crop and blend, ICC conversion, and encode/verify/commit without logging paths in the event. Two licensed launches timed eight 3000 by 2000 DNG exports. Effect TIFF took 1.40–1.42 seconds after job acceptance. The matching PNG took 1.68–1.71 seconds. The file stage dominated at 568–569 ms for TIFF and 888–936 ms for PNG.",
-        "The four-camera effect export matrix records 32 job-correlated v2 timing events and 159 licensed checks per launch. TIFF with film and diffusion took 1.27–1.68 s after acceptance and equivalent PNG took 1.55–2.26 s. The v2 ICC setup time is distinct from the file stage where WIC may lazily transform pixels. The v1 field named IccConversionMs measured setup."
+        "The four-camera effect export matrix records 32 job-correlated v2 timing events and 159 licensed checks per launch. TIFF with film and diffusion took 1.27–1.68 s after acceptance and equivalent PNG took 1.55–2.26 s. The v2 ICC setup time is distinct from the file stage where WIC may lazily transform pixels. The v1 field named IccConversionMs measured setup.",
+        "The exact audit.17 package timed two accepted full-size 24 MP DNG exports at 3.60 and 4.08 s over separate licensed launches. Native RGB16 development took 209–265 ms, film render and transport 1.08–1.41 s, and encoding, verification and commit about 2.12 s both times. Dialog interaction is excluded."
       ],
       "evidence_paths": [
         "ofx-still-renderer/main.cpp",
@@ -1906,7 +1932,8 @@
         ".test-results/matrix-24-45-61-100mp-20261120/adapter.txt",
         ".test-results/host-tile-centre-native-export-20261120/first-native-effect-export.json",
         ".test-results/host-tile-centre-native-export-20261120/restart-native-effect-export.json",
-        ".test-results/host-four-raw-native-effects-20261120/first-CR3-native-effect-export.json"
+        ".test-results/host-four-raw-native-effects-20261120/first-CR3-native-effect-export.json",
+        ".test-results/audit17-package-verify-20261120/native-export-24mp.json"
       ],
       "remaining_work": [
         "Correlate Viewer generations across development, render and paint, and run full interaction p50/p95 and memory budgets. Accepted export work has structured stage timing.",
@@ -2433,7 +2460,8 @@
         "The optimized worker passed the paired 24–100 MP matrix. Four full 100 MP optics frame hashes matched across binaries. Production exports also recorded eight job-correlated native-to-file measurements across two licensed launches of a DNG with the active 6 MP TIFF recipe, optionally delivered as PNG.",
         "Both native Export commands passed on DNG/sRGB, CR3/Adobe RGB, RAF/ProPhoto and NEF/Linear Rec.2020, all using the exact Adobe RGB recipe profile at 6.00–7.53 MP in RGB48 TIFF and RGBA64 PNG. Across 32 accepted outputs and 159 assertions each at first launch and restart, film changed mean RGB code by 6.23–11.66% of full scale and camera diffusion added 2.43–4.76%. Native command outputs differed by at most 1.21e-6 mean full-scale code.",
         "The worker now chooses larger packed Viewer tiles only on images at least 4096 px in each dimension, with an existing halo no greater than 256 px and reported dynamic budget for source plus estimated scratch. Float and wide-halo plans retain their previous geometry. At 100 MP on RTX 3090, the actual default packed plan moved from 800 to 28 tiles, with one warm hashed exposure change at 4.89 to 1.55 seconds. Simulated 6 and 4 GiB caps selected 104 and 800 tiles respectively. All 12 complete pixel reply hashes matched the explicit prior plan and warm packed sources were reused without upload.",
-        "Both real native Export commands passed with film, camera diffusion, halation and scatter active together. Native TIFF and previous-settings PNG matched within 8.81e-7 mean full-scale RGB, retained exact Adobe RGB and reopened at 16 bits. Across four cameras and two launches the fixture passed 191 assertions each and accepted 40 outputs. Halation plus scatter alone added 0.095–0.892% mean full-scale RGB change."
+        "Both real native Export commands passed with film, camera diffusion, halation and scatter active together. Native TIFF and previous-settings PNG matched within 8.81e-7 mean full-scale RGB, retained exact Adobe RGB and reopened at 16 bits. Across four cameras and two launches the fixture passed 191 assertions each and accepted 40 outputs. Halation plus scatter alone added 0.095–0.892% mean full-scale RGB change.",
+        "The exact audit.17 package timed two accepted full-size 24 MP DNG exports at 3.60 and 4.08 s over separate licensed launches. Native RGB16 development took 209–265 ms, film render and transport 1.08–1.41 s, and encoding, verification and commit about 2.12 s both times. Dialog interaction is excluded."
       ],
       "evidence_paths": [
         "tests",
@@ -2461,10 +2489,11 @@
         ".test-results/adaptive-viewer-only-20261120/verified-layouts.json",
         ".test-results/contracts-adaptive-viewer-only-20261120/summary.json",
         ".test-results/host-composed-native-effects-20261120/host-smoke.log",
-        ".test-results/host-composed-native-effects-20261120/restart-DNG-native-effect-export.json"
+        ".test-results/host-composed-native-effects-20261120/restart-DNG-native-effect-export.json",
+        ".test-results/audit17-package-verify-20261120/native-export-24mp.json"
       ],
       "remaining_work": [
-        "Complete the end-to-end hardware and source-format matrix and choose release budgets. Native-to-file telemetry covers four RAWs at recipe sizes of 6.00–7.53 MP on the licensed RTX 3090 workstation.",
+        "Complete the end-to-end hardware and source-format matrix and choose release budgets. Native-to-file telemetry now covers four RAWs at recipe sizes of 6.00–7.53 MP and two exact-package 24 MP DNG exports on the licensed RTX 3090 workstation.",
         "Expand across multiple memory sizes and vendors and measure end-to-end actual display, RAW development, and codec stages."
       ],
       "original_acceptance_tests": [
@@ -3256,8 +3285,8 @@
   ],
   "counts": {
     "total": 70,
-    "implemented": 28,
-    "partial": 42,
+    "implemented": 29,
+    "partial": 41,
     "pending": 0
   },
   "last_reconciled": "2026-11-20",

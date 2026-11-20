@@ -167,6 +167,11 @@ public static partial class StartupHook
                 await TestNativeDevelopmentDeadline(panel, spatial);
                 return;
             }
+            if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_DEVELOPMENT_LEASE") == "1")
+            {
+                await TestNativeDevelopmentLease(panelAssembly!, spatial, window);
+                return;
+            }
             if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_DEVICE_LOSS") == "1")
             {
                 await TestNativeDeviceLossRecovery(panel, spatial, store, variant);
