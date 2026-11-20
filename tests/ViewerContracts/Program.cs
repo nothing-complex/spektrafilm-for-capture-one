@@ -952,7 +952,8 @@ internal static partial class Program
         var original = Path.Combine(folder, "metadata-input.raw");
         File.WriteAllBytes(original, new byte[] { 1, 2, 3 });
         var metadata = new ExportMetadata("Rights \u00A9 2026", "Luka \u017D", "K\u00F8benhavn \u65E5 & portrait",
-            new DateTime(2025, 3, 14, 13, 27, 6), 4, new[] { "street", "L\u00FCbecker", "street" });
+            new DateTime(2025, 3, 14, 13, 27, 6), 4, new[] { "street", "L\u00FCbecker", "street" },
+            new[] { "People|street", "Places|L\u00FCbecker", "People|street" }, "Caption \u65E5", "City & people", "Spektrafilm for Capture One");
         foreach (var extension in new[] { ".tif", ".png" })
         {
             var path = Path.Combine(folder, "metadata-output" + extension);
@@ -993,6 +994,14 @@ internal static partial class Program
             Check(fields.Elements().Single(element => element.Name.LocalName == "subject").Descendants()
                 .Where(element => element.Name.LocalName == "li").Select(element => element.Value)
                 .SequenceEqual(new[] { "street", "L\u00FCbecker" }), "Keyword list changed");
+            Check(fields.Elements().Single(element => element.Name.LocalName == "description").Value == metadata.Description
+                && fields.Attributes().Single(attribute => attribute.Name.LocalName == "Headline").Value == metadata.Headline
+                && fields.Attributes().Single(attribute => attribute.Name.LocalName == "CreatorTool").Value == metadata.Software,
+                "Description, headline or software provenance changed");
+            var approvedKeywords = ExportKeywordSet.ReadNativeXmp(packet);
+            Check(approvedKeywords.Flat.SequenceEqual(new[] { "street", "L\u00FCbecker" })
+                && approvedKeywords.Hierarchical.SequenceEqual(new[] { "People|street", "Places|L\u00FCbecker" }),
+                "Native keyword parsing changed approved flat and hierarchical subjects");
             var properties = fields.Attributes().ToDictionary(attribute => (attribute.Name.NamespaceName, attribute.Name.LocalName),
                 attribute => attribute.Value);
             const string tiff = "http://ns.adobe.com/tiff/1.0/", exif = "http://ns.adobe.com/exif/1.0/";

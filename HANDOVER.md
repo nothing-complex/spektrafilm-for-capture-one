@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 22 bounded primary fixes implemented and 48 partial items. It includes feasibility investigations and enhancements.
+Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 23 bounded primary fixes implemented and 47 partial items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -642,6 +642,13 @@ Evidence is under `.test-results/host-verified-previous-look-20261120`, `.test-r
 - [ ] Validate mixed-DPI displays, monitor removal, RDP and keyboard focus, and implement workspace-scoped floating mode restoration. The licensed fixture used one physical monitor.
 
 Evidence is under `.test-results/host-floating-save-before-close-20261120` and `.test-results/contracts-floating-and-logs-20261120`. [Windows window bounds](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getwindowrect), [Monitor work-area selection](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-monitorfromrect)
+
+## Capture One export metadata and keyword privacy
+
+- [x] Use Capture One's native keyword serialization to honor All, None and selected shared libraries. Extract only the approved flat and hierarchical values. Export recipe-permitted title, headline, description, copyright, creator, capture date and rating in XMP and identify the exporter. GPS stays out of the packet. [Capture One keyword library export settings](https://support.captureone.com/hc/en-us/articles/360002545677-Controlling-keyword-libraries-on-export)
+- [x] Generate a closed private test catalog and verify all four copied RAW fingerprints before and after launch. Test a detached native recipe, a real shared library imported under the fixture and native catalog edits. The accepted metadata snapshot was stable after later edits. Both TIFF and PNG reopened with exact saved metadata, 16-bit samples, ICC, dimensions and non-square DPI. The dedicated licensed run passed 27 assertions. The full host-independent suite passed with 12,249 Viewer assertions.
+
+To repeat, run `python qa/prepare-metadata-fixture.py <closed-catalog> <RAW-samples> <new-fixture-root>`, then launch `qa/HostSmoke/Run-HostSmoke.ps1` with the generated catalog, `-MetadataFixtureRoot` and the exact `-NativeSettingsConfig`. Evidence is under `.test-results/host-native-metadata-policy-20261120` and `.test-results/contracts-native-keyword-metadata-20261120`.
 
 ## Status maintenance
 

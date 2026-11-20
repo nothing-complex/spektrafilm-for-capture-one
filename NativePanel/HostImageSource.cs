@@ -14,6 +14,7 @@ using P1.C1.Components.IcScheduler;
 using P1.C1.Core;
 using P1.C1.Core.DestinationProcessing;
 using P1.C1.Core.Interfaces;
+using P1.C1.Core.Keyword;
 using P1.C1.Core.ModelEntities;
 using P1.C1.Framework;
 using P1.C1.ImageCoreWrapper.CoordinateSystem;
@@ -34,6 +35,8 @@ internal static class HostImageSource
     private static readonly SemaphoreSlim SchedulerSlot = new(1, 1);
     private static readonly Type ProgramType = typeof(ImageCoreScheduler).Assembly.GetType("P1.C1.Program", throwOnError: true)!;
     private static readonly PropertyInfo SchedulerProperty = HostProperty("ImageCoreScheduler");
+    private static readonly PropertyInfo? KeywordManagerProperty = ProgramType.GetProperty("KeywordLibraryManager",
+        BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
     private static readonly PropertyInfo ColorProfilesProperty = HostProperty("ColorProfileLibrary");
     private static readonly MethodInfo? GetProxyManager = HostProperty("DocumentManager").PropertyType
         .GetMethod("GetDocumentProxyManager", new[] { typeof(ICaptureOneDocument) });
@@ -113,19 +116,45 @@ internal static class HostImageSource
         var scale = ScaleCalcHelpers.CreateScaleCalcTakingQuickProofIntoAccount(geometry, selection.Variant.CoreImage,
             recipe, ApplicationSettings.Default.PreviewSizeInPx, ignoreCrop);
         var variant = selection.Variant;
-        var metadata = new ExportMetadata(
-            recipe.MetadataIncludeCopyright ? variant.IptcCopyrightNotice : null,
-            recipe.MetadataIncludeAllOther ? variant.IptcCreator : null,
-            recipe.MetadataIncludeAllOther ? variant.IptcHeadline : null,
-            recipe.MetadataIncludeCameraData ? variant.CoreImage.DateTaken : null,
-            recipe.MetadataIncludeRating ? variant.Rating : null,
-            recipe.MetadataIncludeKeywords == MetadataIncludeKeywordsMode.All && variant.Keywords is { } keywords
-                ? keywords.ToArray()
-                : Array.Empty<string>());
+        var metadata = ReadRecipeMetadata(variant, recipe);
         return new RecipeInfo(recipe.Name, recipe.FileType.ToString(), recipe.ColorProfileName, recipe.ColorProfilePath,
             recipe.CropExportMethod.ToString(), recipe.DestinationRootFolder.ToString(), recipe.DestinationCustomRootFolder,
             recipe.DestinationSubFolder, recipe.DestinationFilename, recipe.DestinationSubName, recipe.TiffBits, recipe.JpegQuality,
             scale.ScaledPixelWidth, scale.ScaledPixelHeight, scale.Scale, ignoreCrop, recipe.Resolution, recipe.ResolutionUnit.ToString(), metadata);
+    }
+
+    private static ExportMetadata ReadRecipeMetadata(ICoreVariant variant, IDestinationProcessingSettings recipe)
+    {
+        var keywordSet = ExportKeywordSet.Empty;
+        var mode = recipe.MetadataIncludeKeywords;
+        if (mode is MetadataIncludeKeywordsMode.All or MetadataIncludeKeywordsMode.Whitelist)
+        {
+            var whitelist = Array.Empty<string>();
+            if (mode == MetadataIncludeKeywordsMode.Whitelist && recipe.MetadataSelectedLibrariesWhitelist is { Count: > 0 } libraries)
+            {
+                var manager = KeywordManagerProperty?.GetValue(null) as IKeywordLibraryManager
+                    ?? throw new InvalidOperationException("Capture One’s selected keyword libraries could not be read.");
+                whitelist = manager.GetKeywordsFromSharedLibraries(libraries.Select(item => item.UUID)).ToArray();
+            }
+            if (mode == MetadataIncludeKeywordsMode.All || whitelist.Length > 0)
+            {
+                var nativeKeywords = variant.SerializeVariantInfoAsXmp(mode, whitelist, false, false, false, false, false);
+                keywordSet = ExportKeywordSet.ReadNativeXmp(nativeKeywords);
+            }
+        }
+        var allOther = recipe.MetadataIncludeAllOther;
+        var title = allOther ? variant.IptcStatusTitle : null;
+        if (allOther && string.IsNullOrWhiteSpace(title)) title = variant.IptcHeadline;
+        return new ExportMetadata(
+            recipe.MetadataIncludeCopyright ? variant.IptcCopyrightNotice : null,
+            allOther ? variant.IptcCreator : null,
+            title,
+            recipe.MetadataIncludeCameraData ? variant.CoreImage.DateTaken : null,
+            recipe.MetadataIncludeRating ? variant.Rating : null,
+            keywordSet.Flat, keywordSet.Hierarchical,
+            Description: allOther ? variant.IptcDescription : null,
+            Headline: allOther ? variant.IptcHeadline : null,
+            Software: StartupHook.ProductName);
     }
 
     private static HostProfile.Selection RequireSelection(object window, Guid variantId)

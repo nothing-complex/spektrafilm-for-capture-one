@@ -8,6 +8,7 @@ param(
     [switch] $CatalogIsolation,
     [switch] $ViewerLayouts,
     [switch] $DurableSliderEdits,
+    [string] $MetadataFixtureRoot,
     [switch] $SkipRestart,
     [switch] $CheckOrdinaryLaunch,
     [switch] $ShowTool,
@@ -23,6 +24,16 @@ if ($ViewerLayouts -and (!$NativeSettingsConfig -or $CatalogIsolation -or $Color
 }
 if ($DurableSliderEdits -and ($CatalogIsolation -or $ViewerLayouts -or $SkipRestart -or $ColorMatrix -or $CheckOrdinaryLaunch)) {
     throw 'The durable slider fixture requires its own first launch and restart.'
+}
+if ($MetadataFixtureRoot) {
+    if (!$NativeSettingsConfig -or $CatalogIsolation -or $ViewerLayouts -or $DurableSliderEdits -or $ColorMatrix -or $CheckOrdinaryLaunch) {
+        throw 'The native metadata fixture requires a settings backup and a separate launch.'
+    }
+    $MetadataFixtureRoot=(Resolve-Path -LiteralPath $MetadataFixtureRoot).ProviderPath
+    if (!(Test-Path -LiteralPath (Join-Path $MetadataFixtureRoot 'metadata-fixture.marker') -PathType Leaf)) {
+        throw 'The metadata fixture requires a dedicated copy of the catalog and RAW files.'
+    }
+    $SkipRestart=$true
 }
 $root=(Resolve-Path (Join-Path $PSScriptRoot '..\..')).ProviderPath
 $tokens=$null
@@ -113,9 +124,26 @@ function Restore-TestCatalogPreferences([string] $profile,[string] $backup,[stri
     [ordered]@{before=$original;afterTest=$observed;restored=(Get-FileHash -LiteralPath $profile).Hash;removedRecentCatalog=($original -ne $observed)} |
         ConvertTo-Json | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $folder 'proof-settings-receipt.json')
 }
+function Test-FixtureRawFiles([string] $root, $marker) {
+    foreach ($entry in $marker.raw_sha256.PSObject.Properties) {
+        if ([IO.Path]::GetFileName($entry.Name) -cne $entry.Name -or $entry.Value -notmatch '^[0-9a-f]{64}$') {
+            throw 'The metadata fixture contains an invalid RAW receipt.'
+        }
+        $raw=Get-Item -LiteralPath (Join-Path (Join-Path $root 'Raw') $entry.Name)
+        if ($raw.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'The fixture RAW must be a private copy.' }
+        if ((Get-FileHash -LiteralPath $raw.FullName).Hash -ne $entry.Value) { throw 'A metadata fixture RAW fingerprint changed.' }
+    }
+}
 $source=(Get-Item -LiteralPath $SourceCatalog).FullName
 if([IO.Path]::GetExtension($source) -ine '.cocatalogdb'){throw 'A catalog database is required.'}
 foreach($suffix in '-wal','-shm','-journal'){if(Test-Path -LiteralPath ($source+$suffix)){throw 'Source catalog has transaction sidecars; close it cleanly first.'}}
+if ($MetadataFixtureRoot) {
+    $metadataMarker=Get-Content -Raw -LiteralPath (Join-Path $MetadataFixtureRoot 'metadata-fixture.marker') | ConvertFrom-Json
+    if ((Split-Path -Parent $source) -ne $MetadataFixtureRoot -or (Get-FileHash -LiteralPath $source).Hash -ne $metadataMarker.catalog_sha256) {
+        throw 'The closed source catalog must be the verified metadata fixture copy.'
+    }
+    Test-FixtureRawFiles $MetadataFixtureRoot $metadataMarker
+}
 $runtimeSource=$root
 $panelBuild=Join-Path $root 'NativePanel\bin\Release\net8.0-windows\NativePanel.dll'
 $rendererBuild=Join-Path $root 'build\still-renderer\Release'
@@ -171,7 +199,7 @@ $testHook=$TestHookPath
 if(!(Test-Path -LiteralPath $testHook)){throw 'Build qa/HostSmoke and NativePanel first.'}
 Copy-Item -LiteralPath $testHook -Destination $runtime
 $testHook=Join-Path $runtime 'HostSmoke.dll'
-$names=@('DOTNET_STARTUP_HOOKS','SPEKTRAFILM_ROOT','SPEKTRAFILM_CATALOG','SPEKTRAFILM_DATA_ROOT','SPEKTRAFILM_PANEL_LOG','SPEKTRAFILM_HOST_SMOKE','SPEKTRAFILM_LAUNCH_ID','SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX','SPEKTRAFILM_SHOW_TOOL','SPEKTRAFILM_HOST_PROOF_TEST','SPEKTRAFILM_HOST_CATALOG_ISOLATION','SPEKTRAFILM_HOST_VIEWER_LAYOUTS','SPEKTRAFILM_HOST_DURABLE_EDITS')
+$names=@('DOTNET_STARTUP_HOOKS','SPEKTRAFILM_ROOT','SPEKTRAFILM_CATALOG','SPEKTRAFILM_DATA_ROOT','SPEKTRAFILM_PANEL_LOG','SPEKTRAFILM_HOST_SMOKE','SPEKTRAFILM_LAUNCH_ID','SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX','SPEKTRAFILM_SHOW_TOOL','SPEKTRAFILM_HOST_PROOF_TEST','SPEKTRAFILM_HOST_CATALOG_ISOLATION','SPEKTRAFILM_HOST_VIEWER_LAYOUTS','SPEKTRAFILM_HOST_DURABLE_EDITS','SPEKTRAFILM_HOST_METADATA_FIXTURE')
 $prior=@{}
 foreach($name in $names){$prior[$name]=[Environment]::GetEnvironmentVariable($name,'Process')}
 $testError=$null
@@ -184,10 +212,11 @@ try {
     $env:SPEKTRAFILM_HOST_SMOKE=$folder
     $env:SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX=if($ColorMatrix){'1'}else{$null}
     $env:SPEKTRAFILM_SHOW_TOOL=if($ShowTool){'1'}else{$null}
-    $env:SPEKTRAFILM_HOST_PROOF_TEST=if($NativeSettingsConfig -and !$CatalogIsolation -and !$ViewerLayouts -and !$DurableSliderEdits){'1'}else{$null}
+    $env:SPEKTRAFILM_HOST_PROOF_TEST=if($NativeSettingsConfig -and !$CatalogIsolation -and !$ViewerLayouts -and !$DurableSliderEdits -and !$MetadataFixtureRoot){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_CATALOG_ISOLATION=if($CatalogIsolation){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_VIEWER_LAYOUTS=if($ViewerLayouts){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_DURABLE_EDITS=if($DurableSliderEdits){'1'}else{$null}
+    $env:SPEKTRAFILM_HOST_METADATA_FIXTURE=$MetadataFixtureRoot
     $phases=if($CatalogIsolation){@('A-first','B-first','A-restart','B-restart')}elseif($SkipRestart -or $ViewerLayouts){@('first')}else{@('first','restart')}
     if (!$SkipRestart -and !$CatalogIsolation -and !$ViewerLayouts -and !$DurableSliderEdits) { [IO.File]::WriteAllText((Join-Path $folder 'verify-grain-restart.marker'), 'test only') }
     foreach($phase in $phases){
@@ -262,6 +291,7 @@ try {
 } finally {
     try {
         if ($NativeSettingsConfig) { Restore-TestCatalogPreferences $profile $backup $fixtureCatalogs $folder }
+        if ($MetadataFixtureRoot) { Test-FixtureRawFiles $MetadataFixtureRoot $metadataMarker }
     } catch {
         if ($null -eq $testError) { throw }
         Write-Warning "The host test and its recent catalog cleanup both failed. Preferences backup retained. $($_.Exception.Message)"

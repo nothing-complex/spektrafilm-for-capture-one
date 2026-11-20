@@ -9,7 +9,8 @@ using System.Xml;
 using System.Xml.Linq;
 
 internal sealed record ExportMetadata(string? Copyright, string? Creator, string? Title, DateTime? CaptureDate,
-    int? Rating, IReadOnlyList<string> Keywords)
+    int? Rating, IReadOnlyList<string> Keywords, IReadOnlyList<string>? HierarchicalKeywords = null,
+    string? Description = null, string? Headline = null, string? Software = null)
 {
     internal string CreateXmp(int width, int height)
     {
@@ -19,12 +20,18 @@ internal sealed record ExportMetadata(string? Copyright, string? Creator, string
         XNamespace xmp = "http://ns.adobe.com/xap/1.0/";
         XNamespace tiff = "http://ns.adobe.com/tiff/1.0/";
         XNamespace exif = "http://ns.adobe.com/exif/1.0/";
+        XNamespace photoshop = "http://ns.adobe.com/photoshop/1.0/";
+        XNamespace lightroom = "http://ns.adobe.com/lightroom/1.0/";
         var data = new XElement(rdf + "Description",
             new XAttribute(rdf + "about", ""),
             new XAttribute(XNamespace.Xmlns + "dc", dc),
             new XAttribute(XNamespace.Xmlns + "xmp", xmp),
             new XAttribute(XNamespace.Xmlns + "tiff", tiff),
             new XAttribute(XNamespace.Xmlns + "exif", exif),
+            new XAttribute(XNamespace.Xmlns + "photoshop", photoshop),
+            new XAttribute(XNamespace.Xmlns + "lr", lightroom),
+            Clean(Software) is { } name ? new XAttribute(xmp + "CreatorTool", name) : null,
+            Clean(Headline) is { } headline ? new XAttribute(photoshop + "Headline", headline) : null,
             new XAttribute(tiff + "Orientation", 1),
             new XAttribute(tiff + "ImageWidth", width),
             new XAttribute(tiff + "ImageLength", height),
@@ -36,16 +43,24 @@ internal sealed record ExportMetadata(string? Copyright, string? Creator, string
                 : null);
         AddText(dc + "rights", Copyright);
         AddText(dc + "title", Title);
+        AddText(dc + "description", Description);
         if (Clean(Creator) is { } creator)
             data.Add(new XElement(dc + "creator", new XElement(rdf + "Seq", new XElement(rdf + "li", creator))));
-        var keywords = Keywords.Select(Clean).OfType<string>().Distinct(StringComparer.Ordinal).ToArray();
-        if (keywords.Length > 0)
-            data.Add(new XElement(dc + "subject", new XElement(rdf + "Bag", keywords.Select(value => new XElement(rdf + "li", value)))));
+        AddKeywords(dc + "subject", Keywords);
+        AddKeywords(lightroom + "hierarchicalSubject", HierarchicalKeywords);
 
         return new XDocument(
             new XProcessingInstruction("xpacket", "begin=\"\uFEFF\" id=\"W5M0MpCehiHzreSzNTczkc9d\""),
             new XElement(x + "xmpmeta", new XAttribute(XNamespace.Xmlns + "x", x), new XElement(rdf + "RDF", data)),
             new XProcessingInstruction("xpacket", "end=\"w\"")).ToString(SaveOptions.DisableFormatting);
+
+        void AddKeywords(XName field, IReadOnlyList<string>? values)
+        {
+            if (values is null || values.Count == 0) return;
+            var keywords = values.Select(Clean).OfType<string>().Distinct(StringComparer.Ordinal).ToArray();
+            if (keywords.Length != 0)
+                data.Add(new XElement(field, new XElement(rdf + "Bag", keywords.Select(value => new XElement(rdf + "li", value)))));
+        }
 
         void AddText(XName field, string? value)
         {
@@ -66,6 +81,32 @@ internal sealed record ExportMetadata(string? Copyright, string? Creator, string
                 result.Append(rune);
         }
         return result.Length == 0 ? null : result.ToString();
+    }
+}
+
+internal sealed record ExportKeywordSet(IReadOnlyList<string> Flat, IReadOnlyList<string> Hierarchical)
+{
+    internal static readonly ExportKeywordSet Empty = new(Array.Empty<string>(), Array.Empty<string>());
+
+    // Extract only the recipe-approved keyword collections from the native packet.
+    internal static ExportKeywordSet ReadNativeXmp(string? packet)
+    {
+        if (string.IsNullOrWhiteSpace(packet)) return Empty;
+        using var input = new StringReader(packet);
+        using var reader = XmlReader.Create(input, new XmlReaderSettings
+        {
+            DtdProcessing = DtdProcessing.Prohibit,
+            MaxCharactersInDocument = 4 * 1024 * 1024,
+            XmlResolver = null,
+        });
+        var document = XDocument.Load(reader);
+        XNamespace rdf = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
+        XNamespace dc = "http://purl.org/dc/elements/1.1/";
+        XNamespace lightroom = "http://ns.adobe.com/lightroom/1.0/";
+        var descriptions = document.Descendants(rdf + "Description").ToArray();
+        string[] Read(XName field) => descriptions.SelectMany(d => d.Elements(field)).Elements(rdf + "Bag")
+            .Elements(rdf + "li").Where(value => !value.HasElements).Select(value => value.Value).ToArray();
+        return new(Read(dc + "subject"), Read(lightroom + "hierarchicalSubject"));
     }
 }
 

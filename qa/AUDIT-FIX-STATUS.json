@@ -2261,11 +2261,13 @@
       "id": "VE-03",
       "title": "Preserve export metadata, resolution and pixel orientation coherently",
       "priority": "P2",
-      "status": "partial",
+      "status": "implemented",
       "implemented": [
         "Capture One recipe density in inches, centimeters or millimeters is converted to DPI. The disposable-host TIFF reopened with the fixture recipe at 300 × 300 DPI, and TIFF/PNG codec contracts cover independent X/Y densities.",
         "Reopened a TIFF XMP tag and PNG iTXt XMP chunk with Unicode rights, title, creator and keywords, capture date, rating, actual dimensions and normalized orientation. Verified retained high-depth samples, ICC and non-square DPI. Runtime reopens the temporary file before replacing the approved destination.",
-        "Verify the metadata bytes directly in TIFF tag 700 or the PNG iTXt chunk and validate the PNG CRC. Avoid WIC XMP query behavior that varied on the GitHub Windows image."
+        "Verify the metadata bytes directly in TIFF tag 700 or the PNG iTXt chunk and validate the PNG CRC. Avoid WIC XMP query behavior that varied on the GitHub Windows image.",
+        "Native keyword All, None and selected shared-library modes now use Capture One’s own serialization and keyword eligibility. The output takes only approved flat/hierarchical keyword values from the native packet and keeps GPS excluded.",
+        "An unregistered native export recipe and a real temporary shared library verified that approved assigned words export, unassigned or private words do not, and editable title, headline, description, creator and copyright are frozen before output. Both TIFF and PNG reopened with exact Unicode XMP, 16-bit samples, ICC and non-square resolution. The native fixture passed 27 assertions and preserved the private RAW files."
       ],
       "evidence_paths": [
         ".test-results/host-audit-resolution-20261119/host-smoke.log",
@@ -2276,11 +2278,13 @@
         "NativePanel/ExportMetadata.cs",
         "NativePanel/SpektraExport.cs",
         ".test-results/contracts-native-undo-metadata-20261119/summary.json",
-        "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44617727524"
+        "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44617727524",
+        "qa/HostSmoke/ExportMetadataHost.cs",
+        "qa/prepare-metadata-fixture.py",
+        ".test-results/host-native-metadata-policy-20261120/host-smoke.log",
+        ".test-results/contracts-native-keyword-metadata-20261120/ViewerContracts.log"
       ],
-      "remaining_work": [
-        "Expand allow-listed fields and test keyword whitelist, editable source metadata and explicit GPS opt-in policy against independent native fixture exports. Current output excludes GPS."
-      ],
+      "remaining_work": [],
       "original_acceptance_tests": [
         "Synthetic EXIF/XMP/IPTC fixture: date, copyright, title, keywords, GPS opt-out, rotated source; compare expected tags after TIFF/PNG reopen.",
         "Verify non-square DPI and 300-DPI recipes; PNG pHYs may quantize, assert documented tolerance.",
@@ -2985,8 +2989,8 @@
   ],
   "counts": {
     "total": 70,
-    "implemented": 22,
-    "partial": 48,
+    "implemented": 23,
+    "partial": 47,
     "pending": 0
   },
   "last_reconciled": "2026-11-20",

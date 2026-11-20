@@ -82,6 +82,11 @@ public static partial class StartupHook
             Check(Field(panel, "displayedVariant") is Guid, "selected image bound to panel");
             var variant = (Guid)Field(panel, "displayedVariant")!;
             var spatial = Field(panel, "opticalPreview")!;
+            if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_METADATA_FIXTURE") is { Length: > 0 } metadataFixture)
+            {
+                TestExportRecipeMetadata(panelAssembly!, window, exportHook!, metadataFixture);
+                return;
+            }
             if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_DURABLE_EDITS") == "1")
             {
                 await TestDurableSliderEdits(panel, spatial, store);
