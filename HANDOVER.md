@@ -6,7 +6,7 @@ Updated 2026-11-20. The critical-fix batch is implemented, tested, installed loc
 
 1. Read this file, `AGENTS.md` and `qa/AUDIT-FIX-STATUS.json` before changing code. The JSON is the authoritative task-progress ledger; its `remaining_work` and original acceptance tests matter more than a short status label.
 2. Check `git status`, current branch and PR head. Do not discard existing edits or switch the installed build merely because this documentation has a newer commit.
-3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP is `0.2.0-audit.24` from clean `e01a286`. The exact package passed all five native effects and recipe campaigns, the full licensed host suite, the numeric inventory, physical Vulkan and a private upgrade.
+3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP is `0.2.0-audit.25` from clean `14f1d5b`. The exact package passed all five native effects and recipe campaigns, moved catalog restore, the full licensed host suite, the numeric inventory, physical Vulkan and a private upgrade.
 4. Choose an unresolved task and an exact ownership boundary. Do not repeat the completed installation, crash test or old defect reproductions as if nothing had happened.
 5. Update task evidence and the delivery ledger at each completed milestone. Never mark a broad parent task complete because one mitigation shipped.
 
@@ -936,6 +936,16 @@ The combined receipt is `.test-results/audit23-package-verify-20261120/result.js
 - [x] Privately upgrade audit.23 to audit.24 and preserve the test fixture's custom files and outside preset. The previous runtime remains available until the licensed host reports Ready with native Export Connected.
 
 The combined receipt is `.test-results/audit24-package-verify-20261120/result.json`. The independent pixel evidence is `.test-results/audit24-package-verify-20261120/independent-rgb16.json`. Individual runs use the `.test-results/host-audit24-*-20261120` folders. The upgrade receipt is at `D:/Library AI testing/sf-audit24-ready-20261120/installed-upgrade-receipt.json`.
+
+## Development package audit.25
+
+- [x] Build clean `14f1d5b7953ef1bc1f1691cfe2983847c9025979` and verify 153 package entries, 19 critical runtime entries and regenerated capability bytes. The ZIP SHA-256 is `b8bc072d96d633471973f4e4ad455d11b0e007ab6a579c6261565a9897bafb9c`. [Windows 2022 and 2025 checks](https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44735588072)
+- [x] Pass 207 four-RAW effects checks, 114 grain checks, 112 TIFF compression checks, 87 recipe folder checks and 104 hidden/floating tool checks in each launch. Both native commands apply the film and optics. The layouts also exercise a real storage failure and its durable notification path. The five campaigns produce 118 accepted 16-bit effect and control files.
+- [x] Independently decode every RGB16 channel code in eight DNG, CR3, RAF and NEF cases. Separate the measured effects of film, diffusion, and the additional halation and scatter. The largest mean difference between native commands is 7.26e-7 of full scale across 156,601,728 codes per comparison.
+- [x] Pass 344 general assertions on launch and 348 on restart, 19 moved catalog assertions on each launch, 20 native numeric inventory assertions and 32 managed physical Vulkan checks. The moved catalog retains exact saved look and database bytes.
+- [x] Privately upgrade audit.24 to audit.25. Preserve fixture custom files and the external preset. Retire the previous runtime after the licensed host reports Ready with native Export Connected.
+
+The combined receipt is `.test-results/audit25-package-verify-20261120/result.json`. The independent decoder receipt is `.test-results/audit25-package-verify-20261120/independent-rgb16.json`. Individual runs use `.test-results/host-audit25-*-20261120`. The upgrade receipt is at `D:/Library AI testing/sf-audit25-ready-20261120/installed-upgrade-receipt.json`.
 
 ## Accepted export dialog and storage failure
 
