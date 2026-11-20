@@ -3270,18 +3270,19 @@
       "generated_capabilities_sha256": "e5281940406abf421f6ca2c338d673c212a4b088c1a209cfd1158d6fb6d6b0e9",
       "native_control_count": 196,
       "version3_native_preset_verified": true,
-      "isolated_install_and_checkonly": "pending exact audit.16 isolated upgrade",
+      "isolated_install_and_checkonly": "passed audit.15 to audit.16 with real native readiness, preserved user files and exact installed capability report",
       "exact_package_host_tests": {
         "first_launch": 311,
         "restart": 315,
         "raw_matrix": 135,
         "raw_matrix_restart": 135,
         "native_effect_export_first": 50,
-        "native_effect_export_restart": 50
+        "native_effect_export_restart": 50,
+        "managed_gpu": 28
       },
       "remote_windows_contracts": "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44694685692",
       "normal_installed_revision": "ffc481988eb2e6e7ef7a1379486c4a8b2656ac81",
-      "receipt": ".test-results/audit16-package-verify-20261120/static.json"
+      "receipt": ".test-results/audit16-package-verify-20261120/result.json"
     }
   },
   "completed_milestones": [

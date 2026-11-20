@@ -6,7 +6,7 @@ Updated 2026-11-20. The critical-fix batch is implemented, tested, installed loc
 
 1. Read this file, `AGENTS.md` and `qa/AUDIT-FIX-STATUS.json` before changing code. The JSON is the authoritative task-progress ledger; its `remaining_work` and original acceptance tests matter more than a short status label.
 2. Check `git status`, current branch and PR head. Do not discard existing edits or switch the installed build merely because this documentation has a newer commit.
-3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP is `0.2.0-audit.15` from clean `cc24e45`. The extracted package passed the licensed matrix.
+3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP is `0.2.0-audit.16` from clean `8891983`. The extracted package passed native effects export, the four-RAW matrix and a private upgrade.
 4. Choose an unresolved task and an exact ownership boundary. Do not repeat the completed installation, crash test or old defect reproductions as if nothing had happened.
 5. Update task evidence and the delivery ledger at each completed milestone. Never mark a broad parent task complete because one mitigation shipped.
 
@@ -810,7 +810,7 @@ Evidence is under `.test-results/host-tile-centre-native-export-20261120`, `.tes
 
 - [x] Package clean `8891983f4da0d3ac81326116939d3563f381a81a` and verify all 153 package and 19 critical runtime records, checksum and independent capability report. The ZIP SHA-256 is `cc76060976cb0c0856037bd16cd36b401a0f9477798c1df1702c71cc704bdb83`. This package includes the centre-only GPU transfers, device-loss recovery, the TIFF compression adapter and v1 export timings. [Windows 2022 and 2025 checks](https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44694685692)
 - [x] Run the exact extraction through 50 native effects Export assertions, 135 four-RAW colour assertions and 311 general licensed assertions on first launch. Restart passed the same focused counts and 315 general assertions. The timing correction and four-camera effects fixture use newer source. The normal local install still identifies `ffc4819`.
-- [ ] Verify a private upgrade from audit.15 and the exact package's managed physical Vulkan suite.
+- [x] Upgrade a private audit.15 install to audit.16. CheckOnly retained the prior runtime. Actual native Ready and Export Connected retired it only after the installed user-file hashes matched. The installed capability report matched the ZIP byte for byte. The exact package passed 28 physical Vulkan checks. The isolated upgrade receipt is at `D:/Library AI testing/sf-audit16-ready-20261120/installed-upgrade-receipt.json`.
 
 Evidence is under `.test-results/audit16-package-verify-20261120`, `.test-results/host-audit16-native-effect-export-20261120`, `.test-results/host-audit16-full-20261120` and `.test-results/host-audit16-four-raw-20261120`. The v1-compatible hook is preserved under the package verification directory.
 
