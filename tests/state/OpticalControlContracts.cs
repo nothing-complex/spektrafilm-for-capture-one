@@ -55,19 +55,40 @@ internal static class OpticalControlContracts
             if (binding.Parameter is OpticalChoice choice)
                 check($"{key} has a stable default and distinct choice IDs", OpticalControls.HasChoice(key, choice.Default)
                     && choice.Options.Select(option => option.Id).Distinct(StringComparer.Ordinal).Count() == choice.Options.Count);
-            if (binding.RequiresToggle is { } required)
-                check($"{key} is governed by an actual stock override", OpticalControls.Parameters[required].Parameter is OpticalToggle { SendsToWorker: false });
+            foreach (var requirement in binding.Requirements)
+                check($"{key} has a valid prerequisite {requirement.Key}", requirement.InactiveChoice is { } choiceId
+                    ? OpticalControls.HasChoice(requirement.Key, choiceId)
+                    : OpticalControls.Parameters[requirement.Key].Parameter is OpticalToggle);
         }
-        bool Off(string _) => false;
         bool On(string _) => true;
+        string Filter(string _) => "pro_mist";
+        string NoFilter(string _) => "off";
+        bool WithoutOverrides(string key) => !key.StartsWith("custom-", StringComparison.Ordinal);
         check("scan omits exactly the 13 print settings and keeps native negative controls",
-            OpticalControls.Parameters.Values.Count(option => option.ShouldSend(true, On) && !option.ShouldSend(false, On)) == 13
-            && OpticalControls.Parameters["camera-diffusion-strength"].ShouldSend(false, On)
-            && OpticalControls.Parameters["scanner-unsharp-amount"].ShouldSend(false, On));
+            OpticalControls.Parameters.Values.Count(option => option.ShouldSend(true, On, Filter) && !option.ShouldSend(false, On, Filter)) == 13
+            && OpticalControls.Parameters["camera-diffusion-strength"].ShouldSend(false, On, Filter)
+            && OpticalControls.Parameters["scanner-unsharp-amount"].ShouldSend(false, On, Filter));
         check("the 12 stock overrides need their individual switches",
-            OpticalControls.Parameters.Values.Count(option => option.ShouldSend(true, On) && !option.ShouldSend(true, Off)) == 12
-            && OpticalControls.Parameters["halation-red"].ShouldSend(true, key => key == "custom-halation-rgb")
-            && !OpticalControls.Parameters["dir-r-to-g"].ShouldSend(true, key => key == "custom-halation-rgb"));
+            OpticalControls.Parameters.Values.Count(option => option.ShouldSend(true, On, Filter) && !option.ShouldSend(true, WithoutOverrides, Filter)) == 12
+            && OpticalControls.Parameters["halation-red"].ShouldSend(true, key => key == "custom-halation-rgb", Filter)
+            && !OpticalControls.Parameters["dir-r-to-g"].ShouldSend(true, key => key == "custom-halation-rgb", Filter));
+        check("both diffusion families stay selectable while their 18 inactive tuning parameters are omitted",
+            OpticalControls.Parameters.Values.Count(option => option.ShouldSend(true, On, Filter) && !option.ShouldSend(true, On, NoFilter)) == 18
+            && OpticalControls.Parameters["camera-diffusion-family"].ShouldSend(true, On, NoFilter)
+            && OpticalControls.Parameters["print-diffusion-family"].ShouldSend(true, On, NoFilter));
+        foreach (var name in new[] { "white", "black" })
+        {
+            var level = OpticalControls.Parameters[$"scanner-{name}-level"];
+            check($"scanner {name} point needs the master and its correction switch",
+                level.ShouldSend(true, On, Filter)
+                && !level.ShouldSend(true, key => key == "scanner-enabled", Filter)
+                && !level.ShouldSend(true, key => key == $"scanner-{name}", Filter));
+        }
+        foreach (var (parent, count) in new[] { ("auto-exposure", 1), ("scanner-enabled", 10), ("color-adaptation", 4) })
+            check($"disabling {parent} omits its {count} settings and preserves the switch",
+                OpticalControls.Parameters.Values.Count(option => option.ShouldSend(true, On, Filter)
+                    && !option.ShouldSend(true, key => key != parent, Filter)) == count
+                && OpticalControls.Parameters[parent].ShouldSend(true, _ => false, Filter));
 
         var sliders = OpticalControls.Parameters.Values.Select(option => option.Parameter).OfType<OpticalSlider>().ToArray();
         var random = new Random(20261120);

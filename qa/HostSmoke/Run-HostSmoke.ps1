@@ -21,6 +21,7 @@ param(
     [switch] $ViewerNativeBaseline,
     [switch] $DurableSliderEdits,
     [switch] $NativeSliderInteraction,
+    [switch] $NativeOpticalAvailability,
     [switch] $NativeLookBatch,
     [switch] $NativeLookBatchCrash,
     [switch] $NativeBatchExport,
@@ -57,9 +58,9 @@ param(
 )
 $ErrorActionPreference='Stop'
 if ($NativeLookBatchCrash) { $NativeLookBatch=$true }
-if ($NativeSliderInteraction) {
+if ($NativeSliderInteraction -or $NativeOpticalAvailability) {
     if (!$NativeSettingsConfig -or $PackagedRuntime -or $UpgradeFromPackage -or $NativeEffectExport -or $NativeBatchExport -or $CatalogIsolation) {
-        throw 'Native slider interaction needs its own copied catalog and verified preferences backup.'
+        throw 'Native control checks need their own copied catalog and verified preferences backup.'
     }
     $SkipRestart=$true
     $ShowTool=$true
@@ -637,7 +638,7 @@ $names=@(
     'SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT','SPEKTRAFILM_HOST_MOVED_LOOK_BACKUP',
     'SPEKTRAFILM_SHOW_TOOL','SPEKTRAFILM_HOST_PROOF_TEST','SPEKTRAFILM_HOST_CATALOG_ISOLATION',
     'SPEKTRAFILM_HOST_VIEWER_LAYOUTS','SPEKTRAFILM_HOST_FLOATING_WORKSPACE','SPEKTRAFILM_HOST_NATIVE_WORKSPACE_SWITCH',
-    'SPEKTRAFILM_HOST_DURABLE_EDITS','SPEKTRAFILM_HOST_SLIDER_INTERACTION','SPEKTRAFILM_HOST_LOOK_BATCH','SPEKTRAFILM_HOST_BATCH_EXPORT','SPEKTRAFILM_HOST_VARIANT_LINEAGE','SPEKTRAFILM_HOST_SUPPORT_DIAGNOSTICS','SPEKTRAFILM_HOST_METADATA_FIXTURE',
+    'SPEKTRAFILM_HOST_DURABLE_EDITS','SPEKTRAFILM_HOST_SLIDER_INTERACTION','SPEKTRAFILM_HOST_OPTICAL_AVAILABILITY','SPEKTRAFILM_HOST_LOOK_BATCH','SPEKTRAFILM_HOST_BATCH_EXPORT','SPEKTRAFILM_HOST_VARIANT_LINEAGE','SPEKTRAFILM_HOST_SUPPORT_DIAGNOSTICS','SPEKTRAFILM_HOST_METADATA_FIXTURE',
     'SPEKTRAFILM_HOST_VIEWER_CHURN','SPEKTRAFILM_HOST_VIEWER_CHURN_RESOLUTION','SPEKTRAFILM_HOST_VIEWER_TELEMETRY_SECONDS','SPEKTRAFILM_HOST_EXPORT_INTERRUPTION',
     'SPEKTRAFILM_HOST_NATIVE_VIEWER_BASELINE','SPEKTRAFILM_HOST_OTHER_CATALOG',
     'SPEKTRAFILM_HOST_NATIVE_LIFETIME',
@@ -670,6 +671,7 @@ try {
     $env:SPEKTRAFILM_HOST_DURABLE_EDITS=if($DurableSliderEdits){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_LOOK_BATCH=if($NativeLookBatchCrash){'crash'}elseif($NativeLookBatch){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_SLIDER_INTERACTION=if($NativeSliderInteraction){'1'}else{$null}
+    $env:SPEKTRAFILM_HOST_OPTICAL_AVAILABILITY=if($NativeOpticalAvailability){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_BATCH_EXPORT=if($NativeBatchExportCrash){'crash'}elseif($NativeBatchExport){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_VARIANT_LINEAGE=if($NativeVariantLineage){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_SUPPORT_DIAGNOSTICS=if($NativeSupportDiagnostics){'1'}else{$null}

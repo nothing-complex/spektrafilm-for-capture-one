@@ -50,6 +50,7 @@ internal sealed class SpatialPreview : IDisposable
     private readonly Dictionary<string, ComboBox> choices = new();
     private readonly Dictionary<string, CheckBox> toggles = new();
     private readonly List<FrameworkElement> printOnlyControls = new();
+    private bool printing = true;
     private readonly TextBlock status = new() { Margin = new Thickness(0, 5, 0, 3), TextWrapping = TextWrapping.Wrap };
     private readonly DispatcherTimer refresh = new() { Interval = TimeSpan.FromMilliseconds(33) };
     private readonly ViewerPreview viewer;
@@ -179,6 +180,7 @@ internal sealed class SpatialPreview : IDisposable
         liveControls.Children.Add(histogram.Section);
         LiveControls = liveControls;
         Element = Build();
+        RefreshOpticalAvailability();
         var preferences = PanelPreferences.Current;
         loading = true;
         previewSize.SelectedItem = PreviewSizes.FirstOrDefault(x => x.Id == preferences.ViewerSize) ?? PreviewSizes[0];
@@ -230,11 +232,13 @@ internal sealed class SpatialPreview : IDisposable
 
     internal void SetPrintMode(bool printing)
     {
+        this.printing = printing;
         foreach (var control in printOnlyControls)
         {
             control.IsEnabled = printing;
-            control.ToolTip = printing ? null : "Available in Print Simulation mode.";
+            control.ToolTip = printing ? null : OpticalControls.Binding.PrintOnlyHint;
         }
+        RefreshOpticalAvailability();
     }
     internal string? VerifiedRendererAssets => renderer?.AssetContract ?? draftRenderer?.AssetContract;
 
@@ -324,6 +328,7 @@ internal sealed class SpatialPreview : IDisposable
         {
             loading = false;
         }
+        RefreshOpticalAvailability();
         RequestRefresh();
     }
 
@@ -435,8 +440,6 @@ internal sealed class SpatialPreview : IDisposable
             ToolTipService.SetShowOnDisabled(view, true);
             printOnlyControls.Add(view);
         }
-        if (group.RequiresToggle is { } required)
-            SetToggleEnabled(toggles[required], view);
         return view;
     }
 
@@ -446,17 +449,10 @@ internal sealed class SpatialPreview : IDisposable
     private void AddToggle(Panel panel, OpticalToggle definition)
     {
         var item = new CheckBox { Content = definition.Label, IsChecked = definition.Initial, Margin = new Thickness(0, 3, 0, 2) };
-        item.Checked += (_, _) => OnSettingsChanged();
-        item.Unchecked += (_, _) => OnSettingsChanged();
+        item.Checked += (_, _) => OnOpticalSelectorChanged();
+        item.Unchecked += (_, _) => OnOpticalSelectorChanged();
         toggles.Add(definition.Key, item);
         panel.Children.Add(item);
-    }
-
-    private static void SetToggleEnabled(CheckBox toggle, FrameworkElement controls)
-    {
-        controls.IsEnabled = toggle.IsChecked == true;
-        toggle.Checked += (_, _) => controls.IsEnabled = true;
-        toggle.Unchecked += (_, _) => controls.IsEnabled = false;
     }
 
     private static void ScrollPastFramingControls(object sender, MouseWheelEventArgs args)
@@ -487,7 +483,7 @@ internal sealed class SpatialPreview : IDisposable
             SelectedItem = definition.Options.Single(option => option.Id == definition.Default),
         };
         AutomationProperties.SetName(chooser, definition.Label);
-        chooser.SelectionChanged += (_, _) => OnSettingsChanged();
+        chooser.SelectionChanged += (_, _) => OnOpticalSelectorChanged();
         choices.Add(definition.Key, chooser);
         panel.Children.Add(new TextBlock { Text = definition.Label, Margin = new Thickness(0, 4, 0, 1) });
         panel.Children.Add(chooser);
@@ -540,6 +536,37 @@ internal sealed class SpatialPreview : IDisposable
             DragSize = DragLongEdge, DraftSynthesis = fastSynthesis.IsChecked == true });
         RequestRefresh();
     }
+
+    private void OnOpticalSelectorChanged()
+    {
+        if (loading)
+            return;
+        RefreshOpticalAvailability();
+        OnSettingsChanged();
+    }
+
+    private void RefreshOpticalAvailability()
+    {
+        foreach (var binding in OpticalControls.ConditionalParameters)
+        {
+            var key = binding.Parameter.Key;
+            FrameworkElement control = binding.Parameter switch
+            {
+                OpticalSlider => values[key],
+                OpticalChoice => choices[key],
+                _ => toggles[key],
+            };
+            var hint = binding.UnavailableReason(printing, OpticalToggleEnabled, SelectedOpticalChoice);
+            control.IsEnabled = hint is null;
+            control.ToolTip = hint ?? (binding.Parameter is OpticalSlider ? binding.Parameter.Label : null);
+            ToolTipService.SetShowOnDisabled(control, true);
+        }
+    }
+
+    private string SelectedOpticalChoice(string key) => (choices[key].SelectedItem as OpticalOption)?.Id
+        ?? ((OpticalChoice)OpticalControls.Parameters[key].Parameter).Default;
+
+    private bool OpticalToggleEnabled(string key) => toggles[key].IsChecked == true;
 
     private void OnSettingsChanged()
     {
@@ -2031,11 +2058,11 @@ internal sealed class SpatialPreview : IDisposable
             throw new InvalidOperationException("Set Developer exhaustion to zero before rendering this optical preview.");
 
         var args = new List<string>();
-        string Selected(string key) => frozen is null ? ((OpticalOption)choices[key].SelectedItem).Id
+        string Selected(string key) => frozen is null ? SelectedOpticalChoice(key)
             : frozen.Selections.GetValueOrDefault(key, ((OpticalChoice)OpticalControls.Parameters[key].Parameter).Default);
         double Number(string key) => frozen is null ? values[key].Value
             : frozen.Numbers.GetValueOrDefault(key, ((OpticalSlider)OpticalControls.Parameters[key].Parameter).Initial);
-        bool IsOn(string key) => frozen is null ? toggles[key].IsChecked == true
+        bool IsOn(string key) => frozen is null ? OpticalToggleEnabled(key)
             : frozen.Switches.GetValueOrDefault(key, ((OpticalToggle)OpticalControls.Parameters[key].Parameter).Initial);
         void Set(string key, string value) { args.Add("--" + key); args.Add(value); }
         void Numeric(string key, double value) => Set(key, RendererParameters.NumberToken(value));
@@ -2063,7 +2090,7 @@ internal sealed class SpatialPreview : IDisposable
             Set(option, look.Development.GetValueOrDefault(key, baseline) != baseline ? "true" : "false");
         }
 
-        bool Send(string key) => OpticalControls.Parameters[key].ShouldSend(!scanning, IsOn);
+        bool Send(string key) => OpticalControls.Parameters[key].ShouldSend(!scanning, IsOn, Selected);
         foreach (var key in choices.Keys)
             if (Send(key))
                 Set(key, Selected(key));

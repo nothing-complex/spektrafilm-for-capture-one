@@ -452,6 +452,46 @@ def check_print_optics_mode(exe, frame, base):
     print("Print diffusion and glare change Print Simulation and leave both negative scan encodings byte exact")
 
 
+def check_optical_prerequisites(exe, frame, base):
+    small = frame[::3, ::3].copy()
+    cases = [
+        ("camera diffusion",
+         "--camera-diffusion-family off", "--camera-diffusion-family pro_mist",
+         "--camera-diffusion-strength 1.5 --camera-diffusion-warmth 1.1"),
+        ("print diffusion",
+         "--print-diffusion-family off", "--print-diffusion-family pro_mist",
+         "--print-diffusion-strength 1.5 --print-diffusion-warmth 1.1"),
+        ("scanner",
+         "--scanner-enabled false", "--scanner-enabled true",
+         "--scanner-white true --scanner-white-level .7 --scanner-mtf 15"),
+        ("scanner white point",
+         "--scanner-enabled true --scanner-white false", "--scanner-enabled true --scanner-white true",
+         "--scanner-white-level .7"),
+        ("scanner black point",
+         "--scanner-enabled true --scanner-black false", "--scanner-enabled true --scanner-black true",
+         "--scanner-black-level .18"),
+        ("automatic exposure",
+         "--auto-exposure false", "--auto-exposure true", "--auto-exposure-meter median"),
+        ("color adaptation",
+         "--color-adaptation false", "--color-adaptation true",
+         "--color-input-compression false --color-curve-smoothing false "
+         "--color-output-lightness-compression false --color-output-chroma-compression false"),
+    ]
+    request = b"".join(
+        frame_request(small, f"{base} --mode print {parent} {extra}")
+        for _, off, on, children in cases for parent in (off, on) for extra in ("", children)
+    )
+    replies = run_stream(exe, request, mode="--native-preview-stream")
+    assert len(replies) == 4 * len(cases) and all(status == 0 for status, _ in replies), "GPU prerequisite sweep"
+    for index, (label, _, _, _) in enumerate(cases):
+        omitted, staged, active, tuned = replies[4 * index:4 * index + 4]
+        assert omitted == staged, (label, "disabled settings changed the output")
+        # A particular source may already fit the adapted gamut and density curves.
+        if label != "color adaptation":
+            assert active != tuned, (label, "enabled settings had no effect")
+    print(f"Vulkan output is byte-exact with {len(cases)} dormant option groups omitted")
+
+
 def check_negative_density_cache(exe, frame, base):
     height, width = 259, 521
     chart = frame[np.arange(height)[:, None] % frame.shape[0], np.arange(width) % frame.shape[1]]
@@ -838,6 +878,7 @@ def main():
     check_packed_readback(args.exe, base)
     check_metering_cache(args.exe, frame, base)
     check_print_optics_mode(args.exe, frame, base)
+    check_optical_prerequisites(args.exe, frame, base)
     check_negative_density_cache(args.exe, frame, base)
     check_tiled_parity(args.exe, base)
     check_optical_scratch_lifetime(args.exe, base)

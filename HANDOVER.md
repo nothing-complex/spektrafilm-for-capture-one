@@ -1463,6 +1463,15 @@ For the local ICC fixture use `Run-HostSmoke.ps1 -NativeEffectProfileSidecars -S
 - [x] Upgrade privately from audit.34, verify the migrated custom file and external preset, and retain the old installation until the launched Capture One panel reports native Export connected. The installed panel hash matches the extracted binary. The private Desktop contains `Spektrafilm for Capture One.lnk`. The regular installation still identifies `ffc4819`. Evidence is in `.test-results/audit35-package-verify-20261120/result.json`, `independent-file-check.json` beside it and `.test-results/sf35-upgrade/installed-upgrade-receipt.json`.
 - [ ] Complete licensed Capture One 16.7 runtime validation and the remaining audit criteria before public delivery.
 
+## Optical control prerequisites
+
+- [x] Use the optical definitions for both native control availability and worker arguments. Metering follows automatic exposure, diffusion tuning follows the selected filter family, scanner controls follow its master and per-point switches, and compression and smoothing follow color adaptation. Disabled controls explain the prerequisite and retain their saved values.
+- [x] Pass 36 licensed Capture One 16.4 assertions. Switch Print to Scan and back, restore staged values and normal slider tooltips, reload disabled settings, and verify that frozen batch export options follow the saved prerequisites after the live panel changes. The source catalog hash verified. Both managed builds completed with zero warnings and 772 state and recovery assertions passed.
+- [x] Compare physical Vulkan float output for seven dormant prerequisite groups. Omitting inactive values produces byte-identical output. Six enabled groups measurably affect the test image when tuned. The separate Print/Scan/Scan Inverted parity case also passed.
+- [ ] Trace grain model and layer dependencies before adding more gates. Verify the remaining active combinations and the native Viewer freshness indicator after a rejected combination.
+
+Repeat the native fixture with `Run-HostSmoke.ps1 -NativeOpticalAvailability`, the closed source catalog and the exact native settings path. Evidence is in `.test-results/host-optical-prerequisites-tooltip-20261120`, `.test-results/optical-prerequisites-gpu-20261120.log` and `.test-results/optical-prerequisites-state-20261120.log`. This source checkpoint follows audit.35.
+
 ## Status maintenance
 
 `qa/AUDIT-FIX-STATUS.json` owns task IDs, status, implemented substeps, remaining acceptance work and evidence. This handover owns context, runtime identity and resume instructions. `.test-results/FINAL-RESULT.json` is the completed runtime delivery receipt; keep its runtime commit/package identity distinct from later documentation-only commits.

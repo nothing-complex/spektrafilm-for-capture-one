@@ -13,8 +13,13 @@ internal sealed record OpticalSlider(string Key, string Label, double Minimum, d
 internal sealed record OpticalOption(string Id, string Label);
 internal sealed record OpticalChoice(string Key, string Label, IReadOnlyList<OpticalOption> Options, string Default) : OpticalParameter(Key, Label);
 internal sealed record OpticalToggle(string Key, string Label, bool Initial = false, bool SendsToWorker = true) : OpticalParameter(Key, Label);
+internal sealed record OpticalRequirement(string Key, string Hint, string? InactiveChoice = null)
+{
+    internal bool IsMet(Func<string, bool> isOn, Func<string, string> selected) =>
+        InactiveChoice is { } choice ? selected(Key) != choice : isOn(Key);
+}
 internal sealed record OpticalSection(string? Key, string Label, IReadOnlyList<OpticalItem> Items,
-    bool PrintOnly = false, string? RequiresToggle = null) : OpticalItem;
+    bool PrintOnly = false, OpticalRequirement? Requires = null) : OpticalItem;
 internal sealed record OpticalInput(PreviewInputSpace Space, string Id, string Label);
 
 internal static class OpticalControls
@@ -36,7 +41,9 @@ internal static class OpticalControls
     internal static IReadOnlyList<OpticalSection> Sections { get; } = Array.AsReadOnly<OpticalSection>([
         new("optics-metering", "Exposure metering", [
             new OpticalToggle("auto-exposure", "Automatic film exposure"),
-            new OpticalChoice("auto-exposure-meter", "Metering", [new("center_weighted", "Center weighted"), new("median", "Median")], "center_weighted"),
+            new OpticalSection(null, "", [
+                new OpticalChoice("auto-exposure-meter", "Metering", [new("center_weighted", "Center weighted"), new("median", "Median")], "center_weighted"),
+            ], Requires: new("auto-exposure", "Enable automatic film exposure to choose a metering method.")),
         ]),
         new("optics-halation", "Halation and scatter", [
             new OpticalSlider("halation-amount", "Halation amount", 0, 4, 0, .05),
@@ -51,7 +58,7 @@ internal static class OpticalControls
                 new OpticalSlider("halation-red", "Red strength", 0, 1, .05, .005),
                 new OpticalSlider("halation-green", "Green strength", 0, 1, .015, .005),
                 new OpticalSlider("halation-blue", "Blue strength", 0, 1, 0, .005),
-            ], RequiresToggle: "custom-halation-rgb"),
+            ], Requires: new("custom-halation-rgb", "Enable the stock halation override to adjust individual channels.")),
         ]),
         DiffusionSection("camera", "Camera diffusion"),
         DiffusionSection("print", "Print diffusion", printOnly: true),
@@ -99,18 +106,24 @@ internal static class OpticalControls
         ]),
         new("optics-scanning", "Scanning", [
             new OpticalToggle("scanner-enabled", "Enable scanner controls"),
-            new OpticalToggle("scanner-white", "Correct white level"),
-            new OpticalSlider("scanner-white-level", "White point", 0, 1, .98, .01),
-            new OpticalToggle("scanner-black", "Correct black level"),
-            new OpticalSlider("scanner-black-level", "Black point", 0, 1, .01, .01),
             new OpticalSection(null, "", [
-                new OpticalSlider("scanner-glare", "Scanner glare", 0, .2, .03, .001),
-                new OpticalSlider("scanner-glare-roughness", "Glare roughness", 0, 4, .7, .05),
-                new OpticalSlider("scanner-glare-blur", "Glare blur", 0, 32, .5, .1),
-            ], PrintOnly: true),
-            new OpticalSlider("scanner-mtf", "Scanner MTF50 (lp/mm)", 0, 300, 60, 1),
-            new OpticalSlider("scanner-unsharp-radius", "Unsharp radius (µm)", 0, 100, 5, .5),
-            new OpticalSlider("scanner-unsharp-amount", "Unsharp amount", 0, 4, .7, .05),
+                new OpticalToggle("scanner-white", "Correct white level"),
+                new OpticalSection(null, "", [
+                    new OpticalSlider("scanner-white-level", "White point", 0, 1, .98, .01),
+                ], Requires: new("scanner-white", "Enable white-level correction to adjust the white point.")),
+                new OpticalToggle("scanner-black", "Correct black level"),
+                new OpticalSection(null, "", [
+                    new OpticalSlider("scanner-black-level", "Black point", 0, 1, .01, .01),
+                ], Requires: new("scanner-black", "Enable black-level correction to adjust the black point.")),
+                new OpticalSection(null, "", [
+                    new OpticalSlider("scanner-glare", "Scanner glare", 0, .2, .03, .001),
+                    new OpticalSlider("scanner-glare-roughness", "Glare roughness", 0, 4, .7, .05),
+                    new OpticalSlider("scanner-glare-blur", "Glare blur", 0, 32, .5, .1),
+                ], PrintOnly: true),
+                new OpticalSlider("scanner-mtf", "Scanner MTF50 (lp/mm)", 0, 300, 60, 1),
+                new OpticalSlider("scanner-unsharp-radius", "Unsharp radius (µm)", 0, 100, 5, .5),
+                new OpticalSlider("scanner-unsharp-amount", "Unsharp amount", 0, 4, .7, .05),
+            ], Requires: new("scanner-enabled", "Enable scanner controls to adjust this setting.")),
         ]),
         new("optics-enlarger", "Enlarger positioning", [
             new OpticalSlider("enlarger-scale", "Enlarger scale", 1, 32, 1, .1),
@@ -130,26 +143,42 @@ internal static class OpticalControls
                 new OpticalSlider("dir-g-to-b", "G → B coupling", 0, 1, .353, .001),
                 new OpticalSlider("dir-b-to-r", "B → R coupling", 0, 1, .168, .001),
                 new OpticalSlider("dir-b-to-g", "B → G coupling", 0, 1, .226, .001),
-            ], RequiresToggle: "custom-dir-rgb"),
+            ], Requires: new("custom-dir-rgb", "Enable the stock coupler override to adjust individual channels.")),
         ]),
         new("optics-color-adaptation", "Color adaptation", [
             new OpticalToggle("color-adaptation", "Color adaptation"),
-            new OpticalToggle("color-input-compression", "Input spectral gamut compression", true),
-            new OpticalToggle("color-curve-smoothing", "Density curve smoothing", true),
-            new OpticalToggle("color-output-lightness-compression", "Output lightness compression", true),
-            new OpticalToggle("color-output-chroma-compression", "Output chroma compression", true),
+            new OpticalSection(null, "", [
+                new OpticalToggle("color-input-compression", "Input spectral gamut compression", true),
+                new OpticalToggle("color-curve-smoothing", "Density curve smoothing", true),
+                new OpticalToggle("color-output-lightness-compression", "Output lightness compression", true),
+                new OpticalToggle("color-output-chroma-compression", "Output chroma compression", true),
+            ], Requires: new("color-adaptation", "Enable color adaptation to adjust this setting.")),
         ]),
     ]);
 
-    internal sealed record Binding(OpticalParameter Parameter, bool PrintOnly, string? RequiresToggle)
+    internal sealed record Binding(OpticalParameter Parameter, bool PrintOnly, OpticalRequirement[] Requirements)
     {
-        internal bool ShouldSend(bool printing, Func<string, bool> isOn) =>
-            Parameter is not OpticalToggle { SendsToWorker: false } && (!PrintOnly || printing)
-            && (RequiresToggle is null || isOn(RequiresToggle));
+        internal const string PrintOnlyHint = "Available in Print Simulation mode.";
+
+        internal string? UnavailableReason(bool printing, Func<string, bool> isOn, Func<string, string> selected)
+        {
+            if (PrintOnly && !printing)
+                return PrintOnlyHint;
+            foreach (var requirement in Requirements)
+                if (!requirement.IsMet(isOn, selected))
+                    return requirement.Hint;
+            return null;
+        }
+
+        internal bool ShouldSend(bool printing, Func<string, bool> isOn, Func<string, string> selected) =>
+            Parameter is not OpticalToggle { SendsToWorker: false } && UnavailableReason(printing, isOn, selected) is null;
     }
 
     internal static IReadOnlyDictionary<string, Binding> Parameters { get; } =
-        Sections.SelectMany(section => Bindings(section, false, null)).ToDictionary(x => x.Parameter.Key, StringComparer.Ordinal);
+        Sections.SelectMany(section => Bindings(section, false, [])).ToDictionary(x => x.Parameter.Key, StringComparer.Ordinal);
+
+    internal static IReadOnlyList<Binding> ConditionalParameters { get; } =
+        Parameters.Values.Where(binding => binding.PrintOnly || binding.Requirements.Length > 0).ToArray();
 
     internal static void ValidateNumber(string key, double value)
     {
@@ -180,17 +209,20 @@ internal static class OpticalControls
                 renderer.VerifyBooleanControl(toggle.Key);
     }
 
-    private static IEnumerable<Binding> Bindings(OpticalSection section, bool printOnly, string? requiresToggle)
+    private static IEnumerable<Binding> Bindings(OpticalSection section, bool printOnly, OpticalRequirement[] requirements)
     {
+        printOnly |= section.PrintOnly;
+        if (section.Requires is { } requirement)
+            requirements = [.. requirements, requirement];
         foreach (var item in section.Items)
         {
             if (item is OpticalSection child)
             {
-                foreach (var binding in Bindings(child, printOnly || section.PrintOnly, section.RequiresToggle ?? requiresToggle))
+                foreach (var binding in Bindings(child, printOnly, requirements))
                     yield return binding;
             }
             else if (item is OpticalParameter parameter)
-                yield return new Binding(parameter, printOnly || section.PrintOnly, section.RequiresToggle ?? requiresToggle);
+                yield return new Binding(parameter, printOnly, requirements);
         }
     }
 
@@ -199,15 +231,17 @@ internal static class OpticalControls
         var prefix = stage + "-diffusion-";
         return new OpticalSection("optics-" + stage + "-diffusion", label, [
             new OpticalChoice(prefix + "family", "Filter", Diffusion, "off"),
-            new OpticalSlider(prefix + "strength", "Filter strength", 0, 2, .5, .125),
-            new OpticalSlider(prefix + "scale", "Spatial scale", 0, 4, 1, .05),
-            new OpticalSlider(prefix + "warmth", "Halo warmth", -1.5, 1.5, 0, .05),
-            new OpticalSlider(prefix + "core-intensity", "Core intensity", 0, 4, 1, .05),
-            new OpticalSlider(prefix + "core-size", "Core size", .1, 4, 1, .05),
-            new OpticalSlider(prefix + "halo-intensity", "Halo intensity", 0, 4, 1, .05),
-            new OpticalSlider(prefix + "halo-size", "Halo size", .1, 4, 1, .05),
-            new OpticalSlider(prefix + "bloom-intensity", "Bloom intensity", 0, 4, 1, .05),
-            new OpticalSlider(prefix + "bloom-size", "Bloom size", .1, 4, 1, .05),
+            new OpticalSection(null, "", [
+                new OpticalSlider(prefix + "strength", "Filter strength", 0, 2, .5, .125),
+                new OpticalSlider(prefix + "scale", "Spatial scale", 0, 4, 1, .05),
+                new OpticalSlider(prefix + "warmth", "Halo warmth", -1.5, 1.5, 0, .05),
+                new OpticalSlider(prefix + "core-intensity", "Core intensity", 0, 4, 1, .05),
+                new OpticalSlider(prefix + "core-size", "Core size", .1, 4, 1, .05),
+                new OpticalSlider(prefix + "halo-intensity", "Halo intensity", 0, 4, 1, .05),
+                new OpticalSlider(prefix + "halo-size", "Halo size", .1, 4, 1, .05),
+                new OpticalSlider(prefix + "bloom-intensity", "Bloom intensity", 0, 4, 1, .05),
+                new OpticalSlider(prefix + "bloom-size", "Bloom size", .1, 4, 1, .05),
+            ], Requires: new(prefix + "family", "Choose a diffusion filter to adjust this setting.", InactiveChoice: "off")),
         ], PrintOnly: printOnly);
     }
 

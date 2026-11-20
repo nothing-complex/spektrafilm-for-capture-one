@@ -24,6 +24,8 @@ public static partial class StartupHook
             ("camera-diffusion-strength", 1.375m, 1.375), ("camera-diffusion-warmth", -.375m, -.375),
         };
         var original = Call(spatial, "CaptureSettings")!;
+        var cameraFilter = (ComboBox)((IDictionary)Field(spatial, "choices")!)["camera-diffusion-family"]!;
+        cameraFilter.SelectedItem = OpticalOption(cameraFilter, "pro_mist");
         var legacy = Call(spatial, "CaptureSettings")!;
         var legacyNumbers = (IDictionary)Prop(legacy, "Numbers")!;
         foreach (var (key, entered, expected) in cases)
@@ -70,35 +72,34 @@ public static partial class StartupHook
         var mode = (ComboBox)Field(panel, "mode")!;
         var choices = (IDictionary)Field(spatial, "choices")!;
         var diffusion = (ComboBox)choices["print-diffusion-family"]!;
+        var cameraFilter = (ComboBox)choices["camera-diffusion-family"]!;
+        var scanner = (CheckBox)((IDictionary)Field(spatial, "toggles")!)["scanner-enabled"]!;
         var sliders = (IDictionary)Field(spatial, "values")!;
         var glare = sliders["scanner-glare"]!;
         var value = glare.GetType().GetProperty("Value", Flags)!;
         var enabled = (CheckBox)Field(panel, "enableSpektraFilm")!;
         var previousMode = mode.SelectedItem;
         var previousDiffusion = diffusion.SelectedItem;
+        var previousCameraFilter = cameraFilter.SelectedItem;
+        var previousScanner = scanner.IsChecked;
         var previousGlare = value.GetValue(glare);
         var wasEnabled = enabled.IsChecked;
         var sections = ((IEnumerable)Field(spatial, "printOnlyControls")!).Cast<FrameworkElement>().ToArray();
-        object Option(ComboBox chooser, string id) => chooser.Items.Cast<object>().Single(item => Equals(Prop(item, "Id"), id));
-        Dictionary<string, string> Wire()
-        {
-            var look = Call(panel, "CurrentSettings")!;
-            var args = (string[])Call(spatial, "RendererOptions", look, "srgb", "srgb", false, false)!;
-            return Enumerable.Range(0, args.Length / 2).ToDictionary(i => args[i * 2][2..], i => args[i * 2 + 1], StringComparer.Ordinal);
-        }
         try
         {
             enabled.IsChecked = true;
-            mode.SelectedItem = Option(mode, "print");
-            diffusion.SelectedItem = Option(diffusion, "pro_mist");
+            mode.SelectedItem = OpticalOption(mode, "print");
+            diffusion.SelectedItem = OpticalOption(diffusion, "pro_mist");
+            cameraFilter.SelectedItem = OpticalOption(cameraFilter, "pro_mist");
+            scanner.IsChecked = true;
             value.SetValue(glare, .07d);
-            var print = Wire();
+            var print = OpticalWire(panel, spatial);
             Check(sections.Length == 2 && sections.All(section => section.IsEnabled)
                 && print["print-diffusion-family"] == "pro_mist" && print["scanner-glare"] == "0.07",
                 "Print Simulation enables the two print-only groups and sends their staged values");
 
-            mode.SelectedItem = Option(mode, "scan");
-            var scan = Wire();
+            mode.SelectedItem = OpticalOption(mode, "scan");
+            var scan = OpticalWire(panel, spatial);
             var omitted = print.Keys.Except(scan.Keys).ToArray();
             Check(sections.All(section => !section.IsEnabled) && scan["mode"] == "scan" && omitted.Length == 13
                 && omitted.All(key => key.StartsWith("print-diffusion-", StringComparison.Ordinal) || key.StartsWith("scanner-glare", StringComparison.Ordinal))
@@ -109,8 +110,8 @@ public static partial class StartupHook
                 && Equals(((IDictionary)Prop(staged, "Numbers")!)["scanner-glare"], .07d),
                 "switching to Scan Film retains the dormant print optics in saved look state");
 
-            mode.SelectedItem = Option(mode, "print");
-            var returned = Wire();
+            mode.SelectedItem = OpticalOption(mode, "print");
+            var returned = OpticalWire(panel, spatial);
             Check(sections.All(section => section.IsEnabled) && print.SequenceEqual(returned),
                 "returning to Print Simulation restores the exact staged renderer request");
         }
@@ -118,7 +119,106 @@ public static partial class StartupHook
         {
             mode.SelectedItem = previousMode;
             diffusion.SelectedItem = previousDiffusion;
+            cameraFilter.SelectedItem = previousCameraFilter;
+            scanner.IsChecked = previousScanner;
             value.SetValue(glare, previousGlare);
+            enabled.IsChecked = wasEnabled;
+        }
+    }
+
+    private static object OpticalOption(ComboBox chooser, string id) =>
+        chooser.Items.Cast<object>().Single(item => Equals(Prop(item, "Id"), id));
+
+    private static Dictionary<string, string> OpticalWire(object panel, object spatial, object? frozen = null)
+    {
+        var look = Call(panel, "CurrentSettings")!;
+        var args = (string[])(frozen is null
+            ? Call(spatial, "RendererOptions", look, "srgb", "srgb", false, false)!
+            : Call(spatial, "BuildRendererOptions", look, "srgb", "srgb", true, false, frozen)!);
+        return Enumerable.Range(0, args.Length / 2)
+            .ToDictionary(i => args[i * 2][2..], i => args[i * 2 + 1], StringComparer.Ordinal);
+    }
+
+    private static void VerifyOpticalPrerequisites(object panel, object spatial)
+    {
+        var mode = (ComboBox)Field(panel, "mode")!;
+        var enabled = (CheckBox)Field(panel, "enableSpektraFilm")!;
+        var numbers = (IDictionary)Field(spatial, "values")!;
+        var choices = (IDictionary)Field(spatial, "choices")!;
+        var toggles = (IDictionary)Field(spatial, "toggles")!;
+        var previousMode = mode.SelectedItem;
+        var wasEnabled = enabled.IsChecked;
+        var previousSettings = Call(spatial, "CaptureSettings")!;
+        void Toggle(string key, bool active) => ((CheckBox)toggles[key]!).IsChecked = active;
+        void Select(string key, string option)
+        {
+            var chooser = (ComboBox)choices[key]!;
+            chooser.SelectedItem = OpticalOption(chooser, option);
+        }
+        void Expect(string key, FrameworkElement control, string? value)
+        {
+            var wire = OpticalWire(panel, spatial);
+            Check(control.IsEnabled == (value is not null)
+                && wire.GetValueOrDefault(key) == value
+                && (value is not null || control.ToolTip is string && ToolTipService.GetShowOnDisabled(control)),
+                $"{key} has matching native availability, prerequisite hint and Viewer arguments");
+        }
+        try
+        {
+            enabled.IsChecked = true;
+            mode.SelectedItem = OpticalOption(mode, "print");
+            Toggle("auto-exposure", true);
+            Select("auto-exposure-meter", "median");
+            Expect("auto-exposure-meter", (ComboBox)choices["auto-exposure-meter"]!, "median");
+            Toggle("auto-exposure", false);
+            Expect("auto-exposure-meter", (ComboBox)choices["auto-exposure-meter"]!, null);
+
+            Select("camera-diffusion-family", "glimmerglass");
+            var filterStrength = (FrameworkElement)numbers["camera-diffusion-strength"]!;
+            filterStrength.GetType().GetProperty("Value", Flags)!.SetValue(filterStrength, 1.375);
+            Expect("camera-diffusion-strength", filterStrength, "1.375");
+            Check(Equals(filterStrength.ToolTip, "Filter strength"), "an active optical slider retains its standard label tooltip");
+            Select("camera-diffusion-family", "off");
+            Expect("camera-diffusion-strength", filterStrength, null);
+
+            Toggle("scanner-enabled", true);
+            Toggle("scanner-white", true);
+            Toggle("scanner-black", false);
+            var white = (FrameworkElement)numbers["scanner-white-level"]!;
+            white.GetType().GetProperty("Value", Flags)!.SetValue(white, .8);
+            Expect("scanner-white-level", white, "0.8");
+            Expect("scanner-black-level", (FrameworkElement)numbers["scanner-black-level"]!, null);
+            Toggle("scanner-enabled", false);
+            Expect("scanner-white", (CheckBox)toggles["scanner-white"]!, null);
+            Expect("scanner-white-level", white, null);
+
+            Toggle("color-adaptation", true);
+            Toggle("color-input-compression", false);
+            Expect("color-input-compression", (CheckBox)toggles["color-input-compression"]!, "false");
+            Toggle("color-adaptation", false);
+            Expect("color-input-compression", (CheckBox)toggles["color-input-compression"]!, null);
+            var dormant = Call(spatial, "CaptureSettings")!;
+            var dormantWire = OpticalWire(panel, spatial);
+
+            Toggle("auto-exposure", true);
+            Select("camera-diffusion-family", "glimmerglass");
+            Toggle("scanner-enabled", true);
+            Toggle("color-adaptation", true);
+            Expect("auto-exposure-meter", (ComboBox)choices["auto-exposure-meter"]!, "median");
+            Expect("camera-diffusion-strength", filterStrength, "1.375");
+            Expect("scanner-white-level", white, "0.8");
+            Expect("color-input-compression", (CheckBox)toggles["color-input-compression"]!, "false");
+            Check(OpticalWire(panel, spatial, dormant).SequenceEqual(dormantWire),
+                "frozen native batch export honors saved prerequisites after the live toggles change");
+            Call(spatial, "LoadSettings", dormant);
+            Expect("scanner-white-level", white, null);
+            Check(Equals(((IDictionary)Prop(Call(spatial, "CaptureSettings")!, "Numbers")!)["scanner-white-level"], .8d),
+                "reloading dormant optics restores availability and keeps the staged white point");
+        }
+        finally
+        {
+            mode.SelectedItem = previousMode;
+            Call(spatial, "LoadSettings", previousSettings);
             enabled.IsChecked = wasEnabled;
         }
     }

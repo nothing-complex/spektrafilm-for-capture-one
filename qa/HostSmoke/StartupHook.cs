@@ -96,6 +96,13 @@ public static partial class StartupHook
             Check(Field(panel, "displayedVariant") is Guid, "selected image bound to panel");
             var variant = (Guid)Field(panel, "displayedVariant")!;
             var spatial = Field(panel, "opticalPreview")!;
+            if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_OPTICAL_AVAILABILITY") == "1")
+            {
+                VerifyOpticalModeDependencies(panel, spatial);
+                VerifyOpticalPrerequisites(panel, spatial);
+                File.WriteAllText(Path.Combine(folder, "first.passed"), $"PASS {checks} native optical availability assertions");
+                return;
+            }
             if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_SLIDER_INTERACTION") == "1")
             {
                 await TestNativeSliderInput(hook!, panel, store, variant, Field(panel, "exposure")!);

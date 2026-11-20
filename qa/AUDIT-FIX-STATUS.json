@@ -1234,7 +1234,8 @@
         "The general licensed 16.4 fixture passes 352 checks on first launch and 356 after restart, with the source catalog hash intact. The same source builds against signed 16.7.8.3529 references with zero warnings and all 563 CLR host references match.",
         "The optical definition drives 110 native controls, including group order, labels and units, saved ranges and defaults, choice IDs, wire ownership and Print or stock-override dependencies. The 199-entry native inventory and detailed numeric manifest match their previous forms, with byte-identical numeric inventory.",
         "The portable suite verifies the tracked native inventory, generates 32 legal look dictionaries and rejects mutated persisted values just beyond the control range. The licensed 42-check fixture switches Print to Scan and back, verifies the correct 13 disabled options are omitted in Scan and restores the exact Print request.",
-        "Pass 728 state and recovery assertions, 12,507 Viewer contracts and 222 licensed four-RAW native effects-export assertions. Both native commands retain the 16-bit effect and exact recipe ICC. The ordinary panel build completes with the compiled gate enabled and its renderer matches the licensed fixture worker bytes."
+        "Pass 728 state and recovery assertions, 12,507 Viewer contracts and 222 licensed four-RAW native effects-export assertions. Both native commands retain the 16-bit effect and exact recipe ICC. The ordinary panel build completes with the compiled gate enabled and its renderer matches the licensed fixture worker bytes.",
+        "The optical definition supplies nested prerequisites and disabled-control hints as well as worker argument admission. Metering, both diffusion filters, scanner corrections and color adaptation use the same definition for live controls and frozen native batch arguments. The state suite passes 772 assertions."
       ],
       "evidence_paths": [
         "NativePanel/LookStateValidation.cs",
@@ -1256,7 +1257,9 @@
         "tests/state/OpticalControlContracts.cs",
         ".test-results/contracts-optical-schema-native-acl-20261120/StateContracts.log",
         ".test-results/host-optical-schema-inventory-20261120",
-        ".test-results/host-optical-schema-effects-20261120"
+        ".test-results/host-optical-schema-effects-20261120",
+        ".test-results/optical-prerequisites-state-20261120.log",
+        ".test-results/host-optical-prerequisites-tooltip-20261120/host-smoke.log"
       ],
       "remaining_work": [
         "Finish versioned look migration and extend availability checks to remaining backend conditions. Host-independent CI covers numeric look mutations and checks the tracked native inventory. The Windows panel build validates the actual compiled description; the public Windows CI jobs still need the actual compiled renderer matrix."
@@ -3187,7 +3190,8 @@
       "implemented": [
         "The known unsupported developer-exhaustion control is disabled with retained legacy data and explicit clear action.",
         "A real older preset with nonzero exhaustion used the disabled slider and an explicit Clear action. Renderer request construction refused it before worker creation. Clear saved the variant, preserved the original preset and restored a valid request. Native Undo returned to the preceding state.",
-        "The same mode and override dependencies drive the optical controls and emitted keys. The licensed panel disables and omits Print diffusion and glare in Scan Film and restores the staged choices in Print Simulation. A physical Vulkan run confirms exact output parity when the obsolete flags are omitted from Scan and Scan Inverted, and a real change in Print."
+        "The same mode and override dependencies drive the optical controls and emitted keys. The licensed panel disables and omits Print diffusion and glare in Scan Film and restores the staged choices in Print Simulation. A physical Vulkan run confirms exact output parity when the obsolete flags are omitted from Scan and Scan Inverted, and a real change in Print.",
+        "Automatic exposure, diffusion family, scanner and its white/black corrections, and color adaptation now control native availability and renderer options together. Disabled settings explain their prerequisite and keep their saved values. The licensed 16.4 fixture passes 36 assertions for control availability, standard tooltips, mode changes, look reload and frozen native batch arguments. Physical Vulkan 32-bit float output is byte-identical when omitting the seven tested dormant groups. Turning on and tuning six of those groups changes pixels."
       ],
       "evidence_paths": [
         "NativePanel/SpektraFilmTool.cs",
@@ -3195,10 +3199,12 @@
         ".test-results/host-compiled-controls-20261120/host-smoke.log",
         ".test-results/renderer-parameter-matrix-20261120.log",
         ".test-results/host-optical-schema-inventory-20261120/host-smoke.log",
-        ".test-results/optical-mode-gpu-parity-20261120.log"
+        ".test-results/optical-mode-gpu-parity-20261120.log",
+        ".test-results/host-optical-prerequisites-tooltip-20261120/host-smoke.log",
+        ".test-results/optical-prerequisites-gpu-20261120.log"
       ],
       "remaining_work": [
-        "Verify the remaining cross-control interactions and upstream backend availability conditions. Extend the native gating checks beyond Print and stock overrides."
+        "Verify the remaining upstream model and backend conditions, especially particle versus synthesis grain and their sublayers, and sweep active options across the supported modes. Exercise a rejected active combination against the native Viewer freshness indicator."
       ],
       "original_acceptance_tests": [
         "every enabled control has a successful parameter sweep or explicitly supported validation outcome",
