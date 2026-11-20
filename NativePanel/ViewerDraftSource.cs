@@ -108,17 +108,18 @@ internal static class ViewerDraftSource
 
 // Owned by one Viewer dispatcher. Each level is sampled directly from the
 // developed source. Resampling a cached level would change fractional edges.
-internal sealed class ViewerDraftPyramid(long byteLimit = ViewerDraftPyramid.DefaultByteLimit)
+internal sealed class ViewerDraftPyramid(long byteLimit = ViewerDraftPyramid.DefaultByteLimit, ViewerCacheBudget? budget = null)
 {
     internal const long DefaultByteLimit = 128L * 1024 * 1024;
     private readonly LinkedList<Level> levels = new();
-    private HostImageSource.Frame? source;
+    private readonly ViewerCacheBudget retention = budget ?? ViewerCacheBudget.Shared;
+    private WeakReference<HostImageSource.Frame>? source;
     private PreviewInputSpace inputSpace;
     internal long RetainedBytes { get; private set; }
 
     internal HostImageSource.Frame? Find(HostImageSource.Frame input, int longEdge, PreviewInputSpace space)
     {
-        if (!ReferenceEquals(input, source) || space != inputSpace)
+        if (!Matches(input, space))
             return null;
         var edge = Math.Min(longEdge, ViewerDraftSource.MaxSide);
         for (var node = levels.First; node is not null; node = node.Next)
@@ -134,30 +135,46 @@ internal sealed class ViewerDraftPyramid(long byteLimit = ViewerDraftPyramid.Def
 
     internal void Remember(HostImageSource.Frame input, int longEdge, PreviewInputSpace space, HostImageSource.Frame draft)
     {
-        if (!ReferenceEquals(input, source) || space != inputSpace)
+        if (!Matches(input, space))
         {
             Clear();
-            source = input;
+            source = new(input);
             inputSpace = space;
         }
         var bytes = draft.FloatBytes.LongLength;
         if (ReferenceEquals(input, draft) || bytes > byteLimit || Find(input, longEdge, space) is not null)
             return;
-        while (RetainedBytes + bytes > byteLimit && levels.Last is { } oldest)
+        while (RetainedBytes + bytes > byteLimit && levels.Last is not null)
+            EvictOldest();
+        var lease = retention.TryRetain(bytes);
+        while (lease is null && levels.Last is not null)
         {
-            RetainedBytes -= oldest.Value.Frame.FloatBytes.LongLength;
-            levels.RemoveLast();
+            EvictOldest();
+            lease = retention.TryRetain(bytes);
         }
-        levels.AddFirst(new Level(Math.Min(longEdge, ViewerDraftSource.MaxSide), draft));
+        if (lease is null)
+            return;
+        levels.AddFirst(new Level(Math.Min(longEdge, ViewerDraftSource.MaxSide), draft, lease));
         RetainedBytes += bytes;
     }
 
     internal void Clear()
     {
         source = null;
-        levels.Clear();
-        RetainedBytes = 0;
+        while (levels.Last is not null)
+            EvictOldest();
     }
 
-    private sealed record Level(int Edge, HostImageSource.Frame Frame);
+    private bool Matches(HostImageSource.Frame input, PreviewInputSpace space) =>
+        space == inputSpace && source is not null && source.TryGetTarget(out var developed) && ReferenceEquals(input, developed);
+
+    private void EvictOldest()
+    {
+        var oldest = levels.Last!.Value;
+        levels.RemoveLast();
+        RetainedBytes -= oldest.Frame.FloatBytes.LongLength;
+        oldest.Lease.Dispose();
+    }
+
+    private sealed record Level(int Edge, HostImageSource.Frame Frame, IDisposable Lease);
 }

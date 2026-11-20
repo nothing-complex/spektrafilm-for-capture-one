@@ -66,6 +66,7 @@ internal sealed class SpatialPreview : IDisposable
     private OpticalRenderer? draftRenderer;
     private readonly ViewerDraftPyramid draftPyramid = new();
     private (string[] Arguments, byte[] Pixels, bool Packed)? draftResult;
+    private IDisposable? draftResultLease;
     private bool draftWarmupAttempted;
     private bool warmingDraft;
     private int lastDraftRevision = -1;
@@ -75,9 +76,12 @@ internal sealed class SpatialPreview : IDisposable
     private NativeImageRevision? failedRevision;
     private readonly PreviewRendererRetry<(Guid Variant, int Generation, NativeImageRevision Source)> rendererRetry = new();
     private byte[]? renderedPixels;
+    private IDisposable? renderedPixelsLease;
     private string[]? renderedArguments;
     private BitmapSource? sourceDisplay;
+    private IDisposable? sourceDisplayLease;
     private BitmapSource? renderedDisplay;
+    private IDisposable? renderedDisplayLease;
     private double renderedStrength;
     private PreviewInputSpace? failedSpace;
     private readonly ComboBox inputSpace = new()
@@ -1398,19 +1402,46 @@ internal sealed class SpatialPreview : IDisposable
     private void ResetSource(bool keepDraftRenderer = false)
     {
         rendererRetry.Reset();
-        ResetDraft(keepRenderer: keepDraftRenderer);
         viewportQuality.Reset();
         viewportSeedPending = true;
-        source = null;
-        sourceSize = null;
         failedRevision = null;
         retryViewer.Visibility = Visibility.Collapsed;
         failedSpace = null;
         failedSize = null;
-        sourceDisplay = null;
-        renderedPixels = null;
+        ReleaseSourceBuffers(keepDraftRenderer);
+    }
+
+    private void ReleaseSourceBuffers(bool keepDraftRenderer)
+    {
+        ResetDraft(keepRenderer: keepDraftRenderer);
+        source = null;
+        sourceSize = null;
+        ClearDisplayCache(ref sourceDisplay, ref sourceDisplayLease);
+        ClearRenderedPixels();
         renderedArguments = null;
-        renderedDisplay = null;
+        ClearDisplayCache(ref renderedDisplay, ref renderedDisplayLease);
+    }
+
+    private void ClearRenderedPixels()
+    {
+        renderedPixels = null;
+        renderedPixelsLease?.Dispose();
+        renderedPixelsLease = null;
+    }
+
+    private static void ClearDisplayCache(ref BitmapSource? cache, ref IDisposable? lease)
+    {
+        cache = null;
+        lease?.Dispose();
+        lease = null;
+    }
+
+    private static void RememberDisplay(BitmapSource bitmap, ref BitmapSource? cache, ref IDisposable? lease)
+    {
+        var stride = ((long)bitmap.PixelWidth * bitmap.Format.BitsPerPixel + 7) / 8;
+        lease = ViewerCacheBudget.Shared.TryRetain(stride * bitmap.PixelHeight);
+        if (lease is not null)
+            cache = bitmap;
     }
 
     private bool CheckSourceProfile(PreviewInputSpace space)
@@ -1549,11 +1580,7 @@ internal sealed class SpatialPreview : IDisposable
         var nativeSize = size == "native";
         var longEdge = nativeSize ? 0 : int.Parse(size, CultureInfo.InvariantCulture);
         var dragEdge = DragLongEdge;
-        var cachedSource = source;
-        var needsSource = cachedSource?.Description is not { } description || description.Source.VariantId != selectedVariant
-            || description.Source.AdjustmentKey != revision || description.Source.InputEncoding != space || sourceSize != size
-            || !string.Equals(description.Source.ProfileSha256, checkedProfileHash, StringComparison.Ordinal)
-            || !description.Describes(cachedSource.Width, cachedSource.Height, cachedSource.BitDepth, cachedSource.FloatBytes.Length);
+        var needsSource = !HasCurrentSource(selectedVariant, revision, space, size);
         if (!needsSource && WantsDragPreview
             && source is { } liveSource && Math.Max(liveSource.Width, liveSource.Height) > dragEdge)
         {
@@ -1595,6 +1622,9 @@ internal sealed class SpatialPreview : IDisposable
             var args = strength > 0 ? RendererOptions(look, selectedSpace.Id, encoding.Id) : Array.Empty<string>();
             if (needsSource)
             {
+                // The last visible bitmap owns its display pixels. The obsolete
+                // float buffers can leave before Capture One develops a replacement.
+                ReleaseSourceBuffers(keepDraftRenderer: true);
                 var developStarted = Stopwatch.GetTimestamp();
                 var target = HostProfile.CaptureTarget(window);
                 var snapshot = HostImageSource.Capture(window, target, space);
@@ -1630,10 +1660,6 @@ internal sealed class SpatialPreview : IDisposable
                 ResetDraft(keepRenderer: true);
                 source = developed;
                 sourceSize = size;
-                sourceDisplay = null;
-                renderedPixels = null;
-                renderedArguments = null;
-                renderedDisplay = null;
                 nativeDevelopmentMs = Stopwatch.GetElapsedTime(developStarted).TotalMilliseconds;
                 StartupHook.Log($"Capture One developed {target.SourceFormat} input at {developed.Width} × {developed.Height}, {developed.BitDepth}-bit {space} in {nativeDevelopmentMs:F0} ms.");
             }
@@ -1644,30 +1670,35 @@ internal sealed class SpatialPreview : IDisposable
             BitmapSource output;
             if (strength <= 0)
             {
-                if (sourceDisplay is null)
+                var display = sourceDisplay;
+                if (display is null)
                 {
                     var bitmapStarted = Stopwatch.GetTimestamp();
-                    var display = await Task.Run(() => ViewerDisplayBitmap.Convert(input, null, 0, space, encoding.Id, job.Token), job.Token);
+                    display = await Task.Run(() => ViewerDisplayBitmap.Convert(input, null, 0, space, encoding.Id, job.Token), job.Token);
                     job.Token.ThrowIfCancellationRequested();
-                    sourceDisplay = display;
+                    RememberDisplay(display, ref sourceDisplay, ref sourceDisplayLease);
                     bitmapMs = Stopwatch.GetElapsedTime(bitmapStarted).TotalMilliseconds;
                 }
-                output = sourceDisplay;
+                output = display;
             }
             else
             {
                 if (renderedArguments is null || !args.SequenceEqual(renderedArguments))
                 {
                     renderedArguments = args;
-                    renderedPixels = null;
-                    renderedDisplay = null;
+                    ClearRenderedPixels();
+                    ClearDisplayCache(ref renderedDisplay, ref renderedDisplayLease);
                 }
 
-                if (renderedDisplay is null || renderedStrength != strength)
+                var display = renderedDisplay;
+                if (display is null || renderedStrength != strength)
                 {
-                    var displayPixels = strength == 1 && encoding.Id == "srgb" && renderedPixels is null;
+                    ClearDisplayCache(ref renderedDisplay, ref renderedDisplayLease);
+                    display = null;
+                    var completedPixels = renderedPixels;
+                    var displayPixels = strength == 1 && encoding.Id == "srgb" && completedPixels is null;
                     byte[]? packed = null;
-                    if (renderedPixels is null)
+                    if (completedPixels is null)
                     {
                         var renderWorker = renderer ??= new OpticalRenderer(nativePreview: true);
                         renderingFinal = true;
@@ -1681,25 +1712,31 @@ internal sealed class SpatialPreview : IDisposable
                         finally { renderingFinal = false; }
                         filmRenderMs = Stopwatch.GetElapsedTime(renderStarted).TotalMilliseconds;
                         job.Token.ThrowIfCancellationRequested();
+                        if (settingsVersion != inputRevision)
+                            return;
                         if (displayPixels)
                             packed = reply;
                         else
-                            renderedPixels = reply;
+                        {
+                            completedPixels = reply;
+                            renderedPixelsLease = ViewerCacheBudget.Shared.TryRetain(reply.LongLength);
+                            if (renderedPixelsLease is not null)
+                                renderedPixels = reply;
+                        }
                     }
                     if (settingsVersion != inputRevision)
                         return;
 
-                    var completedPixels = renderedPixels;
                     var bitmapStarted = Stopwatch.GetTimestamp();
-                    var display = await Task.Run(() => packed is not null
+                    display = await Task.Run(() => packed is not null
                         ? CreateDisplayBitmap(input, packed)
                         : ViewerDisplayBitmap.Convert(input, completedPixels, strength, space, encoding.Id, job.Token), job.Token);
                     job.Token.ThrowIfCancellationRequested();
-                    renderedDisplay = display;
+                    RememberDisplay(display, ref renderedDisplay, ref renderedDisplayLease);
                     renderedStrength = strength;
                     bitmapMs = Stopwatch.GetElapsedTime(bitmapStarted).TotalMilliseconds;
                 }
-                output = renderedDisplay;
+                output = display;
             }
             job.Token.ThrowIfCancellationRequested();
             if (settingsVersion != inputRevision)
@@ -1758,6 +1795,12 @@ internal sealed class SpatialPreview : IDisposable
         }
     }
 
+    private bool HasCurrentSource(Guid variant, NativeImageRevision revision, PreviewInputSpace space, string size) =>
+        source is { Description: { } description } current && description.Source.VariantId == variant
+        && description.Source.AdjustmentKey == revision && description.Source.InputEncoding == space && sourceSize == size
+        && string.Equals(description.Source.ProfileSha256, checkedProfileHash, StringComparison.Ordinal)
+        && description.Describes(current.Width, current.Height, current.BitDepth, current.FloatBytes.Length);
+
     private void ReleaseRenderer()
     {
         RetirePreviewWorker(renderer);
@@ -1771,9 +1814,16 @@ internal sealed class SpatialPreview : IDisposable
             ReleaseDraftRenderer();
         if (!keepSourceLevels)
             draftPyramid.Clear();
-        draftResult = null;
+        ClearDraftResult();
         draftWarmupAttempted = false;
         lastDraftRevision = -1;
+    }
+
+    private void ClearDraftResult()
+    {
+        draftResult = null;
+        draftResultLease?.Dispose();
+        draftResultLease = null;
     }
 
     private async Task TryShowInitialPreviewAsync(HostImageSource.Frame frame, long started, double nativeDevelopmentMs,
@@ -1854,6 +1904,7 @@ internal sealed class SpatialPreview : IDisposable
             if (look.Strength > 0 && (cached is not { } previous || !args.SequenceEqual(previous.Arguments)
                 || previous.Packed && !pack))
             {
+                ClearDraftResult();
                 var worker = draftRenderer ??= new OpticalRenderer(nativePreview: true);
                 var filmStarted = Stopwatch.GetTimestamp();
                 var rendered = await (warmup
@@ -1862,7 +1913,10 @@ internal sealed class SpatialPreview : IDisposable
                 filmMs = Stopwatch.GetElapsedTime(filmStarted).TotalMilliseconds;
                 receipt = worker.LastRender;
                 job.Token.ThrowIfCancellationRequested();
-                cached = draftResult = (args, rendered, pack);
+                cached = (args, rendered, pack);
+                draftResultLease = ViewerCacheBudget.Shared.TryRetain(rendered.LongLength);
+                if (draftResultLease is not null)
+                    draftResult = cached;
             }
             if (warmup)
                 return;

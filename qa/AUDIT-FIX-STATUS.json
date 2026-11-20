@@ -2078,7 +2078,10 @@
         "Run 100 verified native-resolution selections across four RAWs, with 30 interleaved selections, and collect 2,514 memory samples. Disabling Spektrafilm clears the Viewer and exits its workers. One approximately 964 MB developed ARW remains reachable at collection in this earlier build.",
         "Release a completed native result from the callback handle once it transfers to the caller. Retaining the callback in a managed test no longer retains the delivered byte array. The revised 12-visit licensed fixture collects every sampled source and measures 111,372,360 bytes of managed memory after drain versus 1,074,568,968 before the callback fix.",
         "Exercise the exact native scheduler with a deliberately delayed callback. Twenty-six real host assertions verify timeout, retained slot and ICC ownership, accepted 16-bit export after release and no publication after detach. Both real native export commands independently reopen with stacked optics and exact profile, with 146 host assertions per launch and 32 verified 16-bit files.",
-        "Repeat the same 100-visit native-resolution sequence, including 30 interleaved selections, and pass 129 licensed assertions with an explicit zero-retained-source check. Managed bytes after worker drain and collection fall from 1,079,096,800 to 116,033,448. Compare 2,514 and 2,362 samples, identical capture dimensions and strengths, and the same worker SHA. The donor catalog and all RAWs remain byte identical."
+        "Repeat the same 100-visit native-resolution sequence, including 30 interleaved selections, and pass 129 licensed assertions with an explicit zero-retained-source check. Managed bytes after worker drain and collection fall from 1,079,096,800 to 116,033,448. Compare 2,514 and 2,362 samples, identical capture dimensions and strengths, and the same worker SHA. The donor catalog and all RAWs remain byte identical.",
+        "Share a 512 MiB allowance across optional Viewer draft levels, worker replies and reusable display bitmaps. Preserve active job ownership, the currently painted bitmap and native source precision when cache admission is denied. Drop obsolete float buffers before the next native development starts. Windows Viewer contracts passed 12,542 assertions, including concurrent cap and release checks and safe reuse of an evicted active frame.",
+        "Pass 22 licensed Capture One 16.4 checks in a disposable RAW catalog. Forced cache saturation and normal admission produced byte-identical Viewer output from the same RGB16 capture. Reusing a 1200 × 800 reply accounted for 15,360,000 float bytes and 3,840,000 bitmap bytes. A strength edit reused both the developed source and float reply. A blocked replacement development retained the displayed bitmap while the obsolete source and optional replies were released.",
+        "Pass 42 licensed assertions for the same 12-visit DNG, NEF, CR3 and ARW sequence at 24–60 MP and three strengths. After drain there were no retained native source objects. The 60 MP strength-only edit exceeded the float-cache limit and took 196 ms in the worker without developing or uploading the source again. In separate matching workloads, sampled combined private memory was 19,918,835,712 bytes in the earlier build and 17,855,168,512 bytes in the current build. The original catalog hash verified."
       ],
       "evidence_paths": [
         "NativePanel/RenderMemoryBudget.cs",
@@ -2105,10 +2108,16 @@
         ".test-results/host-native-result-ownership-lease-fresh-20261120/host-smoke.log",
         ".test-results/host-native-result-ownership-effects-20261120/independent-rgb16.json",
         ".test-results/host-native-result-ownership-100-visits-20261120/viewer-memory-timeline.json",
-        ".test-results/completed-native-result-ownership-ab-20261120.json"
+        ".test-results/completed-native-result-ownership-ab-20261120.json",
+        "NativePanel/ViewerCacheBudget.cs",
+        ".test-results/viewer-cache-allowance-contracts-native-acl-20261121.log",
+        ".test-results/host-viewer-cache-reuse-20261121/host-smoke.log",
+        ".test-results/host-viewer-cache-native-churn-20261121/viewer-churn.json",
+        ".test-results/host-viewer-cache-native-churn-20261121/viewer-memory-timeline.json",
+        ".test-results/host-viewer-cache-native-churn-20261121/viewer-warm-stage-timings.json"
       ],
       "remaining_work": [
-        "Finalize enforced cache budgets and lifetime ownership across overlapping contexts. The 100-visit native-resolution workload passes with every source collectible. The paired 2048 px workload has a true no-plugin baseline."
+        "Measure simultaneous licensed Viewer contexts and finish lifetime ownership for their mandatory developed sources, current display and active GPU/worker buffers. Optional pixel buffers now enforce a shared retention limit. The 100-visit native-resolution workload passes with every source collectible. The paired 2048 px workload has a true no-plugin baseline."
       ],
       "original_acceptance_tests": [
         "Allocation traces for 24/45/61MP at strength 0,0.5,1 and repeated switches; bound retained memory after GC/worker idle.",

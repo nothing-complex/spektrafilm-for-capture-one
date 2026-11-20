@@ -290,6 +290,16 @@ public static partial class StartupHook
         await ChangeLookAndPaint(100d, .71);
         var packedReuse = await ChangeLookAndPaint(100d, .76);
         var floatReuse = await ChangeLookAndPaint(50d, .76);
+        var blendReusedFloat = Field(spatial, "renderedPixels") is byte[];
+        if (!blendReusedFloat)
+        {
+            var budgetType = spatial.GetType().Assembly.GetType("ViewerCacheBudget")!;
+            var budget = budgetType.GetProperty("Shared", Flags)!.GetValue(null)!;
+            var limit = (long)budgetType.GetField("SharedByteLimit", Flags)!.GetRawConstantValue()!;
+            var required = (long)(int)Prop(lastSource, "Width")! * (int)Prop(lastSource, "Height")! * 16;
+            Check(required > limit - (long)Prop(budget, "RetainedBytes")!,
+                "the unused float reply exceeds the remaining Viewer retention allowance");
+        }
         var blendReuse = await ChangeLookAndPaint(25d, .76);
         var warm = await ReadViewerTimingRecords(new HashSet<int> { packedReuse, floatReuse, blendReuse });
         Check(warm.Count == 3 && warm.Values.All(timing => timing.GetProperty("NativeDevelopmentMs").ValueKind == JsonValueKind.Null),
@@ -302,12 +312,17 @@ public static partial class StartupHook
                 && worker.GetProperty("PackedDisplay").GetBoolean() == packed,
                 "both packed and float warm edits reuse the worker source and report its exact transfer mode");
         }
-        Check(warm[blendReuse].GetProperty("Worker").ValueKind == JsonValueKind.Null
-            && warm[blendReuse].GetProperty("FilmRenderAndTransportMs").ValueKind == JsonValueKind.Null
-            && warm[blendReuse].GetProperty("CreateDisplayBitmapMs").GetDouble() > 0,
-            "strength-only blending from retained float pixels leaves both native development and Vulkan idle");
+        var blendTiming = warm[blendReuse];
+        var blendWorker = blendTiming.GetProperty("Worker");
+        var blendFilmMs = blendTiming.GetProperty("FilmRenderAndTransportMs");
+        Check(blendTiming.GetProperty("CreateDisplayBitmapMs").GetDouble() > 0 && (blendReusedFloat
+            ? blendWorker.ValueKind == JsonValueKind.Null && blendFilmMs.ValueKind == JsonValueKind.Null
+            : blendFilmMs.GetDouble() > 0 && !blendWorker.GetProperty("SourceUploaded").GetBoolean()
+                && !blendWorker.GetProperty("PackedDisplay").GetBoolean()),
+            blendReusedFloat ? "strength-only blending from retained float pixels leaves native development and Vulkan idle"
+                : "the uncached blend reuses the native and GPU sources and rebuilds the float reply");
         File.WriteAllText(Path.Combine(folder, "viewer-warm-stage-timings.json"),
-            JsonSerializer.Serialize(new { PackedReuse = warm[packedReuse], FloatReuse = warm[floatReuse], BlendReuse = warm[blendReuse] },
+            JsonSerializer.Serialize(new { PackedReuse = warm[packedReuse], FloatReuse = warm[floatReuse], BlendReuse = blendTiming, BlendReusedFloat = blendReusedFloat },
                 new JsonSerializerOptions { WriteIndented = true }));
 
         lastSource = null;

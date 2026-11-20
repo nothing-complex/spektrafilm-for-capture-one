@@ -1245,6 +1245,33 @@ internal static partial class Program
         tinyCache.Remember(source, 31, space, source);
         Check(tinyCache.RetainedBytes == 0 && tinyCache.Find(source, 7, space) is null,
             "Oversized levels and the full source must never count as retained draft levels");
+
+        var shared = new ViewerCacheBudget(small.FloatBytes.LongLength + medium.FloatBytes.LongLength);
+        var firstViewer = new ViewerDraftPyramid(limit, shared);
+        var secondViewer = new ViewerDraftPyramid(limit, shared);
+        firstViewer.Remember(source, 7, space, small);
+        using var settledReply = shared.TryRetain(medium.FloatBytes.LongLength);
+        secondViewer.Remember(source, 7, space, small);
+        Check(settledReply is not null && secondViewer.Find(source, 7, space) is null
+            && shared.RetainedBytes == small.FloatBytes.LongLength + medium.FloatBytes.LongLength,
+            "Independent Viewer contexts and a settled reply share one optional-buffer ceiling");
+        var sourceInUse = firstViewer.Find(source, 7, space)!;
+        firstViewer.Clear();
+        secondViewer.Remember(source, 7, space, small);
+        Check(ReferenceEquals(secondViewer.Find(source, 7, space), small) && sourceInUse.FloatBytes.SequenceEqual(small.FloatBytes),
+            "A retired cache releases room for another Viewer while its in-flight pixel buffer remains valid");
+        secondViewer.Clear();
+        settledReply!.Dispose();
+        settledReply.Dispose();
+        Check(shared.RetainedBytes == 0, "Clearing overlapping caches and disposing a lease twice returns its bytes once");
+
+        var concurrent = new ViewerCacheBudget(64);
+        var leases = new IDisposable?[64];
+        Parallel.For(0, leases.Length, index => leases[index] = concurrent.TryRetain(4));
+        Check(leases.Count(lease => lease is not null) == 16 && concurrent.RetainedBytes == 64
+            && concurrent.TryRetain(65) is null, "Simultaneous cache admissions enforce the exact shared ceiling");
+        Parallel.ForEach(leases, lease => lease?.Dispose());
+        Check(concurrent.RetainedBytes == 0, "Independent dispatcher lifetimes release the allowance concurrently");
         Console.WriteLine("Draft pyramid: exact buffers, source and transfer isolation, byte budget, eviction and in-flight ownership passed.");
     }
 

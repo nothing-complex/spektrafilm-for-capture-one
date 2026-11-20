@@ -96,6 +96,12 @@ public static partial class StartupHook
             Check(Field(panel, "displayedVariant") is Guid, "selected image bound to panel");
             var variant = (Guid)Field(panel, "displayedVariant")!;
             var spatial = Field(panel, "opticalPreview")!;
+            if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_VIEWER_CACHE_ALLOWANCE") == "1")
+            {
+                await TestViewerCacheAllowance(panel, spatial);
+                File.WriteAllText(Path.Combine(folder, "first.passed"), $"PASS {checks} native Viewer cache assertions");
+                return;
+            }
             if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_OPTICAL_AVAILABILITY") == "1")
             {
                 VerifyOpticalModeDependencies(panel, spatial);

@@ -6,12 +6,14 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 
 public static partial class StartupHook
 {
@@ -87,6 +89,110 @@ public static partial class StartupHook
                 $"Draft pyramid reused at least {bytes} bytes across 720 and 1600 px without redeveloping the RAW." + Environment.NewLine);
         }
         finally { Select(previous); }
+    }
+
+    private static async Task TestViewerCacheAllowance(object panel, object spatial)
+    {
+        var quality = (ComboBox)Field(spatial, "previewSize")!;
+        var draft = (ComboBox)Field(spatial, "dragPreviewSize")!;
+        var strength = Field(panel, "strength")!;
+        var strengthValue = strength.GetType().GetProperty("Value", Flags)!;
+        var oldQuality = quality.SelectedItem;
+        var oldDraft = draft.SelectedItem;
+        var oldStrength = strengthValue.GetValue(strength);
+        var loading = spatial.GetType().GetField("loading", Flags)!;
+        var assembly = spatial.GetType().Assembly;
+        var budget = assembly.GetType("ViewerCacheBudget")!.GetProperty("Shared", Flags)!.GetValue(null)!;
+        var scheduler = (SemaphoreSlim)assembly.GetType("HostImageSource")!.GetField("SchedulerSlot", Flags)!.GetValue(null)!;
+        var viewer = Field(spatial, "viewer")!;
+        long Retained() => (long)Prop(budget, "RetainedBytes")!;
+        void Pick(ComboBox picker, object value)
+        {
+            loading.SetValue(spatial, true);
+            try { picker.SelectedItem = value; }
+            finally { loading.SetValue(spatial, false); }
+            Call(spatial, "RequestRefresh");
+        }
+        void Size(string id) => Pick(quality, quality.Items.Cast<object>().Single(item => Equals(Prop(item, "Id"), id)));
+        async Task WaitFor(Func<bool> ready, string message)
+        {
+            var started = Stopwatch.GetTimestamp();
+            while (!ready())
+            {
+                if (Stopwatch.GetElapsedTime(started) > TimeSpan.FromSeconds(20))
+                    throw new TimeoutException(message);
+                await Task.Delay(35);
+            }
+        }
+        async Task<BitmapSource> Settled(string size)
+        {
+            await WaitFor(() => Field(spatial, "frameCurrent") is true && Field(spatial, "sourceSize") as string == size
+                && Field(spatial, "pending") is null && Prop(viewer, "HasPainted") is true,
+                $"The managed cache fixture did not paint the settled {size}px Viewer.");
+            return (BitmapSource)Field(spatial, "viewerFrame")!;
+        }
+        static byte[] PixelHash(BitmapSource bitmap)
+        {
+            var stride = bitmap.PixelWidth * 4;
+            var pixels = new byte[stride * bitmap.PixelHeight];
+            bitmap.CopyPixels(pixels, stride, 0);
+            return SHA256.HashData(pixels);
+        }
+
+        try
+        {
+            Call(spatial, "SetEnabled", false);
+            Size("1200");
+            Pick(draft, draft.Items.Cast<object>().Single(item => Equals(Prop(item, "LongEdge"), 0)));
+            strengthValue.SetValue(strength, 50d);
+            Check(Retained() == 0, "clearing the Viewer releases its optional draft levels and render replies");
+            var limit = (long)budget.GetType().GetField("SharedByteLimit", Flags)!.GetRawConstantValue()!;
+            byte[] withoutCache;
+            object? developed;
+            using (var hold = (IDisposable)Call(budget, "TryRetain", limit)!)
+            {
+                Check(hold is not null, "the fixture reserves the optional cache allowance in a separate owner");
+                Call(spatial, "SetEnabled", true);
+                withoutCache = PixelHash(await Settled("1200"));
+                developed = Field(spatial, "source");
+                Check(Field(spatial, "renderedPixels") is null && Field(spatial, "renderedDisplay") is null && Retained() == limit
+                    && developed is not null && Prop(developed, "BitDepth") is 16,
+                    "a saturated shared cache still paints from high-depth source without keeping reusable render or bitmap copies");
+            }
+            Call(spatial, "RequestRefresh");
+            var cachedImage = await Settled("1200");
+            var cached = PixelHash(cachedImage);
+            var reply = (byte[])Field(spatial, "renderedPixels")!;
+            var displayBytes = ((long)cachedImage.PixelWidth * cachedImage.Format.BitsPerPixel + 7) / 8 * cachedImage.PixelHeight;
+            Check(reply is not null && Retained() == reply.LongLength + displayBytes,
+                $"admitted float and display entries account for their actual bytes ({Retained()} retained, {reply?.LongLength}+{displayBytes} expected)");
+            Check(ReferenceEquals(developed, Field(spatial, "source")) && withoutCache.SequenceEqual(cached),
+                "cached and uncached film paints match byte for byte from the same RGB16 development");
+            var previousSource = Field(spatial, "source");
+            strengthValue.SetValue(strength, 52d);
+            var painted = await Settled("1200");
+            Check(ReferenceEquals(reply, Field(spatial, "renderedPixels")) && ReferenceEquals(previousSource, Field(spatial, "source")),
+                "strength-only changes reuse the admitted float reply and developed source");
+
+            Check(await scheduler.WaitAsync(TimeSpan.FromSeconds(5)), "the fixture delays replacement native development");
+            try
+            {
+                Size("900");
+                await WaitFor(() => Field(spatial, "pending") is not null && Field(spatial, "source") is null,
+                    "The obsolete float source was kept while its replacement waited to develop.");
+                Check(Field(spatial, "renderedPixels") is null && Retained() == 0
+                    && ReferenceEquals(painted, Field(spatial, "viewerFrame")),
+                    "changing resolution releases obsolete float caches before replacement and keeps the visible bitmap");
+            }
+            finally { scheduler.Release(); }
+            await Settled("900");
+        }
+        finally
+        {
+            Pick(quality, oldQuality);
+            Pick(draft, oldDraft);
+            strengthValue.SetValue(strength, oldStrength);
+        }
     }
 
     private static async Task TestNativeAutoQualityMotion(object spatial, object viewer, Guid variant)

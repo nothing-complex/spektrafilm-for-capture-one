@@ -37,6 +37,7 @@ param(
     [switch] $ColorMatrix,
     [switch] $NativeSourceMutations,
     [switch] $ViewerStress,
+    [switch] $ViewerCacheAllowance,
     [switch] $PanelInventory,
     [switch] $NativeEffectExport,
     [switch] $NativeEffectExportMatrix,
@@ -60,9 +61,9 @@ param(
 )
 $ErrorActionPreference='Stop'
 if ($NativeLookBatchCrash) { $NativeLookBatch=$true }
-if ($NativeSliderInteraction -or $NativeOpticalAvailability) {
+if ($NativeSliderInteraction -or $NativeOpticalAvailability -or $ViewerCacheAllowance) {
     if (!$NativeSettingsConfig -or $PackagedRuntime -or $UpgradeFromPackage -or $NativeEffectExport -or $NativeBatchExport -or $CatalogIsolation) {
-        throw 'Native control checks need their own copied catalog and verified preferences backup.'
+        throw 'Native control and Viewer cache checks need a copied catalog and verified preferences backup.'
     }
     $SkipRestart=$true
     $ShowTool=$true
@@ -697,7 +698,7 @@ $testHook=Join-Path $runtime 'HostSmoke.dll'
 $names=@(
     'DOTNET_STARTUP_HOOKS','SPEKTRAFILM_ROOT','SPEKTRAFILM_CATALOG','SPEKTRAFILM_DATA_ROOT',
     'SPEKTRAFILM_PANEL_LOG','SPEKTRAFILM_HOST_SMOKE','SPEKTRAFILM_LAUNCH_ID','SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX',
-    'SPEKTRAFILM_HOST_VIEWER_STRESS','SPEKTRAFILM_HOST_PANEL_INVENTORY','SPEKTRAFILM_EXPECTED_CONTROL_INVENTORY',
+    'SPEKTRAFILM_HOST_VIEWER_STRESS','SPEKTRAFILM_HOST_VIEWER_CACHE_ALLOWANCE','SPEKTRAFILM_HOST_PANEL_INVENTORY','SPEKTRAFILM_EXPECTED_CONTROL_INVENTORY',
     'SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT','SPEKTRAFILM_HOST_MOVED_LOOK_BACKUP',
     'SPEKTRAFILM_SHOW_TOOL','SPEKTRAFILM_HOST_PROOF_TEST','SPEKTRAFILM_HOST_CATALOG_ISOLATION',
     'SPEKTRAFILM_HOST_VIEWER_LAYOUTS','SPEKTRAFILM_HOST_FLOATING_WORKSPACE','SPEKTRAFILM_HOST_NATIVE_WORKSPACE_SWITCH',
@@ -721,6 +722,7 @@ try {
     $env:SPEKTRAFILM_HOST_SMOKE=$folder
     $env:SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX=if($NativeSourceMutations){'source-mutations'}elseif($ColorMatrix){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_VIEWER_STRESS=if($ViewerStress){'1'}else{$null}
+    $env:SPEKTRAFILM_HOST_VIEWER_CACHE_ALLOWANCE=if($ViewerCacheAllowance){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_PANEL_INVENTORY=if($PanelInventory){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT=if($NativeEffectExportMatrix){'matrix'}elseif($NativeEffectClone){'clone'}elseif($NativeEffectGrain){'grain'}elseif($NativeEffectCompression){'compression'}elseif($NativeEffectOutputProfiles){'profiles'}elseif($NativeEffectFolders){'folders'}elseif($NativeEffectPanelModes){'panel-modes'}elseif($NativeEffectSourceRevision){'source-revision'}elseif($NativeEffectMaskedSource){'masked-source'}elseif($NativeEffectProfileSidecars){'profile-sidecars'}elseif($NativeEffectRecipeRestart){'recipe-restart'}elseif($NativeEffectExport){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_MOVED_LOOK_BACKUP=$SavedLooksBackup
