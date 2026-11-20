@@ -2187,7 +2187,9 @@
         "Subscribe to the native document manager’s active-document event and coalesce notifications into one captured UI dispatcher check. Stable attachment reduces the defensive poll from 1 to 4 seconds. A real transient read or pending write wakes the fast persistence check immediately.",
         "Licensed startup confirmed the real subscription. Two queued notifications produced one check. The defensive tick recovered a deliberately missed selection synchronization, and a real sharing violation reached the 1-second recovery interval. Two 1,000-call timings averaged 8.03 and 7.70 microseconds per stable UI tick.",
         "The live Capture One permission and lifecycle checks now pass three focus switches between two actual document windows opened in one process. The active event plus Viewer scope restored the exact original panel and deferred the unrelated catalog. The fixture verifies startup preference recovery and removes only the exact test catalog paths from recent and last-open lists.",
-        "A native close while the other catalog remained open disposed the panel and Viewer, unbound Export and stopped a running film renderer. Reopening the approved document in the same process created a new form, panel and Export bridge and painted the original variant with its exact durable look. The final licensed fixture passed 33 assertions."
+        "A native close while the other catalog remained open disposed the panel and Viewer, unbound Export and stopped a running film renderer. Reopening the approved document in the same process created a new form, panel and Export bridge and painted the original variant with its exact durable look. The final licensed fixture passed 33 assertions.",
+        "Startup subscribes to the native lifecycle watchdog once and defers palette binding until the form has a handle and is alive. The startup hook removes its redundant filesystem existence probe and retains the launcher backup and active native document authorization. Native Export uses the same cached active document and path delegates. The Windows state suite passes 731 assertions including normalization of a UNC selection without contacting the server.",
+        "The licensed host passes 74 native workspace assertions. A handleless form and disposed form are skipped. Explicit removal of the temporary tab from the live palette restores one Spektrafilm tool and one replacement Export binding while respecting native tab selection. Two real custom workspace transitions restore floating placement and both native export commands produce 16-bit effects output. The two workspace files and original catalog verify."
       ],
       "evidence_paths": [
         "NativePanel/HostDocumentAccess.cs",
@@ -2198,10 +2200,12 @@
         ".test-results/host-adaptive-watchdog-accessibility-20261120/watchdog-first.json",
         ".test-results/host-adaptive-watchdog-accessibility-20261120/watchdog-restart.json",
         ".test-results/host-concurrent-exact-preference-restore-20261120/host-smoke.log",
-        ".test-results/host-concurrent-close-reopen-final-20261120/host-smoke.log"
+        ".test-results/host-concurrent-close-reopen-final-20261120/host-smoke.log",
+        ".test-results/sf-startup-palette-final/host-smoke.log",
+        ".test-results/sf-startup-palette-final/native-workspace-files-verified.json"
       ],
       "remaining_work": [
-        "Exercise native workspace reset, a hidden palette that has not finished loading and an unavailable network catalog. Real same-process focus and approved form replacement now have licensed coverage."
+        "Exercise Capture One's actual built-in workspace reset command and launcher/host behavior with an unavailable network catalog. Explicit live palette tab removal, a delayed native form handle, custom workspace changes, same-process focus and approved form replacement have fixture coverage. The startup hook does not probe the UNC target."
       ],
       "original_acceptance_tests": [
         "measure idle UI thread cost/IO and zero-change work",

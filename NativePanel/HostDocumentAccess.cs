@@ -35,9 +35,11 @@ internal static class HostDocumentAccess
     internal static Forms.Form? MainForm(ICaptureOneDocument? document) =>
         document is null ? null : ReadMainForm(document);
 
-    internal static InspectorPaletteViewModel? Palette(Forms.Form? form) => form is null ? null
-        : Palettes.GetValue(form, static owner => Getter(owner.GetType(), "InspectorPaletteViewModel")
-            .CreateDelegate<Func<InspectorPaletteViewModel?>>(owner))();
+    internal static InspectorPaletteViewModel? Palette(Forms.Form? form) =>
+        form is { IsHandleCreated: true, IsDisposed: false, Disposing: false }
+        ? Palettes.GetValue(form, static owner => Getter(owner.GetType(), "InspectorPaletteViewModel")
+            .CreateDelegate<Func<InspectorPaletteViewModel?>>(owner))()
+        : null;
 
     private static MethodInfo Getter(Type type, string name, BindingFlags flags = BindingFlags.Instance | BindingFlags.Public) =>
         type.GetProperty(name, flags)?.GetMethod ?? throw new MissingMemberException(type.FullName, name);

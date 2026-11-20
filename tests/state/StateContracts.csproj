@@ -9,6 +9,7 @@
     <EmbeddedResource Include="../../capture-one-hosts.json" LogicalName="Spektrafilm.CaptureOneHosts.json" />
     <EmbeddedResource Include="../../qa/panel-controls.json" LogicalName="Spektrafilm.PanelControls.json" />
     <Compile Include="../../NativePanel/HostCompatibility.cs" Link="HostCompatibility.cs" />
+    <Compile Include="../../NativePanel/ApprovedCatalog.cs" Link="ApprovedCatalog.cs" />
     <Compile Include="../../NativePanel/NativeExportConfirmation.cs" Link="NativeExportConfirmation.cs" />
     <Compile Include="../../NativePanel/NativeImageCoreCompatibility.cs" Link="NativeImageCoreCompatibility.cs" />
     <Compile Include="../../NativePanel/PanelFiles.cs" Link="PanelFiles.cs" />

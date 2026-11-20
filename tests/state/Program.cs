@@ -104,6 +104,17 @@ void Throws<T>(string name, Action action) where T : Exception
 string StateFile(string root, Guid id) => Directory.GetFiles(root, id.ToString("N") + ".json", SearchOption.AllDirectories).Single();
 var root = Path.Combine(scratch, "Variant looks");
 var catalog = Path.Combine(scratch, "test.cocatalogdb");
+Check("startup selection parses a fully qualified catalog without requiring disk access",
+    ApprovedCatalog.ParseSelection(catalog) == catalog && !File.Exists(catalog));
+Check("startup selection refuses relative catalogs and other document types",
+    ApprovedCatalog.ParseSelection("relative.cocatalogdb") is null
+    && ApprovedCatalog.ParseSelection(Path.ChangeExtension(catalog, ".cosessiondb")) is null);
+if (OperatingSystem.IsWindows())
+{
+    const string unavailableShare = @"\\example.invalid\fixture-share\nested\..\test.cocatalogdb";
+    Check("an unavailable UNC catalog selection resolves lexically",
+        ApprovedCatalog.ParseSelection(unavailableShare) == @"\\example.invalid\fixture-share\test.cocatalogdb");
+}
 var id = Guid.NewGuid();
 var original = Sample(.7);
 var store = new VariantLookStore(root, catalog);

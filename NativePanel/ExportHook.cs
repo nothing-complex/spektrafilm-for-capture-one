@@ -19,9 +19,7 @@ internal sealed class ExportHook : IDisposable
     private const BindingFlags Instance = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
     private readonly Forms.Form window;
     private readonly ICaptureOneDocument document;
-    private readonly object manager;
-    private readonly PropertyInfo activeDocument;
-    private readonly PropertyInfo activePath;
+    private readonly HostDocumentAccess.Manager manager;
     private readonly PropertyInfo exportWindow;
     private readonly Func<IDestinationDocumentManager> destinations;
     private readonly Func<bool> isActive;
@@ -45,23 +43,21 @@ internal sealed class ExportHook : IDisposable
         this.wouldLoseSavedLook = wouldLoseSavedLook;
         this.export = export;
         this.reportUnavailable = reportUnavailable;
-        var program = window.GetType().Assembly.GetType("P1.C1.Program", throwOnError: true)!;
-        manager = program.GetProperty("DocumentManager", BindingFlags.Public | BindingFlags.Static)?.GetValue(null)
+        manager = HostDocumentAccess.Current()
             ?? throw new InvalidOperationException("Capture One’s document manager is unavailable.");
-        activeDocument = FindProperty(manager, "ActiveDocument");
-        activePath = FindProperty(manager, "ActiveDocumentPath");
         exportWindow = FindProperty(window, "ExportDialogWindow");
         document = FindProperty(window, "Document").GetValue(window) as ICaptureOneDocument
             ?? throw new InvalidOperationException("The selected catalog is unavailable.");
         if (!IsApprovedDocument())
             throw new InvalidOperationException("Activate the selected catalog before binding Export.");
-        var commands = manager.GetType().GetMethod("GetDocumentCommands", Instance, null,
-                new[] { typeof(ICaptureOneDocument) }, null)?.Invoke(manager, new object[] { document }) as Commands
+        var hostManager = manager.Instance;
+        var commands = hostManager.GetType().GetMethod("GetDocumentCommands", Instance, null,
+                new[] { typeof(ICaptureOneDocument) }, null)?.Invoke(hostManager, new object[] { document }) as Commands
             ?? throw new InvalidOperationException("Capture One’s export commands are unavailable.");
-        var getDestinationManager = manager.GetType().GetMethod("GetDestinationDocumentManager", Instance, null,
+        var getDestinationManager = hostManager.GetType().GetMethod("GetDestinationDocumentManager", Instance, null,
             new[] { typeof(ICaptureOneDocument) }, null)
-            ?? throw new MissingMethodException(manager.GetType().FullName, "GetDestinationDocumentManager");
-        var readDestinations = getDestinationManager.CreateDelegate<Func<ICaptureOneDocument, IDestinationDocumentManager>>(manager);
+            ?? throw new MissingMethodException(hostManager.GetType().FullName, "GetDestinationDocumentManager");
+        var readDestinations = getDestinationManager.CreateDelegate<Func<ICaptureOneDocument, IDestinationDocumentManager>>(hostManager);
         destinations = () => readDestinations(document);
         normal = new CommandBinding(commands.Export, window, "OnExportOnOnExecuteMultiple", OpenDialog);
         try
@@ -81,8 +77,9 @@ internal sealed class ExportHook : IDisposable
     private bool Busy => choosingDestination || activeExport is { } job && (!job.IsCompleted || dialog is not null);
 
     private bool IsApprovedDocument() =>
-        !window.IsDisposed && ReferenceEquals(activeDocument.GetValue(manager), document)
-        && ApprovedCatalog.IsApproved(activePath.GetValue(manager) as string, document.Path);
+        window is { IsDisposed: false, Disposing: false } && ReferenceEquals(HostDocumentAccess.Current(), manager)
+        && ReferenceEquals(manager.ActiveDocument(), document)
+        && ApprovedCatalog.IsApproved(manager.ActivePath(), document.Path);
 
     private bool ShouldIntercept(bool editMultiple) => !disposed && IsApprovedDocument() && RequiresSpektrafilm(editMultiple);
 

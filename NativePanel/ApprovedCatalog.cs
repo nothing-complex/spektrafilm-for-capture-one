@@ -3,7 +3,8 @@ using System.IO;
 
 internal static class ApprovedCatalog
 {
-    internal static string? SelectedDatabase { get; } = GetSelectedDatabase();
+    internal static string? SelectedDatabase { get; } =
+        ParseSelection(Environment.GetEnvironmentVariable("SPEKTRAFILM_CATALOG"));
 
     internal static bool HasSelection => SelectedDatabase is not null;
 
@@ -28,15 +29,17 @@ internal static class ApprovedCatalog
         }
     }
 
-    private static string? GetSelectedDatabase()
+    // The launcher validates and backs up the database before starting Capture One.
+    // The hook authorizes it only after the actual native document and manager agree.
+    // Resolve the requested path lexically here to avoid I/O during native startup.
+    internal static string? ParseSelection(string? configured)
     {
-        var configured = Environment.GetEnvironmentVariable("SPEKTRAFILM_CATALOG");
         if (string.IsNullOrWhiteSpace(configured) || !Path.IsPathFullyQualified(configured))
             return null;
         try
         {
             var path = Path.GetFullPath(configured);
-            return IsCatalogDatabase(path) && File.Exists(path) ? path : null;
+            return IsCatalogDatabase(path) ? path : null;
         }
         catch (Exception error) when (error is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException)
         {

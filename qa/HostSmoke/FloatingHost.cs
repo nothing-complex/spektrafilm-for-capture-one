@@ -21,6 +21,7 @@ public static partial class StartupHook
     {
         Check(File.Exists(Path.Combine(folder, "Capture One user.config.before-proofing"))
             && File.Exists(Path.Combine(folder, "native-workspace-backup.json")), "native workspace changes start with verified settings and workspace backups");
+        hosted = await TestWorkspacePaletteRecovery(hook, hosted);
         var manager = Field(hosted, "workspaceManager") ?? throw new InvalidOperationException("The native workspace manager is unavailable.");
         var contract = manager.GetType().GetInterface("P1.C1.ViewModels.Workspace.IWorkspaceManager")!;
         var active = contract.GetProperty("ActiveWorkspace")!;

@@ -115,14 +115,9 @@ internal static class StartupHook
 
     private static void OnApplicationIdle(object? sender, EventArgs args)
     {
+        Forms.Application.Idle -= OnApplicationIdle;
         try
         {
-            var document = HostDocumentAccess.Current()?.ActiveDocument();
-            var form = HostDocumentAccess.MainForm(document);
-            if (form is not { IsHandleCreated: true, IsDisposed: false })
-                return;
-
-            Forms.Application.Idle -= OnApplicationIdle;
             dispatcher = Dispatcher.CurrentDispatcher;
             timer = new Forms.Timer { Interval = RecoveryWatchdogMs };
             timer.Tick += OnTick;
@@ -190,7 +185,7 @@ internal static class StartupHook
             if (document is null || !ApprovedCatalog.IsApproved(manager?.ActivePath(), document.Path))
             {
                 EnsureRecoveryWatchdog();
-                if (window is { IsDisposed: true })
+                if (window is { IsDisposed: true } or { Disposing: true })
                     Detach();
                 LaunchHealth.Report(LaunchPhase.WaitingForCatalog, ExportBridgeState.Detached);
                 LogState(hostedTool is null ? "Waiting for the selected catalog." : "Live Viewer paused until the selected catalog is active.");
@@ -199,15 +194,17 @@ internal static class StartupHook
 
             var form = HostDocumentAccess.MainForm(document);
             var palette = HostDocumentAccess.Palette(form);
-            if (document is null || form is not { IsHandleCreated: true, IsDisposed: false } || palette is null)
+            if (form is null || palette is null)
             {
                 EnsureRecoveryWatchdog();
+                if (window is { IsDisposed: true } or { Disposing: true })
+                    Detach();
                 LaunchHealth.Report(LaunchPhase.WaitingForPalette);
                 LogState("Waiting for the selected catalog’s tool palette.");
                 return;
             }
 
-            if (ReferenceEquals(palette, owner) && tab is not null && palette.Tabs.Contains(tab)
+            if (ReferenceEquals(form, window) && ReferenceEquals(palette, owner) && tab is not null && palette.Tabs.Contains(tab)
                 && hostedTool is { } existing && tab.AllTools.Contains(existing.Tool))
             {
                 existing.CheckSelectionAndSave();
