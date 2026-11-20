@@ -23,6 +23,7 @@ internal sealed class ExportActivity
     internal string? Message { get; private set; }
     internal bool BatchActive { get; private set; }
     internal bool BatchStopped { get; private set; }
+    internal Action? PersistBatchStop { get; set; }
     internal event Action? Changed;
 
     internal void Begin(ExportOperation work)
@@ -58,8 +59,9 @@ internal sealed class ExportActivity
         Changed?.Invoke();
     }
 
-    internal void StopBatch()
+    internal void StopBatch(bool persist = true)
     {
+        if (persist) PersistBatchStop?.Invoke();
         BatchStopped = true;
         Changed?.Invoke();
     }
@@ -67,6 +69,7 @@ internal sealed class ExportActivity
     internal void EndBatch(string message)
     {
         BatchActive = false;
+        PersistBatchStop = null;
         Report(null, message);
     }
 }

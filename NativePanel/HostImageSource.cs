@@ -104,7 +104,16 @@ internal static class HostImageSource
         CaptureSnapshot(window, target, inputSpace, captureRecipe, forExport: true);
 
     internal static Snapshot CaptureBatchExport(HostProfile.Selection selection, HostProfile.Target target,
-        PreviewInputSpace inputSpace) => CaptureSnapshot(selection, target, inputSpace, captureRecipe: true, forExport: true);
+        PreviewInputSpace inputSpace)
+    {
+        try { return CaptureSnapshot(selection, target, inputSpace, captureRecipe: true, forExport: true); }
+        catch (ExportSourceChangedException)
+        {
+            // An inactive variant may finish loading during its first native
+            // settings read. Take one fresh snapshot before verification.
+            return CaptureSnapshot(selection, target, inputSpace, captureRecipe: true, forExport: true);
+        }
+    }
 
     internal static async Task WaitForNativeDevelopmentAsync(CancellationToken token)
     {

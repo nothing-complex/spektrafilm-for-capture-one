@@ -23,6 +23,7 @@ param(
     [switch] $NativeLookBatch,
     [switch] $NativeLookBatchCrash,
     [switch] $NativeBatchExport,
+    [switch] $NativeBatchExportCrash,
     [switch] $NativeVariantLineage,
     [switch] $NativeSupportDiagnostics,
     [string] $MetadataFixtureRoot,
@@ -55,12 +56,16 @@ param(
 )
 $ErrorActionPreference='Stop'
 if ($NativeLookBatchCrash) { $NativeLookBatch=$true }
+if ($NativeBatchExportCrash) {
+    if ($SkipRestart) { throw 'Batch recovery needs a second host process.' }
+    $NativeBatchExport=$true
+}
 if ($NativeBatchExport) {
     if (!$NativeSettingsConfig -or $NativeLookBatch -or $NativeVariantLineage -or $NativeEffectExport -or $NativeExportInterruption -or
         $CatalogIsolation -or $ConcurrentCatalogs -or $SessionIsolation -or $PackagedRuntime -or $UpgradeFromPackage) {
         throw 'Native batch export needs its own copied four-RAW catalog and verified preferences backup.'
     }
-    $SkipRestart=$true
+    if (!$NativeBatchExportCrash) { $SkipRestart=$true }
 }
 if ($NativeSupportDiagnostics) {
     if (!$NativeSettingsConfig -or $PackagedRuntime -or $UpgradeFromPackage -or $CatalogIsolation -or $ConcurrentCatalogs -or
@@ -656,7 +661,7 @@ try {
     $env:SPEKTRAFILM_HOST_NATIVE_WORKSPACE_SWITCH=if($NativeWorkspaceSwitch){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_DURABLE_EDITS=if($DurableSliderEdits){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_LOOK_BATCH=if($NativeLookBatchCrash){'crash'}elseif($NativeLookBatch){'1'}else{$null}
-    $env:SPEKTRAFILM_HOST_BATCH_EXPORT=if($NativeBatchExport){'1'}else{$null}
+    $env:SPEKTRAFILM_HOST_BATCH_EXPORT=if($NativeBatchExportCrash){'crash'}elseif($NativeBatchExport){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_VARIANT_LINEAGE=if($NativeVariantLineage){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_SUPPORT_DIAGNOSTICS=if($NativeSupportDiagnostics){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_METADATA_FIXTURE=$MetadataFixtureRoot
@@ -714,7 +719,7 @@ try {
             # No pre-existing Capture One process can reach this branch.
             if(!$process.HasExited){Stop-Process -Id $process.Id; $process.WaitForExit()}
             $process.Dispose()
-            if($NativeExportInterruption -and $phase -eq 'first'){
+            if(($NativeExportInterruption -or $NativeBatchExportCrash) -and $phase -eq 'first'){
                 # The fixture terminates itself. The process handle can signal while
                 # enumeration still reports the terminating host briefly.
                 $settle=[DateTime]::UtcNow.AddSeconds(8)

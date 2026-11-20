@@ -9,7 +9,7 @@ using P1.ModelCoreWrapper;
 
 internal static class HostProfile
 {
-    internal sealed record Target(Guid VariantId, string SourcePath)
+    internal sealed record Target(Guid VariantId, string SourcePath, Guid ImageId)
     {
         internal string SourceFormat => Path.GetExtension(SourcePath).TrimStart('.').ToUpperInvariant();
     }
@@ -19,7 +19,7 @@ internal static class HostProfile
     internal static Target TargetFor(ICoreVariant variant)
     {
         var image = variant.CoreImage ?? throw new InvalidOperationException("The selected variant has no source image.");
-        return new Target(variant.UUID, image.FullpathFilename);
+        return new Target(variant.UUID, image.FullpathFilename, image.UUID);
     }
 
     internal static (object Variant, Type Type, Guid Id) SelectedVariant(object window)
@@ -30,6 +30,15 @@ internal static class HostProfile
 
     internal static Selection ReadSelection(object window)
     {
+        var (manager, document) = ReadDocument(window);
+        if (((ISelectedCollectionsProvider)document).PrimarySelectedCollection is not ISimpleCollection collection
+            || collection.PrimaryVariant is not ICoreVariant variant)
+            throw new InvalidOperationException("Select an image in the Viewer first.");
+        return new Selection(manager, document, variant);
+    }
+
+    private static (object Manager, ICaptureOneDocument Document) ReadDocument(object window)
+    {
         if (window is not Control { IsDisposed: false, IsHandleCreated: true, InvokeRequired: false }
             || HostDocumentAccess.Current() is not { } manager
             || manager.ActiveDocument() is not { } document
@@ -37,10 +46,17 @@ internal static class HostProfile
             || !ReferenceEquals(HostDocumentAccess.MainForm(document), window))
             throw new InvalidOperationException("Activate the catalog selected by the Spektrafilm launcher.");
 
-        if (((ISelectedCollectionsProvider)document).PrimarySelectedCollection is not ISimpleCollection collection
-            || collection.PrimaryVariant is not ICoreVariant variant)
-            throw new InvalidOperationException("Select an image in the Viewer first.");
-        return new Selection(manager.Instance, document, variant);
+        return (manager.Instance, document);
+    }
+
+    internal static Selection RecoverSelection(object window, ICaptureOneDocument expected, ExportBatchEntry entry)
+    {
+        var (manager, document) = ReadDocument(window);
+        if (!ReferenceEquals(document, expected)
+            || document.GetImage(entry.OriginalPath) is not ICoreImage image || image.UUID != entry.ImageId
+            || image.CoreVariants.FirstOrDefault(item => item.UUID == entry.VariantId) is not { } variant)
+            throw new InvalidOperationException("The queued variant is unavailable in this catalog.");
+        return new Selection(manager, document, variant);
     }
 
     internal static Guid[] CaptureSelectedVariants(object window, ICaptureOneDocument expectedDocument) =>

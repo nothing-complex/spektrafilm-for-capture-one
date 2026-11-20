@@ -90,6 +90,7 @@ internal static partial class Program
         TestExportMetadata(folder);
         TestExportResolution();
         TestExportJobJournal(folder);
+        TestExportBatchJournal(folder);
         TestExportActivity();
         TestColorSampling();
         TestFractionalColorSampling();
@@ -235,6 +236,36 @@ internal static partial class Program
         Check(activity.Active is null && activity.BatchActive, "the batch owns output between consecutive images");
         activity.EndBatch("Finished batch");
         Check(!activity.BatchActive && activity.Message == "Finished batch", "batch completion publishes one visible summary");
+    }
+
+    private static void TestExportBatchJournal(string folder)
+    {
+        var directory = Path.Combine(folder, "batch-journal");
+        var writer = new ExportJobJournal(directory, _ => { });
+        var original = Path.Combine(folder, "source.raw");
+        var approved = Path.Combine(folder, "approved");
+        var entries = new[] { "first", "second", "third" }.Select(name =>
+            new ExportBatchEntry(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), original,
+                Path.Combine(approved, name + ".tif"), new(true, new string('A', 64), new string('B', 64), new string('C', 64)))).ToArray();
+        var plan = ExportBatchPlan.Create(approved, entries);
+        writer.SaveBatch(plan);
+        var first = writer.BeginBatchItem(plan, entries[0]);
+        writer.Report(first, ExportStage.Completed);
+        var second = writer.BeginBatchItem(plan, entries[1]);
+        writer.Report(second, ExportStage.Encoding);
+        var reader = new ExportJobJournal(directory, _ => { });
+        var recovered = reader.ReadPendingBatch();
+        Check(recovered is not null && recovered.Id == plan.Id && recovered.Entries.SequenceEqual(entries),
+            "an atomic batch plan keeps all approved destinations and their verification data after reopen");
+        Check(reader.ReadBatchItem(recovered!, entries[0])?.Stage == ExportStage.Completed
+            && reader.ReadBatchItem(recovered!, entries[1])?.Stage == ExportStage.Encoding
+            && reader.ReadBatchItem(recovered!, entries[2]) is null, "a reopened batch distinguishes completed, interrupted and pending jobs");
+        var restarted = reader.BeginBatchItem(recovered!, entries[1]);
+        Check(restarted.JobId == second.JobId && restarted.Destination == second.Destination && restarted.Stage == ExportStage.Accepted,
+            "an interrupted queue entry restarts with its original ID and destination");
+        reader.SaveBatch(recovered! with { Closed = true });
+        Check(reader.ReadPendingBatch() is null && reader.ReadBatchItem(plan, entries[0])?.Stage == ExportStage.Completed,
+            "closing the pending queue preserves its individual job receipts");
     }
 
     private static void TestExportJobJournal(string folder)

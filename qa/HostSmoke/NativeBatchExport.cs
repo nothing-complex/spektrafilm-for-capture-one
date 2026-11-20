@@ -254,7 +254,7 @@ public static partial class StartupHook
         }
 
         (Guid Id, Guid Job, string Path, string Stage)[] ReadReceipts(string outputFolder) =>
-            Directory.GetFiles(jobFolder, "*.json", SearchOption.AllDirectories).Select(file =>
+            Directory.GetFiles(jobFolder, "*.json", SearchOption.AllDirectories).Where(file => Path.GetFileName(file) != "pending.json").Select(file =>
             {
                 using var json = JsonDocument.Parse(File.ReadAllBytes(file));
                 var root = json.RootElement;

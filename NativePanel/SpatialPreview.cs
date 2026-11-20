@@ -42,6 +42,8 @@ internal sealed class SpatialPreview : IDisposable
     };
     private static readonly DragSize DefaultDragSize = DragSizes[2];
     private readonly object window;
+    private readonly ICaptureOneDocument document;
+    private readonly Func<Guid, VariantLook> readBatchLook;
     private readonly Func<LookSettings?> getSettings;
     private readonly Func<Guid, bool> useSelectedLook;
     private readonly Dictionary<string, NativeSlider> values = new();
@@ -135,7 +137,10 @@ internal sealed class SpatialPreview : IDisposable
     private readonly Button cancelExport = new() { Content = "Cancel export", Visibility = Visibility.Collapsed, HorizontalAlignment = HorizontalAlignment.Left };
     private readonly Button stopExportBatch = new() { Content = "Stop after this image", Visibility = Visibility.Collapsed, HorizontalAlignment = HorizontalAlignment.Left };
     private readonly Button retryExport = new() { Content = "Retry interrupted export…", Visibility = Visibility.Collapsed, HorizontalAlignment = HorizontalAlignment.Left };
+    private readonly Button resumeExportBatch = new() { Content = "Resume interrupted batch…", Visibility = Visibility.Collapsed, HorizontalAlignment = HorizontalAlignment.Left };
+    private readonly Button discardExportBatch = new() { Content = "Discard interrupted batch…", Visibility = Visibility.Collapsed, HorizontalAlignment = HorizontalAlignment.Left };
     private ExportReceipt? interruptedExport;
+    private ExportBatchPlan? interruptedBatch;
     private bool disposed;
     private bool renderingFinal;
     private bool selectionUnavailable;
@@ -143,9 +148,12 @@ internal sealed class SpatialPreview : IDisposable
     private string? previewDetail;
 
     private SpatialPreview(object window, ICaptureOneDocument document, Func<LookSettings?> getSettings, Func<Guid, bool> useSelectedLook,
+        Func<Guid, VariantLook> readBatchLook,
         ExportJobJournal exportJobs)
     {
         this.window = window;
+        this.document = document;
+        this.readBatchLook = readBatchLook;
         this.getSettings = getSettings;
         this.useSelectedLook = useSelectedLook;
         this.exportJobs = exportJobs;
@@ -189,16 +197,28 @@ internal sealed class SpatialPreview : IDisposable
             RequestRefresh();
         };
         var exportControls = new StackPanel();
+        interruptedBatch = exportActivity.BatchActive ? null : exportJobs.ReadPendingBatch();
         var latest = exportActivity.Active is null ? exportJobs.ReadLatest() : null;
-        interruptedExport = latest is { Finished: false, Retry.Valid: true } ? latest : null;
-        exportStatus.Text = exportActivity.Message ?? DescribePreviousExport(latest);
+        interruptedExport = latest is { Finished: false, Retry.Valid: true, BatchId: null } ? latest : null;
+        exportStatus.Text = exportActivity.Message ?? (interruptedBatch is null ? DescribePreviousExport(latest)
+            : "Interrupted batch · Review pending exports.");
         exportControls.Children.Add(exportStatus);
         exportControls.Children.Add(cancelExport);
         exportControls.Children.Add(stopExportBatch);
         exportControls.Children.Add(retryExport);
+        exportControls.Children.Add(resumeExportBatch);
+        exportControls.Children.Add(discardExportBatch);
         cancelExport.Click += (_, _) => exportActivity.Active?.Cancel();
         stopExportBatch.Click += (_, _) => exportActivity.StopBatch();
         retryExport.Click += async (_, _) => await RetryInterruptedExportAsync(ChooseExportDestination);
+        resumeExportBatch.Click += async (_, _) => await ResumeExportBatchAsync(plan =>
+            ConfirmBatch(resumeExportBatch, $"Resume pending exports in {plan.Folder}? Existing files are preserved."));
+        discardExportBatch.Click += (_, _) =>
+        {
+            if (interruptedBatch is { } plan && ConfirmBatch(discardExportBatch, "Discard this batch’s pending jobs? Existing files are preserved.")
+                && CloseBatchPlan(plan))
+                exportActivity.Report(null, "Interrupted batch discarded.");
+        };
         ExportControls = exportControls;
         exportActivity.Changed += UpdateExportControls;
         UpdateExportControls();
@@ -243,7 +263,7 @@ internal sealed class SpatialPreview : IDisposable
         lifetime.Dispose();
         exportActivity.Changed -= UpdateExportControls;
         if (!keepAcceptedExport && exportActivity.BatchActive)
-            exportActivity.StopBatch();
+            exportActivity.StopBatch(persist: false);
         if (!keepAcceptedExport || exportActivity.Active is { IsAccepted: false })
             exportActivity.Active?.Cancel();
         ClearPreview();
@@ -266,7 +286,8 @@ internal sealed class SpatialPreview : IDisposable
     private int DragLongEdge => ((DragSize)dragPreviewSize.SelectedItem).LongEdge;
 
     internal static SpatialPreview BuildForPanel(object window, ICaptureOneDocument document, Func<LookSettings?> getSettings,
-        Func<Guid, bool> useSelectedLook, ExportJobJournal exportJobs) => new(window, document, getSettings, useSelectedLook, exportJobs);
+        Func<Guid, bool> useSelectedLook, Func<Guid, VariantLook> readBatchLook, ExportJobJournal exportJobs) =>
+        new(window, document, getSettings, useSelectedLook, readBatchLook, exportJobs);
 
     internal void VerifyRendererOptions(RendererParameters renderer)
     {
@@ -603,19 +624,53 @@ internal sealed class SpatialPreview : IDisposable
         cancelExport.Visibility = active is { IsAccepted: true } ? Visibility.Visible : Visibility.Collapsed;
         stopExportBatch.Visibility = exportActivity.BatchActive && !exportActivity.BatchStopped ? Visibility.Visible : Visibility.Collapsed;
         var busy = active is not null || exportActivity.BatchActive;
-        retryExport.Visibility = !busy && interruptedExport is not null ? Visibility.Visible : Visibility.Collapsed;
         var resume = exportWasActive && !busy;
         exportWasActive = busy;
-        if (resume) RequestRefresh();
+        if (resume)
+        {
+            interruptedBatch = exportJobs.ReadPendingBatch();
+            RequestRefresh();
+        }
+        retryExport.Visibility = !busy && interruptedBatch is null && interruptedExport is not null ? Visibility.Visible : Visibility.Collapsed;
+        resumeExportBatch.Visibility = discardExportBatch.Visibility = !busy && interruptedBatch is not null
+            ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private sealed record BatchExport(HostProfile.Target Target, HostImageSource.Snapshot Snapshot, OpticalInput Input,
-        string Encoding, double Strength, string[] Arguments, OutputPathGuard.ApprovedDestination Destination);
+        string Encoding, double Strength, string[] Arguments, OutputPathGuard.ApprovedDestination? Destination = null,
+        ExportBatchPlan? Plan = null, ExportBatchEntry? Entry = null);
 
-    internal async Task<int> ExportBatchAsync(HostProfile.Selection[] selection, Func<Guid, VariantLook> readLook, Window? owner,
+    private BatchExport CaptureBatchSource(HostProfile.Selection item)
+    {
+        var target = HostProfile.TargetFor(item.Variant);
+        var saved = readBatchLook(target.VariantId);
+        var strength = saved.Enabled ? saved.Look.Strength : 0;
+        var input = OpticalControls.Inputs.Single(option => option.Id ==
+            (strength == 0 ? "srgb" : saved.Optics.Selections.GetValueOrDefault("input-color", "srgb")));
+        var encoding = strength == 0 ? "srgb" : saved.Optics.Selections.GetValueOrDefault("output-color", "srgb");
+        ValidateSettings(saved.Optics);
+        var arguments = strength == 0 ? Array.Empty<string>()
+            : BuildRendererOptions(saved.Look, input.Id, encoding, export: true, draft: false, saved.Optics);
+        var snapshot = HostImageSource.CaptureBatchExport(item, target, input.Space);
+        if (snapshot.Recipe is null)
+            throw new InvalidOperationException("Select an Export Recipe before starting a batch.");
+        return new(target, snapshot, input, encoding, strength, arguments);
+    }
+
+    private static bool ConfirmBatch(Button button, string text) =>
+        (Window.GetWindow(button) is { IsVisible: true } owner
+            ? MessageBox.Show(owner, text, StartupHook.ProductName, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No)
+            : MessageBox.Show(text, StartupHook.ProductName, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No)) == MessageBoxResult.Yes;
+
+    internal async Task<int> ExportBatchAsync(HostProfile.Selection[] selection, Window? owner,
         Func<OpenFolderDialog, Window?, string?> chooseFolder)
     {
         if (disposed || OutputRenderActive) return 0;
+        if (interruptedBatch is not null)
+        {
+            exportActivity.Report(null, "Resume or discard the interrupted batch before starting another batch.");
+            return 0;
+        }
         if (selection.Length < 2)
         {
             exportActivity.Report(null, "Select at least two images for batch export.");
@@ -636,25 +691,12 @@ internal sealed class SpatialPreview : IDisposable
             await DrainPreviewWorkersAsync(token);
             await HostImageSource.WaitForNativeDevelopmentAsync(token);
             token.ThrowIfCancellationRequested();
-            var sources = new List<(HostProfile.Target Target, HostImageSource.Snapshot Snapshot, OpticalInput Input,
-                string Encoding, double Strength, string[] Arguments)>();
+            var sources = new List<BatchExport>();
             foreach (var item in selection)
             {
                 try
                 {
-                    var target = HostProfile.TargetFor(item.Variant);
-                    var savedLook = readLook(target.VariantId);
-                    var strength = savedLook.Enabled ? savedLook.Look.Strength : 0;
-                    var input = OpticalControls.Inputs.Single(option => option.Id ==
-                        (strength == 0 ? "srgb" : savedLook.Optics.Selections.GetValueOrDefault("input-color", "srgb")));
-                    var encoding = strength == 0 ? "srgb" : savedLook.Optics.Selections.GetValueOrDefault("output-color", "srgb");
-                    ValidateSettings(savedLook.Optics);
-                    var arguments = strength == 0 ? Array.Empty<string>()
-                        : BuildRendererOptions(savedLook.Look, input.Id, encoding, export: true, draft: false, savedLook.Optics);
-                    var snapshot = HostImageSource.CaptureBatchExport(item, target, input.Space);
-                    if (snapshot.Recipe is null)
-                        throw new InvalidOperationException("Select an Export Recipe before starting a batch.");
-                    sources.Add((target, snapshot, input, encoding, strength, arguments));
+                    sources.Add(CaptureBatchSource(item));
                 }
                 catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or InvalidOperationException)
                 {
@@ -685,8 +727,9 @@ internal sealed class SpatialPreview : IDisposable
                 summary = "Batch export canceled.";
                 return saved;
             }
-            var folder = Path.GetFullPath(destination);
+            var folder = Path.TrimEndingDirectorySeparator(Path.GetFullPath(destination));
             var queue = new List<BatchExport>(sources.Count);
+            var entries = new List<ExportBatchEntry>(sources.Count);
             var reserved = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var item in sources)
             {
@@ -696,14 +739,23 @@ internal sealed class SpatialPreview : IDisposable
                     var extension = recipe.FormatId == "Png" ? ".png" : ".tif";
                     var name = SpektraExport.SuggestedOutputName(recipe.SuggestedFilename, item.Target.SourcePath, extension);
                     var approved = ApproveNewBatchDestination(folder, name, item.Target.SourcePath, reserved);
-                    queue.Add(new(item.Target, item.Snapshot, item.Input, item.Encoding, item.Strength, item.Arguments, approved));
+                    var descriptor = await CaptureBatchDescriptorAsync(item, token);
+                    queue.Add(item with { Destination = approved });
+                    entries.Add(new(Guid.NewGuid(), item.Target.ImageId, item.Target.VariantId, item.Target.SourcePath, approved.Path, descriptor));
                 }
-                catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidOperationException)
+                catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or InvalidOperationException)
                 {
                     failed++;
                     firstError ??= error.GetBaseException().Message;
                 }
             }
+            if (queue.Count == 0 || exportActivity.BatchStopped)
+                return saved;
+            token.ThrowIfCancellationRequested();
+            var plan = ExportBatchPlan.Create(folder, entries.ToArray());
+            exportJobs.SaveBatch(plan);
+            interruptedBatch = plan;
+            exportActivity.PersistBatchStop = () => CloseBatchPlan(plan);
             for (var index = 0; index < queue.Count; index++)
             {
                 if (exportActivity.BatchStopped)
@@ -711,18 +763,19 @@ internal sealed class SpatialPreview : IDisposable
                     canceled += queue.Count - index;
                     break;
                 }
-                var item = queue[index];
+                var item = queue[index] with { Plan = plan, Entry = plan.Entries[index] };
                 exportActivity.Report(null, $"Exporting image {index + 1} of {queue.Count}…");
                 var success = await RunExportWithDestinationAsync(true, null, ChooseExportDestination, null, item);
                 if (success) saved++;
-                else if (exportJobs.ReadLatest() is { Stage: ExportStage.Canceled } receipt
-                    && StringComparer.OrdinalIgnoreCase.Equals(receipt.Destination, item.Destination.Path)) canceled++;
+                else if (exportJobs.ReadBatchItem(plan, plan.Entries[index]) is { Stage: ExportStage.Canceled }) canceled++;
                 else
                 {
                     failed++;
                     firstError ??= exportActivity.Message;
                 }
             }
+            if (plan.Entries.All(item => exportJobs.ReadBatchItem(plan, item) is { Finished: true }))
+                CloseBatchPlan(plan);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
@@ -738,6 +791,98 @@ internal sealed class SpatialPreview : IDisposable
             var details = string.Join(Environment.NewLine, new[] { firstError, deliveryNote }.OfType<string>());
             var outcome = $"Saved {saved} of {selection.Length} images · {failed} failed · {canceled} canceled";
             exportActivity.EndBatch(summary ?? (details.Length == 0 ? outcome : outcome + Environment.NewLine + details));
+        }
+        return saved;
+    }
+
+    private Task<ExportRetryDescriptor?> CaptureBatchDescriptorAsync(BatchExport item, CancellationToken token, FileStream? held = null)
+    {
+        var recipe = item.Snapshot.Recipe!;
+        var profile = ExportColorProfile.ForRecipe(recipe.ColorProfileName, recipe.ColorProfilePath);
+        return CaptureRetryDescriptorAsync(item.Snapshot, item.Target.SourcePath, item.Arguments, item.Strength, item.Encoding,
+            profile, followRecipe: true, token, held);
+    }
+
+    private bool CloseBatchPlan(ExportBatchPlan plan)
+    {
+        try
+        {
+            exportJobs.SaveBatch(plan with { Closed = true });
+            interruptedBatch = null;
+            return true;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            StartupHook.Log("Could not close the saved export batch: " + error.GetBaseException().Message);
+            if (!OutputRenderActive)
+                exportActivity.Report(null, "Could not close the saved batch. Check access to the Spektrafilm data folder.");
+            return false;
+        }
+    }
+
+    private async Task<int> ResumeExportBatchAsync(Func<ExportBatchPlan, bool> confirm)
+    {
+        if (disposed || OutputRenderActive || interruptedBatch is not { } plan) return 0;
+        var token = lifetime.Token;
+        var saved = 0;
+        var occupied = 0;
+        var pending = plan.Entries.Length;
+        var approvedRecovery = false;
+        string? detail = null;
+        exportActivity.BeginBatch();
+        try
+        {
+            if (!confirm(plan) || disposed || exportActivity.BatchStopped) return 0;
+            approvedRecovery = true;
+            exportActivity.PersistBatchStop = () => CloseBatchPlan(plan);
+            await DrainPreviewWorkersAsync(token);
+            await HostImageSource.WaitForNativeDevelopmentAsync(token);
+            token.ThrowIfCancellationRequested();
+            foreach (var entry in plan.Entries)
+            {
+                if (exportActivity.BatchStopped) break;
+                try
+                {
+                    if (exportJobs.ReadBatchItem(plan, entry) is { Finished: true }) continue;
+                    var source = CaptureBatchSource(HostProfile.RecoverSelection(window, document, entry));
+                    var approved = OutputPathGuard.Approve(entry.Destination, source.Target.SourcePath);
+                    if (approved.AlreadyExists)
+                    {
+                        exportJobs.Report(exportJobs.BeginBatchItem(plan, entry), ExportStage.Skipped);
+                        occupied++;
+                        continue;
+                    }
+                    if (entry.Retry is null)
+                        throw new InvalidOperationException("A pending image could not be verified at approval.");
+                    await using var held = OpenForFingerprint(source.Target.SourcePath);
+                    if (await CaptureBatchDescriptorAsync(source, token, held) != entry.Retry)
+                        throw new InvalidOperationException("A queued image, its saved look or the Export Recipe changed.");
+                    if (exportActivity.BatchStopped) break;
+                    token.ThrowIfCancellationRequested();
+                    if (await RunExportWithDestinationAsync(true, null, ChooseExportDestination, null,
+                        source with { Destination = approved, Plan = plan, Entry = entry }))
+                        saved++;
+                }
+                catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or InvalidOperationException)
+                {
+                    detail ??= error.GetBaseException().Message;
+                    StartupHook.Log("A saved batch entry could not resume: " + error.GetBaseException().Message);
+                }
+            }
+            pending = plan.Entries.Count(item => exportJobs.ReadBatchItem(plan, item) is not { Finished: true });
+            if (pending == 0) CloseBatchPlan(plan);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (Exception error)
+        {
+            detail = error.GetBaseException().Message;
+            StartupHook.Log(error.ToString());
+        }
+        finally
+        {
+            var summary = approvedRecovery ? $"Resumed batch · {saved} saved · {occupied} existing files preserved · {pending} pending"
+                : "Interrupted batch · Review pending exports.";
+            exportActivity.EndBatch(detail is null ? summary : summary + Environment.NewLine + detail);
         }
         return saved;
     }
@@ -873,7 +1018,7 @@ internal sealed class SpatialPreview : IDisposable
                     picker.InitialDirectory = directory;
                 if (skipPath is not null && ExistingRecipeOutput(skipPath, target.SourcePath) is { } existing)
                     return Skip(existing);
-                var destination = batch?.Destination.Path ?? chooseDestination(picker, owner);
+                var destination = batch?.Destination?.Path ?? chooseDestination(picker, owner);
                 work.Token.ThrowIfCancellationRequested();
                 if (destination is null)
                 {
@@ -889,7 +1034,9 @@ internal sealed class SpatialPreview : IDisposable
                     return Skip(approved);
                 var outputFormat = SpektraExport.PixelFormatFor(approved.Path);
                 var deliveryNote = delivery.SavedNote(outputFormat);
-                receipt = exportJobs.AcceptRetry(work.VariantId, approved.Path, interrupted?.JobId);
+                receipt = batch is { Plan: { } plan, Entry: { } entry }
+                    ? exportJobs.BeginBatchItem(plan, entry)
+                    : exportJobs.AcceptRetry(work.VariantId, approved.Path, interrupted?.JobId);
                 work.IsAccepted = true;
                 interruptedExport = null;
                 exportActivity.Report(work, "Preparing the accepted export…");
@@ -897,10 +1044,13 @@ internal sealed class SpatialPreview : IDisposable
                     owner.Title = owner.Title[..^ExportFailureTitleSuffix.Length];
                 var jobId = receipt.JobId;
                 var started = Stopwatch.GetTimestamp();
-                retry ??= await CaptureRetryDescriptorAsync(snapshot, target.SourcePath, args, strength, encoding,
-                    deliveryProfile, useRecipeSize, work.Token);
-                if (retry is not null)
-                    receipt = exportJobs.RecordRetry(receipt, retry);
+                if (batch is null)
+                {
+                    retry ??= await CaptureRetryDescriptorAsync(snapshot, target.SourcePath, args, strength, encoding,
+                        deliveryProfile, useRecipeSize, work.Token);
+                    if (retry is not null)
+                        receipt = exportJobs.RecordRetry(receipt, retry);
+                }
                 Advance(ExportStage.DevelopingSource, "Developing export pixels in Capture One…");
                 var result = await Task.Run(async () =>
                 {
