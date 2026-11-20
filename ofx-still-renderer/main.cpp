@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -478,10 +479,7 @@ void describeParameters() {
 
 // The public Vulkan renderer uses this transform for film coordinates but does
 // not resample the source. Match upstream's spektrafilm_enlarger_resample Metal pass.
-void resampleEnlarger(std::vector<float> &frame, int width, int height, const RenderParams &params) {
-    if (std::abs(params.enlargerScale - 1.0f) <= 1.0e-6f)
-        return;
-
+std::vector<float> resampleEnlarger(const std::vector<float> &frame, int width, int height, const RenderParams &params) {
     std::vector<float> enlarged(frame.size());
     const float invScale = 1 / params.enlargerScale;
     const float offsetX = params.enlargerOffsetXPercent * 0.01f * invScale;
@@ -518,7 +516,7 @@ void resampleEnlarger(std::vector<float> &frame, int width, int height, const Re
             }
         }
     }
-    frame.swap(enlarged);
+    return enlarged;
 }
 
 void enableBinaryPipes() {
@@ -539,6 +537,31 @@ struct InputFrame {
     FrameSize size;
     std::vector<float> pixels;
     uint64_t revision = 0;
+};
+
+struct EnlargerKey {
+    uint64_t sourceRevision;
+    float scale;
+    float x;
+    float y;
+
+    bool operator==(const EnlargerKey &other) const {
+        return sourceRevision == other.sourceRevision && scale == other.scale && x == other.x && y == other.y;
+    }
+};
+
+struct EnlargerCache {
+    static constexpr uint64_t maxBytes = 512ull * 1024 * 1024;
+    uint64_t sequence = 0; // Shared by original and transformed sources in this worker.
+    uint64_t revision = 0;
+    std::optional<EnlargerKey> key;
+    std::vector<float> pixels;
+
+    void clear() {
+        key.reset();
+        revision = 0;
+        std::vector<float>().swap(pixels);
+    }
 };
 
 struct FrameLimit {
@@ -611,6 +634,13 @@ struct FrameMemoryPlan {
     bool selectedTiling = false;
 };
 
+struct FrameMetrics {
+    FrameMemoryPlan memory;
+    double enlargerMs = 0;
+    bool enlargerCacheHit = false;
+    uint64_t enlargerCachedBytes = 0;
+};
+
 FrameMemoryPlan planGpuMemory(Renderer &renderer, FrameSize size, RenderParams &params) {
     constexpr uint64_t mebibyte = 1024ull * 1024ull;
     const auto *vulkan = dynamic_cast<const VulkanRenderer *>(&renderer);
@@ -644,18 +674,40 @@ FrameMemoryPlan planGpuMemory(Renderer &renderer, FrameSize size, RenderParams &
     return plan;
 }
 
-FrameMemoryPlan renderFrame(Renderer &renderer, const InputFrame &input, RenderParams params, std::vector<float> &output) {
-    const auto memory = planGpuMemory(renderer, input.size, params);
+FrameMetrics renderFrame(Renderer &renderer, const InputFrame &input, RenderParams params, std::vector<float> &output,
+                         EnlargerCache *cache = nullptr) {
+    FrameMetrics metrics{planGpuMemory(renderer, input.size, params)};
     const auto width = input.size.width;
     const auto height = input.size.height;
     const auto *pixels = input.pixels.data();
     auto revision = input.revision;
     std::vector<float> enlarged;
     if (std::abs(params.enlargerScale - 1.0f) > 1.0e-6f) {
-        enlarged = input.pixels;
-        resampleEnlarger(enlarged, width, height, params);
-        pixels = enlarged.data();
-        revision = 0;
+        const EnlargerKey key{input.revision, params.enlargerScale, params.enlargerOffsetXPercent, params.enlargerOffsetYPercent};
+        const uint64_t bytes = input.pixels.size() * sizeof(float);
+        if (cache && cache->key && *cache->key == key) {
+            metrics.enlargerCacheHit = true;
+        } else {
+            if (cache) cache->clear();
+            const auto start = std::chrono::steady_clock::now();
+            enlarged = resampleEnlarger(input.pixels, width, height, params);
+            metrics.enlargerMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+            if (cache && bytes <= EnlargerCache::maxBytes) {
+                cache->pixels = std::move(enlarged);
+                cache->key = key;
+                cache->revision = ++cache->sequence;
+            }
+        }
+        if (cache && cache->key) {
+            pixels = cache->pixels.data();
+            revision = cache->revision;
+            metrics.enlargerCachedBytes = bytes;
+        } else {
+            pixels = enlarged.data();
+            revision = 0;
+        }
+    } else if (cache && cache->key) {
+        cache->clear();
     }
 
     output.resize(input.pixels.size());
@@ -667,7 +719,7 @@ FrameMemoryPlan renderFrame(Renderer &renderer, const InputFrame &input, RenderP
         throw std::runtime_error(renderer.lastError());
     for (const float component : output)
         if (!std::isfinite(component)) throw std::runtime_error("Renderer produced a non-finite pixel.");
-    return memory;
+    return metrics;
 }
 
 void process(int argc, char **argv) {
@@ -790,10 +842,11 @@ void writeCapabilities(const FrameLimit &limit, int protocol) {
     writeReply(0, text.data(), static_cast<uint32_t>(text.size()));
 }
 
-void writeMetrics(const Renderer *renderer, uint64_t renderSequence, const InputFrame &input, const FrameMemoryPlan &memory,
+void writeMetrics(const Renderer *renderer, uint64_t renderSequence, const InputFrame &input, const FrameMetrics &metrics,
                   std::optional<uint64_t> request) {
     const RendererDiagnostics empty{};
     const auto &d = renderer ? renderer->lastDiagnostics() : empty;
+    const auto &memory = metrics.memory;
     std::ostringstream json;
     json << "{\"schema\":1,\"renderSequence\":" << renderSequence
          << ",\"sourceRevision\":" << input.revision
@@ -806,6 +859,9 @@ void writeMetrics(const Renderer *renderer, uint64_t renderSequence, const Input
          << ",\"gpuTimingAvailable\":" << (d.passGpuTimingAvailable ? "true" : "false")
          << ",\"outputCopyMs\":" << d.outputCopyMs
          << ",\"uploadBytes\":" << d.uploadBytes
+         << ",\"enlargerMs\":" << metrics.enlargerMs
+         << ",\"enlargerCacheHit\":" << (metrics.enlargerCacheHit ? "true" : "false")
+         << ",\"enlargerCachedBytes\":" << metrics.enlargerCachedBytes
          << ",\"staticAllocationBytes\":" << d.staticAllocationBytes
          << ",\"scratchAllocationBytes\":" << d.scratchAllocationBytes
          << ",\"transientCachedBytes\":" << d.transientCachedBytes
@@ -839,12 +895,12 @@ void processStream(const FrameLimit &limit) {
     std::vector<float> output;
     std::optional<std::vector<std::string>> renderedArguments;
     const bool nativePreview = &limit == &kNativePreviewLimit;
-    uint64_t nextRevision = 0;
     uint64_t renderSequence = 0;
     uint64_t lastRequest = 0;
     bool versioned = false;
     std::optional<uint64_t> request;
-    FrameMemoryPlan memory{};
+    EnlargerCache enlarger;
+    FrameMetrics metrics{};
     std::string line;
     try {
         while (true) {
@@ -876,7 +932,7 @@ void processStream(const FrameLimit &limit) {
             if (verb == "METRICS") {
                 std::string extra;
                 if (command >> extra) writeError("METRICS does not take arguments.", request);
-                else writeMetrics(renderer.get(), renderSequence, input, memory, request);
+                else writeMetrics(renderer.get(), renderSequence, input, metrics, request);
                 continue;
             }
             if (verb == "QUIT") {
@@ -927,16 +983,19 @@ void processStream(const FrameLimit &limit) {
                     writeError("Invalid input pixel.", request);
                     continue;
                 }
-                if (nativePreview) replacement.revision = ++nextRevision;
+                if (nativePreview) replacement.revision = ++enlarger.sequence;
             }
             if (replacesInput || !renderedArguments || args != *renderedArguments) {
                 renderedArguments.reset();
                 try {
                     if (!renderer) renderer = startRenderer();
-                    memory = renderFrame(*renderer, replacesInput ? replacement : input, params, output);
+                    metrics = renderFrame(*renderer, replacesInput ? replacement : input, params, output,
+                                          nativePreview ? &enlarger : nullptr);
                     ++renderSequence;
                 } catch (const std::exception &error) {
                     renderer.reset();
+                    enlarger.clear();
+                    metrics = {};
                     writeError(error.what(), request);
                     continue;
                 }

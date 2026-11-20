@@ -1496,14 +1496,22 @@
       "id": "RC-12",
       "title": "Cache or GPU-accelerate enlarger resampling",
       "priority": "P2",
-      "status": "pending",
-      "implemented": [],
-      "evidence_paths": [],
+      "status": "partial",
+      "implemented": [
+        "Native Viewer workers keep a single exact enlarger transform keyed by immutable source revision plus scale and XY shift. The GPU can keep using the transformed source on downstream edits; the original CPU frame remains available for identity, other geometry and later cold renders. Export and above-cap Viewer frames resample directly without duplicating the original.",
+        "Vulkan tests matched eight cold renders bit for bit, changing source, scale and coordinates through odd dimensions, nonopaque alpha, opaque black border, identity and 32×. Warm print changes did no transform or upload. A 36 MP frame retained zero transformed bytes at the 512 MiB per-worker cap.",
+        "RTX 3090 warm median/p95 dropped from 24.79/25.64 to 9.35/9.74 ms at 1200×800, from 296.05/356.23 to 101.19/103.89 ms at 4095×2731 and from 610.38/718.78 to 216.42/231.10 ms at 6000×4000, using twelve requests per size. These are worker and pipe timings. Licensed Capture One passed 177 initial and 182 restart checks."
+      ],
+      "evidence_paths": [
+        "qa/renderer-benchmark.py",
+        ".test-results/enlarger-before-20261120.json",
+        ".test-results/enlarger-after-20261120.json",
+        ".test-results/enlarger-cache-smoke-20261120.log",
+        ".test-results/host-enlarger-cache-20261120/host-smoke.log"
+      ],
       "remaining_work": [
-        "Baseline enlargement stage cost",
-        "First memoize CPU transformed source by source+geometry key or implement Vulkan resample pass",
-        "Keep immutable original GPU source and downstream transformed cache",
-        "Preserve exact placement/coordinates/black-border conventions"
+        "Evaluate independent GPU residency for original and transformed sources when there is measured device headroom. The current upstream renderer has one source allocation and identity or changed geometry can need another upload.",
+        "Verify a forced interruption during the transformed-cache path on the licensed host and a second GPU."
       ],
       "original_acceptance_tests": [
         "Existing reference_crop plus odd dimensions/outside-alpha/scale1/32x",
@@ -1611,7 +1619,8 @@
       "implemented": [
         "Versioned worker metrics and reproducible synthetic/host test entry points supply initial telemetry.",
         "Repeated full-host 24 MP export baseline was 4204 ms on first process and 4033 ms after restart, including a small TIFF decode. Viewer worker quiescence is timed separately. The test machine used an RTX 3090.",
-        "Windows worker benchmark saves per-request transport wall time, renderer stages and Vulkan allocations, working-set/commit samples, cold request versus reused-source edit percentiles, and renderer fingerprint in machine-readable JSON."
+        "Windows worker benchmark saves per-request transport wall time, renderer stages and Vulkan allocations, working-set/commit samples, cold request versus reused-source edit percentiles, and renderer fingerprint in machine-readable JSON.",
+        "The worker diagnostics expose enlarger transform milliseconds, cache hits and retained bytes. Repeatable cold/warm renderer summaries measure median/p95 at three Viewer sizes with exact GPU upload counters and per-process memory."
       ],
       "evidence_paths": [
         "ofx-still-renderer/main.cpp",
@@ -1621,7 +1630,8 @@
         ".test-results/host-full-raw-24mp-20261119/host-smoke.log",
         "qa/renderer-benchmark.py",
         ".test-results/renderer-benchmark-color-optics-20261119.json",
-        ".test-results/renderer-benchmark-grain-quality-20261119.json"
+        ".test-results/renderer-benchmark-grain-quality-20261119.json",
+        ".test-results/enlarger-after-20261120.json"
       ],
       "remaining_work": [
         "No structured end-to-end event model, shared request identity, p50/p95 benchmark matrix or UI latency budget yet.",
@@ -2764,8 +2774,8 @@
   "counts": {
     "total": 70,
     "implemented": 19,
-    "partial": 40,
-    "pending": 11
+    "partial": 41,
+    "pending": 10
   },
   "last_reconciled": "2026-11-20",
   "handover": "HANDOVER.md",

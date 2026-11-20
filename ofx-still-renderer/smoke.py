@@ -214,6 +214,49 @@ def check_export_stream(exe, frame, base):
     print("Export stream accepted a frame above the preview limit and preserved preview color parity")
 
 
+def check_enlarger_cache(exe, frame, base):
+    height, width = 87, 131
+    source = frame[np.arange(height)[:, None] % frame.shape[0], np.arange(width) % frame.shape[1]]
+    source[..., 3] = np.linspace(.1, .9, width, dtype=np.float32)
+    second = source * np.float32(.65)
+    optics = f"{base} --enlarger-scale 1.25 --enlarger-x 3 --enlarger-y -5"
+    brighter = f"{optics} --print-exposure 0.4"
+    border = f"{base} --enlarger-scale 1.25 --enlarger-x 100"
+    maximum = f"{base} --enlarger-scale 32 --enlarger-x 3 --enlarger-y -5"
+    def reuse(options):
+        return f"REUSE {options}\n".encode("ascii")
+
+    requests = (
+        (source, optics, frame_request(source, optics), False, True),
+        (source, brighter, reuse(brighter), True, True),
+        (source, border, reuse(border), False, True),
+        (source, maximum, reuse(maximum), False, True),
+        (source, base, reuse(base), False, False),
+        (source, optics, reuse(optics), False, True),
+        (second, optics, frame_request(second, optics), False, True),
+        (second, brighter, reuse(brighter), True, True),
+    )
+    replies = run_stream(exe, b"".join(c + b"METRICS\n" for _, _, c, _, _ in requests), mode="--native-preview-stream")
+    assert len(replies) == 2 * len(requests) and all(status == 0 for status, _ in replies)
+    previous = None
+    for index, (original, options, _, hit, transformed) in enumerate(requests):
+        payload = replies[index * 2][1]
+        fresh, = run_stream(exe, frame_request(original, options), mode="--export-stream")
+        assert fresh == (0, payload), ("cached versus fresh bit parity", index)
+        metrics = json.loads(replies[index * 2 + 1][1])
+        assert metrics["enlargerCacheHit"] == hit
+        assert metrics["enlargerCachedBytes"] == (source.nbytes if transformed else 0)
+        if hit:
+            assert metrics["enlargerMs"] == 0 and metrics["uploadBytes"] == 0 and payload != previous, metrics
+        elif transformed:
+            assert metrics["enlargerMs"] > 0 and metrics["uploadBytes"] >= source.nbytes
+        if options == border:
+            rgba = np.frombuffer(payload, dtype="<f4").reshape(source.shape)
+            assert rgba[0, -1, 3] == 1 and 0 < rgba[height // 2, 0, 3] < 1
+        previous = payload
+    print("Enlarger cache matched eight fresh renders byte for byte and skipped transform and upload on print edits")
+
+
 def check_output_transfers(exe, frame, base):
     small = frame[::8, ::8].copy()
     small[..., 3] = np.linspace(0, 1, small.shape[1], dtype=np.float32)
@@ -425,6 +468,7 @@ def main():
     check_stream(args.exe, frame, base)
     check_numbered_stream(args.exe, frame, base)
     check_export_stream(args.exe, frame, base)
+    check_enlarger_cache(args.exe, frame, base)
     check_output_transfers(args.exe, frame, base)
     check_tiled_parity(args.exe, base)
     check_gpu_budget(args.exe, base)

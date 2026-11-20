@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 19 bounded primary fixes implemented, 40 partial items and 11 pending items. It includes feasibility investigations and enhancements.
+Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 19 bounded primary fixes implemented, 41 partial items and 10 pending items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -423,6 +423,15 @@ Evidence is under `.test-results/host-frame-description-matrix-20261120` and `.t
 - [ ] Add a separate cooperative worker cancellation and progress channel. Protocol 2 currently terminates a canceled worker and waits for exit before replacing it.
 
 Evidence is under `.test-results/contracts-numbered-renderer-final-20261120`, `.test-results/numbered-renderer-runtime-20261120`, `.test-results/host-numbered-renderer-final-20261120` and `.test-results/host-numbered-renderer-raw-20261120`.
+
+## Enlarger transform reuse
+
+- [x] Keep one transformed Viewer frame up to 512 MiB and reuse its GPU source when other creative controls move. Keep the original CPU frame intact, release the cached transform at identity and decline to retain it above the bound. The export route still renders the full image at float precision.
+- [x] Match eight fresh Vulkan renders byte for byte, including odd dimensions, alpha, borders, new sources, offset changes, identity and 32×. Repeated print changes measured zero transform time and zero source upload. A 36 MP probe reported no retained transform buffer.
+- [x] At 6000 × 4000 on the RTX 3090, warm worker median fell from 610 to 216 ms and p95 from 719 to 231 ms. At 4095 × 2731 median fell from 296 to 101 ms. These timings include the worker and pipe. The licensed Capture One suite passed 177 first-launch and 182 restart checks.
+- [ ] Validate cache interruption on the licensed host and additional hardware. Simultaneous original and transformed source residency on the GPU remains open.
+
+Evidence is under `.test-results/enlarger-before-20261120.json`, `.test-results/enlarger-after-20261120.json`, `.test-results/enlarger-cache-smoke-20261120.log` and `.test-results/host-enlarger-cache-20261120`.
 
 ## Status maintenance
 
