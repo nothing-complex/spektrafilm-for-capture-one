@@ -503,9 +503,11 @@ Evidence is under `.test-results/metering-cache-smoke-20261120.log` and `.test-r
 - [x] Use the stock pickers’ native name search. Provide full film slider labels, displayed defaults and reset actions for automation and tooltips.
 - [x] Add Hold to Compare through the WPF pressed state. A licensed panel test switches to the exact cached developed source and back to the original film bitmap. The master look and Show source state remain owned by their existing controls.
 - [x] Pass 190 new-launch and 195 restart checks with the native controls in the disposable catalog.
-- [ ] Add favourites and recent presets. Verify actual keyboard/pointer gestures, locale-aware numeric entry, screen-reader navigation and physical DPI.
+- [x] Save stock favourites by stable ID and show them first after restart. Keep the existing selected stock and durable look. The recent preset menu lists up to six saved or applied presets. Verify future preference formats remain untouched.
+- [x] Pass 12,678 host-independent and 193 new-launch plus 197 restart checks with the favourites and recent preset routes.
+- [ ] Verify actual keyboard/pointer gestures, locale-aware numeric entry, screen-reader navigation and physical DPI.
 
-Evidence is under `.test-results/host-native-controls-20261120`.
+Evidence is under `.test-results/host-native-controls-20261120`, `.test-results/contracts-stock-favorites-20261120` and `.test-results/host-stock-favorites-20261120`.
 
 ## Status maintenance
 

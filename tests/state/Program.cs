@@ -272,6 +272,34 @@ foreach (var profiles in new[] { Array.Empty<CaptureOneHost>(), new[] { supporte
 
 var presetSource = Sample(1.3) with { Enabled = false, Grain = new GrainControls(4, 18, 62) };
 
+var panelChoicesPath = Path.Combine(scratch, "Panel choices.json");
+var panelChoices = new PanelChoices(panelChoicesPath, _ => { });
+panelChoices.ToggleFavorite(false, "kodak_portra_400");
+panelChoices.ToggleFavorite(true, "kodak_portra_endura");
+var presetChoices = Enumerable.Range(0, 8).Select(i => Path.Combine(scratch, $"Choice {i}.spektra.json")).ToArray();
+foreach (var path in presetChoices)
+{
+    File.WriteAllText(path, "{}");
+    panelChoices.RememberPreset(path);
+}
+panelChoices.RememberPreset(presetChoices[4]);
+var choicesAfterRestart = new PanelChoices(panelChoicesPath, _ => { });
+Check("stock favorites reopen as independent typed lists",
+    choicesAfterRestart.IsFavorite(false, "kodak_portra_400") && choicesAfterRestart.IsFavorite(true, "kodak_portra_endura")
+    && !choicesAfterRestart.IsFavorite(true, "kodak_portra_400"));
+Check("recent preset history is bounded, most-recent first, and deduplicated",
+    choicesAfterRestart.RecentPresets.SequenceEqual(new[] { presetChoices[4], presetChoices[7], presetChoices[6], presetChoices[5], presetChoices[3], presetChoices[2] }));
+File.Delete(presetChoices[4]);
+Check("removed preset files are excluded", choicesAfterRestart.RecentPresets.First() == presetChoices[7]);
+choicesAfterRestart.ToggleFavorite(false, "kodak_portra_400");
+Check("removing a favourite does not remove another stock class",
+    !choicesAfterRestart.IsFavorite(false, "kodak_portra_400") && choicesAfterRestart.IsFavorite(true, "kodak_portra_endura"));
+var futureChoices = "{\"Version\":42,\"Films\":[],\"Papers\":[],\"RecentPresets\":[]}";
+File.WriteAllText(panelChoicesPath, futureChoices);
+var unavailableChoices = new PanelChoices(panelChoicesPath, _ => { });
+Throws<InvalidOperationException>("future panel choices cannot be silently replaced", () => unavailableChoices.ToggleFavorite(false, "kodak_portra_400"));
+Check("future favourites and preferences stay byte for byte", File.ReadAllText(panelChoicesPath) == futureChoices);
+
 var rendererFixture = Path.Combine(scratch, "renderer");
 Directory.CreateDirectory(rendererFixture);
 var rendererManifestPath = Path.Combine(rendererFixture, "parameter-capabilities.json");

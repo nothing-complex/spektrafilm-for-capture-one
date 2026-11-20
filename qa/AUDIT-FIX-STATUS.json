@@ -2574,16 +2574,21 @@
       "implemented": [
         "Film and print stock selectors support the native WPF name-search interaction. Sliders expose a full accessible label, the displayed default value, unit and reset gesture. Tooltips retain long labels in a narrow panel.",
         "Hold to Compare uses the native WPF pressed state and shares the settled source/film cache. Pressing the button in the live host showed the identical source bitmap and releasing it restored the identical film bitmap. It preserved the Show source toggle and creative settings.",
-        "190 initial and 195 restart checks passed. The licensed fixture verifies the actual WPF automation properties and observes programmatic press/release transitions on the rendered Viewer."
+        "190 initial and 195 restart checks passed. The licensed fixture verifies the actual WPF automation properties and observes programmatic press/release transitions on the rendered Viewer.",
+        "Native stock picker context menus add and remove favourites by stable film or paper ID without changing the selected look. Favourites display first and are restored on restart.",
+        "Recent presets use the existing approved save and apply paths. Up to six deduplicated existing files are displayed in recent order. Preference state lives separately from creative looks. A future format is preserved without rewriting it.",
+        "Pass 12,678 host-independent checks and 193 new-launch plus 197 restart assertions. The real stock selection and durable look were unchanged by adding a favourite, and the restart placed it first. The actual preset Save route updated the recent file list."
       ],
       "evidence_paths": [
         "NativePanel/NativeSlider.cs",
         "NativePanel/SpatialPreview.cs",
         "NativePanel/SpektraFilmTool.cs",
-        ".test-results/host-native-controls-20261120/host-smoke.log"
+        ".test-results/host-native-controls-20261120/host-smoke.log",
+        "NativePanel/PanelChoices.cs",
+        ".test-results/contracts-stock-favorites-20261120/summary.json",
+        ".test-results/host-stock-favorites-20261120/host-smoke.log"
       ],
       "remaining_work": [
-        "Add persistent favourites and recent preset choices using stable identities.",
         "Compare actual keyboard, mouse, numeric entry, locale and screen-reader behavior with native Capture One. Physical DPI and focus travel remain open."
       ],
       "original_acceptance_tests": [

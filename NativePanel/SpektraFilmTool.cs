@@ -285,6 +285,7 @@ internal static class SpektraFilmTool
         private readonly ComboBox mode = new() { DisplayMemberPath = nameof(Stock.Label) };
         private readonly ComboBox film = new() { DisplayMemberPath = nameof(Stock.Label) };
         private readonly ComboBox paper = new() { DisplayMemberPath = nameof(Stock.Label) };
+        private readonly PanelChoices panelChoices = new(Path.Combine(PanelPreferences.UserDataDirectory(), "Stock favourites and recent presets.json"), StartupHook.Log);
         private readonly ComboBox spectralMethod = new() { DisplayMemberPath = nameof(Stock.Label) };
         private readonly ComboBox filmPushPullMode = new() { DisplayMemberPath = nameof(Stock.Label) };
         private readonly CheckBox scanInvert = new() { Content = "Invert negative scan", Margin = new Thickness(0, 5, 0, 2) };
@@ -602,6 +603,23 @@ internal static class SpektraFilmTool
             var presets = new WrapPanel { Margin = new Thickness(0, 5, 0, 3) };
             presets.Children.Add(Button("Save preset…", SavePresetAsync));
             presets.Children.Add(Button("Load preset…", () => LoadPresetAsync(LookSections.All)));
+            var recent = new Button { Content = "Recent presets", Margin = new Thickness(0, 4, 4, 0) };
+            recent.Click += async (_, _) =>
+            {
+                var filenames = await Task.Run(() => panelChoices.RecentPresets.ToArray());
+                if (disposed || !recent.IsVisible) return;
+                var menu = new ContextMenu { PlacementTarget = recent };
+                foreach (var filename in filenames)
+                {
+                    var entry = new MenuItem { Header = Path.GetFileName(filename), ToolTip = filename };
+                    entry.Click += async (_, _) => await LoadPresetAsync(LookSections.All, filename);
+                    menu.Items.Add(entry);
+                }
+                if (menu.Items.Count == 0) menu.Items.Add(new MenuItem { Header = "No recent presets", IsEnabled = false });
+                recent.ContextMenu = menu;
+                menu.IsOpen = true;
+            };
+            presets.Children.Add(recent);
             section.Children.Add(presets);
             section.Children.Add(MakePresetSections());
 
@@ -716,6 +734,7 @@ internal static class SpektraFilmTool
                     }
                     approved.Write(stream => PanelFiles.WritePreset(stream, preset), stop);
                 }, stop);
+                RememberPreset(approved.Path);
                 if (!disposed) status.Text = "Preset saved.";
             }
             catch (OperationCanceledException) when (disposed) { }
@@ -725,25 +744,33 @@ internal static class SpektraFilmTool
             }
         }
 
-        private async Task LoadPresetAsync(LookSections sections)
+        private async Task LoadPresetAsync(LookSections sections, string? filename = null)
         {
             if (sections == LookSections.None || !SyncSelection() || !enableSpektraFilm.IsEnabled || displayedVariant is not { } variant)
                 return;
             try
             {
-                var picker = new OpenFileDialog { Filter = "Spektrafilm preset|*.spektra.json", CheckFileExists = true };
-                if (picker.ShowDialog() != true)
-                    return;
-                var preset = await Task.Run(() => PanelFiles.ReadPreset<LookPreset>(picker.FileName));
-                if (sections == LookSections.All)
-                    ApplyPreset(variant, preset);
-                else
-                    ApplyPresetSections(variant, preset, sections, "Spektrafilm preset sections");
+                if (filename is null)
+                {
+                    var picker = new OpenFileDialog { Filter = "Spektrafilm preset|*.spektra.json", CheckFileExists = true };
+                    if (picker.ShowDialog() != true) return;
+                    filename = picker.FileName;
+                }
+                var preset = await Task.Run(() => PanelFiles.ReadPreset<LookPreset>(filename));
+                var applied = sections == LookSections.All ? ApplyPreset(variant, preset)
+                    : ApplyPresetSections(variant, preset, sections, "Spektrafilm preset sections");
+                if (applied) RememberPreset(filename);
             }
             catch (Exception error)
             {
                 Report(error);
             }
+        }
+
+        private void RememberPreset(string filename)
+        {
+            try { panelChoices.RememberPreset(filename); }
+            catch (Exception error) { StartupHook.Log("Recent preset could not be saved: " + error.GetBaseException().Message); }
         }
 
         private bool ApplyPreset(Guid variant, LookPreset preset) =>
@@ -1205,9 +1232,41 @@ internal static class SpektraFilmTool
                 chooser.IsTextSearchEnabled = true;
                 TextSearch.SetTextPath(chooser, nameof(Stock.Label));
                 AutomationProperties.SetHelpText(chooser, "Type the start of a stock name to select it.");
+                AddFavoriteMenu(chooser, ReferenceEquals(chooser, paper));
             }
             section.Children.Add(chooser);
             chooser.SelectionChanged += (_, _) => (changed ?? RefreshLook)();
+        }
+
+        private void AddFavoriteMenu(ComboBox chooser, bool printStock)
+        {
+            var menu = new ContextMenu();
+            var favorite = new MenuItem();
+            menu.Items.Add(favorite);
+            chooser.ContextMenu = menu;
+            menu.Opened += (_, _) =>
+            {
+                var stock = chooser.SelectedItem as Stock;
+                favorite.Header = stock is not null && panelChoices.IsFavorite(printStock, stock.Id)
+                    ? "Remove from favourites" : "Add to favourites";
+                favorite.IsEnabled = stock is not null;
+            };
+            favorite.Click += (_, _) =>
+            {
+                if (chooser.SelectedItem is not Stock stock || options is null) return;
+                var prior = settingValues;
+                try
+                {
+                    panelChoices.ToggleFavorite(printStock, stock.Id);
+                    var sorted = SortStocks(printStock ? options.Papers : options.Films, printStock);
+                    options = printStock ? options with { Papers = sorted } : options with { Films = sorted };
+                    settingValues = true;
+                    chooser.ItemsSource = sorted;
+                    chooser.SelectedItem = stock;
+                }
+                catch (Exception error) { Report(error); }
+                finally { settingValues = prior; }
+            };
         }
 
         private NativeSlider AddSlider(StackPanel section, string title, double min, double max, double initial, double step,
@@ -1240,7 +1299,7 @@ internal static class SpektraFilmTool
                     available = available with { SpectralMethods = available.SpectralMethods.Where(method => method.Id != "hanatos2026").ToArray() };
                 renderer.VerifyOptions("spectral-method", available.SpectralMethods.Select(method => method.Id));
                 opticalPreview.VerifyRendererOptions(renderer);
-                options = available with { Films = Sort(available.Films), Papers = Sort(available.Papers) };
+                options = available with { Films = SortStocks(available.Films, false), Papers = SortStocks(available.Papers, true) };
                 SetDefaults();
                 controlsLoadFailed = false;
                 SyncSelection();
@@ -1254,7 +1313,9 @@ internal static class SpektraFilmTool
             }
         }
 
-        private static Stock[] Sort(Stock[] stocks) => stocks.OrderBy(stock => stock.Label, StringComparer.CurrentCulture).ToArray();
+        private Stock[] SortStocks(Stock[] stocks, bool printStock) => stocks
+            .OrderByDescending(stock => panelChoices.IsFavorite(printStock, stock.Id))
+            .ThenBy(stock => stock.Label, StringComparer.CurrentCulture).ToArray();
 
         private void SetModeControls()
         {

@@ -112,6 +112,7 @@ public static partial class StartupHook
             await TestViewportQuality(spatial, variant);
             await TestSpectralReconstruction(panel, spatial, store, variant);
             TestPanelAccessibility(panel, spatial, exposure);
+            TestStockFavorites(panel, store, variant, restart);
             await TestViewerHistogram(hook, spatial, restart);
             await TestLockedLook(panel, store, variant, exposure, toggle);
             var optics = Call(spatial, "CaptureSettings")!;
@@ -821,9 +822,36 @@ public static partial class StartupHook
         var presetType = assembly.GetType("LookPreset")!;
         var stored = JsonSerializer.Deserialize(File.ReadAllText(path), presetType)!;
         Call(stored, "Validate");
+        if (panel.GetType().GetField("panelChoices", Flags)?.GetValue(panel) is { } choices)
+            Check(((IEnumerable)Prop(choices, "RecentPresets")!).Cast<string>().FirstOrDefault() == path,
+                "the real saved preset becomes the first recent preset in this catalog test");
         Check(JsonNode.DeepEquals(JsonSerializer.SerializeToNode(before, before.GetType()),
             JsonSerializer.SerializeToNode(Call(store, "Read", variant), before.GetType())),
             "saving a portable preset leaves the selected variant's durable look unchanged");
+    }
+
+    static void TestStockFavorites(object panel, object store, Guid variant, bool restart)
+    {
+        if (panel.GetType().GetField("panelChoices", Flags)?.GetValue(panel) is not { } choices) return;
+        var picker = (ComboBox)Field(panel, "film")!;
+        var selected = picker.SelectedItem!;
+        var id = (string)Prop(selected, "Id")!;
+        if (restart)
+        {
+            Check(Call(choices, "IsFavorite", false, id) is true && (string)Prop(picker.Items[0], "Id")! == id,
+                "the stock favorite is restored and visibly ordered first after restart");
+        }
+        else
+        {
+            var before = Call(store, "Read", variant)!;
+            var menu = (MenuItem)picker.ContextMenu!.Items[0];
+            menu.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent, menu));
+            Check(Call(choices, "IsFavorite", false, id) is true && (string)Prop(picker.Items[0], "Id")! == id
+                && ReferenceEquals(picker.SelectedItem, selected), "favoriting a stock moves its stable ID first and preserves the current selection");
+            Check(JsonNode.DeepEquals(JsonSerializer.SerializeToNode(before, before.GetType()),
+                JsonSerializer.SerializeToNode(Call(store, "Read", variant), before.GetType())),
+                "favoriting a stock preserves the durable look");
+        }
     }
 
     static void TestPresetHistory(object panel, object window, object store, Guid variant, object exposure, CheckBox toggle)
