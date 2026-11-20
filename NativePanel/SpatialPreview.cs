@@ -133,6 +133,7 @@ internal sealed class SpatialPreview : IDisposable
     private bool disposed;
     private bool renderingFinal;
     private bool selectionUnavailable;
+    private bool originalUnavailable;
     private string? previewDetail;
 
     private SpatialPreview(object window, Func<LookSettings?> getSettings, Func<Guid, bool> useSelectedLook, ExportJobJournal exportJobs)
@@ -860,6 +861,7 @@ internal sealed class SpatialPreview : IDisposable
         dragging = false;
         viewer.Clear();
         activeVariant = null;
+        originalUnavailable = false;
         ResetSource();
         viewerFrame = null;
         previewDetail = null;
@@ -933,16 +935,17 @@ internal sealed class SpatialPreview : IDisposable
         }
         if (OutputRenderActive || !previewWorkersExited.IsCompletedSuccessfully)
             return;
-        if ((!queued || selectionUnavailable || pending is not null && !WantsDragPreview)
+        if ((!queued || selectionUnavailable || originalUnavailable || pending is not null && !WantsDragPreview)
             && Environment.TickCount64 < nextViewerCheck)
             return;
         nextViewerCheck = Environment.TickCount64 + 350;
 
         Guid selectedVariant;
         NativeImageRevision revision;
+        bool originalAvailable;
         try
         {
-            (selectedVariant, revision) = HostImageSource.GetSelectedRevision(window);
+            (selectedVariant, revision, originalAvailable) = HostImageSource.GetSelectedSourceState(window);
         }
         catch (InvalidOperationException error)
         {
@@ -972,6 +975,28 @@ internal sealed class SpatialPreview : IDisposable
             histogram.SetFrame(null);
             showSource.IsEnabled = false;
             queued = true;
+        }
+        if (!originalAvailable)
+        {
+            if (!originalUnavailable || newSelection)
+            {
+                originalUnavailable = true;
+                inputRevision++;
+                pending?.Cancel();
+                ResetSource();
+                ReleaseRenderer();
+                viewerFrame = null;
+                frameCurrent = false;
+                showSource.IsEnabled = false;
+                viewer.Suspend("Reconnect the original image to see Spektrafilm.");
+                UpdateViewerStatus();
+            }
+            return;
+        }
+        if (originalUnavailable)
+        {
+            originalUnavailable = false;
+            RequestRefresh();
         }
         var selectedSpace = (InputChoice)inputSpace.SelectedItem;
         var space = selectedSpace.Space;

@@ -42,10 +42,10 @@ internal static class HostImageSource
         string Suffix, int TiffBits, int JpegQuality, int Width, int Height, double Scale, bool IgnoreCrop,
         double Resolution, string ResolutionUnit, ExportMetadata Metadata);
 
-    internal static (Guid VariantId, NativeImageRevision AdjustmentKey) GetSelectedRevision(object window)
+    internal static (Guid VariantId, NativeImageRevision AdjustmentKey, bool OriginalAvailable) GetSelectedSourceState(object window)
     {
         var selected = HostProfile.ReadSelection(window).Variant;
-        return (selected.UUID, ReadRevision(selected));
+        return (selected.UUID, ReadRevision(selected), selected.CoreImage?.IsFileAvailable == true);
     }
 
     internal static NativeImageRevision GetRevision(object window, Guid variantId) => ReadRevision(RequireSelection(window, variantId).Variant);

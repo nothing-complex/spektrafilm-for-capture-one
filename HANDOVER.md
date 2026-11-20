@@ -795,6 +795,14 @@ Evidence is under `.test-results/host-grain-atomic-history-20261120`. The curren
 
 Evidence and TIFF/PNG examples are under `.test-results/host-native-effect-export-final-20261120` and `.test-results/host-source-native-effect-export-20261120`. Native Export support remains tied to the verified Capture One build and one selected photo with one enabled recipe.
 
+## Disconnected original recovery
+
+- [x] Move only a private calibrated RAW copy and observe the native original availability change. The previous source kept its processed Viewer layer visible across the offline interval.
+- [x] Use Capture One's current original availability alongside its revision. On disconnection, cancel obsolete work, release cached developed and rendered frames and explain how to reconnect the original. On return, automatically develop a new RGB16 source and paint the same film settings.
+- [x] Verify the fixture bytes are restored exactly, native recipe export refuses the disconnected source and the persistent look is identical. The final 29-check run measured about 307 ms to suspend and 1.72 seconds to repaint. Full Windows and Vulkan contracts, 311 plus 315 full native checks and 39 plus 39 native effects export checks passed.
+
+Evidence is under `.test-results/host-original-availability-baseline-20261120`, `.test-results/host-original-availability-final-20261120`, `.test-results/host-original-availability-full-20261120` and `.test-results/host-original-availability-export-20261120`. Use `-CalibrationChart` and `-OriginalAvailabilityProbe` with the exact preferences backup.
+
 ## Status maintenance
 
 `qa/AUDIT-FIX-STATUS.json` owns task IDs, status, implemented substeps, remaining acceptance work and evidence. This handover owns context, runtime identity and resume instructions. `.test-results/FINAL-RESULT.json` is the completed runtime delivery receipt; keep its runtime commit/package identity distinct from later documentation-only commits.

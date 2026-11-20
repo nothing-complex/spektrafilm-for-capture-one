@@ -22,10 +22,14 @@ param(
     [switch] $ViewerStress,
     [switch] $PanelInventory,
     [switch] $NativeEffectExport,
+    [switch] $OriginalAvailabilityProbe,
     [string] $CalibrationChart,
     [string] $ResultsDirectory
 )
 $ErrorActionPreference='Stop'
+if ($OriginalAvailabilityProbe -and !$CalibrationChart) {
+    throw 'The original availability fixture requires a private calibrated RAW chart.'
+}
 if ($NativeSourceMutations) {
     if (!$NativeSettingsConfig) { throw 'The native source mutation matrix requires a verified preferences backup.' }
     $ColorMatrix=$true
@@ -346,7 +350,7 @@ $names=@(
     'SPEKTRAFILM_SHOW_TOOL','SPEKTRAFILM_HOST_PROOF_TEST','SPEKTRAFILM_HOST_CATALOG_ISOLATION',
     'SPEKTRAFILM_HOST_VIEWER_LAYOUTS','SPEKTRAFILM_HOST_DURABLE_EDITS','SPEKTRAFILM_HOST_METADATA_FIXTURE',
     'SPEKTRAFILM_HOST_VIEWER_CHURN','SPEKTRAFILM_HOST_NATIVE_VIEWER_BASELINE','SPEKTRAFILM_HOST_OTHER_CATALOG',
-    'SPEKTRAFILM_HOST_SESSION','SPEKTRAFILM_HOST_CALIBRATION'
+    'SPEKTRAFILM_HOST_SESSION','SPEKTRAFILM_HOST_CALIBRATION','SPEKTRAFILM_HOST_ORIGINAL_AVAILABILITY_PROBE'
 )
 $prior=@{}
 foreach($name in $names){$prior[$name]=[Environment]::GetEnvironmentVariable($name,'Process')}
@@ -374,6 +378,7 @@ try {
     $env:SPEKTRAFILM_HOST_OTHER_CATALOG=if($ConcurrentCatalogs){$fixtureCatalogs[1]}else{$null}
     $env:SPEKTRAFILM_HOST_SESSION=$sessionDatabase
     $env:SPEKTRAFILM_HOST_CALIBRATION=$fixtureChart
+    $env:SPEKTRAFILM_HOST_ORIGINAL_AVAILABILITY_PROBE=if($OriginalAvailabilityProbe){'1'}else{$null}
     $phases=if($CatalogIsolation){@('A-first','B-first','A-restart','B-restart')}elseif($SkipRestart -or $ViewerLayouts){@('first')}else{@('first','restart')}
     if (!$SkipRestart -and !$CatalogIsolation -and !$ViewerLayouts -and !$DurableSliderEdits) { [IO.File]::WriteAllText((Join-Path $folder 'verify-grain-restart.marker'), 'test only') }
     foreach($phase in $phases){

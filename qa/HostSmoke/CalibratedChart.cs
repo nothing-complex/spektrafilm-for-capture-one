@@ -6,9 +6,11 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows.Controls;
 
 public static partial class StartupHook
 {
@@ -118,6 +120,111 @@ public static partial class StartupHook
             defaultCurve = defaultCurve is not null ? Prop(defaultCurve, "FileName") : null,
             frames,
         }, new JsonSerializerOptions { WriteIndented = true }));
+        if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_ORIGINAL_AVAILABILITY_PROBE") == "1")
+            await ProbeOriginalAvailability(assembly, panel, spatial, window, chart, variantType, imported);
         File.WriteAllText(Path.Combine(folder, "first.passed"), $"PASS {checks} licensed calibration assertions");
+    }
+
+    private static async Task ProbeOriginalAvailability(Assembly assembly, object panel, object spatial, object window,
+        string chart, Type variantType, object imported)
+    {
+        var sourcePath = Path.GetFullPath(chart);
+        Check(Path.GetDirectoryName(sourcePath) == Path.Combine(Path.GetFullPath(folder), "Calibration")
+            && (File.GetAttributes(sourcePath) & FileAttributes.ReparsePoint) == 0,
+            "the temporarily disconnected original is a regular file in the private calibration fixture");
+        var hash = SHA256.HashData(File.ReadAllBytes(sourcePath));
+        var offlinePath = sourcePath + ".temporarily-offline";
+        var picker = (ComboBox)Field(spatial, "previewSize")!;
+        picker.SelectedItem = picker.ItemsSource.Cast<object>().Single(item => Prop(item, "Id") is "720");
+        ((CheckBox)Field(panel, "enableSpektraFilm")!).IsChecked = true;
+        Call(spatial, "SetEnabled", true);
+        var viewer = Field(spatial, "viewer")!;
+        var coreImage = variantType.GetProperty("CoreImage")!;
+        var native = coreImage.GetValue(imported)!;
+        var available = coreImage.PropertyType.GetInterfaces().Prepend(coreImage.PropertyType)
+            .Select(type => type.GetProperty("IsFileAvailable")).First(property => property is not null)!;
+        bool Painted() => Field(spatial, "frameCurrent") is true && Prop(viewer, "HasPainted") is true;
+        var trace = new List<object>();
+        object Snapshot(string state) => new
+        {
+            state, fileExists = File.Exists(sourcePath), nativeAvailable = available.GetValue(native),
+            current = Field(spatial, "frameCurrent"), painted = Prop(viewer, "HasPainted"),
+            status = ((TextBlock)Field(spatial, "status")!).Text,
+        };
+        var started = Stopwatch.GetTimestamp();
+        while (!Painted())
+        {
+            if (Stopwatch.GetElapsedTime(started) > TimeSpan.FromSeconds(18))
+                throw new TimeoutException("The private original did not paint before the offline availability probe.");
+            await Task.Delay(75);
+        }
+        var initial = Field(spatial, "source");
+        var initialLook = Call(panel, "CaptureLook")!;
+        var initialState = JsonSerializer.Serialize(initialLook, initialLook.GetType());
+        var target = assembly.GetType("HostProfile", true)!.GetMethod("CaptureTarget", Flags)!.Invoke(null, new[] { window })!;
+        var host = assembly.GetType("HostImageSource", true)!;
+        var capture = host.GetMethod("Capture", Flags)!;
+        var encoding = Enum.Parse(assembly.GetType("PreviewInputSpace", true)!, "Srgb");
+        trace.Add(Snapshot("online"));
+        var moved = false;
+        var suspended = false;
+        var offlineStarted = Stopwatch.GetTimestamp();
+        double? offlineMs = null;
+        try
+        {
+            File.Move(sourcePath, offlinePath);
+            moved = true;
+            for (var sample = 0; sample < 12; sample++)
+            {
+                await Task.Delay(150);
+                trace.Add(Snapshot("offline"));
+                if (available.GetValue(native) is false && Field(spatial, "source") is null && !Painted()
+                    && Field(spatial, "viewerFrame") is null && !((Button)Field(spatial, "savePreview")!).IsEnabled
+                    && ((TextBlock)Field(spatial, "status")!).Text.Contains("Reconnect the original", StringComparison.Ordinal))
+                {
+                    suspended = true;
+                    offlineMs ??= Stopwatch.GetElapsedTime(offlineStarted).TotalMilliseconds;
+                }
+            }
+            try
+            {
+                capture.Invoke(null, new[] { window, target, encoding, true });
+                throw new InvalidDataException("Native recipe export accepted a disconnected original.");
+            }
+            catch (TargetInvocationException error) when (error.InnerException is InvalidOperationException failure
+                && failure.Message.Contains("cannot develop", StringComparison.Ordinal))
+            {
+                Check(true, "native recipe export refuses to start from a disconnected original");
+            }
+        }
+        catch (IOException error) when (!moved)
+        {
+            trace.Add(new { state = "move-failed", error = error.Message });
+        }
+        finally
+        {
+            if (File.Exists(offlinePath)) File.Move(offlinePath, sourcePath);
+            Check(SHA256.HashData(File.ReadAllBytes(sourcePath)).SequenceEqual(hash), "the private source was restored byte for byte");
+        }
+        var restart = Stopwatch.GetTimestamp();
+        double? restoredMs = null;
+        while (Stopwatch.GetElapsedTime(restart) < TimeSpan.FromSeconds(14))
+        {
+            await Task.Delay(150);
+            trace.Add(Snapshot("reconnected"));
+            if (available.GetValue(native) is true && Painted() && Field(spatial, "source") is { } current
+                && !ReferenceEquals(initial, current) && Prop(current, "BitDepth") is 16)
+            {
+                restoredMs = Stopwatch.GetElapsedTime(restart).TotalMilliseconds;
+                break;
+            }
+        }
+        File.WriteAllText(Path.Combine(folder, "original-availability-probe.json"),
+            JsonSerializer.Serialize(new { offlineMs, restoredMs, trace }, new JsonSerializerOptions { WriteIndented = true }));
+        Check(moved && suspended, "missing private RAW clears the old overlay and Save Preview with an actionable native status");
+        Check(restoredMs is not null, "the reconnected original automatically repaints from a new Capture One RGB16 source");
+        var finalLook = Call(panel, "CaptureLook")!;
+        Check(JsonSerializer.Serialize(finalLook, finalLook.GetType()) == initialState,
+            "disconnecting and restoring an original retains its exact film look");
     }
 }

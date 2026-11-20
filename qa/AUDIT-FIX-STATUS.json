@@ -559,17 +559,17 @@
     }
   },
   "known_limitations": [
-    "Capture One16.7 remains unsupported; exact stable version gate remains.",
-    "Spektrafilm editing is outside native undo/redo/copy/apply/clone semantics.",
-    "Native histograms, pickers, proofing and monitor ICC behavior are not proven to describe the Spektrafilm overlay.",
-    "Current source is Capture One-developed bounded16-bit data converted to float32, not proven pre-tone-map scene-linear RAW.",
-    "Export uses 16-bit TIFF/PNG. Recipe exports follow its resolution, local RGB ICC profile and supported metadata flags. Direct exports use sRGB and 96 DPI. Native naming, JPEG quality and watermarks remain open.",
-    "Export remains capped at32MP/8192side; native preview100MP/16384side and grain-synthesis32MP constraints remain.",
-    "Floating preference Sections property is not wired; section expansion/scroll/dock-state are not persisted.",
-    "State backups remain path-keyed archives, not portable catalog identity or automatic cross-directory restore.",
-    "No global GPU-memory admission, adaptive viewport quality, cooperative worker cancellation or comprehensive performance budget exists.",
-    "Native grain restore receipts remain process-local; preserved values do not imply cross-restart restore ownership.",
-    "Runtime ffc4819 is locally installed and source is in draft PR1; no main merge or public GitHub Release has been performed. Documentation updates do not imply a new runtime deployment."
+    "The source and tested package support the exact Windows x64 Capture One 16.4.6.2414 build. The 16.7 connector candidate still requires an installed licensed compatibility matrix.",
+    "Native Undo, Redo and selective preset copy and apply are verified. Native variant duplication, multi-selection and all host Copy Adjustments routes need separate policy and test coverage.",
+    "The Spektrafilm Viewer offers its own histogram, pixel sampler and clipping overlay. Capture One native analysis, monitor ICC parity and recipe proof matching remain bounded by the host drawing surface.",
+    "The renderer receives Capture One-developed RGB in RGB16, RGBA16 or RGB32F, described by the selected working ICC profile. Full-frame camera-native scene-linear input remains an investigation.",
+    "Native recipe exports support a single selected still image and one enabled recipe. TIFF and PNG keep 16-bit codes, supported RGB ICC, dimensions, resolution and permitted metadata. Native naming, JPEG quality and watermarks remain open.",
+    "Native Viewer and ordinary high-depth export have 100 MP and 16,384 px hard bounds, subject to measured memory admission. Grain synthesis has a 32 MP bound.",
+    "Section and floating placement preferences persist. Mixed-DPI, remote desktop and workspace migration still need the full matrix.",
+    "A joint backup and restore can rebase look state onto a new catalog path. Automatic move detection, independently diverging clones and separate Windows account coverage remain open.",
+    "Adaptive Viewer quality, bounded memory admission and cooperative worker cancellation are verified. Cross-context GPU scheduling, full performance coverage and physical device loss remain open.",
+    "Native Grain restore receipts survive restart. Long-term identity of intervening native edits with the same final grain values remains open.",
+    "The installed regular build is ffc4819. The audit.15 ZIP and audit-source validation are tracked separately. The audit source is in draft PR 1."
   ],
   "tasks": [
     {
@@ -1316,7 +1316,8 @@
         "Typed worker transport interruptions and deadlines can trigger one delayed retry scoped to the selected variant, settings generation and native source revision. The worker must exit before the retry and the stale frame is discarded. Six deterministic scheduling checks cover the delay, exhaustion, source changes and lifetime reset.",
         "Actual 4096 px licensed tests terminated the in-flight preview worker and recovered in 883 ms and 823 ms. The same developed RGB16 source and exact durable look bytes were reused without another edit. A separate two-termination case reached a terminal Viewer error with no extra worker or obsolete frame while native Export stayed connected. Full first/restart runs passed 294 and 298 assertions; 26 native layout checks also passed.",
         "The licensed first and restart runs sent 100 rapid exposure changes while a real 4096 px final request was active. Each burst coalesced to one completed final render on the surviving worker, reused the same RGB16 source, and published the last persisted value. No subsequent final or draft work remained after the quiet window. The same runs passed the one-retry and exhausted-retry cases, and all 306 first-launch and 310 restart assertions.",
-        "All production Viewer and Export source requests bypass the retired proxy-dependent 8-bit path and request only high-depth Capture One development. Four licensed RAW formats exercise the refusal of an 8-bit substitution. The original proxy-pending behavior applied only to the removed implementation."
+        "All production Viewer and Export source requests bypass the retired proxy-dependent 8-bit path and request only high-depth Capture One development. Four licensed RAW formats exercise the refusal of an 8-bit substitution. The original proxy-pending behavior applied only to the removed implementation.",
+        "A private calibrated DNG rename reproduced a fully painted cached frame while Capture One reported its original offline. The Viewer now reads the native availability state with the current revision, clears the source and derivatives, stops obsolete work and suspends the overlay. Reconnecting the unmodified bytes automatically redeveloped and painted a new RGB16 frame with the same look. The final measured suspension and repaint took 307 ms and 1.72 seconds. The 29-check fixture also verified native recipe export refuses disconnected originals. Full Windows/Vulkan, 311 first-launch, 315 restart and paired 39-check native effects export regressions passed."
       ],
       "evidence_paths": [
         "NativePanel/RenderCoordination.cs",
@@ -1331,7 +1332,12 @@
         ".test-results/host-viewer-retry-native-final-20261120/host-smoke.log",
         ".test-results/host-viewer-layout-regression-20261120/host-smoke.log",
         ".test-results/host-viewer-grain-conditional-20261120/host-smoke.log",
-        ".test-results/host-high-depth-only-color-20261120/host-smoke.log"
+        ".test-results/host-high-depth-only-color-20261120/host-smoke.log",
+        ".test-results/host-original-availability-baseline-20261120/original-availability-probe.json",
+        ".test-results/host-original-availability-final-20261120/original-availability-probe.json",
+        ".test-results/host-original-availability-full-20261120/host-smoke.log",
+        ".test-results/host-original-availability-export-20261120/host-smoke.log",
+        ".test-results/contracts-original-availability-20261120/summary.json"
       ],
       "remaining_work": [
         "Exercise actual native development and renderer deadline faults, and delayed completion across disabled, detached and export-owned contexts. The removed proxy-only source path no longer participates in the active Viewer."
@@ -1884,7 +1890,8 @@
         "Existing native rotate, mirror and keystone fixtures verify correct fresh developed pixels. The Viewer reuses the exact source variant, working space, capture dimensions and native revision. Pure tests show pan translation alone keeps projected source resolution stable.",
         "With manual 2048 selection in the real host, native zoom from a 2934 px to 6000 px projection, pan by -1466 and +1022 px, and Fit restoration retained the exact 16-bit source, bitmap and worker sequence. The fresh and restart tests passed 214 and 218 assertions.",
         "A 96-assertion licensed source mutation matrix changed and restored exposure, asymmetric crop, Capture One Grain and active lens distortion across DNG, NEF, RAF and CR3. All used fresh RGB16 source identities and matched independent native developments within measured repeatability. Crop changes only the geometry counter, with mean full-canvas sample difference at most 4.13e-7. Lens correction changes that same counter and changes the full-canvas pixels, so the counter alone cannot identify presentation-only crop changes.",
-        "Both licensed launches limited the real WPF Viewer only within the fixture, measuring a 796 px projection and 900 px native RGB16 source. Restoring the viewport and zooming to 100% demanded a 6000 px projection and a new 4096 px native source. At that tier, native pan shifted the overlay without changing the source or rendered bitmap. Manual 2048 remained exact and the original native geometry was restored."
+        "Both licensed launches limited the real WPF Viewer only within the fixture, measuring a 796 px projection and 900 px native RGB16 source. Restoring the viewport and zooming to 100% demanded a 6000 px projection and a new 4096 px native source. At that tier, native pan shifted the overlay without changing the source or rendered bitmap. Manual 2048 remained exact and the original native geometry was restored.",
+        "A private calibrated DNG rename reproduced a fully painted cached frame while Capture One reported its original offline. The Viewer now reads the native availability state with the current revision, clears the source and derivatives, stops obsolete work and suspends the overlay. Reconnecting the unmodified bytes automatically redeveloped and painted a new RGB16 frame with the same look. The final measured suspension and repaint took 307 ms and 1.72 seconds. The 29-check fixture also verified native recipe export refuses disconnected originals. Full Windows/Vulkan, 311 first-launch, 315 restart and paired 39-check native effects export regressions passed."
       ],
       "evidence_paths": [
         "NativePanel/HostImageSource.cs",
@@ -1895,7 +1902,12 @@
         ".test-results/host-viewer-native-motion-final-20261120/host-smoke.log",
         "qa/HostSmoke/NativeSourceMutations.cs",
         ".test-results/host-native-source-mutations-final-20261120/native-source-mutations.json",
-        ".test-results/host-viewer-grain-conditional-20261120/host-smoke.log"
+        ".test-results/host-viewer-grain-conditional-20261120/host-smoke.log",
+        ".test-results/host-original-availability-baseline-20261120/original-availability-probe.json",
+        ".test-results/host-original-availability-final-20261120/original-availability-probe.json",
+        ".test-results/host-original-availability-full-20261120/host-smoke.log",
+        ".test-results/host-original-availability-export-20261120/host-smoke.log",
+        ".test-results/contracts-original-availability-20261120/summary.json"
       ],
       "remaining_work": [
         "Verify optical alignment during crop and sensitive spatial effects in the actual Viewer. Record presentation and monitor/proof dependencies separately from native revision.",
