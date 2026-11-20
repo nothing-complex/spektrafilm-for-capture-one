@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The 70-item integration audit tracks 37 bounded primary fixes implemented and 33 partial items. It includes feasibility investigations and enhancements.
+Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The 70-item integration audit tracks 38 bounded primary fixes implemented and 32 partial items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -1212,6 +1212,22 @@ Evidence is in `.test-results/catalog-identity-contracts-{ps51,ps7}-20261120`, `
 - [x] Pass 108 licensed assertions per launch. The ProPhoto and linear Rec.2020 outputs have different stored RGB values from sRGB. Each TIFF and PNG pair preserves the same look. An independent decoder evaluates the embedded ICC matrices and tone curves in D50 Lab over 122,694 pixels per comparison. Across 12 files the highest 95th-percentile Delta E 2000 is 0.364 and the largest sampled value is 0.885.
 
 Evidence is in `.test-results/host-native-output-profiles-20261120`, including `independent-icc-matrix-trc.json`. Repeat with `-NativeEffectOutputProfiles` and the exact host's `-NativeSettingsConfig`. This source validation uses the same recipe color pipeline as audit.28.
+
+## Diffusion buffer lifetime and remaining tile parity
+
+- [x] Retain one raw scratch buffer for both camera and print diffusion outputs. The existing compute barrier finishes all camera reads first. The wider experiment also shared the halation boost buffer with print input, which changed tiled pixels. The retained implementation keeps those inputs separate. [Vulkan compute synchronization](https://docs.vulkan.org/guide/latest/synchronization_examples.html)
+- [x] Compare the exact audit.29 worker with the narrowed implementation on the RTX 3090. All 16 complete 24 and 45 MP replies match, covering packed Viewer, float export, exposure edits and a changed source. Reported transient allocations fall by 291,776,000 and 425,201,600 bytes respectively. Peak worker commit falls by about 0.27 and 0.38 GiB. The 45 MP warm Viewer remains close to 2.56 seconds in this renderer-only test. Full renderer smoke also passes on physical Intel graphics.
+- [x] Independently compare both layouts in the exact audit.29 worker and the narrowed candidate on a 4,097 by 31 Super 8 chart. Within each layout the builds agree byte for byte. Across layouts the baseline agrees within 4.77e-7 on halation and boost alone, then differs up to 0.06184 when print diffusion is added. The combined camera and print case differs up to 0.01447.
+- [x] Through both actual Capture One commands, save 16-bit TIFF and PNG with print diffusion, camera diffusion, highlight boost and scatter. An independent decoder confirms print diffusion changed mean RGB by 1.244% and both commands agree within 5.29e-7 mean full scale across 18 million codes per launch. The expanded output profile fixture passes 129 assertions on each launch, writes 28 verified effects and control files, and verifies all nine recipe files against their backups. Evidence is in `.test-results/host-candidate-native-print-diffusion-20261120`.
+
+The baseline reproduction is `.test-results/optical-raw-stage-20261120/baseline-legacy-tiled.json`. The narrowed comparison and physical smoke logs are in `.test-results/optical-diffusion-reuse-final-20261120`. Continue RC-04 by calculating the needed margin and active rectangles from the actual diffusion components and the aligned reduced-grid footprint. Exercise the long stress chart and typical 24 and 45 MP photographs before changing deployed tile geometry. To test a changed worker in a source host run, use `Build-Windows.ps1 -BuildPanel -StageRuntime` and verify the worker SHA before launching the disposable catalog.
+
+## Actual save-failure close confirmation
+
+- [x] Lock the disposable variant's primary look file and block its recovery file with a directory. Invoke the actual close handler. The test recognizes the owned Windows confirmation, checks that the default is No and invokes that button by its native control ID. Capture One keeps the pending edit. Releasing both obstructions publishes the exact value.
+- [x] Pass the complete native fixture with 348 checks on launch and 352 after restart. The fixture also checks explicit discard, a failed prompt, Windows shutdown and recovery-only durability through the corresponding close decisions. Physical storage exhaustion and power loss remain open.
+
+Evidence is in `.test-results/host-real-unsaved-close-prompt-20261120`. This completes the bounded HS-04 close and retention guard.
 
 ## Status maintenance
 

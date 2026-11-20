@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Threading;
 using System.Text.Json;
@@ -414,6 +415,7 @@ public static partial class StartupHook
             {
                 value.SetValue(exposure, 2.125);
                 Check(Prop(store, "HasUnprotectedPending") is true, "real blocked primary and recovery destinations leave a visible in-memory edit");
+                CheckUnprotectedClosePrompt(hook, store);
                 Check(!CanClose(Forms.CloseReason.UserClosing, () => { decisions++; return false; }) && decisions == 1,
                     "user-close protection can keep Capture One open when neither location can save");
                 Check(CanClose(Forms.CloseReason.UserClosing, () => { decisions++; return true; }) && decisions == 2,
@@ -437,6 +439,48 @@ public static partial class StartupHook
             value.SetValue(exposure, prior);
         }
     }
+
+    private static void CheckUnprotectedClosePrompt(Type hook, object store)
+    {
+        const uint ownerWindow = 4;
+        const uint getDefaultId = 0x0400;
+        const uint command = 0x0111;
+        const int noButtonId = 7;
+        var owner = (Forms.Form)hook.GetField("window", Flags)!.GetValue(null)!;
+        var caption = (string)hook.GetField("ProductName", Flags)!.GetRawConstantValue()!;
+        var closing = new Forms.FormClosingEventArgs(Forms.CloseReason.UserClosing, false);
+        var defaultIsNo = false;
+        var dismissed = false;
+        using var watcher = new Forms.Timer { Interval = 25 };
+        watcher.Tick += (_, _) =>
+        {
+            nint dialog = 0;
+            while ((dialog = FindWindowExW(0, dialog, "#32770", caption)) != 0)
+            {
+                if (GetWindow(dialog, ownerWindow) != owner.Handle) continue;
+                var button = GetDlgItem(dialog, noButtonId);
+                if (button == 0) continue;
+                defaultIsNo = SendMessageW(dialog, getDefaultId, 0, 0) == 0x534b0007;
+                watcher.Stop();
+                dismissed = true;
+                SendMessageW(dialog, command, noButtonId, button);
+                break;
+            }
+        };
+        watcher.Start();
+        hook.GetMethod("OnFormClosing", Flags)!.Invoke(null, new object[] { owner, closing });
+        Check(dismissed && defaultIsNo && closing.Cancel && Prop(store, "HasUnprotectedPending") is true,
+            "the real owned Windows confirmation defaults to staying open and its No button preserves the unsaved edit");
+    }
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
+    private static extern nint FindWindowExW(nint parent, nint after, string className, string windowName);
+
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern nint GetWindow(nint handle, uint relationship);
+
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern nint GetDlgItem(nint dialog, int id);
 
     static async Task TestViewportQuality(object spatial, Guid variant)
     {

@@ -1045,12 +1045,13 @@
       "id": "HS-04",
       "title": "Pending save failures are lost during disposal",
       "priority": "P1",
-      "status": "partial",
+      "status": "implemented",
       "implemented": [
         "Failed writes survive panel recreation in session state and independent durable recovery checkpoints; separate-process replay is tested and total storage failure is explicit.",
         "An identical value with a temporarily locked primary file now uses the durable recovery path instead of failing before the queue. It replays without changing the saved content.",
         "Capture One retries unprotected saves during a user-initiated close. A manual close offers a default-stay confirmation only when both normal storage and fallback failed. The guard keeps the edit in memory if its confirmation cannot open. Windows shutdown retries without displaying a modal prompt.",
-        "With the actual primary JSON held in an exclusive lock and the fallback path physically blocked, the licensed host verified safe stay-open, explicit proceed, prompt failure and system-close policies. Clearing only the fallback obstruction allowed the close policy to proceed; releasing the primary lock published the exact pending edit."
+        "With the actual primary JSON held in an exclusive lock and the fallback path physically blocked, the licensed host verified safe stay-open, explicit proceed, prompt failure and system-close policies. Clearing only the fallback obstruction allowed the close policy to proceed and releasing the primary lock published the exact pending edit.",
+        "Invoke the production close handler in the licensed host with both save destinations blocked. The test reaches the real owned Windows confirmation, verifies the default No button, invokes No and observes the canceled close and intact in-memory edit. When storage returns the exact edit commits. The two full host launches pass 348 and 352 assertions, closing the bounded retention and user-close safeguard."
       ],
       "evidence_paths": [
         "NativePanel/VariantLookStore.cs",
@@ -1058,11 +1059,11 @@
         "tests/state/Program.cs",
         ".test-results/contracts-selective-presets-20261119/StateContracts.log",
         "NativePanel/StartupHook.cs",
-        ".test-results/host-close-storage-retry-20261120/host-smoke.log"
+        ".test-results/host-close-storage-retry-20261120/host-smoke.log",
+        ".test-results/host-real-unsaved-close-prompt-20261120/host-smoke.log"
       ],
       "remaining_work": [
-        "Verify physical disk-full and OS/power-loss behaviour separately from the tested exclusive-lock and obstructed-path failures. A process cannot retain an unprotected edit after it is forcibly stopped.",
-        "The licensed fixture exercised the actual close decision with injected responses so it could run unattended. The standard WinForms confirmation was not manually clicked."
+        "Verify physical disk-full and OS or power-loss behaviour separately from the tested exclusive-lock and obstructed-path failures. A forcibly stopped process cannot preserve an edit when both durable storage paths are unavailable."
       ],
       "original_acceptance_tests": [
         "deny replacement, fill disk, then close/remove/recreate tab",
@@ -1084,7 +1085,8 @@
         "The exact audit.15 worker completed all 16 renderer/transport cases and 80 requests at 24, 45, 61 and 100 MP on RTX 3090. Both colour-only and optical cases used packed Viewer and float image export. At 100 MP, warm p95 was 428 ms or 5.30 s in the Viewer and 2.20 s or 8.51 s for float export, from four warm requests per case. The optical export used 6.33 GiB peak worker commit and 3.09 GiB transient cache. Its 800 tiled results returned 9.38 GB of GPU readback for the 1.60 GB float reply, identifying tile overlap transfer as the main measured candidate for improvement. These timings exclude Capture One development, ICC conversion and file encoding.",
         "The worker now chooses larger packed Viewer tiles only on images at least 4096 px in each dimension, with an existing halo no greater than 256 px and reported dynamic budget for source plus estimated scratch. Float and wide-halo plans retain their previous geometry. At 100 MP on RTX 3090, the actual default packed plan moved from 800 to 28 tiles, with one warm hashed exposure change at 4.89 to 1.55 seconds. Simulated 6 and 4 GiB caps selected 104 and 800 tiles respectively. All 12 complete pixel reply hashes matched the explicit prior plan and warm packed sources were reused without upload.",
         "Reuse camera optical scratch between DIR and scanner post with the existing stage barriers and preserve inter-stage data. The matched 45 MP, 1465 px halo graph used 3.17 GiB less transient Vulkan memory in both packed Viewer and float export. All six full payload hashes were identical and warm latency was effectively unchanged. Peak worker commit fell by about 3.0 and 3.2 GiB respectively.",
-        "Finish the fenced tiled upload before the halation reduction and release the large host staging allocation. Halation reads the immutable GPU source directly with tile coordinates. Four packed and four float 45 MP stacked-optics payloads plus two packed 100 MP payloads match the audit.20 worker byte for byte. Reported transient cache drops 0.67 GiB at 45 MP and 1.49 GiB at 100 MP. On a warm 45 MP Viewer exposure edit the measured upload changes from 720 MB to 3,784 bytes of parameters. Peak commit over repeated 45 MP replacements stays similar. Peak commit on the measured 100 MP Viewer pair drops from about 5.80 to 4.90 GiB."
+        "Finish the fenced tiled upload before the halation reduction and release the large host staging allocation. Halation reads the immutable GPU source directly with tile coordinates. Four packed and four float 45 MP stacked-optics payloads plus two packed 100 MP payloads match the audit.20 worker byte for byte. Reported transient cache drops 0.67 GiB at 45 MP and 1.49 GiB at 100 MP. On a warm 45 MP Viewer exposure edit the measured upload changes from 720 MB to 3,784 bytes of parameters. Peak commit over repeated 45 MP replacements stays similar. Peak commit on the measured 100 MP Viewer pair drops from about 5.80 to 4.90 GiB.",
+        "Reuse the camera diffusion output for the later print diffusion output after the existing compute barrier. Keep the boosted halation and print inputs separate after a wider reuse experiment changed actual tiled pixels. The retained change matches audit.29 across 16 complete Viewer and float export payloads at 24 and 45 MP, including repeated exposure changes and source replacement. It saves 291,776,000 and 425,201,600 transient bytes respectively. Peak worker commit falls by around 0.27 and 0.38 GiB. NVIDIA and Intel renderer smoke suites pass."
       ],
       "evidence_paths": [
         "qa/renderer-benchmark.py",
@@ -1107,12 +1109,17 @@
         ".test-results/optical-scratch-final-20261120/nvidia-contracts/renderer-smoke.log",
         ".test-results/renderer-resident-halation-20261120/comparison.json",
         ".test-results/renderer-resident-halation-20261120/viewer-tiled-sync.json",
-        ".test-results/renderer-resident-halation-20261120/export-tiled-sync.json"
+        ".test-results/renderer-resident-halation-20261120/export-tiled-sync.json",
+        ".test-results/optical-raw-stage-20261120/diagnostic-two-aliases.json",
+        ".test-results/optical-raw-stage-20261120/diagnostic-one-alias.json",
+        ".test-results/optical-diffusion-reuse-final-20261120/comparison.json",
+        ".test-results/optical-diffusion-reuse-final-20261120/nvidia-smoke.log",
+        ".test-results/optical-diffusion-reuse-final-20261120/intel-smoke.log"
       ],
       "remaining_work": [
         "Calibrate all optics graphs, shared GPU activity and system memory on real 4/6/8 GB hardware from different vendors.",
         "Add process-wide adapter-aware admission for two Viewer contexts; explicitly release idle buffers by ownership and model allocator overlap at each tile.",
-        "The latest 45 MP jointly enabled optics graph uses 11.00 GiB of transient allocations with 1465 px support and a 7 GiB planning target. Profile per-graph scratch, bound working tiles and model temporary overlap when a user actually replaces a large RAW."
+        "The latest 45 MP jointly enabled optics graph uses 10.60 GiB of reported live transient allocations with 1465 px support and a 7 GiB planning target. Profile per-graph scratch by heap, bound working tiles and model temporary overlap when a user actually replaces a large RAW."
       ],
       "original_acceptance_tests": [
         "4/6/8GB GPU scenarios and100MP source sizing",
@@ -1140,7 +1147,8 @@
         "Both native Export commands passed on DNG/sRGB, CR3/Adobe RGB, RAF/ProPhoto and NEF/Linear Rec.2020, all using the exact Adobe RGB recipe profile at 6.00–7.53 MP in RGB48 TIFF and RGBA64 PNG. Across 32 accepted outputs and 159 assertions each at first launch and restart, film changed mean RGB code by 6.23–11.66% of full scale and camera diffusion added 2.43–4.76%. Native command outputs differed by at most 1.21e-6 mean full-scale code.",
         "Both real native Export commands passed with film, camera diffusion, halation and scatter active together. Native TIFF and previous-settings PNG matched within 8.81e-7 mean full-scale RGB, retained exact Adobe RGB and reopened at 16 bits. Across four cameras and two launches the fixture passed 191 assertions each and accepted 40 outputs. Halation plus scatter alone added 0.095–0.892% mean full-scale RGB change.",
       "Native batch preflight now checks selected secondary variants when the primary is disabled. An enabled or unresolved saved secondary look prevents silent native fallback. With real Browser selection, the production bridge flags a mixed batch, delegates primary-only and all-disabled selection, and permits the enabled secondary to export alone. The actual four-RAW commands still apply the effects across 40 accepted 16-bit files and pass 213 assertions per launch.",
-      "Check the primary variant's saved state while its look controls are loading. Both native routes wait for a ready look when effects would otherwise be lost. An explicitly disabled displayed look still delegates while its state file is temporarily locked. The licensed fixture verifies these routing decisions directly and passes 215 assertions per launch, including 40 accepted 16-bit files from the actual native commands with film and optics."
+        "Check the primary variant's saved state while its look controls are loading. Both native routes wait for a ready look when effects would otherwise be lost. An explicitly disabled displayed look still delegates while its state file is temporarily locked. The licensed fixture verifies these routing decisions directly and passes 215 assertions per launch, including 40 accepted 16-bit files from the actual native commands with film and optics.",
+        "Toggle actual print diffusion while camera diffusion, halation highlight boost and scatter are active. Both native command files reopen as 16-bit RGB with the recipe ICC and agree within 5.29e-7 mean full scale across 18 million codes each launch. Adding only print diffusion changes mean RGB by 1.244 percent. The expanded native output profile lane passes 129 checks per launch and verifies all nine original recipe files."
       ],
       "evidence_paths": [
         "NativePanel/StartupHook.cs",
@@ -1162,7 +1170,9 @@
       ".test-results/host-saved-look-export-guard-off-lock-20261120/restart-export-selection.json",
       ".test-results/host-saved-look-export-guard-off-lock-20261120/host-smoke.log",
       ".test-results/host-audit29-native-effects-20261120/host-smoke.log",
-      ".test-results/audit29-package-verify-20261120/independent-rgb16.json"
+        ".test-results/audit29-package-verify-20261120/independent-rgb16.json",
+        ".test-results/host-candidate-native-print-diffusion-20261120/host-smoke.log",
+        ".test-results/host-candidate-native-print-diffusion-20261120/independent-print-diffusion-rgb16.json"
       ],
       "remaining_work": [
         "Extend confirmation-stage diagnostics when the independent 16.7 compatibility work establishes a supported native adapter."
@@ -1268,7 +1278,8 @@
         "A CPU centered-impulse prototype tests globally aligned tent reduction, reduced Gaussian convolution and linear reconstruction at four subpixel phases where the production cap clips. All 16 cases preserve mass and centroid within numerical noise, with at most 0.316% sigma error and 0.00184 normalized L1 error.",
         "A real 4097 by 33 Standard 8 Vulkan test combined glare, MTF blur and unsharp. The old capped planner underestimated the serial support, yielding a 0.03222 maximum RGB error across tiled boundaries, and MTF changed source alpha by up to 0.60313. The tile planner and scheduler now share the sum of actual finite scanner support. The MTF passes preserve alpha. All RGB samples match between full and tiled renders and alpha matches the input exactly. Full Windows contracts and Vulkan smoke passed.",
         "The exact audit.16 worker matched full-frame results for scatter or halation alone on a 12,501 by 31 Super8 chart. Their composition differed by up to 0.000126 float RGB at a 512 px tile seam with exact alpha. The 100 MP layout comparison independently found maximum 0.0000341 and 15,264,000 affected 16-bit channel samples. The scatter resolve feeds the bounce pass, but both passes currently share a single 256 px halo in planning and per-pass dispatch.",
-        "Scatter and bounce now use separate finite-support radii computed from the shader equations, global film pixel size and effective stock sigmas. The tile margin adds both supports and the active dispatch shrinks between them. The 12,501 by 31 Super 8 seam reproduction matches the full float reference exactly on NVIDIA and Intel. Twelve complete 100 MP frame comparisons match across corrected tile plans, and high-contrast packed tests agree exactly in three working encodings."
+        "Scatter and bounce now use separate finite-support radii computed from the shader equations, global film pixel size and effective stock sigmas. The tile margin adds both supports and the active dispatch shrinks between them. The 12,501 by 31 Super 8 seam reproduction matches the full float reference exactly on NVIDIA and Intel. Twelve complete 100 MP frame comparisons match across corrected tile plans, and high-contrast packed tests agree exactly in three working encodings.",
+        "A 4,097 by 31 high-contrast Super 8 chart identifies another existing layout discrepancy. In audit.29, highlight boost with halation and scatter alone agrees within 4.77e-7 float code across layouts. Adding print diffusion increases the maximum difference to 0.06184, adding camera diffusion to 0.02112, and adding both to 0.01447. Diffusion output-buffer reuse matches audit.29 exactly in each layout and reproduces the same discrepancy."
       ],
       "evidence_paths": [
         "qa/blur-support.py",
@@ -1282,13 +1293,15 @@
         ".test-results/composed-halation-final-20261120/layout-parity.json",
         ".test-results/composed-halation-exact-20261120/intel-smoke.log",
         ".test-results/composed-halation-final-20261120/adaptive-viewer-nvidia.log",
-        ".test-results/contracts-composed-halation-20261120/summary.json"
+        ".test-results/contracts-composed-halation-20261120/summary.json",
+        ".test-results/optical-raw-stage-20261120/baseline-legacy-tiled.json",
+        ".test-results/optical-raw-stage-20261120/diagnostic-one-alias.json"
       ],
       "remaining_work": [
         "Expand corrected finite-support coverage to further effect graphs and calibrate large working tiles. Keep the verified float geometry until arbitrary optical combinations and hardware pass; the physical blur radius cap remains independent.",
         "Extend the direct impulse/energy experiments to DIR, grain and other blur backends. The initial reports for those capped kernels are analytical.",
         "Add a Vulkan version of the phase-aligned reduction as an explicit appearance version, starting with scanner unsharp. Preserve old looks and validate boundary behavior and actual performance.",
-        "Recompute the tile overlap for the planned multiscale implementation and remaining physical blur paths. The current scanner support is computed from each active finite pass.",
+        "Recompute tile overlap and active dispatch radii using actual camera and print Gaussian components, physical pixel sizes, reduced-grid scales, and aligned box sampling and reconstruction footprints. Verify the Super 8 stress chart and high-contrast 24/45 MP fixtures in both layouts on NVIDIA and Intel. Measure peak memory as the halo interacts with tile sizing.",
         "Version appearance changes and coordinate upstream"
       ],
       "original_acceptance_tests": [

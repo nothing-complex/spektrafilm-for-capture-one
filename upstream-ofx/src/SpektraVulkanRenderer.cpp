@@ -2811,9 +2811,9 @@ struct VulkanRenderer::Impl {
     ScratchBuffer diffusionDownsampleSource;
     ScratchBuffer diffusionDownsampleTemp;
     ScratchBuffer diffusionDownsampleBlur;
-    ScratchBuffer cameraDiffusionRaw;
+    // Camera stages finish reading the diffused raw before print diffusion.
+    ScratchBuffer diffusedRaw;
     ScratchBuffer printRaw;
-    ScratchBuffer printDiffusionRaw;
     ScratchBuffer dirDensity;
     ScratchBuffer cameraDiffusionInfo;
     ScratchBuffer cameraDiffusionComponents;
@@ -3227,9 +3227,8 @@ uint64_t VulkanRenderer::Impl::transientAllocationBytes() const {
   add(coreFrame.diffusionDownsampleSource);
   add(coreFrame.diffusionDownsampleTemp);
   add(coreFrame.diffusionDownsampleBlur);
-  add(coreFrame.cameraDiffusionRaw);
+  add(coreFrame.diffusedRaw);
   add(coreFrame.printRaw);
-  add(coreFrame.printDiffusionRaw);
   add(coreFrame.dirDensity);
   add(coreFrame.cameraDiffusionInfo);
   add(coreFrame.cameraDiffusionComponents);
@@ -4624,10 +4623,9 @@ void VulkanRenderer::Impl::destroyCoreFrameResources() {
   destroyScratchBuffer(coreFrame.frameInts);
   destroyScratchBuffer(coreFrame.frameFloats);
   destroyScratchBuffer(coreFrame.filteredEnlargerResponse);
-  destroyScratchBuffer(coreFrame.printDiffusionRaw);
   destroyScratchBuffer(coreFrame.printRaw);
   destroyScratchBuffer(coreFrame.dirDensity);
-  destroyScratchBuffer(coreFrame.cameraDiffusionRaw);
+  destroyScratchBuffer(coreFrame.diffusedRaw);
   destroyScratchBuffer(coreFrame.diffusionDownsampleBlur);
   destroyScratchBuffer(coreFrame.diffusionDownsampleTemp);
   destroyScratchBuffer(coreFrame.diffusionDownsampleSource);
@@ -5280,15 +5278,15 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
        !ensurePrivateScratchBuffer(coreFrame.diffusionDownsampleBlur, diffusionDownsampleGroupByteCount, "core diffusion downsample blur"))) {
     return false;
   }
-  if (cameraDiffusionPath &&
-      (!ensurePrivateScratchBuffer(coreFrame.cameraDiffusionRaw, pixelStorageByteCount, "core camera diffusion raw") ||
-       (opticsScratchCount < 5u &&
-        !ensurePrivateScratchBuffer(coreFrame.opticalScratch[4], pixelStorageByteCount, "core diffusion log raw")))) {
+  if ((cameraDiffusionPath || printDiffusionPath) &&
+      !ensurePrivateScratchBuffer(coreFrame.diffusedRaw, pixelStorageByteCount, "core diffused raw")) {
     return false;
   }
-  if (printDiffusionPath &&
-      (!ensurePrivateScratchBuffer(coreFrame.printRaw, pixelStorageByteCount, "core print raw") ||
-       !ensurePrivateScratchBuffer(coreFrame.printDiffusionRaw, pixelStorageByteCount, "core print diffusion raw"))) {
+  if (cameraDiffusionPath && opticsScratchCount < 5u &&
+      !ensurePrivateScratchBuffer(coreFrame.opticalScratch[4], pixelStorageByteCount, "core diffusion log raw")) {
+    return false;
+  }
+  if (printDiffusionPath && !ensurePrivateScratchBuffer(coreFrame.printRaw, pixelStorageByteCount, "core print raw")) {
     return false;
   }
   if (dirPath && !ensurePrivateScratchBuffer(coreFrame.dirDensity, pixelStorageByteCount, "core DIR density")) {
@@ -5774,18 +5772,11 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
   diffusionDownsampleBlurBufferInfo.range = coreFrame.diffusionDownsampleBlur.buffer != VK_NULL_HANDLE
     ? coreFrame.diffusionDownsampleBlur.capacity
     : coreFrame.diffusionTemp.capacity;
-  VkDescriptorBufferInfo cameraDiffusionRawBufferInfo{};
-  cameraDiffusionRawBufferInfo.buffer = coreFrame.cameraDiffusionRaw.buffer;
-  cameraDiffusionRawBufferInfo.offset = 0;
-  cameraDiffusionRawBufferInfo.range = pixelStorageByteCount;
+  const VkDescriptorBufferInfo diffusedRawBufferInfo{coreFrame.diffusedRaw.buffer, 0, pixelStorageByteCount};
   VkDescriptorBufferInfo printRawBufferInfo{};
   printRawBufferInfo.buffer = coreFrame.printRaw.buffer;
   printRawBufferInfo.offset = 0;
   printRawBufferInfo.range = pixelStorageByteCount;
-  VkDescriptorBufferInfo printDiffusionRawBufferInfo{};
-  printDiffusionRawBufferInfo.buffer = coreFrame.printDiffusionRaw.buffer;
-  printDiffusionRawBufferInfo.offset = 0;
-  printDiffusionRawBufferInfo.range = pixelStorageByteCount;
   VkDescriptorBufferInfo cameraDiffusionInfoBufferInfo{};
   cameraDiffusionInfoBufferInfo.buffer = coreFrame.cameraDiffusionInfo.buffer;
   cameraDiffusionInfoBufferInfo.offset = 0;
@@ -5969,7 +5960,7 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
       writePrintScanSet(coreFrame.printDiffusionDescriptorSets[0], printScanInputBufferInfo, printRawBufferInfo);
       writePrintScanSet(
         coreFrame.printDiffusionDescriptorSets[1],
-        printDiffusionRawBufferInfo,
+        diffusedRawBufferInfo,
         scannerPostPath ? scannerPostABufferInfo : destinationBufferInfo
       );
     } else {
@@ -6020,14 +6011,14 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
       cameraDiffusionSourceBufferInfo,
       diffusionTempBufferInfo,
       diffusionAccumBufferInfo,
-      cameraDiffusionRawBufferInfo,
+      diffusedRawBufferInfo,
       cameraDiffusionInfoBufferInfo,
       cameraDiffusionComponentsBufferInfo
     );
     if (!halationPassEnabled) {
       writeDiffusionSet(
         coreFrame.diffusionDescriptorSets[1],
-        cameraDiffusionRawBufferInfo,
+        diffusedRawBufferInfo,
         diffusionTempBufferInfo,
         diffusionAccumBufferInfo,
         halationLogRawBufferInfo,
@@ -6042,7 +6033,7 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
       printRawBufferInfo,
       diffusionTempBufferInfo,
       diffusionAccumBufferInfo,
-      printDiffusionRawBufferInfo,
+      diffusedRawBufferInfo,
       printDiffusionInfoBufferInfo,
       printDiffusionComponentsBufferInfo
     );
@@ -6206,7 +6197,7 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
       );
     }
     const VkDescriptorBufferInfo &scatterSourceBufferInfo = cameraDiffusionPath
-      ? cameraDiffusionRawBufferInfo
+      ? diffusedRawBufferInfo
       : (halationBoostEnabled ? halationBoostedRawBufferInfo : filmRawBufferInfo);
     writeHalationSet(coreFrame.halationDescriptorSets[0], scatterSourceBufferInfo, halationRawABufferInfo, halationRawABufferInfo, halationRawABufferInfo);
     writeHalationSet(coreFrame.halationDescriptorSets[1], halationRawABufferInfo, halationRawBBufferInfo, halationRawABufferInfo, halationRawBBufferInfo);
@@ -6680,6 +6671,7 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
   }
 
   if (printScanPassEnabled) {
+    // Finish all camera reads before print diffusion reuses the diffused raw.
     insertComputeBarrier();
 
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, printScanPipeline);

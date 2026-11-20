@@ -496,14 +496,16 @@ def check_optical_scratch_lifetime(exe, base):
     halation = "--halation-amount 1 --halation-boost 1 --scatter-amount 0.5"
     no_halation = "--halation-amount 0 --scatter-amount 0"
     camera = "--camera-diffusion-family pro_mist --camera-diffusion-strength 1.5"
+    print_diffusion = "--print-diffusion-family black_pro_mist --print-diffusion-strength 1.5"
     dir_blur = "--dir-amount 1.5 --dir-diffusion 80 --dir-tail-weight 0.3"
     scanner = "--scanner-enabled true --scanner-glare 0.08 --scanner-unsharp-radius 100 --scanner-unsharp-amount 2"
     graphs = [f"{base} {settings}" for settings in (
-        f"{halation} {camera} {dir_blur} {scanner} --preflash 0.3",
+        f"{halation} {camera} {dir_blur} {print_diffusion} {scanner} --preflash 0.3",
         f"{no_halation} {camera}",
         f"{no_halation} {dir_blur} {scanner}",
         halation,
         no_halation,
+        f"{no_halation} {print_diffusion}",
     )]
     env = {key: value for key, value in os.environ.items()
            if not key.upper().startswith("SPEKTRAFILM_") and key.upper() != "DOTNET_STARTUP_HOOKS"}
@@ -512,7 +514,7 @@ def check_optical_scratch_lifetime(exe, base):
     fresh = [run_stream(exe, frame_request(frame, graph), mode="--export-stream", env=env)[0] for graph in graphs]
     assert all(status == 0 and len(output) == frame.nbytes for status, output in fresh)
     assert len({output for _, output in fresh}) == len(graphs), "Each optical fixture must change the image"
-    sequence = (0, 1, 3, 2, 4, 1, 2, 0)
+    sequence = (0, 1, 5, 3, 2, 4, 5, 1, 2, 0)
     replacement = frame.copy()
     replacement[..., :3] *= .7
     replacement_fresh, = run_stream(exe, frame_request(replacement, graphs[0]), mode="--export-stream", env=env)

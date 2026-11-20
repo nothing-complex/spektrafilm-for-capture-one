@@ -233,6 +233,7 @@ public static partial class StartupHook
             var grain = compareGrain ? await CompareGrain(fullEffects) : null;
             var compressionComparison = compareCompression ? await CompareCompression(fullEffects) : null;
             var outputProfiles = compareProfiles ? await CompareOutputProfiles() : null;
+            var printDiffusion = compareProfiles ? await ComparePrintDiffusion() : null;
             if (compareFolders) await CheckFolders();
             var panelModes = comparePanelModes ? await ComparePanelModes(fullEffects) : null;
             if (compareGrain) await CheckReadOnlyDestination();
@@ -247,7 +248,7 @@ public static partial class StartupHook
                 return true;
             });
             var expectedRoutes = 5 + (compareGrain ? 8 : 0) + (compareCompression ? 6 : 0)
-                + (compareFolders ? 5 : 0) + (comparePanelModes ? 6 : 0) + (compareProfiles ? 6 : 0);
+                + (compareFolders ? 5 : 0) + (comparePanelModes ? 6 : 0) + (compareProfiles ? 9 : 0);
             Check(clicked && routeCount == expectedRoutes && Prop(bridge, "Dialog") is null,
                 "the master switch delegates to the ordinary Capture One Export dialog without a Spektrafilm job");
             ((IDisposable)bridge).Dispose();
@@ -257,7 +258,8 @@ public static partial class StartupHook
             File.WriteAllText(Path.Combine(folder, caseName + "-native-effect-export.json"), JsonSerializer.Serialize(new
             {
                 width = expectedWidth, height = expectedHeight, iccSha256 = iccSha, tiffCompression = compression.ToString(),
-                filmDifference, opticsDifference, halationScatterDifference, commandDifference, grain, compressionComparison, panelModes, outputProfiles,
+                filmDifference, opticsDifference, halationScatterDifference, commandDifference, grain, compressionComparison,
+                panelModes, outputProfiles, printDiffusion,
                 nativeExportCallbacks = routeCount, masterOffDelegated = clicked, timings,
             }, new JsonSerializerOptions { WriteIndented = true }));
 
@@ -537,6 +539,39 @@ public static partial class StartupHook
                 Check(Equals(path.GetValue(selected), original) && notifications.GetValue(selected) is false,
                     "the native recipe's original profile and notifications are restored");
                 return comparisons;
+            }
+
+            async Task<object> ComparePrintDiffusion()
+            {
+                var filter = (ComboBox)choices["print-diffusion-family"]!;
+                var initial = filter.SelectedItem;
+                var opticalValues = new[] { values["halation-boost"]!, values["print-diffusion-strength"]! }
+                    .Select(control => (Control: control, Property: control.GetType().GetProperty("Value", Flags)!,
+                        Before: Prop(control, "Value"))).ToArray();
+                void Choose(string key) => filter.SelectedItem = filter.ItemsSource.Cast<object>()
+                    .Single(item => Equals(Prop(item, "Id"), key));
+                try
+                {
+                    opticalValues[0].Property.SetValue(opticalValues[0].Control, 1d);
+                    opticalValues[1].Property.SetValue(opticalValues[1].Control, 1.5);
+                    Choose("off");
+                    var reference = await Render("camera-diffusion-and-halation-boost", ".tif", false);
+                    Choose("black_pro_mist");
+                    var stacked = await Render("camera-and-print-diffusion-export", ".tif", false);
+                    var previous = await Render("camera-and-print-diffusion-previous", ".png", true);
+                    var printDifference = Difference(reference, stacked);
+                    var nativeParity = Difference(stacked, previous);
+                    Check(printDifference.Mean > .0001 && printDifference.ChangedFraction > .1,
+                        "print diffusion changes the actual native RGB16 export with camera diffusion and halation boost active");
+                    Check(nativeParity.Mean < 8d / 65535 && nativeParity.Maximum < .01,
+                        "both native commands preserve the same combined camera and print diffusion at 16 bits");
+                    return new { printDifference, nativeParity };
+                }
+                finally
+                {
+                    foreach (var (control, property, before) in opticalValues) property.SetValue(control, before);
+                    filter.SelectedItem = initial;
+                }
             }
 
             async Task<object> CompareCompression(BitmapSource reference)
