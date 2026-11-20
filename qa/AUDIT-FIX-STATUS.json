@@ -1086,7 +1086,8 @@
         "The worker now chooses larger packed Viewer tiles only on images at least 4096 px in each dimension, with an existing halo no greater than 256 px and reported dynamic budget for source plus estimated scratch. Float and wide-halo plans retain their previous geometry. At 100 MP on RTX 3090, the actual default packed plan moved from 800 to 28 tiles, with one warm hashed exposure change at 4.89 to 1.55 seconds. Simulated 6 and 4 GiB caps selected 104 and 800 tiles respectively. All 12 complete pixel reply hashes matched the explicit prior plan and warm packed sources were reused without upload.",
         "Reuse camera optical scratch between DIR and scanner post with the existing stage barriers and preserve inter-stage data. The matched 45 MP, 1465 px halo graph used 3.17 GiB less transient Vulkan memory in both packed Viewer and float export. All six full payload hashes were identical and warm latency was effectively unchanged. Peak worker commit fell by about 3.0 and 3.2 GiB respectively.",
         "Finish the fenced tiled upload before the halation reduction and release the large host staging allocation. Halation reads the immutable GPU source directly with tile coordinates. Four packed and four float 45 MP stacked-optics payloads plus two packed 100 MP payloads match the audit.20 worker byte for byte. Reported transient cache drops 0.67 GiB at 45 MP and 1.49 GiB at 100 MP. On a warm 45 MP Viewer exposure edit the measured upload changes from 720 MB to 3,784 bytes of parameters. Peak commit over repeated 45 MP replacements stays similar. Peak commit on the measured 100 MP Viewer pair drops from about 5.80 to 4.90 GiB.",
-        "Reuse the camera diffusion output for the later print diffusion output after the existing compute barrier. Keep the boosted halation and print inputs separate after a wider reuse experiment changed actual tiled pixels. The retained change matches audit.29 across 16 complete Viewer and float export payloads at 24 and 45 MP, including repeated exposure changes and source replacement. It saves 291,776,000 and 425,201,600 transient bytes respectively. Peak worker commit falls by around 0.27 and 0.38 GiB. NVIDIA and Intel renderer smoke suites pass."
+        "Reuse the camera diffusion output for the later print diffusion output after the existing compute barrier. Keep the boosted halation and print inputs separate after a wider reuse experiment changed actual tiled pixels. The retained change matches audit.29 across 16 complete Viewer and float export payloads at 24 and 45 MP, including repeated exposure changes and source replacement. It saves 291,776,000 and 425,201,600 transient bytes respectively. Peak worker commit falls by around 0.27 and 0.38 GiB. NVIDIA and Intel renderer smoke suites pass.",
+        "Record the actual Vulkan memory heap for every transient buffer. Credit only the selected device-local heap when using its reported budget. The wider RTX suite excludes up to 137,362,784 prior cached bytes from that credit, while all 16 complete 24 and 45 MP Viewer and float export replies match audit.30. Both physical adapters also pass the warmed graph and synthetic pressure contracts. The same worker passes 129 licensed native stacked-effects and profile assertions on both launches and verifies all nine recipe files against their backups."
       ],
       "evidence_paths": [
         "qa/renderer-benchmark.py",
@@ -1114,7 +1115,11 @@
         ".test-results/optical-raw-stage-20261120/diagnostic-one-alias.json",
         ".test-results/optical-diffusion-reuse-final-20261120/comparison.json",
         ".test-results/optical-diffusion-reuse-final-20261120/nvidia-smoke.log",
-        ".test-results/optical-diffusion-reuse-final-20261120/intel-smoke.log"
+        ".test-results/optical-diffusion-reuse-final-20261120/intel-smoke.log",
+        ".test-results/physical-heap-budget-20261120/comparison.json",
+        ".test-results/physical-heap-budget-20261120/nvidia-smoke.log",
+        ".test-results/physical-heap-budget-20261120/intel-smoke.log",
+        ".test-results/host-heap-budget-native-effects-20261120/host-smoke.log"
       ],
       "remaining_work": [
         "Calibrate all optics graphs, shared GPU activity and system memory on real 4/6/8 GB hardware from different vendors.",
@@ -1279,7 +1284,8 @@
         "A real 4097 by 33 Standard 8 Vulkan test combined glare, MTF blur and unsharp. The old capped planner underestimated the serial support, yielding a 0.03222 maximum RGB error across tiled boundaries, and MTF changed source alpha by up to 0.60313. The tile planner and scheduler now share the sum of actual finite scanner support. The MTF passes preserve alpha. All RGB samples match between full and tiled renders and alpha matches the input exactly. Full Windows contracts and Vulkan smoke passed.",
         "The exact audit.16 worker matched full-frame results for scatter or halation alone on a 12,501 by 31 Super8 chart. Their composition differed by up to 0.000126 float RGB at a 512 px tile seam with exact alpha. The 100 MP layout comparison independently found maximum 0.0000341 and 15,264,000 affected 16-bit channel samples. The scatter resolve feeds the bounce pass, but both passes currently share a single 256 px halo in planning and per-pass dispatch.",
         "Scatter and bounce now use separate finite-support radii computed from the shader equations, global film pixel size and effective stock sigmas. The tile margin adds both supports and the active dispatch shrinks between them. The 12,501 by 31 Super 8 seam reproduction matches the full float reference exactly on NVIDIA and Intel. Twelve complete 100 MP frame comparisons match across corrected tile plans, and high-contrast packed tests agree exactly in three working encodings.",
-        "A 4,097 by 31 high-contrast Super 8 chart identifies another existing layout discrepancy. In audit.29, highlight boost with halation and scatter alone agrees within 4.77e-7 float code across layouts. Adding print diffusion increases the maximum difference to 0.06184, adding camera diffusion to 0.02112, and adding both to 0.01447. Diffusion output-buffer reuse matches audit.29 exactly in each layout and reproduces the same discrepancy."
+        "A 4,097 by 31 high-contrast Super 8 chart identifies another existing layout discrepancy. In audit.29, highlight boost with halation and scatter alone agrees within 4.77e-7 float code across layouts. Adding print diffusion increases the maximum difference to 0.06184, adding camera diffusion to 0.02112, and adding both to 0.01447. Diffusion output-buffer reuse matches audit.29 exactly in each layout and reproduces the same discrepancy.",
+        "Local prototype 26a9c90 derives both active-rectangle and planning margins from each reduced-grid diffusion component. Twelve matched graphs on physical Intel now match full-frame pixels exactly. Eleven of twelve NVIDIA graphs meet the strict 2e-6 float threshold. The remaining graph exceeds that threshold at five channels and peaks at 2.76e-6, below one RGB16 step. Compared with audit.30, the largest original measured difference was 0.11572. Full-frame pixels match the previous worker throughout. The corrected 24 and 45 MP composed graphs use 9.57 and 17.94 GiB reported transient memory in the export route on the RTX 3090. This prototype is outside the verified package."
       ],
       "evidence_paths": [
         "qa/blur-support.py",
@@ -1295,13 +1301,17 @@
         ".test-results/composed-halation-final-20261120/adaptive-viewer-nvidia.log",
         ".test-results/contracts-composed-halation-20261120/summary.json",
         ".test-results/optical-raw-stage-20261120/baseline-legacy-tiled.json",
-        ".test-results/optical-raw-stage-20261120/diagnostic-one-alias.json"
+        ".test-results/optical-raw-stage-20261120/diagnostic-one-alias.json",
+        ".test-results/diffusion-tile-support-nvidia-20261120.json",
+        ".test-results/diffusion-tile-support-intel-20261120.json",
+        ".test-results/diffusion-support-24mp-nvidia-20261120.json",
+        ".test-results/diffusion-support-45mp-nvidia-20261120.json"
       ],
       "remaining_work": [
         "Expand corrected finite-support coverage to further effect graphs and calibrate large working tiles. Keep the verified float geometry until arbitrary optical combinations and hardware pass; the physical blur radius cap remains independent.",
         "Extend the direct impulse/energy experiments to DIR, grain and other blur backends. The initial reports for those capped kernels are analytical.",
         "Add a Vulkan version of the phase-aligned reduction as an explicit appearance version, starting with scanner unsharp. Preserve old looks and validate boundary behavior and actual performance.",
-        "Recompute tile overlap and active dispatch radii using actual camera and print Gaussian components, physical pixel sizes, reduced-grid scales, and aligned box sampling and reconstruction footprints. Verify the Super 8 stress chart and high-contrast 24/45 MP fixtures in both layouts on NVIDIA and Intel. Measure peak memory as the halo interacts with tile sizing.",
+        "Retain the verified audit branch geometry until the actual diffusion margins from 26a9c90 pass an affordable memory plan and the strict residual parity check. Validate large high-contrast fixtures across physical layouts. Explore staged reduced-grid surfaces so wide reduced kernels do not require a whole-frame full-resolution working allocation.",
         "Version appearance changes and coordinate upstream"
       ],
       "original_acceptance_tests": [

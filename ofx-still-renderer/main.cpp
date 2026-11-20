@@ -674,6 +674,7 @@ std::unique_ptr<Renderer> startRenderer() {
 struct FrameMemoryPlan {
     uint64_t fullFrameBytes = 0;
     uint64_t budgetBytes = 0;
+  uint64_t reclaimableDeviceHeapBytes = 0;
     bool dynamicBudget = false;
     bool selectedTiling = false;
 };
@@ -701,7 +702,7 @@ FrameMemoryPlan planGpuMemory(Renderer &renderer, FrameSize size, RenderParams &
     if (params.grainEnabled) perPixel += synthesis ? 160 : 32;
     const auto estimate = 64 * mebibyte + pixels * perPixel;
     const auto headroom = budget.bytes - budget.bytes / 8;
-    FrameMemoryPlan plan{estimate, headroom, budget.dynamic, false};
+    FrameMemoryPlan plan{estimate, headroom, budget.reclaimableBytes, budget.dynamic, false};
     if (headroom == 0 && !budget.dynamic) return plan;
     if (params.gpuRenderTiling == GpuRenderTilingMode::Tiled || estimate > headroom) {
         if (synthesis)
@@ -961,6 +962,7 @@ void writeMetrics(const Renderer *renderer, uint64_t renderSequence, const Input
          << ",\"tileOverlap\":" << d.tileOverlap
          << ",\"estimatedFullFrameGpuBytes\":" << memory.fullFrameBytes
          << ",\"gpuMemoryBudgetBytes\":" << memory.budgetBytes
+         << ",\"reclaimableDeviceHeapBytes\":" << memory.reclaimableDeviceHeapBytes
          << ",\"dynamicGpuBudget\":" << (memory.dynamicBudget ? "true" : "false")
          << ",\"budgetSelectedTiling\":" << (memory.selectedTiling ? "true" : "false") << '}';
     const auto text = json.str();

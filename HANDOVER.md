@@ -1231,6 +1231,14 @@ Evidence is in `.test-results/host-native-output-profiles-20261120`, including `
 
 The baseline reproduction is `.test-results/optical-raw-stage-20261120/baseline-legacy-tiled.json`. The narrowed comparison and physical smoke logs are in `.test-results/optical-diffusion-reuse-final-20261120`. Continue RC-04 by calculating the needed margin and active rectangles from the actual diffusion components and the aligned reduced-grid footprint. Exercise the long stress chart and typical 24 and 45 MP photographs before changing deployed tile geometry. To test a changed worker in a source host run, use `Build-Windows.ps1 -BuildPanel -StageRuntime` and verify the worker SHA before launching the disposable catalog.
 
+The local branch `audit/diffusion-tile-support-prototype-2026-11-20` retains prototype `26a9c90`. It computes actual camera and print diffusion margins and leaves full-frame pixels identical to audit.30. On Intel, 12 graphs now match exactly across layouts. On the RTX 3090, eleven meet the strict 2e-6 float check and the remaining graph differs on five channels by up to 2.76e-6. The largest baseline stress difference was 0.11572. The corrected 24 and 45 MP export graphs use 9.57 and 17.94 GiB of reported transient allocation, up from 7.21 and 10.60 GiB. The one-warm-sample wall times are about 1.16 and 1.85 seconds in the corrected graph. Keep the prototype separate while calibrating a smaller graph footprint and investigating the strict residual. Exact fixtures are `.test-results/diffusion-tile-support-{nvidia,intel}-20261120.json` and `.test-results/diffusion-support-{24,45}mp-nvidia-20261120.json`.
+
+## Vulkan memory accounting by heap
+
+- [x] Record the allocation heap reported by the Vulkan memory type. The device-local budget credits reusable bytes on that same heap. Reflect the preflight credit and the total cached allocation separately in worker diagnostics.
+- [x] Pass NVIDIA and Intel smoke tests. On the RTX 3090, all 16 complete packed Viewer and float export replies at 24 and 45 MP match audit.30. The selected heap credit excludes up to 137,362,784 bytes from the prior total cache. See `.test-results/physical-heap-budget-20261120`.
+- [x] Verify the same worker SHA after staging. The licensed stacked-effects TIFF and PNG and three-profile fixture passes 129 checks on launch and again after restart. Both runs verify the nine recipe files against their backups. See `.test-results/host-heap-budget-native-effects-20261120`. This is a source checkpoint following the verified audit.30 ZIP.
+
 ## Actual save-failure close confirmation
 
 - [x] Lock the disposable variant's primary look file and block its recovery file with a directory. Invoke the actual close handler. The test recognizes the owned Windows confirmation, checks that the default is No and invokes that button by its native control ID. Capture One keeps the pending edit. Releasing both obstructions publishes the exact value.

@@ -13,6 +13,7 @@ using VulkanRenderDiagnostics = RendererDiagnostics;
 struct VulkanMemoryBudget {
   uint64_t bytes = 0;
   bool dynamic = false;
+  uint64_t reclaimableBytes = 0;
 };
 
 class VulkanRenderer final : public Renderer {

@@ -1476,6 +1476,8 @@ struct DiffusionSettings {
   float bloomSize = 1.0f;
 };
 
+using VulkanHeapAllocations = std::array<uint64_t, VK_MAX_MEMORY_HEAPS>;
+
 struct VulkanSharedBackend {
   struct QueueSlot {
     VkQueue queue = VK_NULL_HANDLE;
@@ -1566,7 +1568,7 @@ struct VulkanSharedBackend {
     poisoned.store(true);
   }
 
-  VulkanMemoryBudget availableDeviceLocalMemory(uint64_t cached) const {
+  VulkanMemoryBudget availableDeviceLocalMemory(const VulkanHeapAllocations &cached) const {
     if (!supportsMemoryBudget) {
       return {transientBudgetBytes, false};
     }
@@ -1591,11 +1593,12 @@ struct VulkanSharedBackend {
     }
     const auto limit = budget.heapBudget[largestLocalHeap];
     const auto usage = budget.heapUsage[largestLocalHeap];
-    // Cached buffers are available to reuse or reclaim; keep other Vulkan
-    // allocations (and any driver overhead reported in usage) charged.
-    const auto committed = usage - std::min<uint64_t>(cached, usage);
+    // Credit reusable buffers on this heap; other heaps cannot free space
+    // here. Keep other Vulkan allocations and reported driver usage charged.
+    const auto reclaimable = std::min<uint64_t>(cached[largestLocalHeap], usage);
+    const auto committed = usage - reclaimable;
     const uint64_t free = committed < limit ? limit - committed : 0;
-    return {std::min(transientBudgetBytes, free), true};
+    return {std::min(transientBudgetBytes, free), true, reclaimable};
   }
 
 private:
@@ -2775,6 +2778,7 @@ struct VulkanRenderer::Impl {
     VkDeviceSize capacity = 0;
     VkDeviceSize allocationSize = 0;
     VkMemoryPropertyFlags memoryFlags = 0;
+    uint32_t heapIndex = VK_MAX_MEMORY_HEAPS;
     void *mapped = nullptr;
   };
 
@@ -3109,7 +3113,8 @@ struct VulkanRenderer::Impl {
     VkBuffer &buffer,
     VkDeviceMemory &memory,
     VkDeviceSize *allocatedBytes = nullptr,
-    VkMemoryPropertyFlags *actualMemoryFlags = nullptr
+    VkMemoryPropertyFlags *actualMemoryFlags = nullptr,
+    uint32_t *heapIndex = nullptr
   );
 
   bool ensureScratchBuffer(
@@ -3166,7 +3171,7 @@ struct VulkanRenderer::Impl {
   void releaseTransientResourcesNoLock();
   void registerTransientBudgetEntry();
   void unregisterTransientBudgetEntry();
-  uint64_t transientAllocationBytes() const;
+  uint64_t transientAllocationBytes(VulkanHeapAllocations *heapAllocations = nullptr) const;
   void refreshTransientBudgetEntry();
   void enforceTransientBudget();
   void updateSharedDiagnostics();
@@ -3198,10 +3203,12 @@ void VulkanRenderer::Impl::unregisterTransientBudgetEntry() {
   transientRegistry.erase(std::remove(transientRegistry.begin(), transientRegistry.end(), this), transientRegistry.end());
 }
 
-uint64_t VulkanRenderer::Impl::transientAllocationBytes() const {
+uint64_t VulkanRenderer::Impl::transientAllocationBytes(VulkanHeapAllocations *heapAllocations) const {
   uint64_t bytes = 0;
   auto add = [&](const ScratchBuffer &scratch) {
     bytes += static_cast<uint64_t>(scratch.allocationSize);
+    if (heapAllocations && scratch.heapIndex < heapAllocations->size())
+      (*heapAllocations)[scratch.heapIndex] += scratch.allocationSize;
   };
 
   add(copyFrame.source);
@@ -3244,6 +3251,7 @@ uint64_t VulkanRenderer::Impl::transientAllocationBytes() const {
   add(coreFrame.grainLayerB);
   add(coreFrame.frameFloats);
   add(coreFrame.frameInts);
+  add(coreFrame.filteredEnlargerResponse);
   return bytes;
 }
 
@@ -3278,8 +3286,9 @@ void VulkanRenderer::Impl::selectResidentSource(uint64_t revision, uint64_t alte
 
   const bool retainCurrent = alternate != 0u && coreFrame.sourceRevision == alternate;
   if (!retainCurrent && coreFrame.alternateSourceRevision == 0u) return;
-  const uint64_t cached = transientAllocationBytes();
-  const auto budget = backend->availableDeviceLocalMemory(cached);
+  VulkanHeapAllocations heaps{};
+  const uint64_t cached = transientAllocationBytes(&heaps);
+  const auto budget = backend->availableDeviceLocalMemory(heaps);
   // When retaining the departing source, reserve both the next source and a
   // possible upload buffer. Leave spare headroom for the graph and other work.
   const uint64_t needed = cached + (retainCurrent ? sourceBytes * 2u : 0u);
@@ -3514,7 +3523,8 @@ bool VulkanRenderer::Impl::createBuffer(
   VkBuffer &buffer,
   VkDeviceMemory &memory,
   VkDeviceSize *allocatedBytes,
-  VkMemoryPropertyFlags *actualMemoryFlags
+  VkMemoryPropertyFlags *actualMemoryFlags,
+  uint32_t *heapIndex
 ) {
   VkBufferCreateInfo bufferInfo{};
   bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -3559,10 +3569,12 @@ bool VulkanRenderer::Impl::createBuffer(
   if (allocatedBytes) {
     *allocatedBytes = requirements.size;
   }
-  if (actualMemoryFlags) {
+  if (actualMemoryFlags || heapIndex) {
     VkPhysicalDeviceMemoryProperties memoryProperties{};
     vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memoryProperties);
-    *actualMemoryFlags = memoryProperties.memoryTypes[memoryTypeIndex].propertyFlags;
+    const auto &type = memoryProperties.memoryTypes[memoryTypeIndex];
+    if (actualMemoryFlags) *actualMemoryFlags = type.propertyFlags;
+    if (heapIndex) *heapIndex = type.heapIndex;
   }
   return true;
 }
@@ -3583,6 +3595,7 @@ void VulkanRenderer::Impl::destroyScratchBuffer(ScratchBuffer &scratch) {
   scratch.capacity = 0;
   scratch.allocationSize = 0;
   scratch.memoryFlags = 0;
+  scratch.heapIndex = VK_MAX_MEMORY_HEAPS;
 }
 
 void VulkanRenderer::Impl::destroyStaticFilmResources() {
@@ -3665,7 +3678,9 @@ bool VulkanRenderer::Impl::ensureScratchBuffer(
   VkDeviceMemory memory = VK_NULL_HANDLE;
   VkDeviceSize allocatedBytes = 0;
   VkMemoryPropertyFlags actualMemoryFlags = 0;
-  if (!createBuffer(size, usage, memoryFlags, preferredMemoryFlags, buffer, memory, &allocatedBytes, &actualMemoryFlags)) {
+  uint32_t heapIndex = VK_MAX_MEMORY_HEAPS;
+  if (!createBuffer(size, usage, memoryFlags, preferredMemoryFlags, buffer, memory,
+                    &allocatedBytes, &actualMemoryFlags, &heapIndex)) {
     if (buffer != VK_NULL_HANDLE) {
       vkDestroyBuffer(device, buffer, nullptr);
     }
@@ -3694,6 +3709,7 @@ bool VulkanRenderer::Impl::ensureScratchBuffer(
   scratch.capacity = size;
   scratch.allocationSize = allocatedBytes;
   scratch.memoryFlags = actualMemoryFlags;
+  scratch.heapIndex = heapIndex;
   scratch.mapped = mapped;
   diagnostics.scratchAllocationBytes += static_cast<uint64_t>(allocatedBytes);
   diagnostics.scratchAllocationCount += 1u;
@@ -7632,8 +7648,9 @@ bool VulkanRenderer::Impl::renderTiledBootstrap(
   if (packedDisplay && backend && fullWidth >= 4096 && fullHeight >= 4096 && overlap <= 2u * kVulkanSpatialEffectRadiusPx &&
       envString("SPEKTRAFILM_VULKAN_TILE_WIDTH", "").empty() &&
       envString("SPEKTRAFILM_VULKAN_TILE_HEIGHT", "").empty()) {
-    const uint64_t cached = transientAllocationBytes();
-    const auto budget = backend->availableDeviceLocalMemory(cached);
+    VulkanHeapAllocations heaps{};
+    const uint64_t cached = transientAllocationBytes(&heaps);
+    const auto budget = backend->availableDeviceLocalMemory(heaps);
     if (budget.dynamic) {
       // Keep one quarter of the reported budget free. Charge both full-size
       // source allocations and allow scratch for the complete optical graph.
@@ -7937,7 +7954,9 @@ VulkanMemoryBudget VulkanRenderer::availableDeviceLocalMemory() const {
     return {};
   }
   std::lock_guard<std::recursive_mutex> lock(impl_->renderMutex);
-  return impl_->backend->availableDeviceLocalMemory(impl_->diagnostics.transientCachedBytes);
+  VulkanHeapAllocations heaps{};
+  impl_->transientAllocationBytes(&heaps);
+  return impl_->backend->availableDeviceLocalMemory(heaps);
 }
 
 void VulkanRenderer::setCancellationProbe(CancellationProbe probe, const void *context) {

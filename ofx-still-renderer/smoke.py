@@ -528,9 +528,13 @@ def check_optical_scratch_lifetime(exe, base):
     reused = run_stream(exe, request, mode="--native-preview-stream", env=env)
     assert reused[::2] == [fresh[index] for index in sequence] + [replacement_fresh, edited_fresh], \
         "Changing optical passes or replacing the source reused stale pixels"
+    previous_transient = 0
     for index, (status, payload) in enumerate(reused[1::2]):
         metrics = json.loads(payload)
         assert status == 0 and metrics["tiled"] and metrics["renderSequence"] == index + 1, (index, metrics)
+        reclaimable = metrics["reclaimableDeviceHeapBytes"]
+        assert 0 <= reclaimable <= previous_transient and (metrics["dynamicGpuBudget"] or reclaimable == 0), metrics
+        previous_transient = metrics["transientCachedBytes"]
         if index in (0, len(sequence)):
             assert metrics["uploadBytes"] >= frame.nbytes, metrics
         else:
