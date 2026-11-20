@@ -75,6 +75,7 @@ internal sealed class SpatialPreview : IDisposable
     private byte[]? draftPixels;
     private string[]? draftArguments;
     private bool draftWarmupAttempted;
+    private bool warmingDraft;
     private int lastDraftRevision = -1;
     private bool dragging;
     private long lastDragChange;
@@ -651,6 +652,8 @@ internal sealed class SpatialPreview : IDisposable
         savePreview.IsEnabled = false;
         retryViewer.Visibility = Visibility.Collapsed;
         inputRevision++;
+        if (warmingDraft)
+            pendingDraft?.Cancel();
         if (renderingFinal && !dragging)
             pending?.Cancel();
         refresh.Start();
@@ -667,6 +670,7 @@ internal sealed class SpatialPreview : IDisposable
     internal void BeginSliderDrag()
     {
         if (renderingFinal) pending?.Cancel();
+        if (warmingDraft) pendingDraft?.Cancel();
         dragging = true;
         lastDragChange = 0;
         SliderDragActivity?.Invoke(true);
@@ -1420,6 +1424,7 @@ internal sealed class SpatialPreview : IDisposable
         var offered = false;
         using var job = new CancellationTokenSource();
         pendingDraft = job;
+        warmingDraft = warmup;
         try
         {
             var frame = draftPyramid.Find(input, dragEdge, inputColor.Space);
@@ -1435,7 +1440,9 @@ internal sealed class SpatialPreview : IDisposable
                 var worker = draftRenderer ??= new OpticalRenderer(nativePreview: true);
                 var pack = !warmup && look.Strength == 1 && encoding.Id == "srgb";
                 var filmStarted = Stopwatch.GetTimestamp();
-                var rendered = await worker.RenderAsync(frame.Width, frame.Height, frame.FloatBytes, args, job.Token, pack);
+                var rendered = await (warmup
+                    ? worker.WarmPreviewAsync(frame.Width, frame.Height, frame.FloatBytes, args, job.Token)
+                    : worker.RenderAsync(frame.Width, frame.Height, frame.FloatBytes, args, job.Token, pack));
                 filmMs = Stopwatch.GetElapsedTime(filmStarted).TotalMilliseconds;
                 receipt = worker.LastRender;
                 job.Token.ThrowIfCancellationRequested();
@@ -1476,6 +1483,7 @@ internal sealed class SpatialPreview : IDisposable
         {
             if (!offered && !warmup) TraceUnpublishedViewerWork(ViewerFrameStage.Drag, version, started, job.IsCancellationRequested);
             pendingDraft = null;
+            warmingDraft = false;
             if (job.IsCancellationRequested)
                 ReleaseDraftRenderer();
         }

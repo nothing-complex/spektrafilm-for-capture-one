@@ -1088,7 +1088,8 @@
         "Reuse camera optical scratch between DIR and scanner post with the existing stage barriers and preserve inter-stage data. The matched 45 MP, 1465 px halo graph used 3.17 GiB less transient Vulkan memory in both packed Viewer and float export. All six full payload hashes were identical and warm latency was effectively unchanged. Peak worker commit fell by about 3.0 and 3.2 GiB respectively.",
         "Finish the fenced tiled upload before the halation reduction and release the large host staging allocation. Halation reads the immutable GPU source directly with tile coordinates. Four packed and four float 45 MP stacked-optics payloads plus two packed 100 MP payloads match the audit.20 worker byte for byte. Reported transient cache drops 0.67 GiB at 45 MP and 1.49 GiB at 100 MP. On a warm 45 MP Viewer exposure edit the measured upload changes from 720 MB to 3,784 bytes of parameters. Peak commit over repeated 45 MP replacements stays similar. Peak commit on the measured 100 MP Viewer pair drops from about 5.80 to 4.90 GiB.",
         "Reuse the camera diffusion output for the later print diffusion output after the existing compute barrier. Keep the boosted halation and print inputs separate after a wider reuse experiment changed actual tiled pixels. The retained change matches audit.29 across 16 complete Viewer and float export payloads at 24 and 45 MP, including repeated exposure changes and source replacement. It saves 291,776,000 and 425,201,600 transient bytes respectively. Peak worker commit falls by around 0.27 and 0.38 GiB. NVIDIA and Intel renderer smoke suites pass.",
-        "Record the actual Vulkan memory heap for every transient buffer. Credit only the selected device-local heap when using its reported budget. The wider RTX suite excludes up to 137,362,784 prior cached bytes from that credit, while all 16 complete 24 and 45 MP Viewer and float export replies match audit.30. Both physical adapters also pass the warmed graph and synthetic pressure contracts. The same worker passes 129 licensed native stacked-effects and profile assertions on both launches and verifies all nine recipe files against their backups."
+        "Record the actual Vulkan memory heap for every transient buffer. Credit only the selected device-local heap when using its reported budget. The wider RTX suite excludes up to 137,362,784 prior cached bytes from that credit, while all 16 complete 24 and 45 MP Viewer and float export replies match audit.30. Both physical adapters also pass the warmed graph and synthetic pressure contracts. The same worker passes 129 licensed native stacked-effects and profile assertions on both launches and verifies all nine recipe files against their backups.",
+        "A numbered pre-render request reports the selected Vulkan device UUID and heap, driver budget and usage, retained and reclaimable allocation bytes, and the next full-frame estimate before pixel upload. Separate the shared reported heap budget from each worker's existing conservative tile-planning ceiling. The worker still checks current memory again after admission."
       ],
       "evidence_paths": [
         "qa/renderer-benchmark.py",
@@ -1120,11 +1121,15 @@
         ".test-results/physical-heap-budget-20261120/comparison.json",
         ".test-results/physical-heap-budget-20261120/nvidia-smoke.log",
         ".test-results/physical-heap-budget-20261120/intel-smoke.log",
-        ".test-results/host-heap-budget-native-effects-20261120/host-smoke.log"
+        ".test-results/host-heap-budget-native-effects-20261120/host-smoke.log",
+        "NativePanel/GpuRenderAdmission.cs",
+        "ofx-still-renderer/smoke.py",
+        ".test-results/managed-shared-admission-room-20261120.json",
+        ".test-results/managed-shared-admission-pressure-20261120.json"
       ],
       "remaining_work": [
         "Calibrate all optics graphs, shared GPU activity and system memory on real 4/6/8 GB hardware from different vendors.",
-        "Add process-wide adapter-aware admission for two Viewer contexts; explicitly release idle buffers by ownership and model allocator overlap at each tile.",
+        "Extend the process-wide adapter and heap admission to charge idle worker residency, release idle buffers by ownership under pressure, and model incremental tile allocations rather than the full-frame estimate.",
         "The latest 45 MP jointly enabled optics graph uses 10.60 GiB of reported live transient allocations with 1465 px support and a 7 GiB planning target. Profile per-graph scratch by heap, bound working tiles and model temporary overlap when a user actually replaces a large RAW."
       ],
       "original_acceptance_tests": [
@@ -3185,7 +3190,9 @@
       "implemented": [
         "Starting image export cancels pending previews, pauses refresh and separates export status; preview refresh resumes afterward.",
         "Image and LUT output share the panel output slot. Both retire active and idle Viewer workers and await process exit before starting new GPU work. Preview resumes from the latest queued controls when the output slot releases. Real Vulkan worker PIDs and exclusion verified live.",
-        "The synchronized worker benchmark measures serialized and overlapped 6 MP packed Viewer and 24 MP float export on RTX 3090 with stacked optics. All 24 paired replies match their serial SHA-256. Warm Viewer p50/p95 grows from 117/118 to 194/198 ms, and export from 1,574/1,590 to 1,674/1,682 ms. This isolates worker transport and optics before adding cross-context admission."
+        "The synchronized worker benchmark measures serialized and overlapped 6 MP packed Viewer and 24 MP float export on RTX 3090 with stacked optics. All 24 paired replies match their serial SHA-256. Warm Viewer p50/p95 grows from 117/118 to 194/198 ms, and export from 1,574/1,590 to 1,674/1,682 ms. This isolates worker transport and optics before adding cross-context admission.",
+        "Use shared weighted admission for managed workers on the same Vulkan adapter and heap, with queued output ahead of interactive requests and optional warmup last. A cancelled queued render sends no image and releases no running job. A forced retirement holds its active lease until process exit. Fake workers verify no premature upload, unaffected active rendering and recovery after exit.",
+        "On a physical RTX 3090, a 6 MP packed Viewer finished while a 24 MP stacked-optics float export reply was held. The viewer took 1.08 ms to acquire admission. With a 60.22 MP stacked-optics export, the Viewer waits for the export's lease. Both modes preserve every serial packed and float reply byte. These controlled delivery probes verify admission and output parity."
       ],
       "evidence_paths": [
         "NativePanel/SpatialPreview.cs",
@@ -3195,10 +3202,18 @@
         ".test-results/host-full-raw-24mp-20261119/host-smoke.log",
         ".test-results/contracts-renderer-drain-20261119/summary.json",
         "qa/renderer-benchmark.py",
-        ".test-results/renderer-overlap-stacked-optics-20261120.json"
+        ".test-results/renderer-overlap-stacked-optics-20261120.json",
+        "NativePanel/GpuRenderAdmission.cs",
+        ".test-results/contracts-shared-heap-admission-final-20261120/summary.json",
+        ".test-results/managed-shared-admission-room-20261120.json",
+        ".test-results/managed-shared-admission-pressure-20261120.json",
+        ".test-results/host-shared-admission-catalogs-20261120/host-smoke.log",
+        ".test-results/host-shared-admission-viewer-20261120/host-smoke.log",
+        ".test-results/host-shared-admission-effects-20261120/failed.txt"
       ],
       "remaining_work": [
-        "Introduce cross-host/context resource leases and hardware admission. Collect p50/p95, parent memory, GPU allocations and overlap across more GPUs and cancellation stages."
+        "Finish admission across separate host processes and reclaim idle resident GPU buffers under pressure. Collect a synchronized, unheld p50/p95 comparison using the managed scheduler across more GPUs, parent memory, tile allocations and cancellation stages.",
+        "The current candidate passes the full native effects suite on first launch, then cancels the film-only export after Viewer drain on restart, before any export GPU request. Identify the underlying native cancellation and verify the targeted restart condition."
       ],
       "original_acceptance_tests": [
         "Instrument fake and real workers: maximum active high-cost jobs conforms to budget; warmup is lowest priority.",

@@ -674,7 +674,7 @@ std::unique_ptr<Renderer> startRenderer() {
 struct FrameMemoryPlan {
     uint64_t fullFrameBytes = 0;
     uint64_t budgetBytes = 0;
-  uint64_t reclaimableDeviceHeapBytes = 0;
+    uint64_t reclaimableDeviceHeapBytes = 0;
     bool dynamicBudget = false;
     bool selectedTiling = false;
 };
@@ -686,11 +686,7 @@ struct FrameMetrics {
     uint64_t enlargerCachedBytes = 0;
 };
 
-FrameMemoryPlan planGpuMemory(Renderer &renderer, FrameSize size, RenderParams &params) {
-    constexpr uint64_t mebibyte = 1024ull * 1024ull;
-    const auto *vulkan = dynamic_cast<const VulkanRenderer *>(&renderer);
-    if (!vulkan) return {};
-    const auto budget = vulkan->availableDeviceLocalMemory();
+uint64_t estimateFullFrameGpuBytes(FrameSize size, const RenderParams &params) {
     const auto pixels = static_cast<uint64_t>(size.width) * static_cast<uint64_t>(size.height);
     uint64_t perPixel = 112; // Packed color alone used about 96 B/px in the benchmark.
     if (params.halationEnabled) perPixel += 80;
@@ -698,14 +694,22 @@ FrameMemoryPlan planGpuMemory(Renderer &renderer, FrameSize size, RenderParams &
     if (params.printDiffusionEnabled) perPixel += 64;
     if (params.dirCouplersAmount > 1.0f) perPixel += 24;
     if (params.scannerEnabled) perPixel += 32;
-    const bool synthesis = params.grainEnabled && params.grainModel == GrainModel::GrainSynthesis;
-    if (params.grainEnabled) perPixel += synthesis ? 160 : 32;
-    const auto estimate = 64 * mebibyte + pixels * perPixel;
+    if (params.grainEnabled) perPixel += params.grainModel == GrainModel::GrainSynthesis ? 160 : 32;
+    return 64ull * 1024ull * 1024ull + pixels * perPixel;
+}
+
+FrameMemoryPlan planGpuMemory(Renderer &renderer, FrameSize size, RenderParams &params) {
+    constexpr uint64_t mebibyte = 1024ull * 1024ull;
+    const auto *vulkan = dynamic_cast<const VulkanRenderer *>(&renderer);
+    if (!vulkan) return {};
+    const auto budget = vulkan->availableDeviceLocalMemory();
+    const auto pixels = static_cast<uint64_t>(size.width) * static_cast<uint64_t>(size.height);
+    const auto estimate = estimateFullFrameGpuBytes(size, params);
     const auto headroom = budget.bytes - budget.bytes / 8;
     FrameMemoryPlan plan{estimate, headroom, budget.reclaimableBytes, budget.dynamic, false};
     if (headroom == 0 && !budget.dynamic) return plan;
     if (params.gpuRenderTiling == GpuRenderTilingMode::Tiled || estimate > headroom) {
-        if (synthesis)
+        if (params.grainEnabled && params.grainModel == GrainModel::GrainSynthesis)
             throw std::runtime_error("Grain Synthesis needs more GPU memory for this full frame. Choose a smaller resolution or a different grain model.");
         // Tiling still needs two full-size source buffers plus tile scratch.
         // This is a minimum; overlap requirements vary with optical parameters.
@@ -920,7 +924,7 @@ void writeCapabilities(const FrameLimit &limit, int protocol, bool cancelAvailab
     if (protocol == kProtocolVersion)
         json << ",\"requestHeaderBytes\":16,\"floatLayout\":\"rgba32f\",\"packedLayout\":\"bgra8\",\"requestCancellation\":"
              << (cancelAvailable ? "true" : "false")
-             << ",\"frameProgress\":" << (progressAvailable ? "true" : "false");
+             << ",\"frameProgress\":" << (progressAvailable ? "true" : "false") << ",\"gpuPlanSchema\":1";
     json << '}';
     const auto text = json.str();
     writeReply(0, text.data(), static_cast<uint32_t>(text.size()));
@@ -980,6 +984,31 @@ void configureLargeFrame(RenderParams &params, FrameSize size, bool nativePrevie
     params.gpuRenderTiling = GpuRenderTilingMode::Tiled;
 }
 
+void writeGpuPlan(const Renderer &renderer, FrameSize size, const RenderParams &params, uint64_t request) {
+    const auto *vulkan = dynamic_cast<const VulkanRenderer *>(&renderer);
+    const auto id = vulkan ? vulkan->deviceIdentifier() : std::string{};
+    const auto memory = vulkan ? vulkan->availableDeviceLocalMemory() : VulkanMemoryBudget{};
+    const auto estimate = estimateFullFrameGpuBytes(size, params);
+    const auto budget = std::min(memory.heapBudgetBytes, memory.heapCapacityBytes);
+    const auto resident = memory.heapUsageBytes - memory.reclaimableBytes;
+    const auto shared = memory.dynamic ? budget - std::min(budget, resident) : memory.bytes;
+    std::ostringstream json;
+    json << "{\"schema\":1,\"adapter\":";
+    if (id.empty() || memory.heapIndex == UINT32_MAX) json << "null";
+    else json << '"' << id << '"';
+    json << ",\"heap\":" << memory.heapIndex
+         << ",\"heapCapacityBytes\":" << memory.heapCapacityBytes
+         << ",\"driverBudgetBytes\":" << memory.heapBudgetBytes
+         << ",\"driverUsageBytes\":" << memory.heapUsageBytes
+         << ",\"retainedBytes\":" << memory.retainedBytes
+         << ",\"reclaimableBytes\":" << memory.reclaimableBytes
+         << ",\"planningBytes\":" << (memory.bytes - memory.bytes / 8)
+         << ",\"sharedPlanningBytes\":" << (shared - shared / 8)
+         << ",\"estimatedFullFrameBytes\":" << estimate << '}';
+    const auto text = json.str();
+    writeReply(0, text.data(), static_cast<uint32_t>(text.size()), request);
+}
+
 void processStream(const FrameLimit &limit) {
     enableBinaryPipes();
     const RequestCancellation cancellation;
@@ -1034,6 +1063,23 @@ void processStream(const FrameLimit &limit) {
                 std::string extra;
                 if (command >> extra) writeError("METRICS does not take arguments.", request);
                 else writeMetrics(renderer.get(), renderSequence, input, metrics, request);
+                continue;
+            }
+            if (versioned && verb == "PLAN") {
+                try {
+                    std::string width, height;
+                    command >> width >> height;
+                    const auto size = readFrameSize(width, height, limit);
+                    std::vector<std::string> args;
+                    for (std::string option; command >> option;) args.push_back(std::move(option));
+                    auto params = readParameters(args);
+                    if (nativePreview || &limit == &kExportLimit)
+                        configureLargeFrame(params, size, nativePreview);
+                    if (!renderer) renderer = startRenderer();
+                    writeGpuPlan(*renderer, size, params, *request);
+                } catch (const std::exception &error) {
+                    writeError(error.what(), request);
+                }
                 continue;
             }
             if (verb == "QUIT") {

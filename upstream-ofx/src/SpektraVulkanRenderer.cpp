@@ -1569,27 +1569,28 @@ struct VulkanSharedBackend {
   }
 
   VulkanMemoryBudget availableDeviceLocalMemory(const VulkanHeapAllocations &cached) const {
-    if (!supportsMemoryBudget) {
-      return {transientBudgetBytes, false};
-    }
     VkPhysicalDeviceMemoryBudgetPropertiesEXT budget{};
     budget.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT;
     VkPhysicalDeviceMemoryProperties2 properties{};
     properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2;
-    properties.pNext = &budget;
+    properties.pNext = supportsMemoryBudget ? &budget : nullptr;
     vkGetPhysicalDeviceMemoryProperties2(physicalDevice, &properties);
     const auto &memory = properties.memoryProperties;
     int largestLocalHeap = -1;
     VkDeviceSize capacity = 0;
     for (uint32_t i = 0; i < memory.memoryHeapCount; ++i) {
       if ((memory.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) != 0 &&
-          memory.memoryHeaps[i].size > capacity && budget.heapBudget[i] > 0) {
+          memory.memoryHeaps[i].size > capacity && (!supportsMemoryBudget || budget.heapBudget[i] > 0)) {
         largestLocalHeap = static_cast<int>(i);
         capacity = memory.memoryHeaps[i].size;
       }
     }
     if (largestLocalHeap < 0) {
       return {transientBudgetBytes, false};
+    }
+    const auto heap = static_cast<uint32_t>(largestLocalHeap);
+    if (!supportsMemoryBudget) {
+      return {transientBudgetBytes, false, 0, heap, capacity, 0, 0, cached[heap]};
     }
     const auto limit = budget.heapBudget[largestLocalHeap];
     const auto usage = budget.heapUsage[largestLocalHeap];
@@ -1598,7 +1599,7 @@ struct VulkanSharedBackend {
     const auto reclaimable = std::min<uint64_t>(cached[largestLocalHeap], usage);
     const auto committed = usage - reclaimable;
     const uint64_t free = committed < limit ? limit - committed : 0;
-    return {std::min(transientBudgetBytes, free), true, reclaimable};
+    return {std::min(transientBudgetBytes, free), true, reclaimable, heap, capacity, limit, usage, cached[heap]};
   }
 
 private:
@@ -7957,6 +7958,23 @@ VulkanMemoryBudget VulkanRenderer::availableDeviceLocalMemory() const {
   VulkanHeapAllocations heaps{};
   impl_->transientAllocationBytes(&heaps);
   return impl_->backend->availableDeviceLocalMemory(heaps);
+}
+
+std::string VulkanRenderer::deviceIdentifier() const {
+  if (!impl_ || !impl_->backend) return {};
+  VkPhysicalDeviceIDProperties id{};
+  id.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES;
+  VkPhysicalDeviceProperties2 properties{};
+  properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+  properties.pNext = &id;
+  vkGetPhysicalDeviceProperties2(impl_->backend->physicalDevice, &properties);
+  constexpr char hex[] = "0123456789abcdef";
+  std::string uuid;
+  for (const auto byte : id.deviceUUID) {
+    uuid += hex[byte >> 4];
+    uuid += hex[byte & 15u];
+  }
+  return uuid.find_first_not_of('0') == std::string::npos ? std::string{} : uuid;
 }
 
 void VulkanRenderer::setCancellationProbe(CancellationProbe probe, const void *context) {

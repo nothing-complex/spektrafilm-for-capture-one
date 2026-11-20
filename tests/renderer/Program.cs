@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -16,12 +17,23 @@ internal static partial class Program
     {
         if (args.Length == 1 && args[0].EndsWith("stream")) { Worker(); return; }
         if (args.Length == 2 && args[0] == "--gpu") { await CheckGpu(args[1]); return; }
+        if (args is ["--gpu-admission", var admissionRuntime, var admissionReport, var admissionScenario])
+        {
+            await CheckRealGpuAdmission(admissionRuntime, admissionReport, admissionScenario switch
+            {
+                "room" => false, "pressure" => true,
+                _ => throw new ArgumentException("Use room or pressure for the GPU admission scenario."),
+            });
+            return;
+        }
         if (args is ["--lut-sweep", var runtime, var report]) { await CheckLutSweep(runtime, report); return; }
         var scratch = Path.Combine(AppContext.BaseDirectory, "fixtures", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(scratch);
         var previous = Environment.GetEnvironmentVariable("SPEKTRAFILM_ROOT");
         try
         {
+            await CheckGpuAdmission();
+            await CheckWorkerAdmission(scratch);
             foreach (var malformed in new[] { "status", "fatal", "wrong-request", "length", "truncated", "truncated-header", "error-size",
                 "bad-error-text", "bad-device-lost", "bad-json", "old-version", "bad-json-type", "bad-contract", "bad-precision", "bad-endian", "bad-limits",
                 "bad-reply-layout", "bad-float-layout", "bad-packed-layout" })
@@ -389,6 +401,152 @@ internal static partial class Program
         }
     }
 
+    private static async Task CheckGpuAdmission()
+    {
+        var coordinator = new GpuRenderAdmission();
+        var adapter = Guid.NewGuid();
+        var heap = new GpuHeapIdentity(adapter, 1);
+        GpuRenderPlan Plan(long amount) => new(heap, 100, amount);
+        using var first = await coordinator.AcquireAsync(Plan(60), GpuWorkPriority.Interactive, default);
+        using var second = await coordinator.AcquireAsync(Plan(20), GpuWorkPriority.Interactive, default);
+        using var cancellation = new CancellationTokenSource();
+        var warm = coordinator.AcquireAsync(Plan(70), GpuWorkPriority.Warmup, default);
+        var interactive = coordinator.AcquireAsync(Plan(60), GpuWorkPriority.Interactive, default);
+        var output = coordinator.AcquireAsync(Plan(100), GpuWorkPriority.Output, default);
+        var cancelled = coordinator.AcquireAsync(Plan(100), GpuWorkPriority.Output, cancellation.Token);
+        Check(!output.IsCompleted && !interactive.IsCompleted && !warm.IsCompleted, "same-heap estimates only overlap inside their planning budget");
+        using var otherHeap = await coordinator.AcquireAsync(new(new(adapter, 0), 100, 100), GpuWorkPriority.Output, default);
+        using var otherAdapter = await coordinator.AcquireAsync(new(new(Guid.NewGuid(), 1), 100, 100), GpuWorkPriority.Interactive, default);
+        Check(!output.IsCompleted, "independent adapter and heap do not wait on the original queue");
+        cancellation.Cancel();
+        await Throws<OperationCanceledException>(() => cancelled);
+        first.Dispose();
+        Check(!interactive.IsCompleted && !warm.IsCompleted && !output.IsCompleted, "smaller waiting work cannot overtake an accepted output");
+        second.Dispose();
+        using var outputLease = await output.WaitAsync(TimeSpan.FromSeconds(2));
+        Check(!interactive.IsCompleted && !warm.IsCompleted, "accepted output has first priority");
+        outputLease.Dispose();
+        using var interactiveLease = await interactive.WaitAsync(TimeSpan.FromSeconds(2));
+        Check(!warm.IsCompleted, "interactive work goes ahead of an earlier optional warmup");
+        interactiveLease.Dispose();
+        using var warmLease = await warm.WaitAsync(TimeSpan.FromSeconds(2));
+        var oversized = coordinator.AcquireAsync(Plan(160), GpuWorkPriority.Output, default);
+        Check(!oversized.IsCompleted, "a frame larger than the planning estimate budget waits for an empty heap queue");
+        warmLease.Dispose();
+        using var oversizedLease = await oversized.WaitAsync(TimeSpan.FromSeconds(2));
+        var next = coordinator.AcquireAsync(Plan(10), GpuWorkPriority.Interactive, default);
+        Check(!next.IsCompleted, "the admitted solitary frame uses the worker's normal tile policy");
+        oversizedLease.Dispose();
+        using var last = await next.WaitAsync(TimeSpan.FromSeconds(2));
+    }
+
+    private static async Task CheckWorkerAdmission(string scratch)
+    {
+        var firstRoot = Setup(scratch, "gpu-plan-gated");
+        await using var active = new OpticalRenderer(export: true);
+        var first = active.RenderAsync(1, 1, Pixels(1), [], default);
+        await WaitForRequest(firstRoot, first);
+        var trace = File.ReadLines(Path.Combine(firstRoot, "renderer", "trace.txt")).First();
+        using var activeProcess = Process.GetProcessById(int.Parse(trace.Split(':')[0], CultureInfo.InvariantCulture));
+
+        var waitingRoot = Setup(scratch, "gpu-plan");
+        var waitingFolder = Path.Combine(waitingRoot, "renderer");
+        await using var waiting = new OpticalRenderer(nativePreview: true);
+        using var stop = new CancellationTokenSource();
+        var next = waiting.RenderAsync(1, 1, Pixels(1), [], stop.Token);
+        var started = Stopwatch.GetTimestamp();
+        while (!File.Exists(Path.Combine(waitingFolder, "plan-received")) && !next.IsCompleted
+               && Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(5))
+            await Task.Delay(10);
+        Check(!next.IsCompleted && File.Exists(Path.Combine(waitingFolder, "plan-received"))
+            && !File.Exists(Path.Combine(waitingFolder, "request-received")),
+            "a separate worker negotiates its GPU plan before the active lease allows it to upload pixels");
+        stop.Cancel();
+        await Throws<OperationCanceledException>(() => next.WaitAsync(TimeSpan.FromSeconds(5)));
+        Check(!first.IsCompleted, "cancelling a queued GPU request leaves the other worker's render active");
+        var replacement = waiting.RenderAsync(1, 1, Pixels(1), [], default);
+        await active.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10));
+        await Throws<OperationCanceledException>(() => first.WaitAsync(TimeSpan.FromSeconds(5)));
+        Check(activeProcess.HasExited && (await replacement.WaitAsync(TimeSpan.FromSeconds(5))).Length == 16,
+            "a queued worker can render after the retired worker actually exits");
+    }
+
+    private static async Task CheckRealGpuAdmission(string root, string report, bool pressure)
+    {
+        const int viewerWidth = 3000, viewerHeight = 2000;
+        var (exportWidth, exportHeight) = pressure ? (9504, 6336) : (6000, 4000);
+        var previousRoot = Environment.GetEnvironmentVariable("SPEKTRAFILM_ROOT");
+        Environment.SetEnvironmentVariable("SPEKTRAFILM_ROOT", Path.GetFullPath(root));
+        try
+        {
+            var look = new[] { "--stock", "kodak_portra_400", "--paper", "kodak_portra_endura", "--film-format", "super8",
+                "--halation-amount", "1", "--halation-boost", "1", "--scatter-amount", "0.5",
+                "--camera-diffusion-family", "pro_mist", "--camera-diffusion-strength", "1.5",
+                "--print-diffusion-family", "black_pro_mist", "--print-diffusion-strength", "1.5",
+                "--dir-amount", "1.5", "--scanner-enabled", "true", "--grain-model", "production" };
+            var viewerSource = Pixels(viewerWidth * viewerHeight);
+            var exportSource = Pixels(exportWidth * exportHeight);
+            using var stop = new CancellationTokenSource(TimeSpan.FromMinutes(4));
+            async Task<string> View(OpticalRenderer viewer, string[]? options = null) => Convert.ToHexString(SHA256.HashData(
+                await viewer.RenderAsync(viewerWidth, viewerHeight, viewerSource, options ?? look, stop.Token, displayPixels: true)));
+            async Task<string> Export(OpticalRenderer exporter) => Convert.ToHexString(SHA256.HashData(
+                await exporter.RenderAsync(exportWidth, exportHeight, exportSource, look, stop.Token)));
+            string expectedViewer, expectedExport;
+            await using (var serial = new OpticalRenderer(nativePreview: true)) expectedViewer = await View(serial);
+            await using (var serial = new OpticalRenderer(export: true)) expectedExport = await Export(serial);
+
+            var exportOnGpu = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var releaseDelivery = new ManualResetEventSlim();
+            await using var activeExport = new OpticalRenderer(export: true)
+            {
+                ReportProgress = stage =>
+                {
+                    if (stage == RendererStage.Vulkan)
+                    {
+                        exportOnGpu.TrySetResult();
+                        if (!releaseDelivery.Wait(TimeSpan.FromSeconds(10), stop.Token))
+                            throw new TimeoutException("The GPU admission fixture did not release export delivery.");
+                    }
+                }
+            };
+            await using var waitingViewer = new OpticalRenderer(nativePreview: true);
+            await View(waitingViewer, [.. look, "--film-exposure", "0.1"]);
+            var exportJob = Export(activeExport);
+            Task<string> viewerJob;
+            try
+            {
+                await exportOnGpu.Task.WaitAsync(stop.Token);
+                viewerJob = View(waitingViewer);
+                if (pressure)
+                {
+                    // Keep the export's unread response in flight while the
+                    // warm Viewer obtains a plan without starting a device.
+                    await Task.Delay(250, stop.Token);
+                    Check(!viewerJob.IsCompleted, "a real managed Viewer cannot bypass a held same-heap export lease under pressure");
+                }
+                else
+                {
+                    await viewerJob.WaitAsync(TimeSpan.FromSeconds(8), stop.Token);
+                    Check(!exportJob.IsCompleted, "an independent same-heap Viewer finishes while export is still active when both estimates fit");
+                }
+            }
+            finally { releaseDelivery.Set(); }
+            var actual = await Task.WhenAll(exportJob, viewerJob);
+            Check(actual.SequenceEqual(new[] { expectedExport, expectedViewer }), "shared admission preserves every GPU reply byte");
+            var wait = waitingViewer.LastRender?.GpuWaitMs;
+            Check(pressure ? wait is > 20 : wait is >= 0 and < 20, "the real Viewer wait agrees with its shared heap admission");
+            File.WriteAllText(report, JsonSerializer.Serialize(new
+            {
+                viewerWidth, viewerHeight, exportWidth, exportHeight, viewerWaitMs = wait,
+                viewerReplySha256 = actual[1], exportReplySha256 = actual[0], packedAndFloatSerialParity = true,
+                scenario = pressure ? "pressure" : "room",
+                minimumExportResponseHoldMs = pressure ? 250 : 0,
+            }, new JsonSerializerOptions { WriteIndented = true }));
+            Console.WriteLine($"PASS: {checks} physical GPU admission assertions.");
+        }
+        finally { Environment.SetEnvironmentVariable("SPEKTRAFILM_ROOT", previousRoot); }
+    }
+
     private static async Task CheckGpu(string root)
     {
         var previousRoot = Environment.GetEnvironmentVariable("SPEKTRAFILM_ROOT");
@@ -613,7 +771,8 @@ internal static partial class Program
     private static byte[] Pixels(int count)
     {
         var bytes = new byte[count * 16];
-        for (var i = 0; i < count * 4; i++) BitConverter.GetBytes(i % 4 == 3 ? 1f : 0.2f).CopyTo(bytes, i * 4);
+        var samples = MemoryMarshal.Cast<byte, float>(bytes.AsSpan());
+        for (var i = 0; i < samples.Length; i++) samples[i] = i % 4 == 3 ? 1f : .2f;
         return bytes;
     }
     private static void Check(bool value, string name) { if (!value) throw new Exception(name); checks++; }
@@ -656,6 +815,7 @@ internal static partial class Program
                         maxPixels = scenario switch { "bad-limits" => 0, "limited-dimensions" => 1, _ => 100_000_000 },
                         packedDisplay = scenario != "no-packed",
                         requestCancellation = scenario.StartsWith("cooperative", StringComparison.Ordinal),
+                        gpuPlanSchema = scenario.StartsWith("gpu-plan", StringComparison.Ordinal) ? 1 : 0,
                         frameProgress = scenario.StartsWith("cooperative-progress", StringComparison.Ordinal)
                             && Environment.GetEnvironmentVariable("SPEKTRAFILM_REQUEST_PROGRESS") == "1",
                         parameterContract = scenario == "bad-contract" ? new string('z', 64) : Contract }),
@@ -665,6 +825,12 @@ internal static partial class Program
             if (tokens[0] != "REQUEST") return;
             var request = ulong.Parse(tokens[1], CultureInfo.InvariantCulture);
             var verb = tokens[2];
+            if (verb == "PLAN")
+            {
+                Reply(output, 0, "{\"schema\":1,\"adapter\":\"3980bc7b9d534ba3ba9f62b5f7cb97c4\",\"heap\":0,\"sharedPlanningBytes\":100,\"estimatedFullFrameBytes\":80}"u8.ToArray(), request: request);
+                File.WriteAllText("plan-received", "");
+                continue;
+            }
             if (verb == "METRICS")
             {
                 Reply(output, 0, "{\"schema\":1}"u8.ToArray(), request: scenario == "wrong-metrics-request" ? request + 1 : request);
@@ -707,9 +873,9 @@ internal static partial class Program
                 Thread.Sleep(10000);
                 return;
             }
-            if (scenario is "hang" or "gated") File.WriteAllText("request-received", "");
+            if (scenario is "hang" or "gated" or "gpu-plan" or "gpu-plan-gated") File.WriteAllText("request-received", "");
             if (scenario == "hang") { Thread.Sleep(10000); continue; }
-            if (scenario == "gated")
+            if (scenario is "gated" or "gpu-plan-gated")
             {
                 var started = Stopwatch.GetTimestamp();
                 while (!File.Exists("release-response") && Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(10))

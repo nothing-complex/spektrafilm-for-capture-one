@@ -14,6 +14,11 @@ struct VulkanMemoryBudget {
   uint64_t bytes = 0;
   bool dynamic = false;
   uint64_t reclaimableBytes = 0;
+  uint32_t heapIndex = UINT32_MAX;
+  uint64_t heapCapacityBytes = 0;
+  uint64_t heapBudgetBytes = 0;
+  uint64_t heapUsageBytes = 0;
+  uint64_t retainedBytes = 0;
 };
 
 class VulkanRenderer final : public Renderer {
@@ -29,6 +34,7 @@ public:
   const std::string &lastError() const override;
   void releaseTransientResources() override;
   VulkanMemoryBudget availableDeviceLocalMemory() const;
+  std::string deviceIdentifier() const;
   using CancellationProbe = bool (*)(const void *) noexcept;
   void setCancellationProbe(CancellationProbe probe, const void *context);
 

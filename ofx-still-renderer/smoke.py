@@ -153,6 +153,7 @@ def check_numbered_stream(exe, frame, base):
         assert status == 0 and capabilities["protocol"] == 2
         assert capabilities["requestHeaderBytes"] == 16 and capabilities["floatLayout"] == "rgba32f"
         assert capabilities["packedDisplay"] and capabilities["packedLayout"] == "bgra8"
+        assert capabilities["gpuPlanSchema"] == 1
         replies = []
         offset = 8 + length
         while offset < len(result.stdout):
@@ -175,6 +176,21 @@ def check_numbered_stream(exe, frame, base):
     metrics = json.loads(replies[4][2])
     assert metrics["renderSequence"] == 1 and (metrics["width"], metrics["height"]) == (13, 12)
     assert replies[5][2] == b""
+    plans = numbered(f"REQUEST 1 PLAN 13 12 {base}\nREQUEST 2 METRICS\nREQUEST 3 PLAN invalid 12\n".encode("ascii")
+                     + upload + f"REQUEST 8 PLAN 13 12 {base}\n".encode("ascii") + same_frame)
+    assert [(request, status) for request, status, _ in plans] == [(1, 0), (2, 0), (3, 1), (7, 0), (8, 0), (10, 0)]
+    cold, warm = (json.loads(plans[index][2]) for index in (0, 4))
+    assert json.loads(plans[1][2])["renderSequence"] == 0
+    assert cold["schema"] == warm["schema"] == 1 and cold["adapter"] == warm["adapter"]
+    if cold["adapter"] is not None:
+        assert len(cold["adapter"]) == 32 and int(cold["adapter"], 16) > 0
+        assert 0 <= cold["heap"] == warm["heap"] < 16
+        assert 0 < cold["planningBytes"] <= cold["heapCapacityBytes"]
+        assert cold["planningBytes"] <= cold["sharedPlanningBytes"] <= cold["heapCapacityBytes"]
+        assert cold["retainedBytes"] == 0 and warm["retainedBytes"] > 0
+        assert warm["reclaimableBytes"] <= warm["retainedBytes"]
+    assert cold["estimatedFullFrameBytes"] == warm["estimatedFullFrameBytes"] == metrics["estimatedFullFrameGpuBytes"]
+    assert plans[3][2] == plans[5][2] == replies[0][2]
     for command, request, error in (
         (b"REQUEST 7 METRICS\n", 0, b"repeated renderer request"),
         (b"METRICS\n", 0, b"Expected a numbered"),
@@ -186,7 +202,7 @@ def check_numbered_stream(exe, frame, base):
         frames = numbered(upload + command, exit_code=1)
         assert len(frames) == 2 and frames[0] == replies[0]
         assert frames[1][:2] == (request, 2) and error in frames[1][2], frames[1]
-    print("Protocol 2 validated request identity, exact reuse layout, packed output and fatal framing errors")
+    print("Protocol 2 validated pre-render planning, source reuse, packed output and fatal framing errors")
 
 
 def check_resource_root(exe, options):
