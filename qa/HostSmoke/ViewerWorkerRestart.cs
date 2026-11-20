@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -18,8 +19,11 @@ public static partial class StartupHook
         var priorEnabled = Field(spatial, "enabled") is true;
         var strength = Field(panel, "strength")!;
         var exposure = Field(panel, "exposure")!;
+        var enlarger = ((IDictionary)Field(spatial, "values")!)["enlarger-scale"]!;
+        var enlargerValue = enlarger.GetType().GetProperty("Value", Flags)!;
         var priorStrength = (double)Prop(strength, "Value")!;
         var priorExposure = (double)Prop(exposure, "Value")!;
+        var priorEnlarger = (double)enlargerValue.GetValue(enlarger)!;
         var viewer = Field(spatial, "viewer")!;
         var status = (TextBlock)Field(spatial, "status")!;
         var runtime = Path.GetFullPath(Environment.GetEnvironmentVariable("SPEKTRAFILM_ROOT")!);
@@ -78,11 +82,12 @@ public static partial class StartupHook
             var testEdit = priorExposure < 7.5 ? priorExposure + .23 : priorExposure - .23;
             var burstStarted = Stopwatch.GetTimestamp();
             var warmWorker = Field(spatial, "renderer")!;
-            async Task<int> Sequence(object renderer)
+            async Task<JsonElement> Metrics(object renderer)
             {
                 var metrics = await (Task<JsonElement?>)Call(renderer, "ReadDiagnosticsAsync", CancellationToken.None)!;
-                return metrics!.Value.GetProperty("renderSequence").GetInt32();
+                return metrics ?? throw new InvalidOperationException("The active worker did not publish its render metrics.");
             }
+            async Task<int> Sequence(object renderer) => (await Metrics(renderer)).GetProperty("renderSequence").GetInt32();
             var initialSequence = await Sequence(warmWorker);
             var latest = testEdit;
             try
@@ -125,6 +130,24 @@ public static partial class StartupHook
             }
             finally { drag.SelectedItem = previousDragSize; }
             await WaitFor(Settled, "The Viewer did not settle after restoring the drag preference.");
+            enlargerValue.SetValue(enlarger, 1.25d);
+            await WaitFor(Settled, "The actual 4096-pixel enlarger did not paint.");
+            var scaled = await Metrics(Field(spatial, "renderer")!);
+            var retained = scaled.GetProperty("enlargerCachedBytes").GetInt64();
+            var transformWorker = Worker()!.Id;
+            Check(retained is > 0 and <= 192L * 1024 * 1024 && ReferenceEquals(before, Field(spatial, "source")),
+                "the native enlarger produces a separate cached transformation of the immutable high-depth Viewer source");
+            enlargerValue.SetValue(enlarger, 1d);
+            await WaitFor(Settled, "The native Viewer did not return to identity geometry.");
+            var identity = await Metrics(Field(spatial, "renderer")!);
+            Check(identity.GetProperty("enlargerCachedBytes").GetInt64() == retained && Worker()!.Id == transformWorker,
+                "identity geometry retains the bounded private transformed pixels for this source");
+            enlargerValue.SetValue(enlarger, 1.25d);
+            await WaitFor(Settled, "The native Viewer did not restore the same enlarger settings.");
+            var restored = await Metrics(Field(spatial, "renderer")!);
+            Check(restored.GetProperty("enlargerCacheHit").GetBoolean() && restored.GetProperty("enlargerMs").GetDouble() == 0
+                && Worker()!.Id == transformWorker && ReferenceEquals(before, Field(spatial, "source")),
+                "returning to the same enlarger geometry skips CPU resampling in the active native Viewer");
             var priorFrame = Field(spatial, "viewerFrame")!;
             var firstWorker = Worker()!.Id;
 
@@ -147,11 +170,16 @@ public static partial class StartupHook
                 "automatic retry paints the exact durable generation without another edit or file write");
             Check(ReferenceEquals(before, Field(spatial, "source")),
                 "automatic retry reuses the exact high-depth source");
+            var rebuilt = await Metrics(Field(spatial, "renderer")!);
+            Check(rebuilt.GetProperty("enlargerCachedBytes").GetInt64() == retained
+                && !rebuilt.GetProperty("enlargerCacheHit").GetBoolean() && Equals(enlargerValue.GetValue(enlarger), 1.25d),
+                "the replacement worker rebuilds the exact transformed source and keeps the committed enlarger geometry");
             File.AppendAllText(Path.Combine(folder, "host-smoke.log"),
                 $"Viewer worker recovery took {Stopwatch.GetElapsedTime(lostAt).TotalMilliseconds:F1} ms after terminating the active child.{Environment.NewLine}");
 
             var recoveredWorker = Worker()!.Id;
             exposure.GetType().GetProperty("Value", Flags)!.SetValue(exposure, priorExposure);
+            enlargerValue.SetValue(enlarger, priorEnlarger);
             _ = await TerminateRunningChild(pid => pid == recoveredWorker);
             _ = await TerminateRunningChild(pid => pid != recoveredWorker);
             await WaitFor(() => Prop(spatial, "Health")?.ToString() == "ProcessingError" && Field(spatial, "pending") is null,

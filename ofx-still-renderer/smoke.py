@@ -265,30 +265,37 @@ def check_enlarger_cache(exe, frame, base):
         (source, brighter, reuse(brighter), True, True),
         (source, border, reuse(border), False, True),
         (source, maximum, reuse(maximum), False, True),
-        (source, base, reuse(base), False, False),
+        (source, base, reuse(base), False, True),
+        (source, maximum, reuse(maximum), True, True),
         (source, optics, reuse(optics), False, True),
         (second, optics, frame_request(second, optics), False, True),
         (second, brighter, reuse(brighter), True, True),
+        (second, base, reuse(base), False, True),
+        (source, base, frame_request(source, base), False, False),
+        (source, optics, reuse(optics), False, True),
     )
     replies = run_stream(exe, b"".join(c + b"METRICS\n" for _, _, c, _, _ in requests), mode="--native-preview-stream")
     assert len(replies) == 2 * len(requests) and all(status == 0 for status, _ in replies)
     previous = None
-    for index, (original, options, _, hit, transformed) in enumerate(requests):
+    previous_options = None
+    for index, (original, options, _, hit, retained) in enumerate(requests):
         payload = replies[index * 2][1]
         fresh, = run_stream(exe, frame_request(original, options), mode="--export-stream")
         assert fresh == (0, payload), ("cached versus fresh bit parity", index)
         metrics = json.loads(replies[index * 2 + 1][1])
         assert metrics["enlargerCacheHit"] == hit
-        assert metrics["enlargerCachedBytes"] == (source.nbytes if transformed else 0)
+        assert metrics["enlargerCachedBytes"] == (source.nbytes if retained else 0)
         if hit:
-            assert metrics["enlargerMs"] == 0 and metrics["uploadBytes"] == 0 and payload != previous, metrics
-        elif transformed:
+            expected_upload = source.nbytes if previous_options == base else 0
+            assert metrics["enlargerMs"] == 0 and metrics["uploadBytes"] == expected_upload and payload != previous, metrics
+        elif options != base:
             assert metrics["enlargerMs"] > 0 and metrics["uploadBytes"] >= source.nbytes
         if options == border:
             rgba = np.frombuffer(payload, dtype="<f4").reshape(source.shape)
             assert rgba[0, -1, 3] == 1 and 0 < rgba[height // 2, 0, 3] < 1
         previous = payload
-    print("Enlarger cache matched eight fresh renders byte for byte and skipped transform and upload on print edits")
+        previous_options = options
+    print("Enlarger cache matched twelve fresh renders, retained a small crop through identity and cleared it for a new source")
 
 
 def check_output_transfers(exe, frame, base):

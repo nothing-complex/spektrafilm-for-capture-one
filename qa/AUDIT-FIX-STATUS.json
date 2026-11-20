@@ -1759,18 +1759,24 @@
       "implemented": [
         "Native Viewer workers keep a single exact enlarger transform keyed by immutable source revision plus scale and XY shift. The GPU can keep using the transformed source on downstream edits; the original CPU frame remains available for identity, other geometry and later cold renders. Export and above-cap Viewer frames resample directly without duplicating the original.",
         "Vulkan tests matched eight cold renders bit for bit, changing source, scale and coordinates through odd dimensions, nonopaque alpha, opaque black border, identity and 32×. Warm print changes did no transform or upload. A 36 MP frame retained zero transformed bytes at the 512 MiB per-worker cap.",
-        "RTX 3090 warm median/p95 dropped from 24.79/25.64 to 9.35/9.74 ms at 1200×800, from 296.05/356.23 to 101.19/103.89 ms at 4095×2731 and from 610.38/718.78 to 216.42/231.10 ms at 6000×4000, using twelve requests per size. These are worker and pipe timings. Licensed Capture One passed 177 initial and 182 restart checks."
+        "RTX 3090 warm median/p95 dropped from 24.79/25.64 to 9.35/9.74 ms at 1200×800, from 296.05/356.23 to 101.19/103.89 ms at 4095×2731 and from 610.38/718.78 to 216.42/231.10 ms at 6000×4000, using twelve requests per size. These are worker and pipe timings. Licensed Capture One passed 177 initial and 182 restart checks.",
+        "Keep a previously transformed Viewer frame through identity only for the same immutable input and at most 192 MiB. Returning to the identical 4096 by 2731 enlargement skips a 117.64 ms CPU pass and changes one paired hashed response from 277.07 to 152.81 ms. The 4096 by 3073 frame exceeds the inactive cap and releases the transform. All six full payload hashes match audit.21. Twelve fresh-versus-cached transitions pass on each physical adapter.",
+        "The licensed 4096 px Viewer passes 47 stress assertions. It retains the same native RGB16 source through the identity round trip and skips CPU resampling when returning to the same enlargement. Its scoped worker interruption recovers the saved geometry, rebuilds the transform and repaints in a fresh worker. Native Export remains connected."
       ],
       "evidence_paths": [
         "qa/renderer-benchmark.py",
         ".test-results/enlarger-before-20261120.json",
         ".test-results/enlarger-after-20261120.json",
         ".test-results/enlarger-cache-smoke-20261120.log",
-        ".test-results/host-enlarger-cache-20261120/host-smoke.log"
+        ".test-results/host-enlarger-cache-20261120/host-smoke.log",
+        ".test-results/enlarger-toggle-continuity-20261120/identity-threshold.json",
+        ".test-results/enlarger-toggle-continuity-20261120/nvidia-focused.log",
+        ".test-results/enlarger-toggle-continuity-20261120/intel-focused.log",
+        ".test-results/host-enlarger-toggle-recovery-20261120/host-smoke.log"
       ],
       "remaining_work": [
         "Evaluate independent GPU residency for original and transformed sources when there is measured device headroom. The current upstream renderer has one source allocation and identity or changed geometry can need another upload.",
-        "Verify a forced interruption during the transformed-cache path on the licensed host and a second GPU."
+        "Extend the licensed transformed-cache interruption test to a second GPU and cover external memory pressure with multiple process contexts."
       ],
       "original_acceptance_tests": [
         "Existing reference_crop plus odd dimensions/outside-alpha/scale1/32x",

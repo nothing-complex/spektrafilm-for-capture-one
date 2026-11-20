@@ -984,6 +984,14 @@ Evidence is under `.test-results/optical-scratch-physical-20261120`, `.test-resu
 
 Evidence is in `.test-results/renderer-resident-halation-20261120/comparison.json`, `viewer-tiled-sync.json` and `export-tiled-sync.json` in that directory. The two worker hashes and every source-transfer decision are recorded.
 
+## Enlarger cache across identity and worker recovery
+
+- [x] Keep one unchanged input's cached enlarger geometry when returning temporarily to identity, with a separate 192 MiB inactive limit. At 4096 by 2731, returning to the exact transform eliminates the measured 117.64 ms of CPU resampling. The single paired hashed response changes from 277.07 to 152.81 ms. A 4096 by 3073 transform exceeds the limit and releases its cache. All six complete payload hashes match audit.21.
+- [x] Verify 12 fresh-versus-warm cases on both physical adapters, including replacement input, shifted borders, switch to identity and return to the last geometry. The existing graphics path uploads again when switching between original and transformed source buffers.
+- [x] Pass 47 native Viewer stress assertions including the actual 4096 px identity round trip. Terminate only the verified disposable renderer. The replacement reuses the native high-depth source, rebuilds the committed enlargement and repaints. The measured recovery is 1.26 s and native Export stays connected.
+
+Use `.test-results/enlarger-toggle-continuity-20261120/identity-threshold.json`, the adjacent GPU logs and `.test-results/host-enlarger-toggle-recovery-20261120/host-smoke.log`. This checkpoint is newer than the verified audit.21 ZIP.
+
 ## LUT control parity, legacy comparison and native cancellation
 
 - [x] Use the actual Cancel LUT export button after accepting a 65-point job and observing its private Vulkan worker. The two licensed runs returned in 2.24 and 2.36 ms after the click, cleared the output lease and preserved the prior destination with no staging residue. A follow-up 33-point LUT completed on the same path in each run. The native fixture injects only the destination choice. The full general suite passed 327 and 331 assertions.

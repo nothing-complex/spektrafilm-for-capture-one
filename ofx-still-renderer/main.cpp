@@ -589,6 +589,7 @@ struct EnlargerKey {
 
 struct EnlargerCache {
     static constexpr uint64_t maxBytes = 512ull * 1024 * 1024;
+    static constexpr uint64_t maxInactiveBytes = 192ull * 1024 * 1024;
     uint64_t sequence = 0; // Shared by original and transformed sources in this worker.
     uint64_t revision = 0;
     std::optional<EnlargerKey> key;
@@ -726,10 +727,10 @@ FrameMetrics renderFrame(Renderer &renderer, const InputFrame &input, RenderPara
     const auto height = input.size.height;
     const auto *pixels = input.pixels.data();
     auto revision = input.revision;
+    const uint64_t bytes = input.pixels.size() * sizeof(float);
     std::vector<float> enlarged;
     if (std::abs(params.enlargerScale - 1.0f) > 1.0e-6f) {
         const EnlargerKey key{input.revision, params.enlargerScale, params.enlargerOffsetXPercent, params.enlargerOffsetYPercent};
-        const uint64_t bytes = input.pixels.size() * sizeof(float);
         if (cache && cache->key && *cache->key == key) {
             metrics.enlargerCacheHit = true;
         } else {
@@ -752,7 +753,10 @@ FrameMetrics renderFrame(Renderer &renderer, const InputFrame &input, RenderPara
             revision = 0;
         }
     } else if (cache && cache->key) {
-        cache->clear();
+        if (cache->key->sourceRevision != input.revision || bytes > EnlargerCache::maxInactiveBytes)
+            cache->clear();
+        else
+            metrics.enlargerCachedBytes = bytes;
     }
 
     const int rowBytes = width * 4 * sizeof(float);
