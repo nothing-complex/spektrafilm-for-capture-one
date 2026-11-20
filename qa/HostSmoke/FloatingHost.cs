@@ -223,6 +223,9 @@ public static partial class StartupHook
     [DllImport("user32.dll")]
     private static extern nint GetForegroundWindow();
 
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern nint SendMessageW(nint handle, uint message, nint wParam, nint lParam);
+
     private static async Task TestFloatingWorkArea(Assembly assembly, object hosted, object panel)
     {
         var nativeBounds = assembly.GetType("FloatingWindowBounds", true)!;
@@ -260,6 +263,20 @@ public static partial class StartupHook
             Check(Math.Abs(second.Rect.Left - first.Rect.Left) <= 2 && Math.Abs(second.Rect.Top - first.Rect.Top) <= 2
                 && Math.Abs(second.Rect.Width - first.Rect.Width) <= 2 && Math.Abs(second.Rect.Height - first.Rect.Height) <= 2,
                 "reopening the docked tool restores the corrected native floating bounds");
+            var handle = new WindowInteropHelper(second.Window).Handle;
+            Check(read(handle, out var previous, out var area), "the attached floater has a real monitor work area");
+            var move = nativeBounds.GetMethod("SetWindowPos", Flags)!;
+            const uint noZOrderOrActivation = 0x0004 | 0x0010;
+            Check(move.Invoke(null, new object[] { handle, (nint)0, area.Right + 80, area.Bottom + 80,
+                previous.Width, previous.Height, noZOrderOrActivation }) is true
+                && read(handle, out var relocated, out _) && !area.IntersectsWith(relocated),
+                "the disposable floater is outside its monitor work area before the display-change event");
+            var foreground = GetForegroundWindow();
+            SendMessageW(handle, 0x007e, 32, (nint)((area.Height << 16) | area.Width));
+            await second.Window.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+            Check(read(handle, out var clamped, out var changedArea) && changedArea.Contains(clamped)
+                && GetForegroundWindow() == foreground && ReferenceEquals(((ScrollViewer)Field(hosted, "floatingScroll")!).Content, panel),
+                "the display-change handler fits the same floating panel without activating or reopening it");
         }
         finally
         {

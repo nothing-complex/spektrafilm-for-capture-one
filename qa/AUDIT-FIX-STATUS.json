@@ -1139,7 +1139,8 @@
         "A changed native callback name failed before any mutation. Detach restored each native callback exactly once, repeated detach preserved both invocation lists, and reattachment reported Connected. The exact audit.15 build and current source each passed 39 checks on first launch and restart.",
         "Both native Export commands passed on DNG/sRGB, CR3/Adobe RGB, RAF/ProPhoto and NEF/Linear Rec.2020, all using the exact Adobe RGB recipe profile at 6.00–7.53 MP in RGB48 TIFF and RGBA64 PNG. Across 32 accepted outputs and 159 assertions each at first launch and restart, film changed mean RGB code by 6.23–11.66% of full scale and camera diffusion added 2.43–4.76%. Native command outputs differed by at most 1.21e-6 mean full-scale code.",
         "Both real native Export commands passed with film, camera diffusion, halation and scatter active together. Native TIFF and previous-settings PNG matched within 8.81e-7 mean full-scale RGB, retained exact Adobe RGB and reopened at 16 bits. Across four cameras and two launches the fixture passed 191 assertions each and accepted 40 outputs. Halation plus scatter alone added 0.095–0.892% mean full-scale RGB change.",
-        "Native batch preflight now checks selected secondary variants when the primary is disabled. An enabled or unresolved saved secondary look prevents silent native fallback. With real Browser selection, the production bridge flags a mixed batch, delegates primary-only and all-disabled selection, and permits the enabled secondary to export alone. The actual four-RAW commands still apply the effects across 40 accepted 16-bit files and pass 213 assertions per launch."
+      "Native batch preflight now checks selected secondary variants when the primary is disabled. An enabled or unresolved saved secondary look prevents silent native fallback. With real Browser selection, the production bridge flags a mixed batch, delegates primary-only and all-disabled selection, and permits the enabled secondary to export alone. The actual four-RAW commands still apply the effects across 40 accepted 16-bit files and pass 213 assertions per launch.",
+      "Check the primary variant's saved state while its look controls are loading. Both native routes wait for a ready look when effects would otherwise be lost. An explicitly disabled displayed look still delegates while its state file is temporarily locked. The licensed fixture verifies these routing decisions directly and passes 215 assertions per launch, including 40 accepted 16-bit files from the actual native commands with film and optics."
       ],
       "evidence_paths": [
         "NativePanel/StartupHook.cs",
@@ -1156,7 +1157,10 @@
         ".test-results/host-composed-native-effects-20261120/host-smoke.log",
         ".test-results/host-composed-native-effects-20261120/restart-DNG-native-effect-export.json",
         ".test-results/host-native-export-mixed-selection-20261120/first-export-selection.json",
-        ".test-results/host-native-export-mixed-selection-20261120/restart-export-selection.json"
+      ".test-results/host-native-export-mixed-selection-20261120/restart-export-selection.json",
+      ".test-results/host-saved-look-export-guard-off-lock-20261120/first-export-selection.json",
+      ".test-results/host-saved-look-export-guard-off-lock-20261120/restart-export-selection.json",
+      ".test-results/host-saved-look-export-guard-off-lock-20261120/host-smoke.log"
       ],
       "remaining_work": [
         "Extend confirmation-stage diagnostics when the independent 16.7 compatibility work establishes a supported native adapter."
@@ -1588,7 +1592,8 @@
         "Both native Export routes prefill the selected Capture One recipe's resolved filename stem. The first and restarted host pass 62 checks each, including comparison to the actual Capture One Naming tool in the real Export dialog and confirmation that the output counter is unchanged. Save still approves a TIFF or PNG destination and refuses the original path.",
         "Save suggests the existing native recipe root or resolved child directory. The licensed run agrees with Capture One's real Location tool for Recipe Name token resolution, preserves a nested literal path and leaves a missing directory uncreated. Both launches pass 87 checks and commit six RGB48 effects TIFFs to the exact approved fixture folders. All nine backed-up recipe files independently verify after each launch.",
         "Both native Export routes preserve the film look and composed optics with the tool tab hidden or the real tool floating. Eight RGB48 TIFFs retain the selected recipe ICC and match the docked reference within 1.05e-6 mean full-scale RGB. Each licensed launch passes 96 checks.",
-        "Read the typed Existing Files setting and honor the Add Suffix hint in the resolved existing recipe folder. On both launches, the real native commands offer suffixes 2 and 4 after checking occupied files and directories, preserve earlier entries and deliver the composed 16-bit look with the selected ICC. Both launches pass 105 assertions and verify all nine recipe files. The independent decoder measures less than 7.35e-7 mean full-scale difference across 18 million channel codes per pair."
+        "Read the typed Existing Files setting and honor the Add Suffix hint in the resolved existing recipe folder. On both launches, the real native commands offer suffixes 2 and 4 after checking occupied files and directories, preserve earlier entries and deliver the composed 16-bit look with the selected ICC. Both launches pass 105 assertions and verify all nine recipe files. The independent decoder measures less than 7.35e-7 mean full-scale difference across 18 million channel codes per pair.",
+        "Both real native commands export the composed 16-bit look through selected sRGB, ProPhoto RGB and linear Rec.2020 recipes, embedding each exact ICC. Both launches pass 108 assertions and preserve all nine original recipe files. An independent matrix and tone-curve decode samples 122,694 pixels per comparison in D50 Lab and measures highest p95 Delta E 2000 of 0.364 and maximum 0.885 across twelve outputs."
       ],
       "evidence_paths": [
         "NativePanel/SpektraFilmTool.cs",
@@ -1617,10 +1622,12 @@
         ".test-results/host-native-location-accepted-paths-20261120",
         ".test-results/host-native-export-hidden-and-floating-20261120",
         ".test-results/host-native-recipe-suffix-effects-20261120/independent-rgb16.json",
-        ".test-results/host-native-suffix-raw-matrix-20261120/host-smoke.log"
+        ".test-results/host-native-suffix-raw-matrix-20261120/host-smoke.log",
+        ".test-results/host-native-output-profiles-20261120/independent-icc-matrix-trc.json",
+        ".test-results/host-native-output-profiles-20261120/host-smoke.log"
       ],
       "remaining_work": [
-        "Compare selected RGB recipe output against additional native profile references. Directory creation and the full location token matrix, native counter advancement, automatic Skip/Overwrite behavior, tiling and other format and quality settings beyond the explicit 16-bit TIFF/PNG save policy remain open."
+        "Directory creation and the full location token matrix, native counter advancement, automatic Skip/Overwrite behavior, tiling and other format and quality settings beyond the explicit 16-bit TIFF/PNG save policy remain open."
       ],
       "original_acceptance_tests": [
         "Table-driven JPEG, PNG, TIFF 8/16-bit, unknown-format, custom ICC, image-folder/custom-folder/subfolder/token/suffix and duplicate-name cases.",
@@ -2310,7 +2317,7 @@
       "id": "HS-14",
       "title": "Floating placement and section layout reset each launch",
       "priority": "P2",
-      "status": "partial",
+      "status": "implemented",
       "implemented": [
         "Floating bounds are persisted at close/dispose and restored with an offscreen fallback; quality preferences are independent of looks.",
         "Stable section keys persist comparison-independent expand/collapse state. Nested events leave ancestor state intact. Floating scroll and bounds survive reopen; the isolated store test covers legacy and future preference data.",
@@ -2318,7 +2325,8 @@
         "The actual Capture One floating DockableWindow is fitted inside its current monitor work area without replacing the tool controls. Placement is stored before WPF destroys the native window. The same panel docked, reopened at the fitted position, and docked again on both licensed launches. Pure contracts also cover an oversized window, negative monitor coordinates and invalid work areas.",
         "A licensed workspace test switches to an ordinary Capture One tab while the docked Spektrafilm controls are hidden, then opens the native floating window. The live Viewer keeps painting the look and both native Export commands produce the same processed image in each layout. The two launches restore the original selected tab and docked tool.",
         "Store open/docked mode, bounds and vertical scroll by the typed native workspace identity. Track workspace changes through its event and release the subscription and pending operation during teardown. Restore a saved floating DockableWindow without activation and use manual sizing for its saved height. A simulated second identity on the real window and a real Default workspace restart passed 22 and 19 assertions, retaining 366.4 by 300 DIP placement and 96 DIP scroll. Windows contracts passed 12,398 Viewer and export assertions. The licensed workspace change passed 717 lifecycle assertions across 100 cycles and 104 native effect and layout export assertions on each launch.",
-        "Capture One reports one shared internal name for different custom workspaces. Key their layouts separately through the custom label and refresh the native attachment before restoring after a workspace event. The licensed manager switches between two real custom presets and returns to a single passive floater. Both native commands apply film and optics in the restored workspace, producing five verified 16-bit files. The fixture passes 68 assertions, both named workspace files match verified backups and the independent preference scope fixture passes. An independent decoder compares 18 million codes per output pair and measures 7.32e-7 mean full-scale difference between commands. Passive restore again passes 22/19 assertions, concurrent native catalogs pass 33 and Windows contracts pass 12,400 Viewer and export assertions."
+        "Capture One reports one shared internal name for different custom workspaces. Key their layouts separately through the custom label and refresh the native attachment before restoring after a workspace event. The licensed manager switches between two real custom presets and returns to a single passive floater. Both native commands apply film and optics in the restored workspace, producing five verified 16-bit files. The fixture passes 68 assertions, both named workspace files match verified backups and the independent preference scope fixture passes. An independent decoder compares 18 million codes per output pair and measures 7.32e-7 mean full-scale difference between commands. Passive restore again passes 22/19 assertions, concurrent native catalogs pass 33 and Windows contracts pass 12,400 Viewer and export assertions.",
+      "Observe display and DPI change messages on the live floating window, coalesce the fit after WPF layout, and detach its hook and pending operation on close. The licensed fixture moves its own real floating window fully offscreen, sends a simulated display-change notification, and verifies that the same control and HWND return inside the work area without stealing focus. Both general runs pass 347/351 checks. With the new hook active, all tracked retired objects still become collectible across the 717-check, 100-cycle lifetime fixture. Workspace state, native skin and no-activation restore are the bounded implemented milestone."
       ],
       "evidence_paths": [
         "NativePanel/PanelPreferences.cs",
@@ -2343,10 +2351,12 @@
         ".test-results/host-workspace-passive-restart-20261120/host-smoke.log",
         ".test-results/host-workspace-preference-scope-20261120/proof-settings-receipt.json",
         ".test-results/scoped-workspace-preferences-20261120/result.json",
-        ".test-results/contracts-custom-workspace-identity-20261120/summary.json"
+        ".test-results/contracts-custom-workspace-identity-20261120/summary.json",
+      ".test-results/host-floating-display-change-20261120/host-smoke.log",
+      ".test-results/host-floating-display-lifetime-20261120/native-tool-lifetime.json"
       ],
       "remaining_work": [
-        "Verify additional native preset types. Exercise physical mixed-DPI monitors, display removal, RDP, narrow/wide panels and keyboard focus."
+        "Verify additional native preset types, keyboard navigation across floating sizes and physical mixed-DPI monitor moves, display removal and RDP. The licensed display-change test uses a synthetic message and real window geometry."
       ],
       "original_acceptance_tests": [
         "100/150/200% DPI, two monitors then one, RDP reconnect, close/reopen, panel narrow/wide, keyboard traversal and modeless focus."
@@ -3451,8 +3461,8 @@
   ],
   "counts": {
     "total": 70,
-    "implemented": 36,
-    "partial": 34,
+    "implemented": 37,
+    "partial": 33,
     "pending": 0
   },
   "last_reconciled": "2026-11-20",

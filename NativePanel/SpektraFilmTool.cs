@@ -68,11 +68,15 @@ internal static class SpektraFilmTool
 
     internal sealed class HostedTool : IDisposable
     {
+        private const int DisplayChangeMessage = 0x007e;
+        private const int DpiChangeMessage = 0x02e0;
         private static readonly Uri CaptureOneStyle = new("pack://application:,,,/CaptureOne;component/WPF/Styles/DefaultStyle.xaml");
         private readonly System.Windows.Forms.Form mainWindow;
         private readonly LookPanel panel;
         private DockableWindow? floating;
         private ScrollViewer? floatingScroll;
+        private HwndSource? floatingSource;
+        private DispatcherOperation? floatingWorkAreaUpdate;
         private Rect? floatingBounds;
         private double floatingScrollOffset;
         private IWorkspaceManager? workspaceManager;
@@ -242,7 +246,10 @@ internal static class SpektraFilmTool
                 Holder.Content = null;
                 scroll.Content = panel;
                 window.Show();
-                FloatingWindowBounds.KeepVisible(new WindowInteropHelper(window).Handle);
+                var handle = new WindowInteropHelper(window).Handle;
+                floatingSource = HwndSource.FromHwnd(handle);
+                floatingSource?.AddHook(OnFloatingDisplayChange);
+                FloatingWindowBounds.KeepVisible(handle);
                 if (double.IsFinite(floatingScrollOffset) && floatingScrollOffset > 0)
                     scroll.ScrollToVerticalOffset(floatingScrollOffset);
                 if (activate && workspaceKey is not null)
@@ -309,6 +316,24 @@ internal static class SpektraFilmTool
                 SaveFloatingPlacement(window, open: false);
         }
 
+        private nint OnFloatingDisplayChange(nint handle, int message, nint wParam, nint lParam, ref bool handled)
+        {
+            var dispatcher = DockedContent.Dispatcher;
+            if (message is not (DisplayChangeMessage or DpiChangeMessage) || disposed || dispatcher.HasShutdownStarted
+                || floatingWorkAreaUpdate?.Status == DispatcherOperationStatus.Pending)
+                return 0;
+
+            // Let WPF apply its normal DPI and layout changes before fitting the window.
+            floatingWorkAreaUpdate = dispatcher.InvokeAsync(() =>
+            {
+                floatingWorkAreaUpdate = null;
+                if (!disposed && floatingSource is { IsDisposed: false } source && source.Handle == handle
+                    && floating is { IsVisible: true, WindowState: WindowState.Normal })
+                    FloatingWindowBounds.KeepVisible(handle);
+            }, DispatcherPriority.ApplicationIdle);
+            return 0;
+        }
+
         private void OnFloatingClosed(object? sender, EventArgs args)
         {
             if (sender is not DockableWindow window || !ReferenceEquals(window, floating))
@@ -339,6 +364,10 @@ internal static class SpektraFilmTool
 
         private void RestoreDock(DockableWindow window)
         {
+            floatingWorkAreaUpdate?.Abort();
+            floatingWorkAreaUpdate = null;
+            if (floatingSource is { IsDisposed: false } source) source.RemoveHook(OnFloatingDisplayChange);
+            floatingSource = null;
             window.Closing -= OnFloatingClosing;
             window.Closed -= OnFloatingClosed;
             if (floatingScroll is not null)
@@ -806,6 +835,8 @@ internal static class SpektraFilmTool
         internal bool IsSpektraExportActive => SyncSelection() && IsSpektraFilmEnabled;
         internal bool WouldLoseSavedLook(Guid variant)
         {
+            if (displayedVariant == variant && displayedLook is { Enabled: false } && !looks.IsBlocked(variant))
+                return false;
             var outcome = looks.ReadOutcome(variant);
             return outcome.ReadOnly || outcome.Look?.Enabled == true;
         }

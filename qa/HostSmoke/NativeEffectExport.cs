@@ -76,12 +76,25 @@ public static partial class StartupHook
             selection.Select(secondary, secondary);
             Check(Guarded(true) && Call(bridge, "HasSingleSelection", true) is true,
                 "selecting the active variant alone can use the Spektrafilm export route");
+            var options = panel.GetType().GetField("options", Flags)!;
+            var loaded = options.GetValue(panel);
+            try
+            {
+                options.SetValue(panel, null);
+                Check(Prop(panel, "IsSpektraExportActive") is false && Guarded(false),
+                    "the persisted enabled look keeps native Export guarded while the selected panel is loading");
+            }
+            finally { options.SetValue(panel, loaded); }
             toggle.IsChecked = false;
             selection.Select(primary, primary, secondary);
             Check(!Guarded(true), "a real multiple-variant selection with both masters off delegates to Capture One");
+            var lookPath = (string)Call(Field(panel, "looks")!, "GetPath", primary)!;
+            using (var locked = File.Open(lookPath, FileMode.Open, FileAccess.Read, FileShare.None))
+                Check(!Guarded(false), "an explicitly disabled primary still delegates while its saved file is temporarily locked");
             Check(Equals(lastJob, Call(jobs, "ReadLatest")), "selection eligibility neither accepted a job nor changed the last completed export");
             File.WriteAllText(Path.Combine(folder, phase + "-export-selection.json"),
-                JsonSerializer.Serialize(new { mixedBatchGuarded = true, primaryOnlyDelegated = true, allDisabledDelegated = true }));
+                JsonSerializer.Serialize(new { mixedBatchGuarded = true, primaryOnlyDelegated = true, allDisabledDelegated = true,
+                    loadingSavedLookGuarded = true, disabledWithLockedStateDelegated = true }));
         }
         finally
         {
@@ -96,7 +109,7 @@ public static partial class StartupHook
 
     private static async Task TestNativeEffectExport(FieldInfo hookField, object hosted, object panel, object spatial, object window,
         string caseName, bool compareGrain = false, bool compareClone = false, bool compareCompression = false,
-        bool compareFolders = false, bool comparePanelModes = false)
+        bool compareFolders = false, bool comparePanelModes = false, bool compareProfiles = false)
     {
         var toggle = (CheckBox)Field(panel, "enableSpektraFilm")!;
         var inputEncoding = (string)Prop(((ComboBox)Field(spatial, "inputSpace")!).SelectedItem, "Id")!;
@@ -219,6 +232,7 @@ public static partial class StartupHook
 
             var grain = compareGrain ? await CompareGrain(fullEffects) : null;
             var compressionComparison = compareCompression ? await CompareCompression(fullEffects) : null;
+            var outputProfiles = compareProfiles ? await CompareOutputProfiles() : null;
             if (compareFolders) await CheckFolders();
             var panelModes = comparePanelModes ? await ComparePanelModes(fullEffects) : null;
             if (compareGrain) await CheckReadOnlyDestination();
@@ -233,7 +247,7 @@ public static partial class StartupHook
                 return true;
             });
             var expectedRoutes = 5 + (compareGrain ? 8 : 0) + (compareCompression ? 6 : 0)
-                + (compareFolders ? 5 : 0) + (comparePanelModes ? 6 : 0);
+                + (compareFolders ? 5 : 0) + (comparePanelModes ? 6 : 0) + (compareProfiles ? 6 : 0);
             Check(clicked && routeCount == expectedRoutes && Prop(bridge, "Dialog") is null,
                 "the master switch delegates to the ordinary Capture One Export dialog without a Spektrafilm job");
             ((IDisposable)bridge).Dispose();
@@ -243,7 +257,7 @@ public static partial class StartupHook
             File.WriteAllText(Path.Combine(folder, caseName + "-native-effect-export.json"), JsonSerializer.Serialize(new
             {
                 width = expectedWidth, height = expectedHeight, iccSha256 = iccSha, tiffCompression = compression.ToString(),
-                filmDifference, opticsDifference, halationScatterDifference, commandDifference, grain, compressionComparison, panelModes,
+                filmDifference, opticsDifference, halationScatterDifference, commandDifference, grain, compressionComparison, panelModes, outputProfiles,
                 nativeExportCallbacks = routeCount, masterOffDelegated = clicked, timings,
             }, new JsonSerializerOptions { WriteIndented = true }));
 
@@ -477,6 +491,52 @@ public static partial class StartupHook
                     throw new InvalidOperationException("The verified host recipe notification guard is unavailable.");
                 notifications = guard;
                 return selected;
+            }
+
+            async Task<object> CompareOutputProfiles()
+            {
+                var selected = SelectedRecipeForTest(out var notifications);
+                var path = selected.GetType().GetProperty("ColorProfilePath", Flags)!;
+                var original = path.GetValue(selected);
+                var appDirectory = Path.GetDirectoryName(window.GetType().Assembly.Location)!;
+                var profileDirectory = Path.Combine(Environment.GetEnvironmentVariable("SPEKTRAFILM_ROOT")!, "profiles", "preview");
+                var comparisons = new List<object>();
+                BitmapSource? srgbReference = null;
+                notifications.SetValue(selected, true);
+                try
+                {
+                    foreach (var (label, profile) in new[]
+                    {
+                        ("srgb", Path.Combine(appDirectory, "Color Profiles", "Common", "sRGB Color Space Profile.icm")),
+                        ("prophoto", Path.Combine(profileDirectory, "ProPhoto RGB.icc")),
+                        ("linear-rec2020", Path.Combine(profileDirectory, "Linear Rec.2020.icc")),
+                    })
+                    {
+                        path.SetValue(selected, profile);
+                        var captured = host.GetMethod("ActiveRecipe", Flags)!.Invoke(null, new[] { window })!;
+                        Check(Equals(Prop(captured, "ColorProfilePath"), profile), $"the actual selected native recipe uses the {label} profile");
+                        var digest = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(profile)));
+                        var tiff = await Render("profile-" + label + "-export", ".tif", false, expectedProfileSha: digest);
+                        var png = await Render("profile-" + label + "-previous", ".png", true, expectedProfileSha: digest);
+                        var parity = Difference(tiff, png);
+                        Check(parity.Mean < 8d / 65535 && parity.Maximum < .01,
+                            $"both native {label} exports preserve the same high-depth processed RGB");
+                        srgbReference ??= tiff;
+                        var codeDifference = Difference(srgbReference, tiff);
+                        if (label != "srgb")
+                            Check(codeDifference.Mean > .005, $"the native {label} result converts RGB codes away from the sRGB reference");
+                        comparisons.Add(new { label, profileSha256 = digest, nativeCommandDifference = parity,
+                            storedCodeDifferenceFromSrgb = codeDifference });
+                    }
+                }
+                finally
+                {
+                    try { path.SetValue(selected, original); }
+                    finally { notifications.SetValue(selected, false); }
+                }
+                Check(Equals(path.GetValue(selected), original) && notifications.GetValue(selected) is false,
+                    "the native recipe's original profile and notifications are restored");
+                return comparisons;
             }
 
             async Task<object> CompareCompression(BitmapSource reference)
@@ -763,7 +823,7 @@ public static partial class StartupHook
 
             async Task<BitmapSource> Render(string kind, string extension, bool usePrevious, bool closeAfterAcceptance = false,
                 TiffCompressOption? expectedCompression = null, string? expectedNativeLocation = null,
-                string? fixtureOutputDirectory = null, string? fixtureOutputFileName = null)
+                string? fixtureOutputDirectory = null, string? fixtureOutputFileName = null, string? expectedProfileSha = null)
             {
                 var before = routeCount;
                 job = null;
@@ -816,7 +876,7 @@ public static partial class StartupHook
                     && frame.PixelWidth == expectedWidth && frame.PixelHeight == expectedHeight && frame.ColorContexts is { Count: 1 },
                     $"{kind} reopens as the expected 16-bit format at the selected recipe dimensions");
                 using var icc = frame.ColorContexts![0].OpenProfileStream();
-                Check(Convert.ToHexString(SHA256.HashData(icc)) == iccSha, $"{kind} embeds the exact selected recipe ICC");
+                Check(Convert.ToHexString(SHA256.HashData(icc)) == (expectedProfileSha ?? iccSha), $"{kind} embeds the exact selected recipe ICC");
                 if (extension == ".tif")
                 {
                     var compressionTag = (frame.Metadata as BitmapMetadata)?.GetQuery("/ifd/{ushort=259}");

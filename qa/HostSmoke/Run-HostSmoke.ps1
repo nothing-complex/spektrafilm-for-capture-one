@@ -32,6 +32,7 @@ param(
     [switch] $NativeEffectExportMatrix,
     [switch] $NativeEffectGrain,
     [switch] $NativeEffectCompression,
+    [switch] $NativeEffectOutputProfiles,
     [switch] $NativeEffectFolders,
     [switch] $NativeEffectPanelModes,
     [switch] $NativeEffectClone,
@@ -49,7 +50,7 @@ if ($SavedLooksBackup -and (!$NativeSettingsConfig -or $UpgradeFromPackage -or $
     throw 'Moved-catalog look verification requires a single disposable catalog and a native preferences backup.'
 }
 if ($NativeEffectClone) { $NativeEffectGrain=$true; $SkipRestart=$true }
-$isolatedEffects=@($NativeEffectCompression,$NativeEffectFolders,$NativeEffectPanelModes) | Where-Object { $_ }
+$isolatedEffects=@($NativeEffectCompression,$NativeEffectOutputProfiles,$NativeEffectFolders,$NativeEffectPanelModes) | Where-Object { $_ }
 if ($isolatedEffects -and (!$NativeSettingsConfig -or $NativeEffectGrain -or $NativeEffectExportMatrix -or
     $UpgradeFromPackage -or @($isolatedEffects).Count -ne 1)) {
     throw 'A native recipe or workspace fixture needs its own selected recipe and a verified preferences backup.'
@@ -418,7 +419,7 @@ if ($NativeSettingsConfig) {
 }
 $nativeRecipes=$null
 $recipeHashes=@{}
-if ($NativeEffectCompression -or $NativeEffectFolders) {
+if ($NativeEffectCompression -or $NativeEffectOutputProfiles -or $NativeEffectFolders) {
     $nativeRecipes=Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'CaptureOne\Recipes143'
     $recipeRoot=Get-Item -LiteralPath $nativeRecipes -Force
     if (!$recipeRoot.PSIsContainer -or ($recipeRoot.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
@@ -505,7 +506,7 @@ if($CatalogIsolation -or $ConcurrentCatalogs){
 if ($SavedLooksBackup) {
     $SavedLooksBackup=(Resolve-Path -LiteralPath $SavedLooksBackup).ProviderPath
     $allowUpdated=@{AllowUpdatedCatalog=[bool]$SavedLooksFromUpdatedCatalog}
-    & (Join-Path $root 'Restore-SpektrafilmCatalog.ps1') -BackupDatabase $SavedLooksBackup -DestinationDatabase $catalog `
+    & (Join-Path $runtimeSource 'Restore-SpektrafilmCatalog.ps1') -BackupDatabase $SavedLooksBackup -DestinationDatabase $catalog `
         -UserDataRoot $folder -SavedLooksOnly -Apply @allowUpdated
     if ((Get-FileHash -LiteralPath $catalog).Hash -ne $sourceHash) { throw 'The saved-look restore wrote to the copied catalog.' }
 }
@@ -591,7 +592,7 @@ try {
     $env:SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX=if($NativeSourceMutations){'source-mutations'}elseif($ColorMatrix){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_VIEWER_STRESS=if($ViewerStress){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_PANEL_INVENTORY=if($PanelInventory){'1'}else{$null}
-    $env:SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT=if($NativeEffectExportMatrix){'matrix'}elseif($NativeEffectClone){'clone'}elseif($NativeEffectGrain){'grain'}elseif($NativeEffectCompression){'compression'}elseif($NativeEffectFolders){'folders'}elseif($NativeEffectPanelModes){'panel-modes'}elseif($NativeEffectExport){'1'}else{$null}
+    $env:SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT=if($NativeEffectExportMatrix){'matrix'}elseif($NativeEffectClone){'clone'}elseif($NativeEffectGrain){'grain'}elseif($NativeEffectCompression){'compression'}elseif($NativeEffectOutputProfiles){'profiles'}elseif($NativeEffectFolders){'folders'}elseif($NativeEffectPanelModes){'panel-modes'}elseif($NativeEffectExport){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_MOVED_LOOK_BACKUP=$SavedLooksBackup
     $env:SPEKTRAFILM_EXPECTED_CONTROL_INVENTORY=Join-Path $root 'qa\panel-controls.json'
     $env:SPEKTRAFILM_SHOW_TOOL=if($ShowTool){'1'}else{$null}

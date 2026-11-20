@@ -89,12 +89,14 @@ internal sealed class ExportHook : IDisposable
     private bool RequiresSpektrafilm(bool editMultiple)
     {
         if (isActive()) return true;
-        // A primary variant with its master switch off still participates in a
-        // native batch alongside other variants with their own saved looks.
-        return editMultiple && document is ISelectedCollectionsProvider
+        if (document is not ISelectedCollectionsProvider
         {
-            PrimarySelectedCollectionSelection: { PrimaryVariant: { } primary, SelectedVariants: { Count: > 1 } selected },
-        } && selected.Any(variant => variant.UUID != primary.UUID && wouldLoseSavedLook(variant.UUID));
+            PrimarySelectedCollectionSelection: { PrimaryVariant: { } primary } selection,
+        }) return false;
+
+        // An enabled saved look can exist while the panel is still loading it.
+        return wouldLoseSavedLook(primary.UUID) || editMultiple && selection.SelectedVariants is { Count: > 1 } selected
+            && selected.Any(variant => variant.UUID != primary.UUID && wouldLoseSavedLook(variant.UUID));
     }
 
     private void OpenDialog(Command command, bool editMultiple)
@@ -106,13 +108,8 @@ internal sealed class ExportHook : IDisposable
                 normal.Original(command, editMultiple);
                 return;
             }
-            if (Busy || dialog is not null || !CheckConfirmationSupport())
+            if (Busy || dialog is not null || !CheckConfirmationSupport() || !CheckLookReady(editMultiple))
                 return;
-            if (!HasSingleSelection(editMultiple))
-            {
-                Warn("Select one variant to export with Spektrafilm.");
-                return;
-            }
 
             var factory = PrepareDialog(editMultiple);
             try { factory.Show(window); }
@@ -132,12 +129,7 @@ internal sealed class ExportHook : IDisposable
                 return false;
             if (!RequiresSpektrafilm(editMultiple))
                 return native();
-            if (!HasSingleSelection(editMultiple))
-            {
-                Warn("Select one variant to export with Spektrafilm.");
-                return false;
-            }
-            if (!CheckRecipe())
+            if (!CheckLookReady(editMultiple) || !CheckRecipe())
                 return false;
             _ = ExportAsync();
         }
@@ -158,12 +150,7 @@ internal sealed class ExportHook : IDisposable
                 previous.Original(command, editMultiple);
                 return;
             }
-            if (!HasSingleSelection(editMultiple))
-            {
-                Warn("Select one variant to export with Spektrafilm.");
-                return;
-            }
-            if (!Busy && dialog is null && CheckConfirmationSupport() && CheckRecipe())
+            if (!Busy && dialog is null && CheckConfirmationSupport() && CheckLookReady(editMultiple) && CheckRecipe())
                 _ = ExportAsync();
         }
         catch (Exception error)
@@ -175,6 +162,18 @@ internal sealed class ExportHook : IDisposable
     private bool HasSingleSelection(bool editMultiple) =>
         document is ISelectedCollectionsProvider { PrimarySelectedCollectionSelection: { PrimaryVariant: not null } selection }
         && (!editMultiple || selection.SelectedVariants?.Count == 1);
+
+    private bool CheckLookReady(bool editMultiple)
+    {
+        if (!HasSingleSelection(editMultiple))
+        {
+            Warn("Select one variant to export with Spektrafilm.");
+            return false;
+        }
+        if (isActive()) return true;
+        Warn("Wait for the saved Spektrafilm look to load. Open the tool to see its status.");
+        return false;
+    }
 
     private bool CheckConfirmationSupport()
     {
