@@ -1,11 +1,14 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -24,12 +27,17 @@ public static partial class StartupHook
             ("camera-diffusion-strength", 1.375m, 1.375), ("camera-diffusion-warmth", -.375m, -.375),
         };
         var original = Call(spatial, "CaptureSettings")!;
-        var cameraFilter = (ComboBox)((IDictionary)Field(spatial, "choices")!)["camera-diffusion-family"]!;
+        var choices = (IDictionary)Field(spatial, "choices")!;
+        var cameraFilter = (ComboBox)choices["camera-diffusion-family"]!;
+        var model = (ComboBox)choices["grain-model"]!;
+        var emulsion = (CheckBox)((IDictionary)Field(spatial, "toggles")!)["grain-sublayers"]!;
         cameraFilter.SelectedItem = OpticalOption(cameraFilter, "pro_mist");
+        emulsion.IsChecked = false;
         var legacy = Call(spatial, "CaptureSettings")!;
         var legacyNumbers = (IDictionary)Prop(legacy, "Numbers")!;
         foreach (var (key, entered, expected) in cases)
         {
+            model.SelectedItem = OpticalOption(model, key.StartsWith("grain-synthesis-", StringComparison.Ordinal) ? "synthesis" : "production");
             var slider = sliders[key]!;
             var control = Field(slider, "control")!;
             var value = control.GetType().GetProperty("Value", Flags)!;
@@ -56,14 +64,17 @@ public static partial class StartupHook
         Call(spatial, "ValidateSettings", legacy);
         Call(spatial, "LoadSettings", legacy);
         var controls = (IDictionary)Prop(Call(spatial, "CaptureSettings")!, "Numbers")!;
-        var look = Call(panel, "CurrentSettings")!;
-        var options = (string[])Call(spatial, "RendererOptions", look, "srgb", "srgb", false, false)!;
-        var wire = Enumerable.Range(0, options.Length / 2)
-            .ToDictionary(index => options[index * 2][2..], index => options[index * 2 + 1], StringComparer.Ordinal);
+        model.SelectedItem = OpticalOption(model, "production");
+        var production = OpticalWire(panel, spatial, Call(spatial, "CaptureSettings"));
+        model.SelectedItem = OpticalOption(model, "synthesis");
+        var synthesis = OpticalWire(panel, spatial, Call(spatial, "CaptureSettings"));
         foreach (var (key, entered, expected) in cases)
+        {
+            var wire = key.StartsWith("grain-synthesis-", StringComparison.Ordinal) ? synthesis : production;
             Check(Equals(controls[key], expected) && Equals(legacyNumbers[key], (double)entered)
                 && wire[key] == expected.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 $"{key} loads legacy numeric input and emits a supported renderer value");
+        }
         Call(spatial, "LoadSettings", original);
     }
 
@@ -220,6 +231,127 @@ public static partial class StartupHook
             mode.SelectedItem = previousMode;
             Call(spatial, "LoadSettings", previousSettings);
             enabled.IsChecked = wasEnabled;
+        }
+    }
+
+    private static void VerifyGrainPrerequisites(object panel, object spatial)
+    {
+        var model = (ComboBox)((IDictionary)Field(spatial, "choices")!)["grain-model"]!;
+        var knobs = (IDictionary)Field(spatial, "values")!;
+        var switches = (IDictionary)Field(spatial, "toggles")!;
+        var emulsion = (CheckBox)switches["grain-sublayers"]!;
+        var layered = (CheckBox)switches["grain-synthesis-layered"]!;
+        var enabled = (CheckBox)Field(panel, "enableSpektraFilm")!;
+        var wasEnabled = enabled.IsChecked;
+        var original = Call(spatial, "CaptureSettings")!;
+        void Select(string id) => model.SelectedItem = OpticalOption(model, id);
+        bool Matches(Dictionary<string, string> wire, string key, bool available) =>
+            wire.ContainsKey(key) == available && ((FrameworkElement)knobs[key]!).IsEnabled == available;
+        try
+        {
+            enabled.IsChecked = true;
+            Select("off");
+            var off = OpticalWire(panel, spatial);
+            Check(off["grain-model"] == "off" && off.ContainsKey("film-format")
+                && Matches(off, "grain-seed", false) && Matches(off, "grain-synthesis-size", false),
+                "Grain Off disables grain inputs but keeps the optical film format and model choice");
+
+            Select("preview");
+            emulsion.IsChecked = false;
+            var preview = OpticalWire(panel, spatial);
+            Check(Matches(preview, "grain-amount", true) && Matches(preview, "grain-sublayer-count", true)
+                && Matches(preview, "grain-dye-cloud-blur", true) && Matches(preview, "grain-microstructure", false)
+                && Matches(preview, "grain-layer-scale-0", false) && Matches(preview, "grain-synthesis-size", false),
+                "Preview grain exposes particle tuning and the fallback count");
+
+            Select("production");
+            emulsion.IsChecked = true;
+            var production = OpticalWire(panel, spatial);
+            Check(Matches(production, "grain-sublayer-count", false) && Matches(production, "grain-layer-scale-0", true)
+                && Matches(production, "grain-microstructure", true) && Matches(production, "grain-uniformity-r", true),
+                "Production grain exposes emulsion tuning and disables the fallback count while emulsion sublayers are on");
+
+            Select("synthesis");
+            layered.IsChecked = true;
+            var synthesis = OpticalWire(panel, spatial);
+            Check(Matches(synthesis, "grain-synthesis-amount", true) && Matches(synthesis, "grain-synthesis-layer-scale-0", true)
+                && Matches(synthesis, "grain-particle-area", true) && Matches(synthesis, "grain-dye-cloud-blur", true)
+                && Matches(synthesis, "grain-final-blur", true) && Matches(synthesis, "grain-uniformity-r", false)
+                && Matches(synthesis, "grain-sublayer-count", false) && Matches(synthesis, "grain-amount", false),
+                "Synthesis retains shared emulsion effects and uses its own amount and layer tuning");
+            var scale = knobs["grain-synthesis-layer-scale-0"]!;
+            scale.GetType().GetProperty("Value", Flags)!.SetValue(scale, 4.5d);
+            layered.IsChecked = false;
+            emulsion.IsChecked = false;
+            var single = OpticalWire(panel, spatial);
+            Check(Matches(single, "grain-synthesis-layer-scale-0", false) && Matches(single, "grain-particle-area", false)
+                && Matches(single, "grain-dye-cloud-blur", false) && Matches(single, "grain-microstructure", false),
+                "Single-layer synthesis with emulsion effects off disables both sets of inactive controls");
+            var saved = Call(spatial, "CaptureSettings")!;
+
+            Select("production");
+            Call(spatial, "LoadSettings", saved);
+            layered.IsChecked = true;
+            Check(Matches(OpticalWire(panel, spatial), "grain-synthesis-layer-scale-0", true)
+                && OpticalWire(panel, spatial)["grain-synthesis-layer-scale-0"] == "4.5",
+                "reload and re-enable restores the staged synthesis layer value");
+        }
+        finally
+        {
+            Call(spatial, "LoadSettings", original);
+            enabled.IsChecked = wasEnabled;
+        }
+    }
+
+    private static async Task VerifyRejectedLookClearsViewer(object panel, object spatial, Guid variant)
+    {
+        var presetType = panel.GetType().Assembly.GetType("LookPreset", true)!;
+        var original = presetType.GetMethod("From", Flags)!.Invoke(null, new[] { Call(panel, "CaptureLook") })!;
+        var preset = JsonSerializer.SerializeToNode(original, presetType)!.AsObject();
+        preset["Enabled"] = true;
+        preset["Look"]!["Strength"] = 1d;
+        preset["Look"]!["Development"]!["print_exhaustion"] = 0d;
+        var valid = JsonSerializer.Deserialize(preset.ToJsonString(), presetType)!;
+        var quality = (ComboBox)Field(spatial, "previewSize")!;
+        var previousQuality = quality.SelectedItem;
+        var viewer = Field(spatial, "viewer")!;
+        var status = (TextBlock)Field(spatial, "status")!;
+        var clear = ((Panel)Field(panel, "printing")!).Children.OfType<Button>()
+            .Single(button => Equals(button.Content, "Clear unsupported developer exhaustion"));
+        bool Current() => Field(spatial, "frameCurrent") is true && Prop(viewer, "HasPainted") is true;
+        async Task WaitFor(Func<bool> condition, string description)
+        {
+            var started = Stopwatch.GetTimestamp();
+            while (!condition())
+            {
+                if (Stopwatch.GetElapsedTime(started) > TimeSpan.FromSeconds(25))
+                    throw new TimeoutException(description + " Viewer: " + status.Text);
+                await Task.Delay(65);
+            }
+            Check(true, description);
+        }
+
+        try
+        {
+            quality.SelectedItem = OpticalOption(quality, "720");
+            Check(Call(panel, "ApplyPreset", variant, valid) is true, "the fixture enables a valid look on the selected native RAW");
+            await WaitFor(Current, "a valid look is painted in the native Viewer before rejection");
+            preset["Look"]!["Development"]!["print_exhaustion"] = .4d;
+            var legacy = JsonSerializer.Deserialize(preset.ToJsonString(), presetType)!;
+            Check(Call(panel, "ApplyPreset", variant, legacy) is true, "the Viewer receives a look containing the legacy unsupported setting");
+            await WaitFor(() => Prop(spatial, "Health")?.ToString() == "ProcessingError",
+                "a rejected look reports a processing error through the live Viewer");
+            Check(Field(spatial, "frameCurrent") is false && Field(spatial, "viewerFrame") is null
+                && Prop(viewer, "HasPainted") is false && status.Text.Contains("Developer exhaustion", StringComparison.Ordinal)
+                && !((Button)Field(spatial, "savePreview")!).IsEnabled,
+                "the rejected look removes the old film bitmap and disables preview saving");
+            clear.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, clear));
+            await WaitFor(Current, "clearing the unsupported setting paints a new settled film frame");
+        }
+        finally
+        {
+            Call(panel, "ApplyPreset", variant, original);
+            quality.SelectedItem = previousQuality;
         }
     }
 

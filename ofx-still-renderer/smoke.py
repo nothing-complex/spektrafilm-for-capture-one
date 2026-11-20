@@ -492,6 +492,49 @@ def check_optical_prerequisites(exe, frame, base):
     print(f"Vulkan output is byte-exact with {len(cases)} dormant option groups omitted")
 
 
+def check_grain_prerequisites(exe, frame, base):
+    small = frame[::16, ::16].copy()
+    cases = [
+        ("off", "", "--grain-final-blur 0 --grain-amount .5 --grain-seed 455 --grain-synthesis-size 2", ""),
+        ("preview", "--grain-sublayers false",
+         "--grain-layer-scale-0 9 --grain-microstructure 1 --grain-microstructure-sigma 500 --grain-synthesis-amount 0",
+         "--grain-sublayer-count 5 --grain-dye-cloud-blur 3 --grain-amount 1.5"),
+        ("production", "--grain-sublayers true",
+         "--grain-sublayer-count 8 --grain-synthesis-size 2",
+         "--grain-layer-scale-0 9 --grain-particle-area 2"),
+        ("production", "--grain-sublayers false",
+         "--grain-layer-scale-0 9 --grain-dye-cloud-blur 3 --grain-microstructure 1 --grain-microstructure-sigma 500",
+         "--grain-sublayer-count 5 --grain-particle-area 2"),
+        ("synthesis", "--grain-sublayers false --grain-synthesis-layered false",
+         "--grain-amount .5 --grain-saturation 0 --grain-sublayer-count 8 --grain-uniformity-r .1 "
+         "--grain-layer-scale-0 9 --grain-synthesis-layer-scale-0 9 --grain-dye-cloud-blur 3 --grain-particle-area 2 "
+         "--grain-microstructure 1 --grain-microstructure-sigma 500",
+         "--grain-synthesis-amount 0"),
+        ("synthesis", "--grain-sublayers true --grain-synthesis-layered true",
+         "--grain-amount .5 --grain-saturation 0 --grain-sublayer-count 8 --grain-uniformity-r .1",
+         "--grain-synthesis-layer-scale-0 9 --grain-dye-cloud-blur 4 --grain-particle-area 2"),
+    ]
+    modes = ("print", "scan", "scan_inverted")
+    request = b"".join(
+        frame_request(small, f"{base} --mode {mode} --film-format super8 --enlarger-scale 32 "
+                      f"--grain-model {model} --grain-synthesis-samples 4 {state} {extra}")
+        for mode in modes for model, state, inactive, active in cases
+        for extra in ("", inactive, active)
+    )
+    replies = run_stream(exe, request, mode="--native-preview-stream", timeout=60)
+    assert len(replies) == 3 * len(modes) * len(cases), "GPU grain model sweep"
+    for mode_index, mode in enumerate(modes):
+        for case_index, (model, state, _, active) in enumerate(cases):
+            index = 3 * (mode_index * len(cases) + case_index)
+            omitted, staged, tuned = replies[index:index + 3]
+            assert all(status == 0 and len(payload) == small.nbytes for status, payload in (omitted, staged, tuned)), (mode, model, state)
+            assert np.isfinite(np.frombuffer(tuned[1], dtype="<f4")).all(), (mode, model, state, "finite grain output")
+            assert omitted == staged, (mode, model, state, "inactive grain settings changed the output")
+            if active:
+                assert omitted != tuned, (mode, model, state, "active grain settings had no effect")
+    print(f"Vulkan grain model and layer prerequisites verified in {len(replies)} renders over Print and both Scan outputs")
+
+
 def check_negative_density_cache(exe, frame, base):
     height, width = 259, 521
     chart = frame[np.arange(height)[:, None] % frame.shape[0], np.arange(width) % frame.shape[1]]
@@ -836,7 +879,34 @@ def check_parameter_description(exe):
             cases.append((key, value, not unavailable))
         cases.append((key, invalid, False))
 
-    request = b"".join(frame_request(frame, f"{base} --{key} {value}") for key, value, _ in cases)
+    # Exercise dependent options with their render stage active.
+    exact_contexts = {
+        "auto-exposure-meter": "--auto-exposure true",
+        "grain-sublayer-count": "--grain-model production --grain-sublayers false",
+        "grain-synthesis-radius-quantile": "--grain-model synthesis --grain-synthesis-radius-sd .1",
+        "scanner-white-level": "--scanner-enabled true --scanner-white true",
+        "scanner-black-level": "--scanner-enabled true --scanner-black true",
+        "uv-cutoff": "--uv-enabled true",
+        "ir-cutoff": "--ir-enabled true",
+        "enlarger-x": "--enlarger-scale 1.2",
+        "enlarger-y": "--enlarger-scale 1.2",
+    }
+    stage_contexts = (
+        ("camera-diffusion-", "--camera-diffusion-family pro_mist"),
+        ("print-diffusion-", "--print-diffusion-family pro_mist"),
+        ("grain-synthesis-", "--grain-model synthesis"),
+        ("grain-", "--grain-model production"),
+        ("scanner-", "--scanner-enabled true"),
+        ("color-", "--color-adaptation true"),
+        ("halation-", "--halation-amount 2"),
+        ("scatter-", "--scatter-amount 1"),
+        ("dir-", "--dir-amount 1"),
+        ("preflash-", "--preflash .2"),
+    )
+    def prerequisites(key):
+        return exact_contexts.get(key) or next((args for prefix, args in stage_contexts if key.startswith(prefix)), "")
+
+    request = b"".join(frame_request(frame, f"{base} {prerequisites(key)} --{key} {value}") for key, value, _ in cases)
     replies = run_stream(exe, request + b"QUIT\n", mode="--native-preview-stream", timeout=120)
     assert len(replies) == len(cases) + 1 and replies[-1] == (0, b"")
     for case, (status, payload) in zip(cases, replies):
@@ -879,6 +949,7 @@ def main():
     check_metering_cache(args.exe, frame, base)
     check_print_optics_mode(args.exe, frame, base)
     check_optical_prerequisites(args.exe, frame, base)
+    check_grain_prerequisites(args.exe, frame, base)
     check_negative_density_cache(args.exe, frame, base)
     check_tiled_parity(args.exe, base)
     check_optical_scratch_lifetime(args.exe, base)

@@ -100,6 +100,9 @@ public static partial class StartupHook
             {
                 VerifyOpticalModeDependencies(panel, spatial);
                 VerifyOpticalPrerequisites(panel, spatial);
+                VerifyGrainPrerequisites(panel, spatial);
+                VerifyNativeSliderTypes(panel, spatial, store, variant);
+                await VerifyRejectedLookClearsViewer(panel, spatial, variant);
                 File.WriteAllText(Path.Combine(folder, "first.passed"), $"PASS {checks} native optical availability assertions");
                 return;
             }

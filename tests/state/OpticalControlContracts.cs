@@ -56,13 +56,20 @@ internal static class OpticalControlContracts
                 check($"{key} has a stable default and distinct choice IDs", OpticalControls.HasChoice(key, choice.Default)
                     && choice.Options.Select(option => option.Id).Distinct(StringComparer.Ordinal).Count() == choice.Options.Count);
             foreach (var requirement in binding.Requirements)
-                check($"{key} has a valid prerequisite {requirement.Key}", requirement.InactiveChoice is { } choiceId
-                    ? OpticalControls.HasChoice(requirement.Key, choiceId)
-                    : OpticalControls.Parameters[requirement.Key].Parameter is OpticalToggle);
+            {
+                CheckCondition(requirement.Condition);
+                if (requirement.Alternative is { } alternative)
+                    CheckCondition(alternative);
+            }
+
+            void CheckCondition(OpticalCondition condition) =>
+                check($"{key} has a valid prerequisite {condition.Key}", condition.Choice is { } choiceId
+                    ? OpticalControls.HasChoice(condition.Key, choiceId)
+                    : OpticalControls.Parameters[condition.Key].Parameter is OpticalToggle);
         }
         bool On(string _) => true;
-        string Filter(string _) => "pro_mist";
-        string NoFilter(string _) => "off";
+        string Filter(string key) => key == "grain-model" ? "production" : "pro_mist";
+        string NoFilter(string key) => key == "grain-model" ? "production" : "off";
         bool WithoutOverrides(string key) => !key.StartsWith("custom-", StringComparison.Ordinal);
         check("scan omits exactly the 13 print settings and keeps native negative controls",
             OpticalControls.Parameters.Values.Count(option => option.ShouldSend(true, On, Filter) && !option.ShouldSend(false, On, Filter)) == 13
@@ -89,6 +96,32 @@ internal static class OpticalControlContracts
                 OpticalControls.Parameters.Values.Count(option => option.ShouldSend(true, On, Filter)
                     && !option.ShouldSend(true, key => key != parent, Filter)) == count
                 && OpticalControls.Parameters[parent].ShouldSend(true, _ => false, Filter));
+
+        foreach (var model in new[] { "off", "preview", "production", "synthesis" })
+        foreach (var emulsion in new[] { false, true })
+        foreach (var layered in new[] { false, true })
+        {
+            bool Switch(string key) => key == "grain-sublayers" ? emulsion : layered;
+            string Choice(string key) => key == "grain-model" ? model : "off";
+            bool Send(string key) => OpticalControls.Parameters[key].ShouldSend(true, Switch, Choice);
+            var grain = model != "off";
+            var particle = model is "preview" or "production";
+            var synthesis = model == "synthesis";
+            var emulsionPass = (model is "production" or "synthesis") && emulsion;
+            check($"{model} grain with emulsion {emulsion} and synthesis layers {layered} exposes the actual shader inputs",
+                Send("grain-model") && Send("film-format")
+                && Send("grain-seed") == grain && Send("grain-final-blur") == grain && Send("grain-sublayers") == grain
+                && Send("grain-amount") == particle && Send("grain-saturation") == particle
+                && Send("grain-sublayer-count") == (particle && !emulsion)
+                && Send("grain-uniformity-r") == particle
+                && Send("grain-particle-area") == (particle || emulsionPass)
+                && Send("grain-density-min-r") == (particle || emulsionPass)
+                && Send("grain-particle-scale-r") == (particle || emulsionPass)
+                && Send("grain-dye-cloud-blur") == (model == "preview" || emulsionPass)
+                && Send("grain-microstructure") == emulsionPass && Send("grain-layer-scale-0") == emulsionPass
+                && Send("grain-synthesis-amount") == synthesis && Send("grain-synthesis-layered") == synthesis
+                && Send("grain-synthesis-layer-scale-0") == (synthesis && layered));
+        }
 
         var sliders = OpticalControls.Parameters.Values.Select(option => option.Parameter).OfType<OpticalSlider>().ToArray();
         var random = new Random(20261120);

@@ -401,6 +401,7 @@ internal sealed class SpatialPreview : IDisposable
 
         foreach (var group in OpticalControls.Sections)
             body.Children.Add(BuildSection(group));
+        choices["film-format"].ToolTip = "Film format sets the physical scale of grain, diffusion and other optical effects.";
         values["enlarger-scale"].ToolTip = "1.0 keeps the original framing. Higher values magnify the image inside the frame.";
         return Section("optics", "Spektrafilm optics", body);
     }

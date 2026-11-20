@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The 70-item integration audit tracks 39 bounded primary fixes implemented and 31 partial items. It includes feasibility investigations and enhancements.
+Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The 70-item integration audit tracks 40 bounded primary fixes implemented and 30 partial items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -1468,9 +1468,10 @@ For the local ICC fixture use `Run-HostSmoke.ps1 -NativeEffectProfileSidecars -S
 - [x] Use the optical definitions for both native control availability and worker arguments. Metering follows automatic exposure, diffusion tuning follows the selected filter family, scanner controls follow its master and per-point switches, and compression and smoothing follow color adaptation. Disabled controls explain the prerequisite and retain their saved values.
 - [x] Pass 36 licensed Capture One 16.4 assertions. Switch Print to Scan and back, restore staged values and normal slider tooltips, reload disabled settings, and verify that frozen batch export options follow the saved prerequisites after the live panel changes. The source catalog hash verified. Both managed builds completed with zero warnings and 772 state and recovery assertions passed.
 - [x] Compare physical Vulkan float output for seven dormant prerequisite groups. Omitting inactive values produces byte-identical output. Six enabled groups measurably affect the test image when tuned. The separate Print/Scan/Scan Inverted parity case also passed.
-- [ ] Trace grain model and layer dependencies before adding more gates. Verify the remaining active combinations and the native Viewer freshness indicator after a rejected combination.
+- [x] Match each grain control to the Vulkan passes that use it. Preserve shared particle settings for the synthesis dye-cloud and microstructure passes, the last staged values for each model and the independent optical Film format setting. Run 865 state assertions and 54 physical Vulkan renders across Print, Scan and Scan Inverted. A 558-probe worker matrix tests bounds, choices and errors with the corresponding render stages active.
+- [x] Pass 66 licensed assertions in a copied RAW catalog. Start with a painted Viewer, apply a legacy value the renderer cannot process, and verify the old film bitmap is removed, Save preview is disabled and the processing error names the control. Clear the value and wait for a new settled frame. The original catalog hash verifies.
 
-Repeat the native fixture with `Run-HostSmoke.ps1 -NativeOpticalAvailability`, the closed source catalog and the exact native settings path. Evidence is in `.test-results/host-optical-prerequisites-tooltip-20261120`, `.test-results/optical-prerequisites-gpu-20261120.log` and `.test-results/optical-prerequisites-state-20261120.log`. This source checkpoint follows audit.35.
+Repeat the native fixture with `Run-HostSmoke.ps1 -NativeOpticalAvailability`, the closed source catalog and the exact native settings path. Latest evidence is in `.test-results/host-grain-prerequisites-20261120`, `.test-results/grain-prerequisites-gpu-20261120.log` and `.test-results/grain-prerequisites-state-20261120.log`. This source checkpoint follows audit.35.
 
 ## Status maintenance
 
