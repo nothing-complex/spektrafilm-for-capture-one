@@ -607,38 +607,45 @@ internal sealed class SpatialPreview : IDisposable
             var input = (OpticalInput)inputSpace.SelectedItem;
             var encoding = ((OpticalOption)outputSpace.SelectedItem).Id;
             var args = look.Strength > 0 ? RendererOptions(look, input.Id, encoding, export: true) : Array.Empty<string>();
-            var snapshot = HostImageSource.CaptureForExport(window, target,
-                input.Space, captureRecipe: useRecipeSize);
-            var recipe = snapshot.Recipe;
-            var deliveryProfile = ExportColorProfile.ForRecipe(recipe?.ColorProfileName, recipe?.ColorProfilePath);
-            var delivery = new SpektraExport.RecipeDelivery(recipe?.FormatId, recipe?.TiffBits ?? 0, recipe?.CropMode);
-            var extension = delivery.Extension;
-            var dpi = recipe is null ? ExportResolution.DefaultDpi : ExportResolution.DotsPerInch(recipe.Resolution, recipe.ResolutionUnit);
-            var suggestedName = SpektraExport.SuggestedOutputName(recipe?.SuggestedFilename, target.SourcePath, extension,
-                recipe?.SuggestedDirectory, recipe?.AddSuffixToExistingFileName == true);
-            var skipPath = recipe is { SkipExistingOutput: true, FormatId: "Tiff" or "Png",
-                SuggestedFilename: { } stem, ExactDirectory: { } exactDirectory }
-                ? Path.Combine(exactDirectory, stem + extension) : null;
-
-            var picker = new SaveFileDialog
-            {
-                Title = delivery.SaveTitle(recipe?.Width ?? 0, recipe?.Height ?? 0, deliveryProfile.Label),
-                Filter = SpektraExport.FileFilter,
-                FilterIndex = extension == ".png" ? 2 : 1,
-                FileName = suggestedName,
-                DefaultExt = extension,
-                AddExtension = true,
-                OverwritePrompt = true,
-            };
-            if (recipe?.SuggestedDirectory is { } directory)
-                picker.InitialDirectory = directory;
-            // The save dialog pumps UI events. Reserve the captured request before
-            // opening it so a second export or a selection change cannot retarget it.
+            // Reserve the export before yielding so the Viewer cannot start another
+            // development while Capture One settles the source for the Save request.
             using var work = new ExportOperation(target.VariantId);
             exportToken = work.Token;
             exportWork = work;
             try
             {
+                var drainStarted = Stopwatch.GetTimestamp();
+                await DrainPreviewWorkersAsync(work.Token);
+                await HostImageSource.WaitForNativeDevelopmentAsync(work.Token);
+                work.Token.ThrowIfCancellationRequested();
+                if (disposed || owner is { IsVisible: false })
+                    return false;
+                var viewerDrainMs = Stopwatch.GetElapsedTime(drainStarted).TotalMilliseconds;
+                var snapshot = HostImageSource.CaptureForExport(window, target,
+                    input.Space, captureRecipe: useRecipeSize);
+                var recipe = snapshot.Recipe;
+                var deliveryProfile = ExportColorProfile.ForRecipe(recipe?.ColorProfileName, recipe?.ColorProfilePath);
+                var delivery = new SpektraExport.RecipeDelivery(recipe?.FormatId, recipe?.TiffBits ?? 0, recipe?.CropMode);
+                var extension = delivery.Extension;
+                var dpi = recipe is null ? ExportResolution.DefaultDpi : ExportResolution.DotsPerInch(recipe.Resolution, recipe.ResolutionUnit);
+                var suggestedName = SpektraExport.SuggestedOutputName(recipe?.SuggestedFilename, target.SourcePath, extension,
+                    recipe?.SuggestedDirectory, recipe?.AddSuffixToExistingFileName == true);
+                var skipPath = recipe is { SkipExistingOutput: true, FormatId: "Tiff" or "Png",
+                    SuggestedFilename: { } stem, ExactDirectory: { } exactDirectory }
+                    ? Path.Combine(exactDirectory, stem + extension) : null;
+
+                var picker = new SaveFileDialog
+                {
+                    Title = delivery.SaveTitle(recipe?.Width ?? 0, recipe?.Height ?? 0, deliveryProfile.Label),
+                    Filter = SpektraExport.FileFilter,
+                    FilterIndex = extension == ".png" ? 2 : 1,
+                    FileName = suggestedName,
+                    DefaultExt = extension,
+                    AddExtension = true,
+                    OverwritePrompt = true,
+                };
+                if (recipe?.SuggestedDirectory is { } directory)
+                    picker.InitialDirectory = directory;
                 if (skipPath is not null && ExistingRecipeOutput(skipPath, target.SourcePath) is { } existing)
                     return Skip(existing);
                 var destination = chooseDestination(picker, owner);
@@ -657,9 +664,6 @@ internal sealed class SpatialPreview : IDisposable
                 var jobId = receipt.JobId;
                 var started = Stopwatch.GetTimestamp();
                 cancelExport.Visibility = Visibility.Visible;
-                Advance(ExportStage.WaitingForViewer, "Waiting for Viewer rendering to finish…");
-                await DrainPreviewWorkersAsync(work.Token);
-                var viewerDrainMs = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
                 Advance(ExportStage.DevelopingSource, "Developing export pixels in Capture One…");
                 var result = await Task.Run(async () =>
                 {
@@ -730,6 +734,7 @@ internal sealed class SpatialPreview : IDisposable
                         OutputWidth = output.PixelWidth,
                         OutputHeight = output.PixelHeight,
                         ViewerDrainMs = viewerDrainMs,
+                        ViewerDrainBeforeApproval = true,
                         NativeDevelopmentMs = developMs,
                         FilmRenderAndTransportMs = renderMs,
                         BlendAndCropMs = blendAndCropMs,
@@ -738,7 +743,8 @@ internal sealed class SpatialPreview : IDisposable
                         EncoderBytesWritten = work.EncoderBytesWritten,
                         // WIC can evaluate the bitmap transform during encoding.
                         EncodeVerifyAndCommitMs = Stopwatch.GetElapsedTime(writeStarted).TotalMilliseconds,
-                        TotalMs = Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+                        // Count the automated preparation and export. Exclude time spent in Save.
+                        TotalMs = viewerDrainMs + Stopwatch.GetElapsedTime(started).TotalMilliseconds,
                     });
                     return (output.PixelWidth, output.PixelHeight);
                 }, work.Token);

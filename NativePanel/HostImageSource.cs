@@ -95,6 +95,14 @@ internal static class HostImageSource
         PreviewInputSpace inputSpace, bool captureRecipe) =>
         CaptureSnapshot(window, target, inputSpace, captureRecipe, forExport: true);
 
+    internal static async Task WaitForNativeDevelopmentAsync(CancellationToken token)
+    {
+        // A canceled preview can return before its running Capture One callback.
+        if (!await SchedulerSlot.WaitAsync(NativeScheduleTimeout, token).ConfigureAwait(false))
+            throw new DevelopmentDeadlineException("Capture One did not finish the previous image development. Try Export again.");
+        SchedulerSlot.Release();
+    }
+
     private static Snapshot CaptureSnapshot(object window, HostProfile.Target target,
         PreviewInputSpace inputSpace, bool captureRecipe, bool forExport)
     {

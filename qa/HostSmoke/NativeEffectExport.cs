@@ -8,12 +8,14 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using Microsoft.Win32;
 using Forms = System.Windows.Forms;
 
@@ -282,7 +284,9 @@ public static partial class StartupHook
             Value(4, 0);
             Diffusion("off");
             Value(0, 0);
-            var unprocessed = await Render("no-film-reference", ".tif", false);
+            var unprocessed = compareFolders
+                ? await RenderAfterNativeDevelopment()
+                : await Render("no-film-reference", ".tif", false);
             Value(0, 100);
             if (changeSourceRevision)
             {
@@ -347,6 +351,35 @@ public static partial class StartupHook
                 panelModes, outputProfiles, printDiffusion, scanMode,
                 nativeExportCallbacks = routeCount, masterOffDelegated = clicked, timings,
             }, new JsonSerializerOptions { WriteIndented = true }));
+
+            async Task<BitmapSource> RenderAfterNativeDevelopment()
+            {
+                var slot = (SemaphoreSlim)host.GetField("SchedulerSlot", Flags)!.GetValue(null)!;
+                if (!await slot.WaitAsync(TimeSpan.FromSeconds(12)))
+                    throw new TimeoutException("Could not acquire the disposable native development slot.");
+                var released = false;
+                var waitedBeforeSave = false;
+                var release = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(160) };
+                release.Tick += (_, _) =>
+                {
+                    release.Stop();
+                    waitedBeforeSave = job is { IsCompleted: false } && offeredFilename is null;
+                    slot.Release();
+                    released = true;
+                };
+                release.Start();
+                try
+                {
+                    var frame = await Render("no-film-reference", ".tif", true);
+                    Check(waitedBeforeSave, "native Export waits for the earlier development callback before opening Save");
+                    return frame;
+                }
+                finally
+                {
+                    release.Stop();
+                    if (!released) slot.Release();
+                }
+            }
 
             async Task<object> ComparePanelModes(BitmapSource reference)
             {
@@ -1073,6 +1106,7 @@ public static partial class StartupHook
                     CheckFailedReceipt();
                     job = null;
                     string? originalTitle = null;
+                    var retrySubmitted = false;
                     ShowNativeDialog(() =>
                     {
                         if (Prop(bridge, "Dialog") is not Window { IsVisible: true } owner || owner.DataContext is not { } model
@@ -1085,13 +1119,18 @@ public static partial class StartupHook
                             confirm.Execute(null);
                             return false;
                         }
-                        if (job is not { IsCompletedSuccessfully: true } || !confirm.CanExecute(null)) return false;
-                        Check(!job.Result && routeCount == before + 2 && owner.Title == originalTitle + " · Export failed",
-                            "the original Capture One Export window stays usable and shows an accepted-job failure in its title");
-                        CheckFailedReceipt();
-                        destination = retryPath;
-                        confirm.Execute(null);
-                        Check(owner.Title == originalTitle, "accepting a fresh destination clears the failure indication in the same window");
+                        if (!retrySubmitted)
+                        {
+                            if (job is not { IsCompletedSuccessfully: true } || !confirm.CanExecute(null)) return false;
+                            Check(!job.Result && routeCount == before + 2 && owner.Title == originalTitle + " · Export failed",
+                                "the original Capture One Export window stays usable and shows an accepted-job failure in its title");
+                            CheckFailedReceipt();
+                            destination = retryPath;
+                            confirm.Execute(null);
+                            retrySubmitted = true;
+                        }
+                        if (owner.Title != originalTitle) return false;
+                        Check(true, "accepting a fresh destination clears the failure indication in the same window");
                         return true;
                     });
                     Check(routeCount == before + 3 && job is not null && await job.WaitAsync(TimeSpan.FromSeconds(45))
@@ -1343,25 +1382,31 @@ public static partial class StartupHook
                 }
                 else
                 {
+                    var confirmed = false;
                     ShowNativeDialog(() =>
                     {
                         if (Prop(bridge, "Dialog") is not Window { IsVisible: true } owner || owner.DataContext is not { } model)
                             return false;
                         var confirm = Prop(model, "ExportCommand") as ICommand
                             ?? throw new InvalidOperationException("The native Export window does not expose its confirmation command.");
-                        if (!confirm.CanExecute(null)) return false;
-                        if (kind == "film-only" && suggestedStem is not null && !CheckNativeNamingSample(owner, suggestedStem))
-                            return false;
-                        if (expectedNativeLocation is not null && !CheckNativeLocationSample(owner, expectedNativeLocation))
-                            return false;
-                        confirm.Execute(null);
+                        if (!confirmed)
+                        {
+                            if (!confirm.CanExecute(null)) return false;
+                            if (kind == "film-only" && suggestedStem is not null && !CheckNativeNamingSample(owner, suggestedStem))
+                                return false;
+                            if (expectedNativeLocation is not null && !CheckNativeLocationSample(owner, expectedNativeLocation))
+                                return false;
+                            confirm.Execute(null);
+                            confirmed = true;
+                        }
                         if (closeAfterAcceptance)
                         {
                             var accepted = Call(Field(spatial, "exportJobs")!, "ReadLatest");
-                            Check(job is { IsCompleted: false } && Field(spatial, "exportWork") is not null
-                                && accepted is not null && Equals(Prop(accepted, "Destination"), destination)
-                                && Prop(accepted, "Finished") is false,
-                                "the native dialog has an accepted immutable output before the window closes");
+                            if (job is not { IsCompleted: false } || Field(spatial, "exportWork") is null
+                                || accepted is null || !Equals(Prop(accepted, "Destination"), destination)
+                                || Prop(accepted, "Finished") is not false)
+                                return false;
+                            Check(true, "the native dialog has an accepted immutable output before the window closes");
                             owner.Close();
                         }
                         return true;
