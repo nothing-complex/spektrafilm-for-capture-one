@@ -18,6 +18,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Microsoft.Win32;
+using P1.C1.Framework.Win10.ToastNotifications.Templates;
 
 internal sealed class SpatialPreview : IDisposable
 {
@@ -63,6 +64,7 @@ internal sealed class SpatialPreview : IDisposable
     private readonly DispatcherTimer refresh = new() { Interval = TimeSpan.FromMilliseconds(33) };
     private readonly ViewerPreview viewer;
     private readonly ExportJobJournal exportJobs;
+    private Func<bool> showExportFailureNotice = ShowNativeExportFailureNotice;
     private readonly ViewportQuality viewportQuality = new();
     private readonly ViewerHistogramControl histogram = new();
     private OpticalRenderer? renderer;
@@ -878,6 +880,8 @@ internal sealed class SpatialPreview : IDisposable
             {
                 if (owner is { IsVisible: true })
                     owner.Title += ExportFailureTitleSuffix;
+                else if (!exportStatus.IsVisible)
+                    ReportExportFailureNotice(receipt.JobId);
                 return false;
             }
             if (owner is { IsVisible: true })
@@ -910,6 +914,26 @@ internal sealed class SpatialPreview : IDisposable
                 });
         }
     }
+
+    private void ReportExportFailureNotice(Guid jobId)
+    {
+        bool shown;
+        try { shown = showExportFailureNotice(); }
+        catch (Exception error)
+        {
+            StartupHook.Log("Spektrafilm could not show the native export notification: " + error.GetType().Name);
+            shown = false;
+        }
+        StartupHook.Log("export.failure-notice.v1", new { JobId = jobId, Shown = shown });
+    }
+
+    private static bool ShowNativeExportFailureNotice() =>
+        SubmitNativeExportNotice("Spektrafilm export failed", "Open the Spektrafilm tool for details.");
+
+    private static bool SubmitNativeExportNotice(string title, string message) =>
+        P1.C1.ToastNotificationFactory.CreateAndShowToastNotification(
+            new TextOnlyVisualTemplate(title, new[] { message }, P1.C1.CaptureOneAUMID.CaptureOneMainMenuShortcutAppID),
+            new ActionTemplate());
 
     private static string DescribePreviousExport(ExportReceipt? receipt) => receipt?.Stage switch
     {

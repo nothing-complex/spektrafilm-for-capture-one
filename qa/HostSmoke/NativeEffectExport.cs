@@ -182,7 +182,7 @@ public static partial class StartupHook
                 return true;
             });
             var expectedRoutes = 5 + (compareGrain ? 8 : 0) + (compareCompression ? 6 : 0)
-                + (compareFolders ? 3 : 0) + (comparePanelModes ? 4 : 0);
+                + (compareFolders ? 3 : 0) + (comparePanelModes ? 6 : 0);
             Check(clicked && routeCount == expectedRoutes && Prop(bridge, "Dialog") is null,
                 "the master switch delegates to the ordinary Capture One Export dialog without a Spektrafilm job");
             ((IDisposable)bridge).Dispose();
@@ -217,10 +217,12 @@ public static partial class StartupHook
                     select.Invoke(null, new[] { palette, ordinaryTab });
                     await WaitForViewer(() => !control.IsVisible, "the real Viewer keeps painting Spektrafilm while its docked tab is hidden");
                     await Measure("tab-hidden");
+                    await CheckBackgroundFailure("tab-hidden", shouldAnnounce: true);
                     Call(hosted, "ShowFloating");
                     await WaitForViewer(() => control.IsVisible && Field(hosted, "floating") is Window { IsVisible: true } floating
                         && floating.GetType().Name == "DockableWindow", "the same Viewer look stays painted with the actual floating tool");
                     await Measure("tool-floating");
+                    await CheckBackgroundFailure("tool-floating", shouldAnnounce: false);
                 }
                 finally
                 {
@@ -240,6 +242,57 @@ public static partial class StartupHook
                         Check(delta.Mean < 8d / 65535 && delta.Maximum < .01,
                             $"{kind} retains the reference film, diffusion, halation and scatter pixels");
                         measurements.Add(new { placement, usePrevious, delta });
+                    }
+                }
+
+                async Task CheckBackgroundFailure(string placement, bool shouldAnnounce)
+                {
+                    var notifier = spatial.GetType().GetField("showExportFailureNotice", Flags)!;
+                    var original = notifier.GetValue(spatial);
+                    Check(original is Func<bool> native && native.Method.Name == "ShowNativeExportFailureNotice",
+                        "the production export notice is bound to the Capture One presenter");
+                    var notices = 0;
+                    destination = Path.Combine(folder, caseName + "-" + placement + "-read-only-destination.tif");
+                    var protectedPath = destination;
+                    File.Copy(Path.Combine(folder, caseName + "-film-only.tif"), protectedPath);
+                    var attributes = File.GetAttributes(protectedPath);
+                    var before = File.ReadAllBytes(protectedPath);
+                    var submitTest = shouldAnnounce && caseName == "first"
+                        && Environment.GetEnvironmentVariable("SPEKTRAFILM_QA_SUBMIT_EXPORT_TOAST") == "1";
+                    try
+                    {
+                        notifier.SetValue(spatial, (Func<bool>)Present);
+                        File.SetAttributes(protectedPath, attributes | FileAttributes.ReadOnly);
+                        job = null;
+                        var previousRouteCount = routeCount;
+                        ExecuteNativeExportCommand(previous);
+                        Check(routeCount == previousRouteCount + 1 && job is not null && !await job.WaitAsync(TimeSpan.FromSeconds(45)),
+                            $"{placement} native previous-settings export returns its accepted failure without opening a modal dialog");
+                        var failed = Call(Field(spatial, "exportJobs")!, "ReadLatest")!;
+                        var status = (TextBlock)Field(spatial, "exportStatus")!;
+                        Check(notices == (shouldAnnounce ? 1 : 0) && status.IsVisible != shouldAnnounce
+                            && Prop(failed, "Stage")?.ToString() == "Failed" && Equals(Prop(failed, "Destination"), protectedPath),
+                            $"{placement} delivers the failure to its visible panel or one native notification and retains the receipt");
+                        Check(File.ReadAllBytes(protectedPath).AsSpan().SequenceEqual(before)
+                            && !Directory.EnumerateFiles(folder, ".spektra-*.tmp").Any(),
+                            $"{placement} leaves every byte of the previous protected TIFF intact");
+                    }
+                    finally
+                    {
+                        notifier.SetValue(spatial, original);
+                        File.SetAttributes(protectedPath, attributes);
+                    }
+
+                    bool Present()
+                    {
+                        notices++;
+                        if (!submitTest) return false;
+                        var submit = spatial.GetType().GetMethod("SubmitNativeExportNotice", Flags)!;
+                        var accepted = submit.Invoke(null, new object[] { "Spektrafilm notification test",
+                            "This message came from an isolated export test." }) is true;
+                        File.WriteAllText(Path.Combine(folder, "native-notice-submission.json"),
+                            JsonSerializer.Serialize(new { CaptureOneAccepted = accepted }));
+                        return accepted;
                     }
                 }
 

@@ -3314,7 +3314,8 @@
         "Abruptly stop the disposable licensed process while native development, the film stage or active WIC writes are in progress. All three fresh launches retain the exact unfinished job and accepted destination, previous exported bytes and committed look. A distinct explicit retry reopens as a new 24 MP RGB48 film TIFF with embedded ICC. An early film-stage test exposed the open-reader versus Windows receipt replacement race. A process-wide journal lock now coordinates all in-process receipt readers and writers, and the native film-stage retest passed.",
         "Publish 96 durable stage updates while four independent in-process journal readers repeatedly query the same directory. All stage receipts reopen exactly and no read or replacement fails. The complete Windows Viewer and export contract suite passes 12,378 assertions.",
         "The original Capture One Export window shows an accepted destination failure in its title and keeps its confirmation active. Selecting a fresh destination clears the indication and exports through the same dialog. Both launches pass 109 real native effects assertions. The forced failure keeps the previous TIFF bytes and releases the staging file.",
-        "A rapid Export with Previous Settings after an already-closed dialog exposed a window between output completion and cleanup of the old bridge task. The bridge now observes the actual task and closed window before admitting the next command. It still blocks nested destination picking and in-flight jobs, and an older continuation cannot release a newer task. The native grain suite passes 110 assertions per launch and the four-RAW effects matrix passes 191 per launch."
+        "A rapid Export with Previous Settings after an already-closed dialog exposed a window between output completion and cleanup of the old bridge task. The bridge now observes the actual task and closed window before admitting the next command. It still blocks nested destination picking and in-flight jobs, and an older continuation cannot release a newer task. The native grain suite passes 110 assertions per launch and the four-RAW effects matrix passes 191 per launch.",
+        "An accepted export failure uses Capture One's Windows notification presenter when both its native dialog and panel status are hidden. A clean message directs the user to the detailed durable result. Two licensed layout runs each pass 104 assertions and preserve protected TIFF bytes on failure. The optional clearly labelled test submission was accepted by the actual Capture One presenter."
       ],
       "evidence_paths": [
         "NativePanel/SpatialPreview.cs",
@@ -3341,11 +3342,13 @@
         ".test-results/contracts-concurrent-export-journal-20261120/summary.json",
         ".test-results/host-native-export-dialog-retry-20261120/host-smoke.log",
         ".test-results/host-resident-pair-effects-ready-20261120/host-smoke.log",
-        ".test-results/host-native-effects-ready-20261120/host-smoke.log"
+        ".test-results/host-native-effects-ready-20261120/host-smoke.log",
+        ".test-results/host-native-export-background-notice-20261120/panel.log",
+        ".test-results/host-native-export-notice-submitted-20261120/native-notice-submission.json"
       ],
       "remaining_work": [
         "Add resumable authorized descriptors and an explicit batch queue with per-image isolation. Current receipts preserve progress and outcome for a single accepted export.",
-        "Test genuine disk-full and OS/power interruption. A process killed while encoding can leave a temporary file in the approved folder. Add safe ownership-aware recovery for that file and a nonmodal notification for previous-settings or direct exports when the Spektrafilm panel is hidden. Preflight errors are still modal so they reach the active command before acceptance."
+        "Test genuine disk-full and OS/power interruption. A process killed while encoding can leave a temporary file in the approved folder. Add safe ownership-aware recovery for that file. Verify native notification presentation across Windows focus and notification settings. Preflight errors remain modal before acceptance."
       ],
       "original_acceptance_tests": [
         "Close dialog during each stage: documented continuation/cancellation and no dangling native command.",

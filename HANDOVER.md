@@ -1091,6 +1091,14 @@ Evidence is in `.test-results/host-renderer-numeric-inventory-20261120/panel-num
 
 Evidence is in `.test-results/host-native-export-hidden-and-floating-20261120`. Repeat with `Run-HostSmoke.ps1 -NativeEffectPanelModes` and the exact host's `-NativeSettingsConfig`.
 
+## Native export failure with the tool hidden
+
+- [x] Keep the export failure and exact destination in the durable job receipt. When neither the native Export dialog nor the panel status is visible, ask Capture One's Windows notification presenter to show a short message. The notification directs the user to the tool for details. The native dialog title and visible panel remain the in-app ways to see a failure.
+- [x] Fail an accepted Previous Settings job against a read-only TIFF with the real tab hidden, then with the real floater visible. Both versions preserve every byte of the previous TIFF and leave a Failed receipt. The hidden route requests a single notification. The visible floater shows the error without a second notification. Both launches pass 104 native assertions and continue to export the same effects.
+- [x] Submit a clearly labelled disposable export test message through the same Capture One presenter. The licensed host accepted submission and reported it in the local trace. Two automated layout runs separately exercise a refused submission and retain the durable panel result.
+
+Evidence is in `.test-results/host-native-export-background-notice-20261120` and `.test-results/host-native-export-notice-submitted-20261120/native-notice-submission.json`. The fixture uses `-NativeEffectPanelModes`; set `SPEKTRAFILM_QA_SUBMIT_EXPORT_TOAST=1` for one clearly labelled submission during the first launch. This source checkpoint is newer than audit.24.
+
 ## Status maintenance
 
 `qa/AUDIT-FIX-STATUS.json` owns task IDs, status, implemented substeps, remaining acceptance work and evidence. This handover owns context, runtime identity and resume instructions. `.test-results/FINAL-RESULT.json` is the completed runtime delivery receipt; keep its runtime commit/package identity distinct from later documentation-only commits.
