@@ -1187,7 +1187,9 @@ internal static class SpektraFilmTool
             }
         }
 
-        private async Task ExportLutAsync(int resolution)
+        private Task ExportLutAsync(int resolution) => ExportLutWithDestinationAsync(resolution, ChooseLutDestination);
+
+        private async Task ExportLutWithDestinationAsync(int resolution, Func<int, string[], string?> chooseDestination)
         {
             if (lutExporting || !IsSpektraFilmEnabled || CurrentSettings() is not { } settings)
                 return;
@@ -1198,15 +1200,11 @@ internal static class SpektraFilmTool
             {
                 var original = HostProfile.CaptureTarget(window).SourcePath;
                 var plan = NativeLutExporter.Prepare(opticalPreview.RendererOptions(settings, "srgb", "srgb", export: true));
-                if (MessageBox.Show("A 3D LUT captures the colour transform and Look strength. It cannot include image-dependent effects or Capture One adjustments.\n\nExcluded: "
-                    + string.Join(", ", plan.ExcludedEffects) + ".\n\nContinue with an sRGB LUT?", "Export Spektrafilm LUT",
-                    MessageBoxButton.OKCancel, MessageBoxImage.Information) != MessageBoxResult.OK)
-                    return;
-                var picker = new SaveFileDialog { Filter = "3D LUT|*.cube", FileName = $"Spektrafilm sRGB {resolution}.cube" };
-                if (picker.ShowDialog() != true)
+                var destination = chooseDestination(resolution, plan.ExcludedEffects);
+                if (destination is null)
                     return;
                 work.Token.ThrowIfCancellationRequested();
-                var approved = OutputPathGuard.Approve(picker.FileName, original);
+                var approved = OutputPathGuard.Approve(destination, original);
                 cancelLut.Visibility = Visibility.Visible;
                 status.Text = "Baking the sRGB LUT…";
                 var cube = await opticalPreview.RenderLutAsync(plan, resolution, settings.Strength, work.Token);
@@ -1215,7 +1213,12 @@ internal static class SpektraFilmTool
                     await Task.Run(() => approved.Write(stream =>
                     {
                         using var writer = new StreamWriter(stream, new System.Text.UTF8Encoding(false), leaveOpen: true);
-                        writer.Write(cube);
+                        const int chunkSize = 16 * 1024;
+                        for (var offset = 0; offset < cube.Length; offset += chunkSize)
+                        {
+                            work.Token.ThrowIfCancellationRequested();
+                            writer.Write(cube.AsSpan(offset, Math.Min(chunkSize, cube.Length - offset)));
+                        }
                     }, work.Token), work.Token);
                     if (!disposed)
                         status.Text = "LUT exported.";
@@ -1237,6 +1240,16 @@ internal static class SpektraFilmTool
                 lutExporting = false;
                 if (!disposed) cancelLut.Visibility = Visibility.Collapsed;
             }
+        }
+
+        private static string? ChooseLutDestination(int resolution, string[] excludedEffects)
+        {
+            if (MessageBox.Show("A 3D LUT captures the colour transform and Look strength. It cannot include image-dependent effects or Capture One adjustments.\n\nExcluded: "
+                + string.Join(", ", excludedEffects) + ".\n\nContinue with an sRGB LUT?", "Export Spektrafilm LUT",
+                MessageBoxButton.OKCancel, MessageBoxImage.Information) != MessageBoxResult.OK)
+                return null;
+            var picker = new SaveFileDialog { Filter = "3D LUT|*.cube", FileName = $"Spektrafilm sRGB {resolution}.cube" };
+            return picker.ShowDialog() == true ? picker.FileName : null;
         }
 
         private Expander MakeGrainControls()

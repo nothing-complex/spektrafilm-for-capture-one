@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The 70-item integration audit tracks 32 bounded primary fixes implemented and 38 partial items. It includes feasibility investigations and enhancements.
+Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The 70-item integration audit tracks 33 bounded primary fixes implemented and 37 partial items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -932,6 +932,16 @@ Evidence is in `.test-results/rc04-halation-overlap-baseline-20261120.json`, `.t
 - [x] Run full Windows and NVIDIA Vulkan contracts, the full Intel Vulkan smoke suite and 480 NVIDIA stock, input and spectral combinations. Worst standard tiled RGB difference was 1.79e-7 on NVIDIA and 1.19e-7 on Intel.
 
 Evidence is under `.test-results/optical-scratch-physical-20261120`, `.test-results/optical-scratch-sync-20261120`, `.test-results/optical-scratch-final-20261120` and `.test-results/portable-vulkan-bindings-20261120`. Audit.18 contains the earlier renderer, which serves as the before-build reference.
+
+## LUT control parity, legacy comparison and native cancellation
+
+- [x] Use the actual Cancel LUT export button after accepting a 65-point job and observing its private Vulkan worker. The two licensed runs returned in 2.24 and 2.36 ms after the click, cleared the output lease and preserved the prior destination with no staging residue. A follow-up 33-point LUT completed on the same path in each run. The native fixture injects only the destination choice. The full general suite passed 327 and 331 assertions.
+- [x] Recheck cancellation between text chunks during guarded LUT writes. The shared output transaction continues to revalidate the destination and check its token immediately before committing.
+- [x] Sample 50 pointwise variations of film, print, spectral, DIR, scanner and colour-adaptation settings, enabling conditional controls for each comparison. The fixture checks sample count, exact parity and a real control response. Both NVIDIA and Intel passed 150 checks and reproduced the direct Vulkan samples with maximum sRGB code difference of 5.01e-10. Public builds retain the existing calibration gate for Academy Printer Density.
+- [x] Compare 33- and 65-point LUTs against 1,024 held-out colours for each of Hanatos 2025, Hanatos 2026 and Mallett 2019. On this package all three improved with the denser grid. Hanatos 2026 p95 dropped from 0.000955 to 0.000255 of full-scale sRGB code. The managed physical-GPU suite passed 32 checks.
+- [x] Compare both native 33-point test exports with the optional scientific Python LUT using the available shared settings. Each 35,937-sample comparison measured mean absolute difference 0.02018, p95 0.06840 and max 0.29351 in full-scale sRGB code. The evidence records both implementations, the forwarded settings and options unavailable to the legacy path. Native LUT correctness is measured against the active Vulkan engine.
+
+Repeat the pointwise comparison with `dotnet run --project tests/renderer/RendererContracts.csproj -c Release -- --lut-sweep <extracted-package> <report.json>`. Use `python qa/compare-legacy-lut.py <full-strength-native.cube> --output <report.json>` with the pinned optional Python environment for the difference report. Evidence is under `.test-results/host-native-lut-cancel-20261120`, `.test-results/lut-pointwise-strict-20261120`, `.test-results/lut-hanatos2026-parity-20261120` and `.test-results/native-legacy-lut-20261120`.
 
 ## Status maintenance
 

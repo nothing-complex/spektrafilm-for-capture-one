@@ -2305,20 +2305,30 @@
       "id": "RC-08",
       "title": "Bake LUTs through the active Vulkan colour implementation",
       "priority": "P2",
-      "status": "partial",
+      "status": "implemented",
       "implemented": [
         "Normal LUT export uses active native Vulkan colour implementation, explicit sRGB domain/spatial exclusions and atomic output; 33/65 grids match direct native samples.",
-        "A cancel action now controls LUT sampling and guarded write commit. A 1,024-color held-out trilinear approximation compared 33 and 65-point LUTs with direct Vulkan processing for both supported spectral methods. Grid endpoints and exact sample comparison remain tested."
+        "A cancel action now controls LUT sampling and guarded write commit. A 1,024-color held-out trilinear approximation compared 33 and 65-point LUTs with direct Vulkan processing for the two original spectral methods. Grid endpoints and exact sample comparison remain tested.",
+        "The actual Cancel LUT export button canceled an approved 65-point job with a live Vulkan worker in both licensed launches, in 2.24 and 2.36 ms. The previous file stayed exact and the next 33-point job succeeded. The current full licensed suite passed 327 and 331 assertions. Text staging also checks cancellation between chunks.",
+        "Fifty effective pointwise variations across supported film, print, adaptation, DIR, scanner and spectral settings produced exact direct-grid parity within 5.01e-10 full-scale sRGB code. NVIDIA and Intel each passed 150 count, parity and response checks. The held-out 33/65 suite includes Hanatos 2025, Hanatos 2026 and Mallett 2019 and passed 32 GPU assertions. Academy Printer Density retains the optional calibration gate.",
+        "A repeatable scientific reference comparison paired two actual exported 33-point Vulkan cubes against the available legacy Python options. Across 35,937 colours per pair, the mean, p95 and maximum absolute normalized sRGB code difference were 0.02018, 0.06840 and 0.29351. The report records forwarded settings and the unmatched native options."
       ],
       "evidence_paths": [
         "NativePanel/NativeLutExporter.cs",
         "NativePanel/SpektraFilmTool.cs",
         "tests/renderer",
-        ".test-results/gpu-lut-heldout-20261119.log"
+        ".test-results/gpu-lut-heldout-20261119.log",
+        "qa/HostSmoke/NativeLutCancel.cs",
+        "tests/renderer/LutSweep.cs",
+        "qa/compare-legacy-lut.py",
+        ".test-results/host-native-lut-cancel-20261120/first-native-lut-cancellation.json",
+        ".test-results/host-native-lut-cancel-20261120/restart-native-lut-cancellation.json",
+        ".test-results/lut-pointwise-strict-20261120/nvidia.json",
+        ".test-results/lut-pointwise-strict-20261120/intel.json",
+        ".test-results/lut-hanatos2026-parity-20261120/managed-gpu.log",
+        ".test-results/native-legacy-lut-20261120/comparison.json"
       ],
-      "remaining_work": [
-        "Complete sweep of pointwise controls and legacy Python difference report. Test LUT cancel button interaction in native UI, in addition to renderer cancellation and guarded write contracts."
-      ],
+      "remaining_work": [],
       "original_acceptance_tests": [
         "Grid ordering/endpoints/identity cube",
         "Held-out colours vs direct same-graph rendering",
@@ -3323,8 +3333,8 @@
   ],
   "counts": {
     "total": 70,
-    "implemented": 32,
-    "partial": 38,
+    "implemented": 33,
+    "partial": 37,
     "pending": 0
   },
   "last_reconciled": "2026-11-20",

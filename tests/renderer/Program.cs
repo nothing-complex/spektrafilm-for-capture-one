@@ -7,7 +7,7 @@ using System.Text.Json;
 
 internal static class StartupHook { internal static void Log(string message) { } }
 
-internal static class Program
+internal static partial class Program
 {
     private const string Contract = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     private static int checks;
@@ -16,6 +16,7 @@ internal static class Program
     {
         if (args.Length == 1 && args[0].EndsWith("stream")) { Worker(); return; }
         if (args.Length == 2 && args[0] == "--gpu") { await CheckGpu(args[1]); return; }
+        if (args is ["--lut-sweep", var runtime, var report]) { await CheckLutSweep(runtime, report); return; }
         var scratch = Path.Combine(AppContext.BaseDirectory, "fixtures", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(scratch);
         var previous = Environment.GetEnvironmentVariable("SPEKTRAFILM_ROOT");
@@ -527,7 +528,7 @@ internal static class Program
         var pixels = new byte[colors.Length * sizeof(float)];
         Buffer.BlockCopy(colors, 0, pixels, 0, pixels.Length);
 
-        foreach (var method in new[] { "hanatos2025", "mallett2019" })
+        foreach (var method in new[] { "hanatos2025", "mallett2019", "hanatos2026" })
         {
             var plan = NativeLutExporter.Prepare(options.Concat(new[] { "--spectral-method", method }).ToArray());
             using var renderer = new OpticalRenderer(export: true);

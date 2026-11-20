@@ -271,6 +271,7 @@ public static partial class StartupHook
                 Check(decoded.PixelWidth == width && decoded.PixelHeight == height,"actual TIFF keeps intended image dimensions");
             }
             await TestWorkerQuiescence(panel, spatial, rendererType);
+            await TestNativeLutCancel(panel, spatial);
             var grain = panelAssembly.GetType("NativeGrain")!;
             TestNativeUndoCapability(Field(panel, "document")!);
             TestNativeGrain(grain, window, panel, store, variant, toggle, restart);
