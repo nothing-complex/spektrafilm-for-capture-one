@@ -13,19 +13,19 @@ internal sealed class ViewportQuality
 
     internal void Reset() => Commit(Initial);
 
-    internal bool Update(double? projectedLongEdge, double shortToLongRatio, long? budget, long now)
+    internal bool Update(double? projectedLongEdge, double shortToLongRatio, long? budget, long now, bool firstFrame = false)
     {
         var ratio = double.IsFinite(shortToLongRatio) ? Math.Clamp(shortToLongRatio, .01, 1) : 1;
         var affordable = Edges.Length - 1;
         while (affordable > 0 && budget is { } available && Estimate(Edges[affordable], ratio) > available)
             affordable--;
-        if (current > affordable)
+        if (!firstFrame && current > affordable)
             return Commit(affordable);
 
         if (projectedLongEdge is not double projection || !double.IsFinite(projection) || projection < 1)
         {
             candidate = current;
-            return false;
+            return current > affordable && Commit(affordable);
         }
 
         // Require modest display oversampling. At a lower boundary, keep the
@@ -33,6 +33,9 @@ internal sealed class ViewportQuality
         var target = Math.Min(projection * 1.06, Edges[^1]);
         var next = Array.FindIndex(Edges, edge => edge >= target);
         next = Math.Min(next, affordable);
+        // There's no frame to protect from a resolution change at startup.
+        if (firstFrame)
+            return Commit(next);
         if (next < current && target > Edges[current - 1] * .9)
             next = current;
         if (next > current && budget is { } headroom && Estimate(Edges[next], ratio) > headroom * .8)

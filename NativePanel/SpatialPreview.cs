@@ -55,8 +55,7 @@ internal sealed class SpatialPreview : IDisposable
     private CancellationTokenSource? pendingDraft;
     private OpticalRenderer? draftRenderer;
     private readonly ViewerDraftPyramid draftPyramid = new();
-    private byte[]? draftPixels;
-    private string[]? draftArguments;
+    private (string[] Arguments, byte[] Pixels, bool Packed)? draftResult;
     private bool draftWarmupAttempted;
     private bool warmingDraft;
     private int lastDraftRevision = -1;
@@ -114,6 +113,7 @@ internal sealed class SpatialPreview : IDisposable
     private long nextProfileCheck;
 
     private long nextViewerCheck;
+    private bool viewportSeedPending = true;
     private int inputRevision;
     private string? sourceSize;
     private string? failedSize;
@@ -931,6 +931,7 @@ internal sealed class SpatialPreview : IDisposable
         rendererRetry.Reset();
         ResetDraft(keepRenderer: keepDraftRenderer);
         viewportQuality.Reset();
+        viewportSeedPending = true;
         source = null;
         sourceSize = null;
         failedRevision = null;
@@ -1058,10 +1059,20 @@ internal sealed class SpatialPreview : IDisposable
         var automatic = ((Choice)previewSize.SelectedItem).Id == "auto";
         if (automatic && pending is null && pendingDraft is null && !dragging)
         {
-            var ratio = source is { } frame ? Math.Min(frame.Width, frame.Height) / (double)Math.Max(frame.Width, frame.Height) : 1;
-            if (viewportQuality.Update(viewer.ProjectedLongEdge(selectedVariant), ratio,
-                RenderMemoryBudget.SystemMemory.AvailableForNewAllocation, Environment.TickCount64))
-                RequestRefresh();
+            var projection = viewer.ProjectedLongEdge(selectedVariant);
+            var budget = RenderMemoryBudget.SystemMemory.AvailableForNewAllocation;
+            var now = Environment.TickCount64;
+            if (source is null && viewportSeedPending)
+            {
+                viewportSeedPending = false;
+                viewportQuality.Update(projection ?? viewer.MeasureBeforePaint(selectedVariant), 1, budget, now, firstFrame: true);
+            }
+            else
+            {
+                var ratio = source is { } frame ? Math.Min(frame.Width, frame.Height) / (double)Math.Max(frame.Width, frame.Height) : 1;
+                if (viewportQuality.Update(projection, ratio, budget, now))
+                    RequestRefresh();
+            }
         }
         var retryKey = (selectedVariant, inputRevision, revision);
         if (rendererRetry.IsWaiting(retryKey, Environment.TickCount64)) return;
@@ -1291,8 +1302,7 @@ internal sealed class SpatialPreview : IDisposable
             ReleaseDraftRenderer();
         if (!keepSourceLevels)
             draftPyramid.Clear();
-        draftPixels = null;
-        draftArguments = null;
+        draftResult = null;
         draftWarmupAttempted = false;
         lastDraftRevision = -1;
     }
@@ -1370,29 +1380,27 @@ internal sealed class SpatialPreview : IDisposable
                 job.Token.ThrowIfCancellationRequested();
                 draftPyramid.Remember(input, dragEdge, inputColor.Space, frame);
             }
-            byte[]? packed = null;
-            if (look.Strength > 0 && (draftPixels is null || !args.SequenceEqual(draftArguments!)))
+            var cached = look.Strength > 0 ? draftResult : null;
+            var pack = look.Strength == 1 && encoding.Id == "srgb";
+            if (look.Strength > 0 && (cached is not { } previous || !args.SequenceEqual(previous.Arguments)
+                || previous.Packed && !pack))
             {
                 var worker = draftRenderer ??= new OpticalRenderer(nativePreview: true);
-                var pack = !warmup && look.Strength == 1 && encoding.Id == "srgb";
                 var filmStarted = Stopwatch.GetTimestamp();
                 var rendered = await (warmup
-                    ? worker.WarmPreviewAsync(frame.Width, frame.Height, frame.FloatBytes, args, job.Token)
+                    ? worker.WarmPreviewAsync(frame.Width, frame.Height, frame.FloatBytes, args, job.Token, pack)
                     : worker.RenderAsync(frame.Width, frame.Height, frame.FloatBytes, args, job.Token, pack));
                 filmMs = Stopwatch.GetElapsedTime(filmStarted).TotalMilliseconds;
                 receipt = worker.LastRender;
                 job.Token.ThrowIfCancellationRequested();
-                packed = pack ? rendered : null;
-                draftPixels = pack ? null : rendered;
-                draftArguments = args;
+                cached = draftResult = (args, rendered, pack);
             }
             if (warmup)
                 return;
-            var pixels = draftPixels;
             var bitmapStarted = Stopwatch.GetTimestamp();
-            var output = await Task.Run(() => packed is null
-                ? ViewerDisplayBitmap.Convert(frame, pixels, look.Strength, inputColor.Space, encoding.Id, job.Token)
-                : CreateDisplayBitmap(frame, packed), job.Token);
+            var output = await Task.Run(() => cached is { Packed: true } packed
+                ? CreateDisplayBitmap(frame, packed.Pixels)
+                : ViewerDisplayBitmap.Convert(frame, cached?.Pixels, look.Strength, inputColor.Space, encoding.Id, job.Token), job.Token);
             var bitmapMs = Stopwatch.GetElapsedTime(bitmapStarted).TotalMilliseconds;
             job.Token.ThrowIfCancellationRequested();
             if (!WantsDragPreview || OutputRenderActive || activeVariant != selectedVariant || !ReferenceEquals(source, input)

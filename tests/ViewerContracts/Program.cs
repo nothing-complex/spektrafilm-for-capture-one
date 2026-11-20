@@ -354,6 +354,17 @@ internal static partial class Program
         Check(!quality.Update(double.NaN, .75, null, 8000) && quality.LongEdge == 4096, "temporarily hidden or invalid geometry does not drop a usable frame");
         quality.Reset();
         Check(quality.LongEdge == 1600 && !quality.Update(3200, .75, null, 10000), "navigation resets demand without changing the preference");
+        Check(quality.Update(3200, 1, null, 10001, firstFrame: true) && quality.LongEdge == 4096,
+            "a drawable cold Viewer starts at the measured tier without a redundant settle pass");
+        quality.Reset();
+        Check(quality.Update(800, 1, null, 11000, firstFrame: true) && quality.LongEdge == 900,
+            "a smaller drawable cold Viewer starts at its smaller tier");
+        quality.Reset();
+        Check(quality.Update(4000, 1, 320 * 1024L * 1024, 12000, firstFrame: true) && quality.LongEdge == 1200,
+            "a drawable cold Viewer remains bounded by managed-memory headroom");
+        quality.Reset();
+        Check(!quality.Update(null, 1, null, 13000, firstFrame: true) && quality.LongEdge == 1600,
+            "an unmeasurable cold Viewer holds the existing fallback");
 
         var points = new[] { new PointF(5, 9), new PointF(1005, 9), new PointF(1005, 759), new PointF(5, 759) };
         var panned = points.Select(point => new PointF(point.X - 400, point.Y + 20)).ToArray();

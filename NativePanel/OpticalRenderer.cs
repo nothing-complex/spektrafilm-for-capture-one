@@ -49,8 +49,9 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
         bool displayPixels = false) =>
         RenderWithPriorityAsync(width, height, rgba, arguments, stop, displayPixels, export ? GpuWorkPriority.Output : GpuWorkPriority.Interactive);
 
-    internal Task<byte[]> WarmPreviewAsync(int width, int height, byte[] rgba, string[] arguments, CancellationToken stop) =>
-        RenderWithPriorityAsync(width, height, rgba, arguments, stop, false, GpuWorkPriority.Warmup);
+    internal Task<byte[]> WarmPreviewAsync(int width, int height, byte[] rgba, string[] arguments, CancellationToken stop,
+        bool displayPixels) =>
+        RenderWithPriorityAsync(width, height, rgba, arguments, stop, displayPixels, GpuWorkPriority.Warmup);
 
     private async Task<byte[]> RenderWithPriorityAsync(int width, int height, byte[] rgba, string[] arguments, CancellationToken stop,
         bool displayPixels, GpuWorkPriority priority)

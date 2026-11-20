@@ -1969,7 +1969,8 @@
         "The Vulkan tiled readback now gathers only the centre rows into tightly packed staging and copies them directly into the final image. Full optical halos remain on-device and packed validation still covers the working tile. Across the same 80-request RTX 3090 matrix, 100 MP optical readback fell from 9.38 GB to 1.60 GB for float and 2.34 GB to 0.40 GB for packed. Warm medians fell from 8.40 s to 5.95 s and 5.27 s to 4.81 s respectively. All four complete 100 MP reply hashes matched the prior binary. Windows contracts, eight full/tile graphs and padded-row half/float parity passed on physical NVIDIA and Intel.",
         "The worker now chooses larger packed Viewer tiles only on images at least 4096 px in each dimension, with an existing halo no greater than 256 px and reported dynamic budget for source plus estimated scratch. Float and wide-halo plans retain their previous geometry. At 100 MP on RTX 3090, the actual default packed plan moved from 800 to 28 tiles, with one warm hashed exposure change at 4.89 to 1.55 seconds. Simulated 6 and 4 GiB caps selected 104 and 800 tiles respectively. All 12 complete pixel reply hashes matched the explicit prior plan and warm packed sources were reused without upload.",
         "The separate 33.6 MP high-contrast chart checked every packed channel for three input encodings. Each route reduced 272 tiles to 12 with at most one 8-bit RGB code difference and exact alpha. Standalone smoke passed on the NVIDIA and Intel physical adapters.",
-        "After correcting composed scatter and bounce support, the packed adaptive limit covers support up to 512 px. The 100 MP case measured a 431 px halo. Default packed rendering selected 54 tiles with a 2.00 s warm hashed reply; simulated 6 and 4 GiB selected 170 and 250 tiles. All complete replies matched the corrected layout reference byte for byte, while the float export policy stays on its corrected regular geometry."
+        "After correcting composed scatter and bounce support, the packed adaptive limit covers support up to 512 px. The 100 MP case measured a 431 px halo. Default packed rendering selected 54 tiles with a 2.00 s warm hashed reply; simulated 6 and 4 GiB selected 170 and 250 tiles. All complete replies matched the corrected layout reference byte for byte, while the float export policy stays on its corrected regular geometry.",
+        "Full-strength sRGB drag warmup now requests and caches packed display output at the existing warmup priority. The actual Capture One Viewer stored four bytes per pixel, one quarter of the former float reply. The cache distinguishes packed output from float film pixels, and partial strength can only reuse float data. Pass the 56-check licensed Viewer stress suite and 12,525 local Viewer/export assertions."
       ],
       "evidence_paths": [
         "upstream-ofx/shaders/vulkan/SpektraFormatConvert.comp",
@@ -1998,7 +1999,9 @@
         ".test-results/adaptive-viewer-only-20261120/intel-smoke.log",
         ".test-results/composed-halation-final-20261120/layout-parity.json",
         ".test-results/composed-halation-exact-20261120/intel-smoke.log",
-        ".test-results/composed-halation-final-20261120/adaptive-viewer-nvidia.log"
+        ".test-results/composed-halation-final-20261120/adaptive-viewer-nvidia.log",
+        ".test-results/sf-cold-auto-packed-draft/host-smoke.log",
+        ".test-results/cold-auto-packed-draft-contracts.log"
       ],
       "remaining_work": [
         "Explore GPU linear-strength blending and pre-transform source alpha for the enlarger. Both retain their existing exact fallback.",
@@ -3217,7 +3220,8 @@
         "Hold size through small zoom changes and transient geometry loss. A stable zoom can increase the cap; sustained reduction or memory pressure can reduce it. Pan translation does not change the projected long edge. Reset the automatic estimate on image changes.",
         "Host-independent tests cover threshold jitter, DPI/zoom geometry, memory pressure, navigation and restoration. Real Capture One projected 2934 physical px and selected a 4096 px 16-bit RAW source. Switching to manual 2048 produced exactly 2048 px without modifying the stored preference.",
         "Passed 12,513 public local assertions and 149 first-launch plus 153 restart assertions. The source catalog hash stayed unchanged.",
-        "Both licensed launches limited the real WPF Viewer only within the fixture, measuring a 796 px projection and 900 px native RGB16 source. Restoring the viewport and zooming to 100% demanded a 6000 px projection and a new 4096 px native source. At that tier, native pan shifted the overlay without changing the source or rendered bitmap. Manual 2048 remained exact and the original native geometry was restored."
+        "Both licensed launches limited the real WPF Viewer only within the fixture, measuring a 796 px projection and 900 px native RGB16 source. Restoring the viewport and zooming to 100% demanded a 6000 px projection and a new 4096 px native source. At that tier, native pan shifted the overlay without changing the source or rendered bitmap. Manual 2048 remained exact and the original native geometry was restored.",
+        "Seed Auto from verified physical canvas geometry before developing the first frame when the selected native view is already drawable. The licensed 2934 px projection starts at 4096 px and keeps the same RGB16 buffer through settling. Portable assertions cover large, small and unavailable geometry and constrained memory. Existing manual resolution, live pan, and subsequent zoom behavior pass the licensed stress fixture."
       ],
       "evidence_paths": [
         "NativePanel/ViewportQuality.cs",
@@ -3226,7 +3230,9 @@
         "tests/ViewerContracts/Program.cs",
         ".test-results/host-auto-viewport-quality-20261120/host-smoke.log",
         ".test-results/contracts-auto-viewport-quality-20261120/summary.json",
-        ".test-results/host-viewer-grain-conditional-20261120/host-smoke.log"
+        ".test-results/host-viewer-grain-conditional-20261120/host-smoke.log",
+        ".test-results/sf-cold-auto-packed-draft/host-smoke.log",
+        ".test-results/cold-auto-packed-draft-contracts.log"
       ],
       "remaining_work": [
         "Measure mixed-DPI and monitor movement, rapid zoom and drag latency across GPUs, then use measured latency to tune optional quality presets and pressure hysteresis. Native resize and zoom tier transitions have licensed coverage.",

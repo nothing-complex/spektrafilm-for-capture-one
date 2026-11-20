@@ -590,11 +590,22 @@ public static partial class StartupHook
         {
             Call(spatial, "SetEnabled", false);
             Select(options.Single(item => Prop(item, "Id") is "auto"));
+            var memory = spatial.GetType().Assembly.GetType("RenderMemoryBudget")!.GetProperty("SystemMemory", Flags)!.GetValue(null)!;
+            var budget = (long?)Prop(memory, "AvailableForNewAllocation");
+            var coldProjection = Call(view, "MeasureBeforePaint", variant) as double?;
+            Check(Call(view, "ProjectedLongEdge", variant) is null && coldProjection is > 0,
+                "the real native canvas exposes its physical projection before Spektrafilm paints any frame");
+            var qualityType = spatial.GetType().Assembly.GetType("ViewportQuality")!;
+            var expectedQuality = Activator.CreateInstance(qualityType)!;
+            Call(expectedQuality, "Update", coldProjection, 1d, budget, Environment.TickCount64, true);
             Call(spatial, "SetEnabled", true);
-            await WaitForSource(() => Call(view, "ProjectedLongEdge", variant) is double edge && edge > 0);
+            var firstSource = await WaitForSource(() => Call(view, "ProjectedLongEdge", variant) is double edge && edge > 0);
+            Check(Equals(Field(spatial, "sourceSize"), Prop(expectedQuality, "SizeId")) && Prop(firstSource, "BitDepth") is 16,
+                $"Auto develops the first RGB16 source at the tier selected before overlay paint ({Field(spatial, "sourceSize")} px)");
             await Task.Delay(1400);
             var automatic = await WaitForSource(() => Field(spatial, "sourceSize") is string size
                 && Equals(Prop(spatial, "ViewerRenderSize"), size));
+            Check(ReferenceEquals(firstSource, automatic), "a stable cold Auto viewport keeps its first developed frame through the settle interval");
             var projection = (double)Call(view, "ProjectedLongEdge", variant)!;
             var automaticEdge = Math.Max((int)Prop(automatic, "Width")!, (int)Prop(automatic, "Height")!);
             Check(automaticEdge is >= 720 and <= 4096 && (int)Prop(automatic, "BitDepth")! == 16,

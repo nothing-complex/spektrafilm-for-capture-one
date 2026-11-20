@@ -44,6 +44,37 @@ internal sealed class ViewerPreview : IDisposable
     internal double? ProjectedLongEdge(Guid variant) => UnavailableReason is null && attachment is { HasDrawn: true, PaintUnavailable: null } current
         && current.VariantId == variant ? current.ProjectedLongEdge : null;
 
+    internal double? MeasureBeforePaint(Guid variant)
+    {
+        if (disposed) return null;
+        try
+        {
+            if (ApplicationSettings.Default.IsProofingRecipeSettings) return null;
+            var manager = HostDocumentAccess.Current();
+            if (manager?.ActiveDocument() is not { } document || !ApprovedCatalog.IsApproved(manager.ActivePath(), document.Path)
+                || !IsSelected(document, variant) || ReadGrid() is not { IsVisible: true } grid
+                || FindVisibleItems(grid, document, variant) is not [{ Item: var item, View: var view }]
+                || item.BeforeAfterLabelsViewModel is not { HasBeforeView: false }
+                || !view.IsEnabled || view.IsMovie || view.BlackWhiteMode
+                || view.WpfViewer is not { InSlideShowMode: false }
+                || view.ViewerModel is not { IsDrawable: true, ViewMode: ViewMode.Default } model)
+                return null;
+
+            // The physical projection depends on the canvas corners. A unit
+            // bitmap measures it before a developed frame has been allocated.
+            return ViewerGeometry.TryCreate(model.GetClipRectangle(), model.CanvasCoordinates, 1, 1, out var geometry)
+                ? geometry.ProjectedLongEdge : null;
+        }
+        catch (Exception error)
+        {
+            StartupHook.Log("Spektrafilm initial Viewer geometry: " + ErrorMessage(error));
+            return null;
+        }
+    }
+
+    private FrameworkElement? ReadGrid() =>
+        Get(window, "Viewer") is { } view ? Get(view, "VariantGridView") as FrameworkElement : null;
+
     internal void TrackFirstPaint(BitmapSource bitmap, ViewerFrameTiming timing)
     {
         if (!ReferenceEquals(attachment?.PaintedBitmap, bitmap))
@@ -64,8 +95,7 @@ internal sealed class ViewerPreview : IDisposable
 
         try
         {
-            var viewer = Get(window, "Viewer");
-            if (viewer is null || Get(viewer, "VariantGridView") is not FrameworkElement { IsVisible: true } grid)
+            if (ReadGrid() is not { IsVisible: true } grid)
                 return Unavailable("Show the main Viewer to see the live preview.");
 
             if (attachment is { } current && current.Grid == grid && current.VariantId == variantId

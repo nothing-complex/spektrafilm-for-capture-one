@@ -58,6 +58,16 @@ public static partial class StartupHook
         try
         {
             var small = await Load(720);
+            var readLook = (Delegate)Field(spatial, "getSettings")!;
+            var encodingChoice = ((ComboBox)Field(spatial, "outputSpace")!).SelectedItem;
+            if (readLook.DynamicInvoke() is { } look && Prop(look, "Strength") is 1d && Prop(encodingChoice, "Id") is "srgb")
+            {
+                var prepainted = Field(spatial, "draftResult");
+                var floatBytes = ((byte[])Prop(small, "FloatBytes")!).LongLength;
+                Check(prepainted is not null && Field(prepainted, "Item3") is true
+                    && Field(prepainted, "Item2") is byte[] packed && packed.LongLength * 4 == floatBytes,
+                    "full-strength sRGB drag warmup retains only four display bytes per pixel");
+            }
             var large = await Load(1600);
             var back = await Load(720);
             var bytes = ((byte[])Prop(small, "FloatBytes")!).LongLength + ((byte[])Prop(large, "FloatBytes")!).LongLength;
