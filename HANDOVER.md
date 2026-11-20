@@ -6,7 +6,7 @@ Updated 2026-11-20. The critical-fix batch is implemented, tested, installed loc
 
 1. Read this file, `AGENTS.md` and `qa/AUDIT-FIX-STATUS.json` before changing code. The JSON is the authoritative task-progress ledger; its `remaining_work` and original acceptance tests matter more than a short status label.
 2. Check `git status`, current branch and PR head. Do not discard existing edits or switch the installed build merely because this documentation has a newer commit.
-3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP is `0.2.0-audit.17` from clean `9b08fe2`. The extracted package passed native effects export, the full host suite and a private upgrade.
+3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP is `0.2.0-audit.18` from clean `c03bfc7`. The extracted package passed native effects export, the full host suite and a private upgrade.
 4. Choose an unresolved task and an exact ownership boundary. Do not repeat the completed installation, crash test or old defect reproductions as if nothing had happened.
 5. Update task evidence and the delivery ledger at each completed milestone. Never mark a broad parent task complete because one mitigation shipped.
 
@@ -854,6 +854,14 @@ Evidence is under `.test-results/audit16-package-verify-20261120`, `.test-result
 - [x] Upgrade a private audit.16 install to audit.17 with real Capture One Ready and Export Connected before retiring the previously verified package. Custom and external preset hashes were retained and the installed capability report matched the ZIP. The ordinary installation identifies `ffc4819`.
 
 The combined receipt is `.test-results/audit17-package-verify-20261120/result.json`. See `.test-results/host-audit17-native-effects-20261120`, `.test-results/host-audit17-control-inventory-20261120`, `.test-results/host-audit17-full-20261120` and `D:/Library AI testing/sf-audit17-ready-20261120/installed-upgrade-receipt.json`.
+
+## Development package audit.18
+
+- [x] Build from clean `c03bfc76888a52ca9702da40be9c1ddb9b9d9a06`. Verify the ZIP checksum, all 153 package entries, all 19 critical runtime entries and independent regeneration of its capability report. The SHA-256 is `ebffd651c1507f253c438ab6080990edadab0e56abf4d5d05a446e3d8638f052`. The build includes native ICC leases, cancellation during WIC file writing and export storage-error preservation. [Windows 2022 and 2025 checks](https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44705160261)
+- [x] Pass 191 native effects Export assertions per launch from the exact package. The 40 accepted TIFF and PNG files cover both native Export commands, four RAW types, four input encodings, film, diffusion, halation and scatter. The full licensed suite passed 321 first-launch and 325 restart checks. Physical Vulkan passed 28 checks. The actual Cancel export action stopped both in-flight 24 MP TIFF encodes and preserved both prior destinations.
+- [x] Verify a private audit.17 to audit.18 upgrade. CheckOnly retained the previous installation until the exact new process reported Ready with Export connected. Custom and external look hashes were preserved and the installed capability report matched the extracted bytes. The normal local install identifies `ffc4819`.
+
+The combined receipt is `.test-results/audit18-package-verify-20261120/result.json`. Exact output and regression evidence is under `.test-results/host-audit18-native-effects-20261120`, `.test-results/host-audit18-full-20261120` and `D:/Library AI testing/sf-audit18-ready-20261120/installed-upgrade-receipt.json`.
 
 ## Disconnected original recovery
 
