@@ -1165,6 +1165,22 @@ Use `dotnet build -c Release` for both `NativePanel` and `qa/HostSmoke` before a
 
 Evidence includes `.test-results/host-floating-workspace-{reopen-manual,lifetime,export,general}-20261120`, `.test-results/host-real-workspace-stable-effects-20261120`, `.test-results/host-workspace-passive-restart-20261120`, `.test-results/host-workspace-preference-scope-20261120`, `.test-results/scoped-workspace-preferences-20261120` and `.test-results/contracts-custom-workspace-identity-20261120`. Repeat the two real custom workspace transitions with `Run-HostSmoke.ps1 -NativeWorkspaceSwitch` and the verified `-NativeSettingsConfig`. This source checkpoint follows audit.26. The licensed host's built-in preset collection was empty during the fixture. Additional preset types, mixed-DPI displays and RDP remain open.
 
+## Native recipe filename suffix
+
+- [x] Read Capture One's typed Existing Files setting. When the recipe uses Add Suffix, offer the first free space-number suffix in its resolved existing folder. Check occupied files and folders. Keep the Save confirmation and original-path protection. [Capture One Location tool](https://support.captureone.com/hc/en-us/articles/360020905077-Location-tool)
+- [x] Run both native commands against occupied paths on launch and restart. Save offers suffixes 2 and 4 in order with an existing base file, another file and an occupied directory. Both paths preserve the old entries and reopen at 3000 by 2000 in RGB48 with the selected ICC. The independent decoder compares 18 million channels per run and measures less than 7.35e-7 mean full-scale difference.
+- [x] Pass 105 native assertions per launch and verify all nine recipe files against the original backups after each run. The four-RAW native effects and mixed-selection matrix still passes 213 assertions per launch. Windows Viewer and export contracts pass 12,406 assertions, including an injected disk-full write after staging begins. The injected failure retains the Windows error and preserves both files.
+
+Evidence is in `.test-results/host-native-recipe-suffix-effects-20261120`, `.test-results/host-native-suffix-raw-matrix-20261120` and `.test-results/contracts-updated-identity-native-export-20261120`. Repeat with `-NativeEffectFolders` and the exact host's `-NativeSettingsConfig`. This source checkpoint follows audit.27. The rest of Capture One's automatic existing-file actions and physical disk exhaustion remain open.
+
+## Saved looks after catalog edits
+
+- [x] Add the explicit `Restore-SpektrafilmCatalog.ps1 -SavedLooksOnly -AllowUpdatedCatalog` option. With closed database read leases and verified backup hashes, match the document UUID and the variant-to-image UUID for every saved state entry. Require complete unambiguous identities and verify SQLite integrity before publication. The existing exact SHA workflow remains the default.
+- [x] Pass 63 joint backup assertions each in Windows PowerShell 5.1 and PowerShell 7. The fixtures verify read-only preview, exact look and recovery bytes, and rejection of changed document identity, a remapped image, a missing variant and a duplicate variant. Failed checks publish no look state and preserve database bytes.
+- [x] Modify the output counter on a disposable copy of a verified real catalog. The copy has a different database hash. Restore the enabled 1.37 EV look and reopen in Capture One on first launch and restart. Both pass 19 checks and paint on native high-depth development. The backup and updated source keep their exact hashes. The opened database retains the updated counter and passes SQLite integrity.
+
+Evidence is in `.test-results/catalog-identity-contracts-{ps51,ps7}-20261120`, `.test-results/updated-real-catalog-identity-20261120/database-update.json`, and `.test-results/host-updated-catalog-identity-20261120`. Repeat using `-SavedLooksBackup` and `-SavedLooksFromUpdatedCatalog` with a disposable moved copy. Automatic catalog discovery and power-loss publication remain open.
+
 ## Status maintenance
 
 `qa/AUDIT-FIX-STATUS.json` owns task IDs, status, implemented substeps, remaining acceptance work and evidence. This handover owns context, runtime identity and resume instructions. `.test-results/FINAL-RESULT.json` is the completed runtime delivery receipt; keep its runtime commit/package identity distinct from later documentation-only commits.

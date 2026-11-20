@@ -7,6 +7,7 @@ param(
     [string] $UpgradeFromPackage,
     [Alias('ProofingSettingsConfig')][string] $NativeSettingsConfig,
     [string] $SavedLooksBackup,
+    [switch] $SavedLooksFromUpdatedCatalog,
     [switch] $CatalogIsolation,
     [switch] $ConcurrentCatalogs,
     [switch] $SessionIsolation,
@@ -43,6 +44,7 @@ param(
     [string] $ResultsDirectory
 )
 $ErrorActionPreference='Stop'
+if ($SavedLooksFromUpdatedCatalog -and !$SavedLooksBackup) { throw 'An updated catalog fixture needs its saved-look backup.' }
 if ($SavedLooksBackup -and (!$NativeSettingsConfig -or $UpgradeFromPackage -or $CatalogIsolation -or $ConcurrentCatalogs -or $SessionIsolation)) {
     throw 'Moved-catalog look verification requires a single disposable catalog and a native preferences backup.'
 }
@@ -502,8 +504,9 @@ if($CatalogIsolation -or $ConcurrentCatalogs){
 }
 if ($SavedLooksBackup) {
     $SavedLooksBackup=(Resolve-Path -LiteralPath $SavedLooksBackup).ProviderPath
+    $allowUpdated=@{AllowUpdatedCatalog=[bool]$SavedLooksFromUpdatedCatalog}
     & (Join-Path $root 'Restore-SpektrafilmCatalog.ps1') -BackupDatabase $SavedLooksBackup -DestinationDatabase $catalog `
-        -UserDataRoot $folder -SavedLooksOnly -Apply
+        -UserDataRoot $folder -SavedLooksOnly -Apply @allowUpdated
     if ((Get-FileHash -LiteralPath $catalog).Hash -ne $sourceHash) { throw 'The saved-look restore wrote to the copied catalog.' }
 }
 if($ConcurrentCatalogs){$catalog=$fixtureCatalogs[0]}

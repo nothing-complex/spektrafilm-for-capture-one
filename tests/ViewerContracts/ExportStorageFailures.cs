@@ -103,6 +103,23 @@ internal static partial class Program
         finally { File.SetAttributes(destination, FileAttributes.Normal); }
         VerifyOutputs();
 
+        var diskFull = new IOException("The test volume exhausted its available storage.", unchecked((int)0x80070070));
+        try
+        {
+            approved.Write(stream =>
+            {
+                stream.Write(new byte[64 * 1024]);
+                throw diskFull;
+            });
+            throw new InvalidOperationException("A truncated protected export was unexpectedly committed.");
+        }
+        catch (IOException error)
+        {
+            Check(ReferenceEquals(error, diskFull) && (error.HResult & 0xffff) == 112,
+                "a disk-full write failure preserves the Windows error after staging has started");
+        }
+        VerifyOutputs();
+
         var cancellation = new OperationCanceledException("The original accepted job was canceled.");
         string? staging = null;
         try

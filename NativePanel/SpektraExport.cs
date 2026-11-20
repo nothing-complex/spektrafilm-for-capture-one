@@ -1,5 +1,6 @@
 using System;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Threading;
@@ -16,13 +17,21 @@ internal static class SpektraExport
         _ => ".tif",
     };
 
-    internal static string SuggestedOutputName(string? recipeName, string sourcePath, string extension)
+    internal static string SuggestedOutputName(string? recipeName, string sourcePath, string extension,
+        string? directory = null, bool addSuffix = false)
     {
         var name = recipeName?.TrimEnd('.', ' ');
         if (string.IsNullOrWhiteSpace(name) || name.Length > 200 || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
             return Path.GetFileNameWithoutExtension(sourcePath) + "-Spektrafilm";
-        return name + extension;
+        var suggested = name + extension;
+        if (!addSuffix || directory is null || !Path.IsPathFullyQualified(directory))
+            return suggested;
+        for (var suffix = 1; Occupied(Path.Combine(directory, suggested)); suffix++)
+            suggested = name + " " + suffix.ToString(CultureInfo.InvariantCulture) + extension;
+        return suggested;
     }
+
+    private static bool Occupied(string path) => File.Exists(path) || Directory.Exists(path);
 
     internal static string? ExistingRecipeDirectory(string? root, string? subfolder)
     {

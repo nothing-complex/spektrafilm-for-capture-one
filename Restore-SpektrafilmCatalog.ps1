@@ -4,12 +4,14 @@ param(
     [Parameter(Mandatory)][string] $DestinationDatabase,
     [string] $UserDataRoot = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'FilmToolsForCaptureOne'),
     [switch] $SavedLooksOnly,
+    [switch] $AllowUpdatedCatalog,
     [switch] $Apply
 )
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'CatalogIntegrity.ps1')
 Add-Type -AssemblyName System.IO.Compression
+if ($AllowUpdatedCatalog -and !$SavedLooksOnly) { throw 'Use -AllowUpdatedCatalog with -SavedLooksOnly.' }
 
 function Get-PlainPath([string] $path, [switch] $AllowMissing) {
     $full = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($path)
@@ -151,13 +153,15 @@ $published = New-Object 'System.Collections.Generic.List[string]'
 $verified = $false
 $stageCatalog = if (!$SavedLooksOnly) { Join-Path (Split-Path -Parent $destination) ('.spektra-restore-' + $id + '.tmp') }
 $existingCatalogStream = $null
+$verifyCatalogIdentity = $false
 $archiveStream = [IO.File]::Open($lookArchive, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
 try {
     if ($SavedLooksOnly) {
         # Keep the verified database at this path through publishing and rollback.
         $existingCatalogStream = [IO.File]::Open($destination, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
         if ((Get-FileHash -InputStream $existingCatalogStream -Algorithm SHA256).Hash -ne $manifest.catalogSha256) {
-            throw 'The existing catalog bytes differ from this backup. Choose the matching backup generation.'
+            if (!$AllowUpdatedCatalog) { throw 'The existing catalog bytes differ from this backup. Choose the matching backup generation.' }
+            $verifyCatalogIdentity = $true
         }
         foreach ($suffix in '-wal', '-shm', '-journal') {
             if (Test-Path -LiteralPath ($destination + $suffix)) {
@@ -170,6 +174,15 @@ try {
         if ((Get-FileHash -InputStream $databaseStream -Algorithm SHA256).Hash -ne $manifest.catalogSha256 -or
             (Get-FileHash -InputStream $archiveStream -Algorithm SHA256).Hash -ne $manifest.looksSha256) {
             throw 'Catalog or saved-look archive checksum failed.'
+        }
+        if ($verifyCatalogIdentity) {
+            $variants = New-Object 'System.Collections.Generic.HashSet[Guid]'
+            foreach ($record in $manifest.files) {
+                $leaf = $record.path.Substring($record.path.LastIndexOf('/') + 1)
+                [void]$variants.Add([Guid]::ParseExact($leaf.Substring(0, 32), 'N'))
+            }
+            Confirm-RelatedCatalogs $backup $destination ([Guid[]]@($variants))
+            Confirm-CatalogIntegrity $destination
         }
         $archiveStream.Position = 0
         $zip = New-Object IO.Compression.ZipArchive($archiveStream, [IO.Compression.ZipArchiveMode]::Read, $true)
@@ -189,13 +202,14 @@ try {
     } finally { $databaseStream.Dispose() }
     if (!$Apply) {
         Write-Output "Restore preview verified backup checksums for $(@($manifest.files).Count) saved-look and recovery files."
+        if ($verifyCatalogIdentity) { Write-Output 'Verified the updated catalog identity and all saved variants.' }
         Write-Output "Destination: $destination"
         if ($SavedLooksOnly) { Write-Output 'Run the same command with -Apply to restore saved looks for the verified catalog.' }
         else { Write-Output 'Run the same command with -Apply to restore into this new location.' }
         return
     }
-    if ($SavedLooksOnly) { Confirm-CatalogIntegrity $destination }
-    else { Confirm-CatalogIntegrity $stageCatalog }
+    if (!$SavedLooksOnly) { Confirm-CatalogIntegrity $stageCatalog }
+    elseif (!$verifyCatalogIdentity) { Confirm-CatalogIntegrity $destination }
     foreach ($scope in $scopes) {
         if (!(Test-Path -LiteralPath $staging[$scope])) { continue }
         [IO.Directory]::Move($staging[$scope], $targets[$scope])

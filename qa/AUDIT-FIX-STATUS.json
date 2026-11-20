@@ -1587,7 +1587,8 @@
         "Run both native commands against an explicitly selected TIFF recipe in ZIP, LZW and uncompressed modes. Two launches each passed 108 assertions, with 12 compression comparison TIFFs reopening in RGB48 at 3000 by 2000 with the exact selected ICC. Full-pixel comparison stays below 0.05 average 16-bit code including repeated ZIP reference measurements. Both launches verify all nine native recipe files against their backups. An earlier test let the host persist two settings in one preset. Its exact original bytes have been restored, and the final fixture holds recipe variations in memory.",
         "Both native Export routes prefill the selected Capture One recipe's resolved filename stem. The first and restarted host pass 62 checks each, including comparison to the actual Capture One Naming tool in the real Export dialog and confirmation that the output counter is unchanged. Save still approves a TIFF or PNG destination and refuses the original path.",
         "Save suggests the existing native recipe root or resolved child directory. The licensed run agrees with Capture One's real Location tool for Recipe Name token resolution, preserves a nested literal path and leaves a missing directory uncreated. Both launches pass 87 checks and commit six RGB48 effects TIFFs to the exact approved fixture folders. All nine backed-up recipe files independently verify after each launch.",
-        "Both native Export routes preserve the film look and composed optics with the tool tab hidden or the real tool floating. Eight RGB48 TIFFs retain the selected recipe ICC and match the docked reference within 1.05e-6 mean full-scale RGB. Each licensed launch passes 96 checks."
+        "Both native Export routes preserve the film look and composed optics with the tool tab hidden or the real tool floating. Eight RGB48 TIFFs retain the selected recipe ICC and match the docked reference within 1.05e-6 mean full-scale RGB. Each licensed launch passes 96 checks.",
+        "Read the typed Existing Files setting and honor the Add Suffix hint in the resolved existing recipe folder. On both launches, the real native commands offer suffixes 2 and 4 after checking occupied files and directories, preserve earlier entries and deliver the composed 16-bit look with the selected ICC. Both launches pass 105 assertions and verify all nine recipe files. The independent decoder measures less than 7.35e-7 mean full-scale difference across 18 million channel codes per pair."
       ],
       "evidence_paths": [
         "NativePanel/SpektraFilmTool.cs",
@@ -1614,10 +1615,12 @@
         ".test-results/host-native-recipe-naming-async-20261120/host-smoke.log",
         ".test-results/contracts-native-naming-display-20261120/ViewerContracts.log",
         ".test-results/host-native-location-accepted-paths-20261120",
-        ".test-results/host-native-export-hidden-and-floating-20261120"
+        ".test-results/host-native-export-hidden-and-floating-20261120",
+        ".test-results/host-native-recipe-suffix-effects-20261120/independent-rgb16.json",
+        ".test-results/host-native-suffix-raw-matrix-20261120/host-smoke.log"
       ],
       "remaining_work": [
-        "Compare selected RGB recipe output against additional native profile references. Directory creation and the full location token matrix, native counter advancement, duplicate-name handling, tiling and other format and quality settings beyond the explicit 16-bit TIFF/PNG save policy remain open."
+        "Compare selected RGB recipe output against additional native profile references. Directory creation and the full location token matrix, native counter advancement, automatic Skip/Overwrite behavior, tiling and other format and quality settings beyond the explicit 16-bit TIFF/PNG save policy remain open."
       ],
       "original_acceptance_tests": [
         "Table-driven JPEG, PNG, TIFF 8/16-bit, unknown-format, custom ICC, image-folder/custom-folder/subfolder/token/suffix and duplicate-name cases.",
@@ -2115,7 +2118,8 @@
       "implemented": [
         "Launcher backups now include film-state archives and manifests alongside catalog snapshots.",
         "Verified joint restore to a new catalog path publishes rebased film state and pending edits. The production reader recovered two looks and native Capture One opened a disposable copy of the restored database.",
-        "An explicit saved-look-only restore attaches an exact matching joint backup generation to an existing moved or copied database without rewriting it. Native launch and restart load the actual enabled 1.37 EV look and paint over Capture One high-depth RGB. Both pass 19 assertions and preserve the archived look bytes."
+        "An explicit saved-look-only restore attaches an exact matching joint backup generation to an existing moved or copied database without rewriting it. Native launch and restart load the actual enabled 1.37 EV look and paint over Capture One high-depth RGB. Both pass 19 assertions and preserve the archived look bytes.",
+        "The opt-in AllowUpdatedCatalog restore verifies native document identity and every saved variant's native image relationship under a database read lease. A disposable real database with an updated output counter restores the exact 1.37 EV look on launch and restart in 19 assertions each. Its input bytes, updated counter and verified backup survive."
       ],
       "evidence_paths": [
         "Start-Spektrafilm.ps1",
@@ -2124,10 +2128,13 @@
         ".test-results/restored-real-catalog-20261119/result.txt",
         ".test-results/host-real-moved-catalog-looks-only-20261120",
         ".test-results/contracts-catalog-restore-durable-20261120/catalog-backup.log",
-        ".test-results/contracts-catalog-restore-durable-ps7-20261120"
+        ".test-results/contracts-catalog-restore-durable-ps7-20261120",
+        ".test-results/host-updated-catalog-identity-20261120/verified-update.json",
+        ".test-results/catalog-identity-contracts-ps51-20261120",
+        ".test-results/catalog-identity-contracts-ps7-20261120"
       ],
       "remaining_work": [
-        "Identify moves and clones automatically or after database changes, handle case aliases and read-only/reverted catalogs, verify portability with a second Windows account, and exercise abrupt interruption during saved-look publication."
+        "Identify moves and clones automatically. Extend reverted-catalog coverage, verify portability with a second Windows account, and exercise abrupt interruption during saved-look publication."
       ],
       "original_acceptance_tests": [
         "original/moved/renamed/case-alias/copied/reverted catalog, two clones diverging, read-only directory, separate Windows account, missing sidecar, rollback. Verify edited source catalog never changes during copy migration."
@@ -2851,7 +2858,8 @@
         "Windows 2022 CI exposed a timestamp collision during rapid look-only backups. Versioned backup basenames now have a monotonic same-tick suffix, and a per-catalog lock serializes backup generation and rotation.",
         "If publishing a companion fails, remove only parts published by that attempt and preserve prior complete generations. Frozen-clock rotation, blocked manifest publication and competing backups passed 42 assertions in both PowerShell 5.1 and 7.",
         "Created two real Capture One backup generations with the same timestamp, restored the latest one and matched both look files and the original catalog hash exactly.",
-        "Restore just the saved look and recovery scopes against a closed, existing database that matches the verified joint backup. Keep a read lease while applying and flush rebased checkpoints before publication. Checkpoint rekeying, previous state, native grain, locked and stale SQLite refusals, read-only attributes, Windows path aliases, different generations and conflicting destinations pass in 54 assertions in each Windows shell."
+        "Restore just the saved look and recovery scopes against a closed, existing database that matches the verified joint backup. Keep a read lease while applying and flush rebased checkpoints before publication. Checkpoint rekeying, previous state, native grain, locked and stale SQLite refusals, read-only attributes, Windows path aliases, different generations and conflicting destinations pass in 54 assertions in each Windows shell.",
+        "The explicit updated-catalog fallback verifies document identity and each saved variant's link to its original native image. Both Windows shells pass 63 backup assertions, including no-write preview, exact recovery rebasing and refusal of other documents, remapped images, missing variants and duplicate variant mappings."
       ],
       "evidence_paths": [
         "Start-Spektrafilm.ps1",
@@ -2866,6 +2874,9 @@
         ".test-results/contracts-grain-backup-policy-20261119/catalog-backup.log",
         ".test-results/contracts-catalog-restore-durable-20261120/catalog-backup.log",
         ".test-results/contracts-catalog-restore-durable-ps7-20261120",
+        ".test-results/catalog-identity-contracts-ps51-20261120",
+        ".test-results/catalog-identity-contracts-ps7-20261120",
+        ".test-results/host-updated-catalog-identity-20261120/host-smoke.log",
         "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44628947791"
       ],
       "remaining_work": [
@@ -3340,7 +3351,8 @@
         "The original Capture One Export window shows an accepted destination failure in its title and keeps its confirmation active. Selecting a fresh destination clears the indication and exports through the same dialog. Both launches pass 109 real native effects assertions. The forced failure keeps the previous TIFF bytes and releases the staging file.",
         "A rapid Export with Previous Settings after an already-closed dialog exposed a window between output completion and cleanup of the old bridge task. The bridge now observes the actual task and closed window before admitting the next command. It still blocks nested destination picking and in-flight jobs, and an older continuation cannot release a newer task. The native grain suite passes 110 assertions per launch and the four-RAW effects matrix passes 191 per launch.",
         "An accepted export failure uses Capture One's Windows notification presenter when both its native dialog and panel status are hidden. A clean message directs the user to the detailed durable result. Two licensed layout runs each pass 104 assertions and preserve protected TIFF bytes on failure. The optional clearly labelled test submission was accepted by the actual Capture One presenter.",
-        "Newly created approved output staging uses Windows delete disposition until the writer has verified, flushed and revalidated the destination. Stopping its process during real encoding removes exactly the owned stage. The licensed fixture observed 1,325,155 completed WIC write bytes, preserved the previous TIFF, unrelated temporary file and saved 1.37 EV look, passed 17/22 assertions and reopened the explicitly retried 24 MP RGB48 film result. Host-independent checks include a separate terminated writer and active 24 MP TIFF/PNG cancellation. Real native commands passed 114 effects and grain assertions on both launches, and the general suite passed 344/348."
+        "Newly created approved output staging uses Windows delete disposition until the writer has verified, flushed and revalidated the destination. Stopping its process during real encoding removes exactly the owned stage. The licensed fixture observed 1,325,155 completed WIC write bytes, preserved the previous TIFF, unrelated temporary file and saved 1.37 EV look, passed 17/22 assertions and reopened the explicitly retried 24 MP RGB48 film result. Host-independent checks include a separate terminated writer and active 24 MP TIFF/PNG cancellation. Real native commands passed 114 effects and grain assertions on both launches, and the general suite passed 344/348.",
+        "Inject the Windows disk-full HRESULT after writing protected staging bytes. The transaction preserves the exact original exception, source and prior output, and removes its owned partial file. The combined Viewer and export suite passes 12,406 checks. This exercises the failure path using an injected write error."
       ],
       "evidence_paths": [
         "NativePanel/SpatialPreview.cs",
@@ -3374,7 +3386,8 @@
         ".test-results/host-native-crash-owned-ordinary-20261120/host-smoke.log",
         ".test-results/host-native-crash-owned-full-20261120/host-smoke.log",
         ".test-results/contracts-crash-owned-export-encoder-counter-20261120/summary.json",
-        ".test-results/encoder-crash-owned-20261120/encoder-cancellation.json"
+        ".test-results/encoder-crash-owned-20261120/encoder-cancellation.json",
+        ".test-results/contracts-updated-identity-native-export-20261120/ViewerContracts.log"
       ],
       "remaining_work": [
         "Add resumable authorized descriptors and an explicit batch queue with per-image isolation. Current receipts preserve progress and outcome for a single accepted export.",

@@ -52,7 +52,7 @@ internal static class HostImageSource
         string CropMode, string RootFolderMode, string CustomRootFolder, string Subfolder, string Filename,
         string Suffix, int TiffBits, int JpegQuality, int Width, int Height, double Scale, bool IgnoreCrop,
         double Resolution, string ResolutionUnit, ExportMetadata Metadata, TiffCompressOption TiffCompression,
-        string? SuggestedFilename, string? SuggestedDirectory);
+        string? SuggestedFilename, string? SuggestedDirectory, bool AddSuffixToExistingFileName);
 
     internal static (Guid VariantId, NativeImageRevision AdjustmentKey, bool OriginalAvailable) GetSelectedSourceState(object window)
     {
@@ -135,7 +135,8 @@ internal static class HostImageSource
             recipe.CropExportMethod.ToString(), recipe.DestinationRootFolder.ToString(), recipe.DestinationCustomRootFolder,
             recipe.DestinationSubFolder, recipe.DestinationFilename, recipe.DestinationSubName, recipe.TiffBits, recipe.JpegQuality,
             scale.ScaledPixelWidth, scale.ScaledPixelHeight, scale.Scale, ignoreCrop, recipe.Resolution, recipe.ResolutionUnit.ToString(),
-            metadata, compression, ReadSuggestedFilename(selection, recipe), ReadSuggestedDirectory(selection, recipe));
+            metadata, compression, ReadSuggestedFilename(selection, recipe), ReadSuggestedDirectory(selection, recipe),
+            recipe.FileOverwriteAction == ProcessedFileOverwriteAction.Rename);
     }
 
     private static string? ReadSuggestedDirectory(HostProfile.Selection selection, IDestinationProcessingSettings recipe)

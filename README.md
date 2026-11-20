@@ -54,7 +54,7 @@ With Spektrafilm enabled, select the photo and one enabled Export Recipe, then o
 
 The Save dialog uses the selected recipe's Capture One naming preview when it resolves to a valid filename. Edit the suggestion before saving if needed. Spektrafilm reads the naming counter without advancing it. [Capture One Naming tool](https://support.captureone.com/hc/en-us/articles/360020905117-Naming-tool)
 
-Save opens in the recipe's resolved subfolder when that folder exists. For a missing subfolder, it opens at the existing recipe root and lets you choose the final destination. [Capture One Export Recipes](https://support.captureone.com/hc/en-us/articles/360021057158-Export-Recipes)
+Save opens in the recipe's resolved subfolder when that folder exists. For a missing subfolder, it opens at the existing recipe root and lets you choose the final destination. If the recipe uses **Add Suffix**, an occupied filename gets the first available numbered suffix. Confirm the final destination in Save. [Capture One Export Recipes](https://support.captureone.com/hc/en-us/articles/360021057158-Export-Recipes) · [Location tool](https://support.captureone.com/hc/en-us/articles/360020905077-Location-tool)
 
 Native recipe exports include the permitted copyright, creator, title, headline, description, capture date and rating when available. The **All**, **None** and **From selected keyword libraries** settings control flat and hierarchical keywords. Supported fields are written as XMP. GPS is omitted, and the remaining Capture One metadata fields and watermarks are outside the current 16-bit export policy. The **Export with Spektrafilm** button in the panel uses the selected image, sRGB and 96 DPI. **Save preview PNG** saves the on-screen comparison frame.
 
@@ -102,7 +102,7 @@ To restore a backup, open PowerShell in the Spektrafilm installation folder. Cho
 .\Restore-SpektrafilmCatalog.ps1 -BackupDatabase 'C:\Backups\Catalog.cocatalogdb' -DestinationDatabase 'D:\Restored\Catalog.cocatalogdb'
 ```
 
-If you already moved or copied the catalog, close Capture One and use `-SavedLooksOnly` with the existing catalog path. Choose the backup generation that matches the catalog bytes. Preview first, then add `-Apply`. This restores Spektrafilm's saved looks and recovery records for the new location. Existing Spektrafilm state at that path is protected from replacement.
+If you already moved or copied the catalog, close Capture One and use `-SavedLooksOnly` with the existing catalog path. Choose the backup generation that matches the catalog bytes. If you have since edited that catalog, add `-AllowUpdatedCatalog`. The preview verifies that Capture One identifies it as the same catalog and that each saved variant still points to the same image in the catalog. Add `-Apply` to restore the verified looks and recovery records for the new location. Existing Spektrafilm state at that path is protected from replacement.
 
 To uninstall, close Capture One, delete the **Spektrafilm for Capture One** desktop shortcut, and remove the installation folder printed by the installer. Keep the saved looks and catalog backups under `%LOCALAPPDATA%\FilmToolsForCaptureOne` if you want to use them later. If you used portable mode, remove the extracted folder.
 

@@ -276,4 +276,96 @@ $failure = $null
 try { $null = & $restore -BackupDatabase $legacy -DestinationDatabase $blocked -UserDataRoot $restoredData }
 catch { $failure = $_.Exception.Message }
 Assert ($failure -match 'different catalog or state generation') 'Version 1 refuses a mismatched pairing even with valid ZIP and database hashes'
+
+Add-Type -TypeDefinition @'
+using System;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
+
+public static class CatalogIdentityFixture
+{
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [DllImport("winsqlite3.dll", CallingConvention = CallingConvention.Cdecl)]
+    private static extern int sqlite3_open_v2(byte[] file, out IntPtr database, int flags, IntPtr vfs);
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [DllImport("winsqlite3.dll", CallingConvention = CallingConvention.Cdecl)]
+    private static extern int sqlite3_exec(IntPtr database, byte[] query, IntPtr result, IntPtr state, IntPtr error);
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [DllImport("winsqlite3.dll", CallingConvention = CallingConvention.Cdecl)]
+    private static extern int sqlite3_close(IntPtr database);
+
+    public static void Create(string path, string query)
+    {
+        if (File.Exists(path)) throw new IOException("Choose a new disposable catalog path.");
+        IntPtr database;
+        int status = sqlite3_open_v2(Encoding.UTF8.GetBytes(Path.GetFullPath(path) + "\0"), out database, 6, IntPtr.Zero);
+        try
+        {
+            if (status != 0 || sqlite3_exec(database, Encoding.UTF8.GetBytes(query + "\0"), IntPtr.Zero, IntPtr.Zero, IntPtr.Zero) != 0)
+                throw new IOException("Could not create the synthetic catalog identity fixture.");
+        }
+        finally { if (database != IntPtr.Zero) sqlite3_close(database); }
+    }
+}
+'@
+$catalogSchema = @'
+CREATE TABLE ZDOCUMENTCONTENT (Z_PK INTEGER PRIMARY KEY, ZDOCUMENTUUID VARCHAR, ZREVISION INTEGER);
+CREATE TABLE ZIMAGE (Z_PK INTEGER PRIMARY KEY, ZIMAGEUUID VARCHAR);
+CREATE TABLE ZVARIANT (Z_PK INTEGER PRIMARY KEY, ZVARIANTUUID VARCHAR, ZIMAGE INTEGER);
+INSERT INTO ZDOCUMENTCONTENT VALUES (1, '22222222-2222-2222-2222-222222222222', 1);
+INSERT INTO ZIMAGE VALUES (1, '44444444-4444-4444-4444-444444444444'), (2, '55555555-5555-5555-5555-555555555555');
+INSERT INTO ZVARIANT VALUES (1, '11111111-1111-1111-1111-111111111111', 1);
+'@
+$catalogFixtures = [ordered]@{
+    original = ''
+    updated = "UPDATE ZDOCUMENTCONTENT SET ZREVISION=2; INSERT INTO ZVARIANT VALUES (2, '33333333-3333-3333-3333-333333333333', 2);"
+    otherDocument = "UPDATE ZDOCUMENTCONTENT SET ZDOCUMENTUUID='99999999-9999-9999-9999-999999999999';"
+    remappedImage = 'UPDATE ZVARIANT SET ZIMAGE=2;'
+    missingVariant = 'DELETE FROM ZVARIANT;'
+    duplicateVariant = "INSERT INTO ZVARIANT VALUES (2, '11111111-1111-1111-1111-111111111111', 2);"
+}
+$identityFixtures = Join-Path $root 'native-catalog-identities'
+[void][IO.Directory]::CreateDirectory($identityFixtures)
+$databasesByName = @{}
+foreach ($name in $catalogFixtures.Keys) {
+    $file = Join-Path $identityFixtures ($name + '.cocatalogdb')
+    [CatalogIdentityFixture]::Create($file, ($catalogSchema + "`n" + $catalogFixtures[$name]))
+    $databasesByName[$name] = $file
+}
+# Reuse the state already associated with this test-only source path.
+[IO.File]::Copy($databasesByName.original, $db, $true)
+$identityBackup = Save-CatalogBackup $db
+$updated = $databasesByName.updated
+$updatedHash = (Get-FileHash -LiteralPath $updated).Hash
+$updatedState = Join-Path $identityFixtures 'state'
+$restoreUpdated = @{BackupDatabase=$identityBackup;DestinationDatabase=$updated;UserDataRoot=$updatedState;SavedLooksOnly=$true}
+$failure = $null
+try { $null = & $restore @restoreUpdated -Apply }
+catch { $failure = $_.Exception.Message }
+Assert ($failure -match 'catalog bytes differ' -and !(Test-Path -LiteralPath $updatedState)) 'Updated database requires the explicit identity fallback'
+$preview = & $restore @restoreUpdated -AllowUpdatedCatalog
+Assert (($preview -join ' ') -match 'Verified the updated catalog identity' -and !(Test-Path -LiteralPath $updatedState)) 'The updated catalog preview verifies identity without writing'
+$result = & $restore @restoreUpdated -AllowUpdatedCatalog -Apply
+Assert (($result -join ' ') -match 'Restored saved looks' -and (Get-FileHash -LiteralPath $updated).Hash -eq $updatedHash) 'Restoring updated catalog state leaves every catalog byte exact'
+$updatedLooks = @(Get-ChildItem -LiteralPath (Join-Path $updatedState 'Variant looks') -Recurse -File -Filter '11111111111111111111111111111111.json')
+Assert ($updatedLooks.Count -eq 1 -and (Get-FileHash -LiteralPath $updatedLooks[0].FullName).Hash -eq $baseHash) 'The matching native variant receives exactly the verified archived look'
+$updatedPending = @(Get-ChildItem -LiteralPath (Join-Path $updatedState 'Look recovery') -Recurse -File -Filter '*.pending.json')
+$rebased = Get-Content -Raw -LiteralPath $updatedPending[0].FullName | ConvertFrom-Json
+Assert ($updatedPending.Count -eq 1 -and $rebased.CatalogKey -eq $updatedLooks[0].Directory.Name -and $rebased.Look.Look.Exposure -eq 2.2) 'Updated catalog recovery keeps the pending value and rebases its catalog key'
+$failures = @{
+    otherDocument = 'different native document identity'
+    remappedImage = 'different native image'
+    missingVariant = 'does not uniquely identify'
+    duplicateVariant = 'does not uniquely identify'
+}
+foreach ($name in $failures.Keys) {
+    $target = $databasesByName[$name]
+    $hash = (Get-FileHash -LiteralPath $target).Hash
+    $refusedState = Join-Path $identityFixtures ($name + '-state')
+    $failure = $null
+    try { $null = & $restore -BackupDatabase $identityBackup -DestinationDatabase $target -UserDataRoot $refusedState -SavedLooksOnly -AllowUpdatedCatalog -Apply }
+    catch { $failure = $_.Exception.Message }
+    Assert ($failure -match $failures[$name] -and !(Test-Path -LiteralPath $refusedState) -and (Get-FileHash -LiteralPath $target).Hash -eq $hash) "Reject $name without publishing state or changing catalog bytes"
+}
 Write-Output "PASS: $count joint backup assertions. Evidence: $root"

@@ -81,7 +81,7 @@ internal static partial class Program
         TestDraft();
         TestDevelopedFrameDescription();
         TestExport(folder);
-        TestExportFilenameSuggestion();
+        TestExportFilenameSuggestion(folder);
         TestExportFolderSuggestion(folder);
         TestTiffCompression(folder);
         TestExportProfiles(folder);
@@ -115,7 +115,7 @@ internal static partial class Program
         Check(FloatingWindowBounds.Fit(docked, Rectangle.Empty) == docked, "transient absence of a work area leaves placement undisturbed");
     }
 
-    private static void TestExportFilenameSuggestion()
+    private static void TestExportFilenameSuggestion(string folder)
     {
         const string source = "raw.dng";
         Check(SpektraExport.SuggestedOutputName("Film proof 日 1.2", source, ".tif") == "Film proof 日 1.2.tif",
@@ -125,6 +125,18 @@ internal static partial class Program
         foreach (var unsafeName in new[] { null, "", "..\\outside", "C:\\outside", "image:stream", new string('z', 201) })
             Check(SpektraExport.SuggestedOutputName(unsafeName, source, ".tif") == "raw-Spektrafilm",
                 "an unavailable or unusable recipe suggestion keeps the ordinary source-based name");
+        var collisions = Directory.CreateDirectory(Path.Combine(folder, "recipe-name-collisions")).FullName;
+        const string stem = "Film proof 日 1.2";
+        File.WriteAllText(Path.Combine(collisions, stem + ".tif"), "previous export");
+        Directory.CreateDirectory(Path.Combine(collisions, stem + " 1.tif"));
+        File.WriteAllText(Path.Combine(collisions, stem + " 3.tif"), "another export");
+        Check(SpektraExport.SuggestedOutputName(stem, source, ".tif", collisions, addSuffix: true) == stem + " 2.tif",
+            "the native Add Suffix hint skips the occupied file and folder and uses the first available space-number suffix");
+        Check(SpektraExport.SuggestedOutputName(stem, source, ".png", collisions, addSuffix: true) == stem + ".png"
+            && SpektraExport.SuggestedOutputName(stem, source, ".tif", collisions, addSuffix: false) == stem + ".tif",
+            "different extensions and other native collision policies retain their base suggestion");
+        Check(File.ReadAllText(Path.Combine(collisions, stem + ".tif")) == "previous export"
+            && Directory.GetFileSystemEntries(collisions).Length == 3, "suggesting a collision suffix leaves all destination entries untouched");
     }
 
     private static void TestExportFolderSuggestion(string folder)

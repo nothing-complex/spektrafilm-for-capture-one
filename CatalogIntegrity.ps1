@@ -6,10 +6,11 @@ function Get-CatalogStateDigest([object[]] $records) {
     finally { $sha.Dispose() }
 }
 
-function Confirm-CatalogIntegrity([string] $path) {
+function Initialize-CatalogIntegrity {
     if (!('Spektrafilm.CatalogIntegrity' -as [type])) {
         Add-Type -TypeDefinition @'
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -43,40 +44,117 @@ namespace Spektrafilm
 
         public static void Verify(string path)
         {
-            // The file is a closed, private backup candidate. Immutable URI mode
-            // prevents journal reads or writes and leaves the live catalog alone.
+            string result = null;
+            Result read = delegate(IntPtr state, int count, IntPtr values, IntPtr names)
+            {
+                if (count == 1) result = ReadValue(values, 0);
+                return 0;
+            };
+            const string operation = "SQLite integrity verification";
+            ExecuteReadOnly(path, "PRAGMA integrity_check(1)", read, operation);
+            if (!String.Equals(result, "ok", StringComparison.Ordinal))
+                throw Failure(operation, result ?? "SQLite did not report an integrity result.");
+        }
+
+        public static void VerifyRelated(string backup, string destination, Guid[] variants)
+        {
+            const string operation = "Capture One catalog identity verification";
+            var required = new HashSet<Guid>(variants);
+            if (required.Contains(Guid.Empty)) throw Failure(operation, "A saved variant identity is empty.");
+            var original = ReadIdentity(backup, required, operation);
+            var updated = ReadIdentity(destination, required, operation);
+            if (original.Document != updated.Document)
+                throw Failure(operation, "The existing catalog has a different native document identity.");
+            foreach (var variant in required)
+                if (original.ImagesByVariant[variant] != updated.ImagesByVariant[variant])
+                    throw Failure(operation, "A saved variant belongs to a different native image in the existing catalog.");
+        }
+
+        private static Identity ReadIdentity(string path, HashSet<Guid> required, string operation)
+        {
+            var identity = new Identity();
+            int documentRows = 0;
+            bool invalidMapping = false;
+            Result read = delegate(IntPtr state, int count, IntPtr values, IntPtr names)
+            {
+                if (count == 1)
+                {
+                    documentRows++;
+                    Guid.TryParse(ReadValue(values, 0), out identity.Document);
+                }
+                else if (count == 2)
+                {
+                    Guid variant, image;
+                    if (Guid.TryParse(ReadValue(values, 0), out variant) && required.Contains(variant))
+                    {
+                        if (!Guid.TryParse(ReadValue(values, 1), out image) || image == Guid.Empty || identity.ImagesByVariant.ContainsKey(variant))
+                            invalidMapping = true;
+                        else
+                            identity.ImagesByVariant.Add(variant, image);
+                    }
+                }
+                return 0;
+            };
+            var query = "SELECT ZDOCUMENTUUID FROM ZDOCUMENTCONTENT;";
+            if (required.Count != 0)
+                query += "SELECT v.ZVARIANTUUID, i.ZIMAGEUUID FROM ZVARIANT v LEFT JOIN ZIMAGE i ON i.Z_PK = v.ZIMAGE;";
+            ExecuteReadOnly(path, query, read, operation);
+            if (documentRows != 1 || identity.Document == Guid.Empty)
+                throw Failure(operation, "The catalog does not contain one valid native document identity.");
+            if (invalidMapping || identity.ImagesByVariant.Count != required.Count)
+                throw Failure(operation, "The catalog does not uniquely identify each saved variant and its native image.");
+            return identity;
+        }
+
+        private sealed class Identity
+        {
+            internal Guid Document;
+            internal readonly Dictionary<Guid, Guid> ImagesByVariant = new Dictionary<Guid, Guid>();
+        }
+
+        private static void ExecuteReadOnly(string path, string query, Result read, string operation)
+        {
+            // The caller verifies the database is closed and holds it read-only.
+            // Immutable URI mode prevents SQLite journal reads or writes.
             var uri = new Uri(Path.GetFullPath(path)).AbsoluteUri + "?mode=ro&immutable=1";
             IntPtr database;
             int open = sqlite3_open_v2(Utf8(uri), out database, 0x41, IntPtr.Zero); // READONLY | URI
             try
             {
-                if (open != 0) throw Failure(database, null);
+                if (open != 0) throw Failure(operation, ReadError(database));
                 var clock = Stopwatch.StartNew();
                 Progress progress = delegate { return clock.ElapsedMilliseconds >= 120000 ? 1 : 0; };
                 sqlite3_progress_handler(database, 50000, progress, IntPtr.Zero);
-                string result = null;
-                Result read = delegate(IntPtr state, int count, IntPtr values, IntPtr names)
-                {
-                    if (count == 1) result = Marshal.PtrToStringAnsi(Marshal.ReadIntPtr(values));
-                    return 0;
-                };
-                int status = sqlite3_exec(database, Utf8("PRAGMA integrity_check(1)"), read, IntPtr.Zero, IntPtr.Zero);
+                int status = sqlite3_exec(database, Utf8(query), read, IntPtr.Zero, IntPtr.Zero);
                 GC.KeepAlive(progress);
-                if (status == 9) throw new IOException("Catalog integrity verification timed out. Existing backups were kept.");
-                if (status != 0 || !String.Equals(result, "ok", StringComparison.Ordinal)) throw Failure(database, result);
+                if (status == 9) throw new IOException(operation + " timed out. Existing backups were kept.");
+                if (status != 0) throw Failure(operation, ReadError(database));
             }
             finally { if (database != IntPtr.Zero) sqlite3_close(database); }
         }
 
         private static byte[] Utf8(string text) { return Encoding.UTF8.GetBytes(text + "\0"); }
-        private static IOException Failure(IntPtr database, string result)
+        private static string ReadValue(IntPtr values, int index) { return Marshal.PtrToStringAnsi(Marshal.ReadIntPtr(values, index * IntPtr.Size)); }
+        private static string ReadError(IntPtr database)
         {
-            string detail = result ?? (database == IntPtr.Zero ? "SQLite could not open the copy." : Marshal.PtrToStringAnsi(sqlite3_errmsg(database)));
-            return new IOException("The catalog copy failed SQLite integrity verification. Existing backups were kept. " + detail);
+            return database == IntPtr.Zero ? "SQLite could not open the copy." : Marshal.PtrToStringAnsi(sqlite3_errmsg(database));
+        }
+        private static IOException Failure(string operation, string detail)
+        {
+            return new IOException("The catalog copy failed " + operation + ". Existing backups were kept. " + detail);
         }
     }
 }
 '@
     }
+}
+
+function Confirm-CatalogIntegrity([string] $path) {
+    Initialize-CatalogIntegrity
     [Spektrafilm.CatalogIntegrity]::Verify($path)
+}
+
+function Confirm-RelatedCatalogs([string] $backup, [string] $destination, [Guid[]] $variants) {
+    Initialize-CatalogIntegrity
+    [Spektrafilm.CatalogIntegrity]::VerifyRelated($backup, $destination, $variants)
 }

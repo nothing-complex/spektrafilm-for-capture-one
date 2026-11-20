@@ -233,7 +233,7 @@ public static partial class StartupHook
                 return true;
             });
             var expectedRoutes = 5 + (compareGrain ? 8 : 0) + (compareCompression ? 6 : 0)
-                + (compareFolders ? 3 : 0) + (comparePanelModes ? 6 : 0);
+                + (compareFolders ? 5 : 0) + (comparePanelModes ? 6 : 0);
             Check(clicked && routeCount == expectedRoutes && Prop(bridge, "Dialog") is null,
                 "the master switch delegates to the ordinary Capture One Export dialog without a Spektrafilm job");
             ((IDisposable)bridge).Dispose();
@@ -371,9 +371,11 @@ public static partial class StartupHook
                 var mode = type.GetProperty("DestinationRootFolder", Flags)!;
                 var root = type.GetProperty("DestinationCustomRootFolder", Flags)!;
                 var subfolder = type.GetProperty("DestinationSubFolder", Flags)!;
+                var overwrite = type.GetProperty("FileOverwriteAction", Flags)!;
                 var originalMode = mode.GetValue(selected)!;
                 var originalRoot = root.GetValue(selected);
                 var originalSubfolder = subfolder.GetValue(selected);
+                var originalAction = overwrite.GetValue(selected)!;
                 var fixtureRoot = Directory.CreateDirectory(Path.Combine(folder, "native-recipe-location")).FullName;
                 var relative = Path.Combine("Prints", "Proofs");
                 var nested = Directory.CreateDirectory(Path.Combine(fixtureRoot, relative)).FullName;
@@ -400,6 +402,7 @@ public static partial class StartupHook
                     await Render("missing-recipe-folder", ".tif", true, fixtureOutputDirectory: fixtureRoot);
                     Check(string.Equals(offeredDirectory, fixtureRoot, StringComparison.OrdinalIgnoreCase) && !Directory.Exists(missing),
                         "Previous Settings suggests the recipe root when its subfolder has not been created");
+                    await CheckNumberedNames();
                 }
                 finally
                 {
@@ -408,11 +411,47 @@ public static partial class StartupHook
                         mode.SetValue(selected, originalMode);
                         root.SetValue(selected, originalRoot);
                         subfolder.SetValue(selected, originalSubfolder);
+                        overwrite.SetValue(selected, originalAction);
                     }
                     finally { notifications.SetValue(selected, false); }
                 }
                 Check(Equals(mode.GetValue(selected), originalMode) && Equals(root.GetValue(selected), originalRoot)
-                    && Equals(subfolder.GetValue(selected), originalSubfolder), "the live recipe location is restored");
+                    && Equals(subfolder.GetValue(selected), originalSubfolder) && Equals(overwrite.GetValue(selected), originalAction),
+                    "the live recipe location and existing-file policy are restored");
+
+                async Task CheckNumberedNames()
+                {
+                    if (expectedSuggestedFile is null)
+                        throw new InvalidOperationException("The native filename collision fixture requires a recipe name suggestion.");
+                    var extension = Path.GetExtension(expectedSuggestedFile);
+                    var stem = Path.GetFileNameWithoutExtension(expectedSuggestedFile);
+                    var collisionFolder = Directory.CreateDirectory(Path.Combine(fixtureRoot, caseName + "-collisions")).FullName;
+                    var occupied = Path.Combine(collisionFolder, expectedSuggestedFile);
+                    var otherOutput = Path.Combine(collisionFolder, stem + " 3" + extension);
+                    byte[] prior = [7, 2, 4];
+                    File.WriteAllBytes(occupied, prior);
+                    File.WriteAllBytes(otherOutput, prior);
+                    var occupiedDirectory = Directory.CreateDirectory(Path.Combine(collisionFolder, stem + " 1" + extension)).FullName;
+                    subfolder.SetValue(selected, Path.GetFileName(collisionFolder));
+                    overwrite.SetValue(selected, Enum.Parse(overwrite.PropertyType, "Rename"));
+                    var currentRecipe = host.GetMethod("ActiveRecipe", Flags)!.Invoke(null, new[] { window })!;
+                    Check(Prop(currentRecipe, "AddSuffixToExistingFileName") is true, "the real recipe captures Capture One's Add Suffix policy");
+
+                    var firstName = stem + " 2" + extension;
+                    var firstFrame = await Render("suffix-native-export", extension, false, fixtureOutputDirectory: collisionFolder,
+                        fixtureOutputFileName: firstName);
+                    Check(offeredFilename == firstName && offeredDirectory == collisionFolder,
+                        "native Export suggests the first free numbered filename without replacing an existing file or folder");
+                    var secondName = stem + " 4" + extension;
+                    var secondFrame = await Render("suffix-previous-settings", extension, true, fixtureOutputDirectory: collisionFolder,
+                        fixtureOutputFileName: secondName);
+                    Check(offeredFilename == secondName && offeredDirectory == collisionFolder,
+                        "Previous Settings suggests the next free name after the first native export");
+                    Check(File.ReadAllBytes(occupied).SequenceEqual(prior) && File.ReadAllBytes(otherOutput).SequenceEqual(prior)
+                        && Directory.Exists(occupiedDirectory), "both numbered exports preserve the existing destination entries");
+                    Check(Difference(firstFrame, secondFrame).Mean < 8d / 65535,
+                        "the numbered outputs retain the same effect-processed RGB16 image across both native commands");
+                }
 
                 static string RecipeNameToken()
                 {
@@ -724,13 +763,13 @@ public static partial class StartupHook
 
             async Task<BitmapSource> Render(string kind, string extension, bool usePrevious, bool closeAfterAcceptance = false,
                 TiffCompressOption? expectedCompression = null, string? expectedNativeLocation = null,
-                string? fixtureOutputDirectory = null)
+                string? fixtureOutputDirectory = null, string? fixtureOutputFileName = null)
             {
                 var before = routeCount;
                 job = null;
                 offeredFilename = null;
                 offeredDirectory = null;
-                destination = Path.Combine(fixtureOutputDirectory ?? folder, caseName + "-" + kind + extension);
+                destination = Path.Combine(fixtureOutputDirectory ?? folder, fixtureOutputFileName ?? (caseName + "-" + kind + extension));
                 if (usePrevious)
                 {
                     if (kind == "both-grains-previous")
