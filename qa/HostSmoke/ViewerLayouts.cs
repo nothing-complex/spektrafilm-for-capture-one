@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -90,9 +89,7 @@ public static partial class StartupHook
         {
             var previous = Field(spatial, "viewerFrame") as BitmapSource;
             var selectedAttachment = Field(viewer, "attachment")!;
-            var view = Prop(selectedAttachment, "View")!;
-            var viewType = app.GetType("P1.C1.Tools.Viewer.WPFViewing.VariantViewWpf", true)!;
-            var model = viewType.GetProperty("ViewerModel", Flags | BindingFlags.DeclaredOnly)!.GetValue(view)!;
+            var model = LiveViewerModel(Prop(selectedAttachment, "View")!);
             var modelType = model.GetType();
             File.WriteAllLines(Path.Combine(folder, "viewer-model.txt"),
                 new[] { modelType.FullName! }.Concat(modelType.GetMembers(Flags)

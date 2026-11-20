@@ -1151,15 +1151,17 @@
       "status": "partial",
       "implemented": [
         "Added a compiled-parameter-aware baseline probe. It measures discrete capped-kernel mass, second moment and normalized L1 error in 48 cases across Standard 8, Standard 35 and IMAX 70, plus 12 genuine Vulkan scanner impulse responses with unchanged alpha.",
-        "At 16,384 px on Standard 8, a 100 µm scanner unsharp sigma measured 41.81 µm with the current 256 px cap. The same setting measured 99.53 µm at 1,200 px. The ideal finite 3-sigma kernel predicts 98.66 µm at 16,384 px."
+        "At 16,384 px on Standard 8, a 100 µm scanner unsharp sigma measured 41.81 µm with the current 256 px cap. The same setting measured 99.53 µm at 1,200 px. The ideal finite 3-sigma kernel predicts 98.66 µm at 16,384 px.",
+        "A CPU centered-impulse prototype tests globally aligned tent reduction, reduced Gaussian convolution and linear reconstruction at four subpixel phases where the production cap clips. All 16 cases preserve mass and centroid within numerical noise, with at most 0.316% sigma error and 0.00184 normalized L1 error."
       ],
       "evidence_paths": [
         "qa/blur-support.py",
-        ".test-results/physical-blur-support-reference-20261120.json"
+        ".test-results/physical-blur-support-reference-20261120.json",
+        ".test-results/physical-blur-tent-verified-20261120.json"
       ],
       "remaining_work": [
         "Extend the direct impulse/energy experiments to DIR, grain and other blur backends. The initial reports for those capped kernels are analytical.",
-        "Implement validated multiscale or recursive large-sigma path",
+        "Add a Vulkan version of the phase-aligned reduction as an explicit appearance version, starting with scanner unsharp. Preserve old looks and validate boundary behavior and actual performance.",
         "Recompute tile overlap from actual chosen support",
         "Version appearance changes and coordinate upstream"
       ],
@@ -1758,16 +1760,19 @@
       "status": "partial",
       "implemented": [
         "Native exposure, highlight and white balance settings each changed the immutable source revision on CR3, RAF, NEF and DNG. Reopened snapshots confirm the resulting pixels changed while dimensions and alpha stayed stable.",
-        "Existing native rotate, mirror and keystone fixtures verify correct fresh developed pixels. The Viewer reuses the exact source variant, working space, capture dimensions and native revision. Pure tests show pan translation alone keeps projected source resolution stable."
+        "Existing native rotate, mirror and keystone fixtures verify correct fresh developed pixels. The Viewer reuses the exact source variant, working space, capture dimensions and native revision. Pure tests show pan translation alone keeps projected source resolution stable.",
+        "With manual 2048 selection in the real host, native zoom from a 2934 px to 6000 px projection, pan by -1466 and +1022 px, and Fit restoration retained the exact 16-bit source, bitmap and worker sequence. The fresh and restart tests passed 214 and 218 assertions."
       ],
       "evidence_paths": [
         "NativePanel/HostImageSource.cs",
         "NativePanel/ViewerGeometry.cs",
         ".test-results/host-native-camera-icc-20261120/host-smoke.log",
-        ".test-results/host-audit4-exact-package-20261120/host-smoke.log"
+        ".test-results/host-audit4-exact-package-20261120/host-smoke.log",
+        "qa/HostSmoke/ViewerMotion.cs",
+        ".test-results/host-viewer-native-motion-final-20261120/host-smoke.log"
       ],
       "remaining_work": [
-        "Observe actual Viewer pan/zoom and clip changes with render counters and separate presentation keys. Add exact crop, lens correction, native Grain and unknown-adjustment cases to the cross-camera mutation matrix.",
+        "Extend native clip and viewport changes to crop, lens correction, native Grain, unknown adjustment and adaptive-quality cases across cameras.",
         "Confirm when crop can retain the full-canvas source without stale optical coordinates. Record presentation and monitor/proof dependencies separately from native revision."
       ],
       "original_acceptance_tests": [

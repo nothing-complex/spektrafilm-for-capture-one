@@ -531,9 +531,10 @@ Evidence is under `.test-results/host-recipe-proofing-final-20261120`.
 
 - [x] Quantify capped scanner, DIR and grain kernels against the uncapped finite kernels in 48 cases. Confirm scanner response in 12 real Vulkan renders across 8 mm, 35 mm and IMAX film at four resolutions.
 - [x] Reproduce the resolution drift. Standard 8 scanner unsharp at 100 µm measured 99.53 µm at 1,200 px and 41.81 µm at 16,384 px. The capped DIR longest lobe has the largest analytical tail loss.
+- [x] Validate a CPU prototype for centered impulses. Sixteen capped cases with globally aligned tent reduction, reduced Gaussian convolution and interpolation preserve mass and centroid within numerical noise. Worst sigma error is 0.316% and normalized L1 error is 0.00184.
 - [ ] Validate an appearance-versioned larger-support filter and tile margins. Compare energy, resolution, boundaries, full/tiled parity and performance before enabling it.
 
-Evidence is in `.test-results/physical-blur-support-reference-20261120.json`.
+Evidence is in `.test-results/physical-blur-support-reference-20261120.json` and `.test-results/physical-blur-tent-verified-20261120.json`. Repeat the prototype with `qa/blur-support.py --prototype-tent`.
 
 ## Catalog identity and look isolation
 
@@ -552,6 +553,14 @@ Evidence is under `.test-results/host-catalog-isolation-painted-20261120`.
 - [ ] Verify split comparison, external viewers, OS fullscreen, virtualization and DPI before permitting additional simultaneous film previews.
 
 Evidence is under `.test-results/host-viewer-layouts-selection-20261120`, `.test-results/host-viewer-reattachment-regression-20261120`, `.test-results/contracts-viewer-reattachment-20261120` and `.test-results/host-viewer-native-comparison-exact-20261120`.
+
+## Native Viewer's presentation-only motion
+
+- [x] At manual 2048, exercise the native zoom setter and view center in Capture One. The painted projection changed from 2934 to 6000 px. Panning translated it by -1466 and +1022 px without changing projected width. The exact 16-bit source, film bitmap and worker render sequence stayed the same.
+- [x] Restore the initial native Fit view and verify the same film bitmap. The first launch and forced restart passed 214 and 218 assertions.
+- [ ] Extend these measured transitions to automatic-quality thresholds, additional layouts and native lens, crop and grain mutations.
+
+Evidence is under `.test-results/host-viewer-native-motion-final-20261120`.
 
 ## Packed Vulkan Viewer readback
 

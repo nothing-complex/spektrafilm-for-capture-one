@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import math
 from pathlib import Path
 import struct
 import subprocess
@@ -98,11 +99,57 @@ def measure_scanner(exe, long_edges):
     return cases
 
 
+def prototype_tent_kernels(kernels):
+    """Compare phase-aligned tent reduction and interpolation with the exact 1D kernel."""
+    cases = []
+    for case in kernels:
+        sigma = case["desiredSigmaPixels"]
+        cap = case["shaderRadiusPixels"]
+        if case["desiredRadiusPixels"] <= cap:
+            continue
+        scale = 2 ** math.ceil(math.log2(3 * sigma / cap))
+        safe_width = math.ceil(4.5 * sigma) + 2 * scale
+        axis = np.arange(-safe_width, safe_width + 1, dtype=np.float64)
+        coarse = np.arange(math.floor(axis[0] / scale) - 1, math.ceil(axis[-1] / scale) + 1) * scale + (scale - 1) * .5
+        coarse_sigma = sigma / scale
+        radius = math.ceil(3 * coarse_sigma)
+        weights = gaussian(coarse_sigma, radius)[1]
+        weights /= weights.sum()
+        errors = {"massError": 0., "centroidErrorPixels": 0., "sigmaRelativeError": 0., "l1Error": 0.}
+        for phase in sorted({0, scale // 4, scale // 2, scale - 1}):
+            impulse = np.maximum(0, 1 - np.abs(coarse - phase) / scale) / scale
+            restored = np.interp(axis, coarse, np.convolve(impulse, weights, mode="same"))
+            offset = axis - phase
+            reference = np.exp(-.5 * (offset / sigma) ** 2) * (np.abs(offset) <= math.ceil(3 * sigma))
+            reference /= reference.sum()
+            mass = restored.sum()
+            restored /= mass
+            measured_sigma = np.sqrt(np.dot(offset ** 2, restored))
+            reference_sigma = np.sqrt(np.dot(offset ** 2, reference))
+            phase_errors = {
+                "massError": abs(float(mass) - 1),
+                "centroidErrorPixels": abs(float(np.dot(offset, restored))),
+                "sigmaRelativeError": abs(float(measured_sigma / reference_sigma) - 1),
+                "l1Error": float(np.abs(restored - reference).sum()),
+            }
+            for key, value in phase_errors.items():
+                errors[key] = max(errors[key], value)
+        if (errors["massError"] > 1e-10 or errors["centroidErrorPixels"] > 1e-9
+                or errors["sigmaRelativeError"] > .004 or errors["l1Error"] > .0025):
+            raise ValueError(f"Phase-aligned blur prototype exceeds its centered impulse tolerance: {case}, {errors}")
+        cases.append({
+            "filter": case["filter"], "filmFormat": case["filmFormat"], "longEdge": case["longEdge"],
+            "scale": scale, "coarseRadiusPixels": radius, **errors,
+        })
+    return cases
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--renderer", required=True, type=Path)
     parser.add_argument("--edge", action="append", type=int)
     parser.add_argument("--measure-scanner", action="store_true")
+    parser.add_argument("--prototype-tent", action="store_true", help="Check an isolated CPU multiscale reference.")
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     edges = args.edge or [1200, 4096, 6000]
@@ -114,6 +161,8 @@ def main():
     result = {"parameterContract": description["parameterContract"], "kernels": kernel_report(parameters, edges)}
     if args.measure_scanner:
         result["scannerImpulse"] = measure_scanner(exe, edges)
+    if args.prototype_tent:
+        result["prototypeTent"] = prototype_tent_kernels(result["kernels"])
     with args.output.open("x", encoding="utf-8") as output:
         json.dump(result, output, indent=2, allow_nan=False)
         output.write("\n")

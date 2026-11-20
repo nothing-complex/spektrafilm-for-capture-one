@@ -412,6 +412,7 @@ public static partial class StartupHook
             var manual = await WaitForSource(() => Field(spatial, "sourceSize") is "2048");
             Check(Math.Max((int)Prop(manual, "Width")!, (int)Prop(manual, "Height")!) == 2048 && (int)Prop(manual, "BitDepth")! == 16,
                 "manual quality applies its exact high-depth resolution after Auto");
+            await TestNativePresentationMotion(spatial, view, variant, manual);
             Check(ReferenceEquals(savedPreferences, preferences.GetValue(null)), "fixture quality changes leave the user's stored preference unchanged");
         }
         finally { Select(previous); }
