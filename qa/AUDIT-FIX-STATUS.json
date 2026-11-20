@@ -1002,7 +1002,8 @@
         "Actual Vulkan parity compares full and multi-tile pixels across color, 8 mm halation/scatter, 35 mm diffusion, 70 mm DIR, metering/grain/scanner, and enlarger. Worst code difference was 1.79e-7 on this GPU, with independently checked alpha.",
         "The exact audit.14 worker passed the full standalone Vulkan smoke suite on isolated physical Intel integrated graphics, including packed/scalar parity, float stability, all seven multi-tile cases and the 128 MiB pressure fixture. Intel tile parity worst difference was 1.20e-7.",
         "Correlated native export timings identify the exact accepted job, processing encoding, pixel depth, geometry, format and end-to-end stage durations. Actual file-level timings now distinguish native development, film and transport, blend, ICC and verified commit.",
-        "The exact audit.17 package timed two accepted full-size 24 MP DNG exports at 3.60 and 4.08 s over separate licensed launches. Native RGB16 development took 209–265 ms, film render and transport 1.08–1.41 s, and encoding, verification and commit about 2.12 s both times. Dialog interaction is excluded."
+        "The exact audit.17 package timed two accepted full-size 24 MP DNG exports at 3.60 and 4.08 s over separate licensed launches. Native RGB16 development took 209–265 ms, film render and transport 1.08–1.41 s, and encoding, verification and commit about 2.12 s both times. Dialog interaction is excluded.",
+        "Khronos synchronization validation exposed a real 31-slot pipeline on a 30-slot SwiftShader device. The renderer now uses 30 slots and checks both required limits before selecting a device. Four full SwiftShader reply hashes matched with validation active and no errors. The Profiles layer tested both automatic and explicit admission at 29 and 30 slots. NVIDIA and Intel passed the new warm optical scratch lifetime test and full smoke. NVIDIA passed 480 spectral cases."
       ],
       "evidence_paths": [
         "ofx-still-renderer/main.cpp",
@@ -1017,7 +1018,10 @@
         ".test-results/swiftshader-differential-20261120/intel-full-smoke.log",
         ".test-results/host-tile-centre-native-export-20261120/first-native-effect-export.json",
         ".test-results/matrix-tile-centres-20261120/nvidia.json",
-        ".test-results/audit17-package-verify-20261120/native-export-24mp.json"
+        ".test-results/audit17-package-verify-20261120/native-export-24mp.json",
+        ".test-results/optical-scratch-final-20261120/swiftshader-validation.log",
+        ".test-results/portable-vulkan-bindings-20261120/receipt.json",
+        ".test-results/optical-scratch-final-20261120/intel-full.log"
       ],
       "remaining_work": [
         "Add frame/build/settings identity to Viewer and worker diagnostics and correlate their stages. Set wider quality and hardware p50/p95/memory budgets.",
@@ -1073,7 +1077,8 @@
         "Shared system RAM admission estimates and reserves physical/commit headroom for native development, worker transport, and output encoding. Verified reusable reservations and pressure in synthetic 4/6/8 GiB system headroom cases, plus an actual full 24 MP export under guard.",
         "Query VK_EXT_memory_budget on the selected adapter where available and fall back to the conservative heap-based allocator budget. Use estimated graph bytes and reserved headroom to choose full-size tiling or refuse an infeasible frame. Grain synthesis retains the full-frame requirement.",
         "The exact audit.15 worker completed all 16 renderer/transport cases and 80 requests at 24, 45, 61 and 100 MP on RTX 3090. Both colour-only and optical cases used packed Viewer and float image export. At 100 MP, warm p95 was 428 ms or 5.30 s in the Viewer and 2.20 s or 8.51 s for float export, from four warm requests per case. The optical export used 6.33 GiB peak worker commit and 3.09 GiB transient cache. Its 800 tiled results returned 9.38 GB of GPU readback for the 1.60 GB float reply, identifying tile overlap transfer as the main measured candidate for improvement. These timings exclude Capture One development, ICC conversion and file encoding.",
-        "The worker now chooses larger packed Viewer tiles only on images at least 4096 px in each dimension, with an existing halo no greater than 256 px and reported dynamic budget for source plus estimated scratch. Float and wide-halo plans retain their previous geometry. At 100 MP on RTX 3090, the actual default packed plan moved from 800 to 28 tiles, with one warm hashed exposure change at 4.89 to 1.55 seconds. Simulated 6 and 4 GiB caps selected 104 and 800 tiles respectively. All 12 complete pixel reply hashes matched the explicit prior plan and warm packed sources were reused without upload."
+        "The worker now chooses larger packed Viewer tiles only on images at least 4096 px in each dimension, with an existing halo no greater than 256 px and reported dynamic budget for source plus estimated scratch. Float and wide-halo plans retain their previous geometry. At 100 MP on RTX 3090, the actual default packed plan moved from 800 to 28 tiles, with one warm hashed exposure change at 4.89 to 1.55 seconds. Simulated 6 and 4 GiB caps selected 104 and 800 tiles respectively. All 12 complete pixel reply hashes matched the explicit prior plan and warm packed sources were reused without upload.",
+        "Reuse camera optical scratch between DIR and scanner post with the existing stage barriers and preserve inter-stage data. The matched 45 MP, 1465 px halo graph used 3.17 GiB less transient Vulkan memory in both packed Viewer and float export. All six full payload hashes were identical and warm latency was effectively unchanged. Peak worker commit fell by about 3.0 and 3.2 GiB respectively."
       ],
       "evidence_paths": [
         "qa/renderer-benchmark.py",
@@ -1091,12 +1096,14 @@
         ".test-results/matrix-24-45-61-100mp-20261120/nvidia.json",
         ".test-results/matrix-24-45-61-100mp-20261120/adapter.txt",
         ".test-results/adaptive-viewer-only-20261120/verified-layouts.json",
-        ".test-results/contracts-adaptive-viewer-only-20261120/summary.json"
+        ".test-results/contracts-adaptive-viewer-only-20261120/summary.json",
+        ".test-results/optical-scratch-physical-20261120/comparison.json",
+        ".test-results/optical-scratch-final-20261120/nvidia-contracts/renderer-smoke.log"
       ],
       "remaining_work": [
         "Calibrate all optics graphs, shared GPU activity and system memory on real 4/6/8 GB hardware from different vendors.",
         "Add process-wide adapter-aware admission for two Viewer contexts; explicitly release idle buffers by ownership and model allocator overlap at each tile.",
-        "The 45 MP jointly enabled optics graph reached 14.15 GiB of transient allocations against a 7 GiB admission target because its 1359 px support enlarged the working tiles. Profile actual per-graph scratch and bound large-halo working tiles without degrading their output or making the worker unresponsive."
+        "The latest 45 MP jointly enabled optics graph uses 11.67 GiB of transient allocations after reuse, with 1465 px support and a 7 GiB planning target. Profile per-graph scratch and bound large-halo working tiles while preserving pixels and responsiveness."
       ],
       "original_acceptance_tests": [
         "4/6/8GB GPU scenarios and100MP source sizing",
@@ -2695,7 +2702,8 @@
         "The audit.9 ZIP from clean c0505c3 verifies the same 152 package and 19 critical runtime records plus the new ICC delivery. The installed package passed 24 managed GPU, 210 initial, 214 restart and 115 RAW checks. The regular installation remains ffc4819.",
         "The clean 0.2.0-audit.10 ZIP installed in a separate fixture with verified tool resources and shortcut. 152 package entries and 19 runtime entries verified. 24 GPU, 265 first-launch, 269 restart and 115 native RAW assertions passed. Both Windows contracts runs for the package commit succeeded.",
         "The clean audit.11 archive passed full manifest admission, generation and tamper checks, isolated install and shortcut check, 28 packaged GPU checks, 265/269 licensed host checks, 115 RAW checks and 27 exact-package native metadata checks.",
-        "Clean audit.12 promoted the validated staged copy during a real isolated upgrade and passed 28 packaged GPU, 265/269 host, 115 RAW and 27 metadata assertions. Both Windows CI runs for the exact source commit succeeded."
+        "Clean audit.12 promoted the validated staged copy during a real isolated upgrade and passed 28 packaged GPU, 265/269 host, 115 RAW and 27 metadata assertions. Both Windows CI runs for the exact source commit succeeded.",
+        "Asset preparation now runs separately from linking for both CMake runtime targets. An incremental build replaced deliberately stale generated SPIR-V with the exact current shader in both locations without changing either executable timestamp. The compiler output and both adjacent copies shared the same SHA-256."
       ],
       "evidence_paths": [
         "ReleaseManifest.ps1",
@@ -2719,7 +2727,8 @@
         ".test-results/audit9-package-verify-20261120/result.json",
         ".test-results/audit10-package-verify-20261120/result.json",
         ".test-results/audit11-package-verify-20261120/result.json",
-        ".test-results/audit12-package-verify-20261120/result.json"
+        ".test-results/audit12-package-verify-20261120/result.json",
+        ".test-results/optical-scratch-physical-20261120/incremental-assets.json"
       ],
       "remaining_work": [],
       "original_acceptance_tests": [

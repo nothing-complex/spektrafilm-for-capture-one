@@ -40,6 +40,7 @@ namespace spektrafilm {
 namespace {
 
 int moduleImageAnchor = 0;
+constexpr uint32_t kCoreStorageBindingCount = 30u;
 
 using PerfClock = std::chrono::steady_clock;
 
@@ -1678,6 +1679,11 @@ private:
       lastError = vkError("vkEnumeratePhysicalDevices", result);
       return false;
     }
+    const auto supportsCore = [](const VkPhysicalDeviceProperties &properties) {
+      const auto &limits = properties.limits;
+      return limits.maxPerStageDescriptorStorageBuffers >= kCoreStorageBindingCount &&
+             limits.maxDescriptorSetStorageBuffers >= kCoreStorageBindingCount;
+    };
 
     if (const char *requestedIndexText = std::getenv("SPEKTRAFILM_VULKAN_DEVICE_INDEX");
         requestedIndexText && requestedIndexText[0]) {
@@ -1698,6 +1704,10 @@ private:
       physicalDevice = candidate;
       computeQueueFamily = queueFamily;
       vkGetPhysicalDeviceProperties(physicalDevice, &physicalDeviceProperties);
+      if (!supportsCore(physicalDeviceProperties)) {
+        lastError = "The requested Vulkan device needs at least 30 compute storage-buffer bindings.";
+        return false;
+      }
       return true;
     }
 
@@ -1711,6 +1721,7 @@ private:
 
       VkPhysicalDeviceProperties properties{};
       vkGetPhysicalDeviceProperties(candidate, &properties);
+      if (!supportsCore(properties)) continue;
       const int score = physicalDeviceTypeScore(properties.deviceType) + (dedicatedCompute ? 100 : 0);
       if (score > bestScore) {
         bestScore = score;
@@ -1721,7 +1732,7 @@ private:
     }
 
     if (physicalDevice == VK_NULL_HANDLE) {
-      lastError = "No Vulkan compute-capable queue family is available.";
+      lastError = "No Vulkan device supplies a compute-capable queue and 30 storage-buffer bindings.";
       return false;
     }
     return true;
@@ -1871,8 +1882,8 @@ private:
       return false;
     }
 
-    VkDescriptorSetLayoutBinding bindings[31]{};
-    for (uint32_t bindingIndex = 0; bindingIndex < 31u; ++bindingIndex) {
+    VkDescriptorSetLayoutBinding bindings[kCoreStorageBindingCount]{};
+    for (uint32_t bindingIndex = 0; bindingIndex < kCoreStorageBindingCount; ++bindingIndex) {
       bindings[bindingIndex].binding = bindingIndex;
       bindings[bindingIndex].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
       bindings[bindingIndex].descriptorCount = 1;
@@ -2786,16 +2797,13 @@ struct VulkanRenderer::Impl {
     ScratchBuffer destinationConverted;
     ScratchBuffer destinationStaging;
     ScratchBuffer destinationConvertedStaging;
-    ScratchBuffer halationRawA;
-    ScratchBuffer halationRawB;
-    ScratchBuffer halationRawC;
-    ScratchBuffer halationRawD;
+    // Tile-sized work buffers with disjoint camera, DIR and scanner lifetimes.
+    std::array<ScratchBuffer, 5> opticalScratch;
     ScratchBuffer halationBoostedRaw;
     ScratchBuffer halationBoostChunks;
     ScratchBuffer halationBoostInfo;
     ScratchBuffer halationBoostInfoReadback;
     ScratchBuffer tiledHalationBoostInfo;
-    ScratchBuffer halationLogRaw;
     ScratchBuffer diffusionTemp;
     ScratchBuffer diffusionAccum;
     ScratchBuffer diffusionDownsampleSource;
@@ -2804,9 +2812,6 @@ struct VulkanRenderer::Impl {
     ScratchBuffer cameraDiffusionRaw;
     ScratchBuffer printRaw;
     ScratchBuffer printDiffusionRaw;
-    ScratchBuffer dirCorrectionA;
-    ScratchBuffer dirCorrectionB;
-    ScratchBuffer dirCorrectionC;
     ScratchBuffer dirDensity;
     ScratchBuffer cameraDiffusionInfo;
     ScratchBuffer cameraDiffusionComponents;
@@ -2814,11 +2819,6 @@ struct VulkanRenderer::Impl {
     ScratchBuffer printDiffusionComponents;
     ScratchBuffer dirFloats;
     ScratchBuffer dirCorrectedDensityCurves;
-    ScratchBuffer scannerPostA;
-    ScratchBuffer scannerPostB;
-    ScratchBuffer scannerPostC;
-    ScratchBuffer printGlareA;
-    ScratchBuffer printGlareB;
     ScratchBuffer grainDensityA;
     ScratchBuffer grainDensityB;
     ScratchBuffer grainMicroA;
@@ -3210,16 +3210,12 @@ uint64_t VulkanRenderer::Impl::transientAllocationBytes() const {
   add(coreFrame.destinationConverted);
   add(coreFrame.destinationStaging);
   add(coreFrame.destinationConvertedStaging);
-  add(coreFrame.halationRawA);
-  add(coreFrame.halationRawB);
-  add(coreFrame.halationRawC);
-  add(coreFrame.halationRawD);
+  for (const auto &scratch : coreFrame.opticalScratch) add(scratch);
   add(coreFrame.halationBoostedRaw);
   add(coreFrame.halationBoostChunks);
   add(coreFrame.halationBoostInfo);
   add(coreFrame.halationBoostInfoReadback);
   add(coreFrame.tiledHalationBoostInfo);
-  add(coreFrame.halationLogRaw);
   add(coreFrame.diffusionTemp);
   add(coreFrame.diffusionAccum);
   add(coreFrame.diffusionDownsampleSource);
@@ -3228,9 +3224,6 @@ uint64_t VulkanRenderer::Impl::transientAllocationBytes() const {
   add(coreFrame.cameraDiffusionRaw);
   add(coreFrame.printRaw);
   add(coreFrame.printDiffusionRaw);
-  add(coreFrame.dirCorrectionA);
-  add(coreFrame.dirCorrectionB);
-  add(coreFrame.dirCorrectionC);
   add(coreFrame.dirDensity);
   add(coreFrame.cameraDiffusionInfo);
   add(coreFrame.cameraDiffusionComponents);
@@ -3238,11 +3231,6 @@ uint64_t VulkanRenderer::Impl::transientAllocationBytes() const {
   add(coreFrame.printDiffusionComponents);
   add(coreFrame.dirFloats);
   add(coreFrame.dirCorrectedDensityCurves);
-  add(coreFrame.scannerPostA);
-  add(coreFrame.scannerPostB);
-  add(coreFrame.scannerPostC);
-  add(coreFrame.printGlareA);
-  add(coreFrame.printGlareB);
   add(coreFrame.grainDensityA);
   add(coreFrame.grainDensityB);
   add(coreFrame.grainMicroA);
@@ -4429,7 +4417,7 @@ bool VulkanRenderer::Impl::ensureCoreFrameResources() {
   if (coreFrame.descriptorPool == VK_NULL_HANDLE) {
     VkDescriptorPoolSize poolSize{};
     poolSize.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    poolSize.descriptorCount = 31u * kCoreDescriptorSetCount;
+    poolSize.descriptorCount = kCoreStorageBindingCount * kCoreDescriptorSetCount;
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -4592,11 +4580,6 @@ void VulkanRenderer::Impl::destroyCoreFrameResources() {
   destroyScratchBuffer(coreFrame.grainMicroA);
   destroyScratchBuffer(coreFrame.grainDensityB);
   destroyScratchBuffer(coreFrame.grainDensityA);
-  destroyScratchBuffer(coreFrame.printGlareB);
-  destroyScratchBuffer(coreFrame.printGlareA);
-  destroyScratchBuffer(coreFrame.scannerPostC);
-  destroyScratchBuffer(coreFrame.scannerPostB);
-  destroyScratchBuffer(coreFrame.scannerPostA);
   destroyScratchBuffer(coreFrame.dirCorrectedDensityCurves);
   destroyScratchBuffer(coreFrame.dirFloats);
   destroyScratchBuffer(coreFrame.printDiffusionComponents);
@@ -4609,25 +4592,18 @@ void VulkanRenderer::Impl::destroyCoreFrameResources() {
   destroyScratchBuffer(coreFrame.printDiffusionRaw);
   destroyScratchBuffer(coreFrame.printRaw);
   destroyScratchBuffer(coreFrame.dirDensity);
-  destroyScratchBuffer(coreFrame.dirCorrectionC);
-  destroyScratchBuffer(coreFrame.dirCorrectionB);
-  destroyScratchBuffer(coreFrame.dirCorrectionA);
   destroyScratchBuffer(coreFrame.cameraDiffusionRaw);
   destroyScratchBuffer(coreFrame.diffusionDownsampleBlur);
   destroyScratchBuffer(coreFrame.diffusionDownsampleTemp);
   destroyScratchBuffer(coreFrame.diffusionDownsampleSource);
   destroyScratchBuffer(coreFrame.diffusionAccum);
   destroyScratchBuffer(coreFrame.diffusionTemp);
-  destroyScratchBuffer(coreFrame.halationLogRaw);
   destroyScratchBuffer(coreFrame.tiledHalationBoostInfo);
   destroyScratchBuffer(coreFrame.halationBoostInfoReadback);
   destroyScratchBuffer(coreFrame.halationBoostInfo);
   destroyScratchBuffer(coreFrame.halationBoostChunks);
   destroyScratchBuffer(coreFrame.halationBoostedRaw);
-  destroyScratchBuffer(coreFrame.halationRawD);
-  destroyScratchBuffer(coreFrame.halationRawC);
-  destroyScratchBuffer(coreFrame.halationRawB);
-  destroyScratchBuffer(coreFrame.halationRawA);
+  for (auto &scratch : coreFrame.opticalScratch) destroyScratchBuffer(scratch);
   destroyScratchBuffer(coreFrame.destinationConvertedStaging);
   destroyScratchBuffer(coreFrame.destinationStaging);
   destroyScratchBuffer(coreFrame.destinationConverted);
@@ -5231,13 +5207,15 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
       !ensurePrivateScratchBuffer(coreFrame.filmDensity, pixelStorageByteCount, "core film density")) {
     return false;
   }
-  if (halationPassEnabled &&
-      (!ensurePrivateScratchBuffer(coreFrame.halationRawA, pixelStorageByteCount, "core halation raw A") ||
-       !ensurePrivateScratchBuffer(coreFrame.halationRawB, pixelStorageByteCount, "core halation raw B") ||
-       !ensurePrivateScratchBuffer(coreFrame.halationRawC, pixelStorageByteCount, "core halation raw C") ||
-       !ensurePrivateScratchBuffer(coreFrame.halationRawD, pixelStorageByteCount, "core halation raw D") ||
-       !ensurePrivateScratchBuffer(coreFrame.halationLogRaw, pixelStorageByteCount, "core halation log raw"))) {
-    return false;
+  // DIR reuses the first three camera scratch slots after curve development.
+  // Its redevelop stage still reads camera log raw from the fifth slot. Scanner
+  // post reuses all five after printing, with compute barriers between stages.
+  const size_t opticsScratchCount = (halationPassEnabled || printGlarePath) ? 5u
+    : (dirPath || scannerPostPath) ? 3u : 0u;
+  for (size_t slot = 0; slot < opticsScratchCount; ++slot) {
+    if (!ensurePrivateScratchBuffer(coreFrame.opticalScratch[slot], pixelStorageByteCount, "core optical work buffer")) {
+      return false;
+    }
   }
   if (halationBoostEnabled) {
     if (!ensurePrivateScratchBuffer(coreFrame.halationBoostedRaw, pixelStorageByteCount, "core halation boosted raw")) {
@@ -5266,7 +5244,8 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
   }
   if (cameraDiffusionPath &&
       (!ensurePrivateScratchBuffer(coreFrame.cameraDiffusionRaw, pixelStorageByteCount, "core camera diffusion raw") ||
-       (!halationPassEnabled && !ensurePrivateScratchBuffer(coreFrame.halationLogRaw, pixelStorageByteCount, "core diffusion log raw")))) {
+       (opticsScratchCount < 5u &&
+        !ensurePrivateScratchBuffer(coreFrame.opticalScratch[4], pixelStorageByteCount, "core diffusion log raw")))) {
     return false;
   }
   if (printDiffusionPath &&
@@ -5274,22 +5253,7 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
        !ensurePrivateScratchBuffer(coreFrame.printDiffusionRaw, pixelStorageByteCount, "core print diffusion raw"))) {
     return false;
   }
-  if (dirPath &&
-      (!ensurePrivateScratchBuffer(coreFrame.dirCorrectionA, pixelStorageByteCount, "core DIR correction A") ||
-       !ensurePrivateScratchBuffer(coreFrame.dirCorrectionB, pixelStorageByteCount, "core DIR correction B") ||
-       !ensurePrivateScratchBuffer(coreFrame.dirCorrectionC, pixelStorageByteCount, "core DIR correction C") ||
-       !ensurePrivateScratchBuffer(coreFrame.dirDensity, pixelStorageByteCount, "core DIR density"))) {
-    return false;
-  }
-  if (scannerPostPath &&
-      (!ensurePrivateScratchBuffer(coreFrame.scannerPostA, pixelStorageByteCount, "core scanner post A") ||
-       !ensurePrivateScratchBuffer(coreFrame.scannerPostB, pixelStorageByteCount, "core scanner post B") ||
-       !ensurePrivateScratchBuffer(coreFrame.scannerPostC, pixelStorageByteCount, "core scanner post C"))) {
-    return false;
-  }
-  if (printGlarePath &&
-      (!ensurePrivateScratchBuffer(coreFrame.printGlareA, pixelStorageByteCount, "core print glare A") ||
-       !ensurePrivateScratchBuffer(coreFrame.printGlareB, pixelStorageByteCount, "core print glare B"))) {
+  if (dirPath && !ensurePrivateScratchBuffer(coreFrame.dirDensity, pixelStorageByteCount, "core DIR density")) {
     return false;
   }
   if (grainPath &&
@@ -5705,19 +5669,19 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
   academyPrinterDensityDataBufferInfo.offset = 0;
   academyPrinterDensityDataBufferInfo.range = staticFilm.academyPrinterDensityData.capacity;
   VkDescriptorBufferInfo halationRawABufferInfo{};
-  halationRawABufferInfo.buffer = coreFrame.halationRawA.buffer;
+  halationRawABufferInfo.buffer = coreFrame.opticalScratch[0].buffer;
   halationRawABufferInfo.offset = 0;
   halationRawABufferInfo.range = pixelStorageByteCount;
   VkDescriptorBufferInfo halationRawBBufferInfo{};
-  halationRawBBufferInfo.buffer = coreFrame.halationRawB.buffer;
+  halationRawBBufferInfo.buffer = coreFrame.opticalScratch[1].buffer;
   halationRawBBufferInfo.offset = 0;
   halationRawBBufferInfo.range = pixelStorageByteCount;
   VkDescriptorBufferInfo halationRawCBufferInfo{};
-  halationRawCBufferInfo.buffer = coreFrame.halationRawC.buffer;
+  halationRawCBufferInfo.buffer = coreFrame.opticalScratch[2].buffer;
   halationRawCBufferInfo.offset = 0;
   halationRawCBufferInfo.range = pixelStorageByteCount;
   VkDescriptorBufferInfo halationRawDBufferInfo{};
-  halationRawDBufferInfo.buffer = coreFrame.halationRawD.buffer;
+  halationRawDBufferInfo.buffer = coreFrame.opticalScratch[3].buffer;
   halationRawDBufferInfo.offset = 0;
   halationRawDBufferInfo.range = pixelStorageByteCount;
   VkDescriptorBufferInfo halationBoostedRawBufferInfo{};
@@ -5737,7 +5701,7 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
   tiledHalationBoostInfoBufferInfo.offset = 0;
   tiledHalationBoostInfoBufferInfo.range = coreFrame.tiledHalationBoostInfo.capacity;
   VkDescriptorBufferInfo halationLogRawBufferInfo{};
-  halationLogRawBufferInfo.buffer = coreFrame.halationLogRaw.buffer;
+  halationLogRawBufferInfo.buffer = coreFrame.opticalScratch[4].buffer;
   halationLogRawBufferInfo.offset = 0;
   halationLogRawBufferInfo.range = pixelStorageByteCount;
   VkDescriptorBufferInfo diffusionTempBufferInfo{};
@@ -5801,15 +5765,15 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
   printDiffusionComponentsBufferInfo.offset = 0;
   printDiffusionComponentsBufferInfo.range = coreFrame.printDiffusionComponents.capacity;
   VkDescriptorBufferInfo dirCorrectionABufferInfo{};
-  dirCorrectionABufferInfo.buffer = coreFrame.dirCorrectionA.buffer;
+  dirCorrectionABufferInfo.buffer = coreFrame.opticalScratch[0].buffer;
   dirCorrectionABufferInfo.offset = 0;
   dirCorrectionABufferInfo.range = pixelStorageByteCount;
   VkDescriptorBufferInfo dirCorrectionBBufferInfo{};
-  dirCorrectionBBufferInfo.buffer = coreFrame.dirCorrectionB.buffer;
+  dirCorrectionBBufferInfo.buffer = coreFrame.opticalScratch[1].buffer;
   dirCorrectionBBufferInfo.offset = 0;
   dirCorrectionBBufferInfo.range = pixelStorageByteCount;
   VkDescriptorBufferInfo dirCorrectionCBufferInfo{};
-  dirCorrectionCBufferInfo.buffer = coreFrame.dirCorrectionC.buffer;
+  dirCorrectionCBufferInfo.buffer = coreFrame.opticalScratch[2].buffer;
   dirCorrectionCBufferInfo.offset = 0;
   dirCorrectionCBufferInfo.range = pixelStorageByteCount;
   VkDescriptorBufferInfo dirDensityBufferInfo{};
@@ -5825,23 +5789,23 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
   dirCorrectedDensityCurvesBufferInfo.offset = 0;
   dirCorrectedDensityCurvesBufferInfo.range = coreFrame.dirCorrectedDensityCurves.capacity;
   VkDescriptorBufferInfo scannerPostABufferInfo{};
-  scannerPostABufferInfo.buffer = coreFrame.scannerPostA.buffer;
+  scannerPostABufferInfo.buffer = coreFrame.opticalScratch[0].buffer;
   scannerPostABufferInfo.offset = 0;
   scannerPostABufferInfo.range = pixelStorageByteCount;
   VkDescriptorBufferInfo scannerPostBBufferInfo{};
-  scannerPostBBufferInfo.buffer = coreFrame.scannerPostB.buffer;
+  scannerPostBBufferInfo.buffer = coreFrame.opticalScratch[1].buffer;
   scannerPostBBufferInfo.offset = 0;
   scannerPostBBufferInfo.range = pixelStorageByteCount;
   VkDescriptorBufferInfo scannerPostCBufferInfo{};
-  scannerPostCBufferInfo.buffer = coreFrame.scannerPostC.buffer;
+  scannerPostCBufferInfo.buffer = coreFrame.opticalScratch[2].buffer;
   scannerPostCBufferInfo.offset = 0;
   scannerPostCBufferInfo.range = pixelStorageByteCount;
   VkDescriptorBufferInfo printGlareABufferInfo{};
-  printGlareABufferInfo.buffer = coreFrame.printGlareA.buffer;
+  printGlareABufferInfo.buffer = coreFrame.opticalScratch[3].buffer;
   printGlareABufferInfo.offset = 0;
   printGlareABufferInfo.range = pixelStorageByteCount;
   VkDescriptorBufferInfo printGlareBBufferInfo{};
-  printGlareBBufferInfo.buffer = coreFrame.printGlareB.buffer;
+  printGlareBBufferInfo.buffer = coreFrame.opticalScratch[4].buffer;
   printGlareBBufferInfo.offset = 0;
   printGlareBBufferInfo.range = pixelStorageByteCount;
   VkDescriptorBufferInfo grainDensityABufferInfo{};
@@ -5932,6 +5896,7 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
     writeStorageBuffer(set, 1, outputBufferInfo);
     writeStorageBuffer(set, 2, logExposureBufferInfo);
     writeStorageBuffer(set, 3, densityCurvesBufferInfo);
+    writeStorageBuffer(set, 4, preflashPaperHanatosResponseBufferInfo);
     writeStorageBuffer(set, 5, colorDecodeLutsBufferInfo);
     writeStorageBuffer(set, 6, colorTransferKindsBufferInfo);
     writeStorageBuffer(set, 7, mallettRawMatrixBufferInfo);
@@ -5957,7 +5922,6 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
     writeStorageBuffer(set, 27, frameFloatsBufferInfo);
     writeStorageBuffer(set, 28, frameIntsBufferInfo);
     writeStorageBuffer(set, 29, paperHanatosResponseBufferInfo);
-    writeStorageBuffer(set, 30, preflashPaperHanatosResponseBufferInfo);
   };
   if (printScanPassEnabled) {
     const VkDescriptorBufferInfo &printScanInputBufferInfo = finalProcessNegative

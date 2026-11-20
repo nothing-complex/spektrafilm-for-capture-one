@@ -1026,9 +1026,8 @@ elseif(SPEKTRAFILM_USE_VULKAN)
   if(NOT WIN32)
     target_link_libraries(SpektraVulkanCopyHarness PRIVATE ${CMAKE_DL_LIBS})
   endif()
-  add_dependencies(SpektraVulkanCopyHarness SpektraFilmVulkanShaders)
-
-  add_custom_command(TARGET SpektraVulkanCopyHarness POST_BUILD
+  # Asset-only changes must reach the runtime even when the executable is current.
+  add_custom_target(SpektraVulkanCopyHarnessAssets
     COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_FILE_DIR:SpektraVulkanCopyHarness>/shaders"
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
             "${SPEKTRAFILM_VULKAN_COPY_SPV}"
@@ -1066,6 +1065,9 @@ elseif(SPEKTRAFILM_USE_VULKAN)
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
             "${SPEKTRAFILM_GENERATED_OUTPUT_GAMUT_COMPRESSION}"
             "$<TARGET_FILE_DIR:SpektraVulkanCopyHarness>/SpektraOutputGamutCompression.f32"
+    DEPENDS "${SPEKTRAFILM_GENERATED_HANATOS_LUT}" "${SPEKTRAFILM_GENERATED_OUTPUT_GAMUT_COMPRESSION}"
     VERBATIM
   )
+  add_dependencies(SpektraVulkanCopyHarnessAssets SpektraFilmVulkanShaders)
+  add_dependencies(SpektraVulkanCopyHarness SpektraVulkanCopyHarnessAssets)
 endif()

@@ -28,7 +28,8 @@ if(MSVC)
     endif()
 endif()
 
-add_custom_command(TARGET SpektraStillRenderer POST_BUILD
+# The harness can regenerate shader or LUT files without relinking this worker.
+add_custom_target(SpektraStillRendererAssets
     COMMAND "${CMAKE_COMMAND}" -E copy_directory
         "${HARNESS_RESOURCES}/shaders" "$<TARGET_FILE_DIR:SpektraStillRenderer>/shaders"
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
@@ -36,3 +37,4 @@ add_custom_command(TARGET SpektraStillRenderer POST_BUILD
         "${HARNESS_RESOURCES}/SpektraOutputGamutCompression.f32"
         "$<TARGET_FILE_DIR:SpektraStillRenderer>"
     VERBATIM)
+add_dependencies(SpektraStillRenderer SpektraStillRendererAssets)

@@ -475,6 +475,36 @@ def check_tiled_parity(exe, base):
               f"{frame.nbytes} readback bytes")
 
 
+def check_optical_scratch_lifetime(exe, base):
+    frame = source_frame(None)[::2, ::2].copy()
+    base += " --grain-model off --film-format 35"
+    halation = "--halation-amount 1 --halation-boost 1 --scatter-amount 0.5"
+    no_halation = "--halation-amount 0 --scatter-amount 0"
+    camera = "--camera-diffusion-family pro_mist --camera-diffusion-strength 1.5"
+    dir_blur = "--dir-amount 1.5 --dir-diffusion 80 --dir-tail-weight 0.3"
+    scanner = "--scanner-enabled true --scanner-glare 0.08 --scanner-unsharp-radius 100 --scanner-unsharp-amount 2"
+    graphs = [f"{base} {settings}" for settings in (
+        f"{halation} {camera} {dir_blur} {scanner} --preflash 0.3",
+        f"{no_halation} {camera}",
+        f"{no_halation} {dir_blur} {scanner}",
+        halation,
+        no_halation,
+    )]
+    env = {key: value for key, value in os.environ.items()
+           if not key.upper().startswith("SPEKTRAFILM_") and key.upper() != "DOTNET_STARTUP_HOOKS"}
+    env.update(SPEKTRAFILM_VULKAN_TILE_MODE="tiled", SPEKTRAFILM_VULKAN_TILE_WIDTH="128",
+               SPEKTRAFILM_VULKAN_TILE_HEIGHT="64")
+    fresh = [run_stream(exe, frame_request(frame, graph), mode="--export-stream", env=env)[0] for graph in graphs]
+    assert all(status == 0 and len(output) == frame.nbytes for status, output in fresh)
+    assert len({output for _, output in fresh}) == len(graphs), "Each optical fixture must change the image"
+    sequence = (0, 1, 3, 2, 4, 1, 2, 0)
+    request = frame_request(frame, graphs[sequence[0]]) + b"".join(
+        f"REUSE {graphs[index]}\n".encode("ascii") for index in sequence[1:])
+    reused = run_stream(exe, request, mode="--export-stream", env=env)
+    assert reused == [fresh[index] for index in sequence], "Changing optical passes reused stale scratch pixels"
+    print("Shared optical scratch matched fresh float renders across eight warm and cold graph transitions")
+
+
 def check_gpu_budget(exe, base):
     environment = {key: value for key, value in os.environ.items()
                    if not key.upper().startswith("SPEKTRAFILM_") and key.upper() != "DOTNET_STARTUP_HOOKS"}
@@ -665,6 +695,7 @@ def main():
     check_packed_readback(args.exe, base)
     check_metering_cache(args.exe, frame, base)
     check_tiled_parity(args.exe, base)
+    check_optical_scratch_lifetime(args.exe, base)
     check_gpu_budget(args.exe, base)
     baseline, seconds = render(args.exe, frame, base)
     print(f"Baseline {frame.shape[1]}×{frame.shape[0]} in {seconds * 1000:.0f} ms")

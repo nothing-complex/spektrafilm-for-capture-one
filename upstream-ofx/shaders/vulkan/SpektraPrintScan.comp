@@ -76,6 +76,10 @@ layout(std430, binding = 3) readonly buffer FilmDensityCurves {
   float filmDensityCurves[];
 };
 
+layout(std430, binding = 4) readonly buffer PreflashPaperHanatosResponse {
+  vec4 preflashPaperHanatosResponse[];
+};
+
 layout(std430, binding = 5) readonly buffer ColorDecodeLuts {
   float colorDecodeLuts[];
 };
@@ -174,10 +178,6 @@ layout(std430, binding = 28) readonly buffer FrameInts {
 
 layout(std430, binding = 29) readonly buffer PaperHanatosResponse {
   vec4 paperHanatosResponse[];
-};
-
-layout(std430, binding = 30) readonly buffer PreflashPaperHanatosResponse {
-  vec4 preflashPaperHanatosResponse[];
 };
 
 layout(push_constant) uniform CoreParams {
