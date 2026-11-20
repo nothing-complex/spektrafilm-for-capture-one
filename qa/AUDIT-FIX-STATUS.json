@@ -718,17 +718,20 @@
         "Fresh complete package installed into the real owned application directory after a verified full backup; installed CheckOnly passed and six existing user-data files remained unchanged.",
         "Required assets now validate their complete directory ancestry even for inert releases without manifests. Packaged critical and full package manifests are rechecked in the private staged copy before it can replace the current runtime; recursive temporary cleanup does not traverse junction targets.",
         "The Windows runner passed 54 installer assertions, including case-only notes, Unicode user presets, nested content, unavailable Desktop, locked binary, real NTFS junctions and an interrupted publish with a simulated foreign file occupying the destination. The exact old runtime and user sentinels remained in the reported previous directory, and manual restoration reproduced the current runtime hash.",
-        "Real audit.11-to-audit.12 isolated upgrade validated both staged manifests, kept a nested Unicode user-look byte-identical and archived modified packaged ICC bytes before installing the verified original. The updated shortcut and launcher CheckOnly passed."
+        "Real audit.11-to-audit.12 isolated upgrade validated both staged manifests, kept a nested Unicode user-look byte-identical and archived modified packaged ICC bytes before installing the verified original. The updated shortcut and launcher CheckOnly passed.",
+        "Upgrades now acquire a destination lock and synchronously publish an identity-scoped recovery journal before moving either directory. Installer reruns restore the verified previous install and retain the abandoned candidate, including files written to it after interruption. The full Windows/Vulkan run passed 94 installer assertions, with actual installer child death on both sides of publication and tests for mismatched candidate receipt, concurrent lock and unrelated destination content."
       ],
       "evidence_paths": [
         "Install-Spektrafilm.ps1",
         "tests/installer/Test-Installer.ps1",
         ".test-results/contracts-installer-junctions-20261120/installer.log",
         ".test-results/contracts-installer-failed-rollback-20261120/installer.log",
-        ".test-results/audit12-package-verify-20261120/result.json"
+        ".test-results/audit12-package-verify-20261120/result.json",
+        ".test-results/contracts-install-hard-exit-final-20261120/installer.log",
+        ".test-results/contracts-install-hard-exit-final-20261120/summary.json"
       ],
       "remaining_work": [
-        "Add persistent interrupted-upgrade recovery and retain the verified prior version until a real launch acknowledgment, then verify cleanup and rollback of side-by-side versions. Exercise automatic recovery separately from the tested manual restoration."
+        "Retain the verified prior version after successful publication until a real launch acknowledgment, then verify cleanup and recovery of side-by-side versions. Interrupted publication already has automatic rollback and positive hard-kill fixtures."
       ],
       "original_acceptance_tests": [
         "New install, same-version upgrade, legacy-name upgrade and nested/top-level user-file preservation.",
@@ -2853,7 +2856,8 @@
         "Windows 2022 and 2025 passed startup and selective preset checkpoints. Diagnosed a prior Windows 2022-only backup collision and added a deterministic frozen-clock regression.",
         "Windows Contracts succeeded for the exact audit.4 source commit that passed the separately licensed packaged host matrix.",
         "Tagged Windows packaging reruns the mandatory host-independent suites and Vulkan smoke before assembling a ZIP, reinspects the committed source after tests and records the summary checksum. Six manifest contracts reject missing, failed, skipped, duplicate and unsupported claimed results.",
-        "The clean, locally tagged 366e25e clone refused packaging without an exact tag. The first tagged run correctly refused a failed contract caused by a deep Windows fixture path. The short-path clone passed all ten mandatory contracts and physical Vulkan smoke, validating a 152-entry ZIP against its manifest. No tag or ZIP was published."
+        "The clean, locally tagged 366e25e clone refused packaging without an exact tag. The first tagged run correctly refused a failed contract caused by a deep Windows fixture path. The short-path clone passed all ten mandatory contracts and physical Vulkan smoke, validating a 152-entry ZIP against its manifest. No tag or ZIP was published.",
+        "Both GitHub-hosted Windows runners on draft PR #1 uploaded their host-independent JSON receipts through the pinned action. The downloaded summaries each contain nine passing contracts and explicit not-run reasons for Vulkan and licensed Capture One."
       ],
       "evidence_paths": [
         ".github/workflows/contracts.yml",
@@ -2869,10 +2873,11 @@
         "Package-Windows.ps1",
         "ReleaseManifest.ps1",
         ".test-results/contracts-release-required-checks-20261120/manifest.log",
-        "D:/Library AI testing/sf-tag-gate-20261120/.test-results/tagged-release-proof.json"
+        "D:/Library AI testing/sf-tag-gate-20261120/.test-results/tagged-release-proof.json",
+        "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44675783266"
       ],
       "remaining_work": [
-        "Verify the new pinned CI step publishes one host-independent JSON receipt per Windows runner and observe a real outside-fork PR with no write token. Keep licensed 16.4/16.7 compatibility evidence separate."
+        "Observe a real outside-fork PR with no write token. Keep licensed 16.4/16.7 compatibility evidence separate."
       ],
       "original_acceptance_tests": [
         "Fork PR can run pure tests without upstream write access or secrets.",

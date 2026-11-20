@@ -94,6 +94,8 @@ Write-Fixture (Join-Path $payload 'stocks.json') 'third version'
 Invoke-Installer $false
 Assert ((Get-FileHash -LiteralPath (Join-Path $install 'stocks.json') -Algorithm SHA256).Hash -eq $before) 'Shortcut collision rolls back runtime'
 foreach ($file in $custom) { Assert ([IO.File]::ReadAllText((Join-Path $install $file)) -eq "user sentinel: $file") "Rollback retains $file" }
+Assert ([IO.File]::Exists($shortcut)) 'Rollback preserves the unrelated shortcut'
+[IO.File]::Delete($shortcut)
 
 # Locked binary rejects upgrade before the install directory moves.
 $lock = [IO.File]::Open((Join-Path $install 'panel\NativePanel.dll'),[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::None)
@@ -150,9 +152,58 @@ Assert ((Get-FileHash -LiteralPath (Join-Path $interruptedPrevious[0].FullName '
 foreach ($file in $custom) {
     Assert ([IO.File]::ReadAllText((Join-Path $interruptedPrevious[0].FullName $file)) -eq "user sentinel: $file") "Failed rollback retains $file"
 }
+Invoke-Installer $false
+Assert ([IO.File]::ReadAllText($install) -eq $interfering) 'Interrupted recovery never overwrites an unrelated item at the final destination'
 [IO.File]::Delete($install)
-[IO.Directory]::Move($interruptedPrevious[0].FullName,$install)
-Assert ((Get-FileHash -LiteralPath (Join-Path $install 'stocks.json') -Algorithm SHA256).Hash -eq $before) 'Restoring the reported previous directory recovers the runtime'
+Write-Fixture (Join-Path $payload 'stocks.json') 'legacy-compatible replacement'
+Invoke-Installer
+Assert ([IO.File]::ReadAllText((Join-Path $install 'stocks.json')) -eq 'legacy-compatible replacement') 'Rerunning the installer recovers a failed rollback and completes the requested update'
+Assert (![IO.Directory]::Exists($interruptedPrevious[0].FullName) -and [IO.Directory]::Exists($interruptedStage[0].FullName)) 'Automatically restored old directory while retaining the interrupted candidate for recovery'
+
+$transactionLock = @(Get-ChildItem -LiteralPath $fixture -File -Force -Filter '.film-tools-upgrade-*.lock')
+Assert ($transactionLock.Count -eq 1) 'Installer uses one stable per-destination process lock'
+$held = [IO.File]::Open($transactionLock[0].FullName,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
+try { Invoke-Installer $false } finally { $held.Dispose() }
+Assert (([IO.File]::ReadAllText((Join-Path $fixture 'installer.log'))) -match 'Another installer is working on this destination') 'A concurrent installer cannot enter recovery or swap'
+
+$newStock = Join-Path $install 'stocks.json'
+$candidateRelative = 'profiles\interrupted-candidate-user-file.txt'
+$cleanScript = [IO.File]::ReadAllText($inertInstaller)
+foreach ($checkpoint in @('        [IO.Directory]::Move($stage, $install)', '        $installed = $true')) {
+    $candidatePublished = $checkpoint -eq '        $installed = $true'
+    Assert ($cleanScript.Contains($checkpoint)) "Inert hard-exit checkpoint present: $checkpoint"
+    $modifiedScript = $cleanScript.Replace($checkpoint, ('        Stop-Process -Id $PID -Force' + [Environment]::NewLine + $checkpoint))
+    Write-Fixture (Join-Path $payload 'stocks.json') "terminated candidate $candidatePublished"
+    $oldHash = (Get-FileHash -LiteralPath $newStock -Algorithm SHA256).Hash
+    try {
+        [IO.File]::WriteAllText($inertInstaller,$modifiedScript)
+        Invoke-Installer $false
+    } finally { [IO.File]::WriteAllBytes($inertInstaller,$unmodified) }
+    $journal = @(Get-ChildItem -LiteralPath $fixture -File -Force -Filter '.film-tools-upgrade-*.json')
+    Assert ($journal.Count -eq 1) "Terminating installer leaves one durable upgrade journal (published=$candidatePublished)"
+    $receipt = [IO.File]::ReadAllText($journal[0].FullName) | ConvertFrom-Json
+    $checkpointPrevious = Join-Path $fixture ('.film-tools-previous-' + $receipt.id)
+    $checkpointStage = Join-Path $fixture ('.film-tools-stage-' + $receipt.id)
+    Assert ((Get-FileHash -LiteralPath (Join-Path $checkpointPrevious 'stocks.json') -Algorithm SHA256).Hash -eq $oldHash) 'Interrupted upgrade preserves byte-exact previous runtime'
+    $candidate = if ($candidatePublished) { $install } else { $checkpointStage }
+    $candidateReceipt = Join-Path $candidate '.film-tools-owned.json'
+    $candidateReceiptBytes = [IO.File]::ReadAllBytes($candidateReceipt)
+    Write-Fixture (Join-Path $candidate $candidateRelative) "user content from interrupted candidate $candidatePublished"
+    Write-Fixture $candidateReceipt 'unverifiable candidate receipt'
+    Invoke-Installer $false
+    Assert ([IO.File]::Exists($journal[0].FullName) -and [IO.Directory]::Exists($checkpointPrevious) -and [IO.Directory]::Exists($candidate)) 'Verification failure leaves all recovery paths intact'
+    [IO.File]::WriteAllBytes($candidateReceipt,$candidateReceiptBytes)
+    Write-Fixture (Join-Path $payload 'stocks.json') "successful retry $candidatePublished"
+    Invoke-Installer
+    Assert (![IO.File]::Exists($journal[0].FullName) -and ![IO.Directory]::Exists($checkpointPrevious)) 'Complete recovery clears the exact transaction and old rename path'
+    Assert ([IO.File]::ReadAllText($newStock) -eq "successful retry $candidatePublished") 'Actual retry publishes a fully installed runtime'
+    Assert ([IO.File]::ReadAllText((Join-Path $checkpointStage $candidateRelative)) -eq "user content from interrupted candidate $candidatePublished") 'Recovery leaves files written to the abandoned install available for retrieval'
+    foreach ($file in $custom) {
+        Assert ([IO.File]::ReadAllText((Join-Path $install $file)) -eq "user sentinel: $file") "Hard-exit recovery preserves $file"
+    }
+}
+
+$before = (Get-FileHash -LiteralPath $newStock -Algorithm SHA256).Hash
 
 Write-Fixture (Join-Path $payload 'runtime-manifest.required') 'Incomplete build fixture'
 Invoke-Installer $false

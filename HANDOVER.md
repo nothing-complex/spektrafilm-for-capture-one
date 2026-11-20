@@ -665,9 +665,10 @@ Evidence is under `.test-results/cooperative-vulkan-runtime-20261120`, `.test-re
 - [x] Prevent required asset loads through a linked ancestor in the installer. Verify both staged manifests before promoting the copy. Directory cleanup leaves junction targets alone. [Windows directory deletion behavior](https://learn.microsoft.com/en-us/dotnet/api/system.io.directory.delete?view=netframework-4.8.1)
 - [x] Pass 54 inert Windows installer contracts. Case-only collisions, Unicode paths, locked files, unavailable Desktop and real NTFS junctions preserve user files. When an external file occupies the destination after the first directory move, failed rollback retains both directories and reports both exact locations. The fixture manually restores the reported previous version and verifies its data.
 - [x] Upgrade an actual isolated audit.11 install to audit.12. Verify both staged manifests, retained Unicode look and archived modified ICC bytes, shortcut and CheckOnly. The exact audit.12 package from clean `4e42336` has SHA-256 `7ef25e54b275250594986c6f7c4bbf150e6e9bc58d0cffc5ba2be2f6bad38d69`. It passed 28 GPU, 265 first-launch, 269 restart, 115 RAW and 27 native metadata assertions. [Windows Contracts](https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44671168038)
-- [ ] Add automatic interrupted-upgrade recovery and retain the prior verified version through an acknowledged real launch.
+- [x] Publish a synchronous per-destination recovery receipt before moving the previous install. The next installer verifies both owned paths, restores the previous directory and retains the interrupted candidate for retrieval. A per-destination process lock prevents simultaneous recovery or publication. Ninety-four inert installer assertions cover actual forced child death both before and after promoting the candidate, refused overwrites and unverifiable receipts, bounded rollback, and exact preservation of prior and interrupted user data. Full local Windows contracts and Vulkan smoke passed.
+- [ ] Retain the prior verified version through an acknowledged real launch and verify cleanup and recovery of these side-by-side generations.
 
-Evidence is under `.test-results/audit11-package-verify-20261120`, `.test-results/audit12-package-verify-20261120` and `.test-results/contracts-installer-failed-rollback-20261120`.
+Evidence is under `.test-results/audit11-package-verify-20261120`, `.test-results/audit12-package-verify-20261120`, `.test-results/contracts-installer-failed-rollback-20261120` and `.test-results/contracts-install-hard-exit-final-20261120`.
 
 ## Native watchdog and accessible numeric editing
 
@@ -692,7 +693,8 @@ Repeat with `qa/HostSmoke/Run-HostSmoke.ps1 -ViewerChurn 100` using the disposab
 - [x] Require the full Windows contracts and a physical Vulkan smoke before creating a tagged non-development ZIP. Recheck the source digest after validation. The summary checksum is recorded in the package without test machine paths.
 - [x] Test acceptance of a complete result and refusal of missing, failed, skipped, repeated and falsely claimed licensed results. The full local suite passed with 26 manifest assertions.
 - [x] Package the exact clean `366e25e` source from an isolated clone tagged locally as `v0.2.0-audit.gate`. Missing local tag and a first fixture run that hit legacy Windows path length both refused publication. The successful short-path clone produced a 152-entry ZIP, required ten contracts and Vulkan smoke, and kept licensed validation listed separately. Archive SHA-256 `9e27be753c4152e82d2c9cc70bacfa305894f6b7383824d38004f79bb82faeb6`.
-- [ ] Verify the pinned CI upload step publishes one host-independent JSON receipt per Windows runner. A genuine outside-fork PR and a licensed 16.7 matrix remain separate acceptance work. [Pinned GitHub action release](https://github.com/actions/upload-artifact/releases/tag/v4.6.2)
+- [x] Download and inspect both receipts published by Windows Server 2022 and 2025 on draft PR #1. Each receipt records nine passing contracts and explicitly marks GPU and licensed Capture One as separate, unrunnable tiers on those runners. [Public CI run and receipts](https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44675783266)
+- [ ] Observe a genuine outside-fork PR and verify a licensed 16.7 host independently.
 
 Evidence is under `.test-results/contracts-release-required-checks-20261120` and `D:/Library AI testing/sf-tag-gate-20261120/.test-results/tagged-release-proof.json`.
 

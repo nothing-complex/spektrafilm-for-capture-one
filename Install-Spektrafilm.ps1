@@ -80,6 +80,81 @@ function Remove-TemporaryInstall([string] $path, [string] $parent) {
     [IO.Directory]::Delete($item.FullName, $true)
 }
 
+function Get-UpgradeFiles([string] $install) {
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = [Text.Encoding]::UTF8.GetBytes($install.ToUpperInvariant())
+        $key = [BitConverter]::ToString($sha.ComputeHash($bytes)).Replace('-', '').Substring(0, 24).ToLowerInvariant()
+    } finally { $sha.Dispose() }
+    $base = Join-Path (Split-Path -LiteralPath $install) ('.film-tools-upgrade-' + $key)
+    return @{ Lock = $base + '.lock'; Journal = $base + '.json' }
+}
+
+function Get-UpgradeFingerprint([string] $directory, [string] $asset) {
+    if (!(Test-OwnedInstall $directory)) { throw "Could not verify the owned installation at $directory." }
+    $item = Get-Item -LiteralPath (Join-Path $directory $asset) -Force
+    Confirm-PlainAsset $item $directory
+    if ($item.PSIsContainer) { throw "Expected an installation receipt at $($item.FullName)." }
+    return (Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256).Hash
+}
+
+function Save-UpgradeJournal([string] $journal, [string] $id, [string] $install, [string] $stage) {
+    $receipt = [ordered]@{
+        schema = 1
+        id = $id
+        previousMarker = Get-UpgradeFingerprint $install $markerName
+        candidateReceipt = Get-UpgradeFingerprint $stage $ownedManifestName
+    }
+    $temporary = $journal + '.' + $id
+    $bytes = [Text.Encoding]::UTF8.GetBytes(($receipt | ConvertTo-Json -Compress))
+    $created = $false
+    try {
+        $file = [IO.FileStream]::new($temporary, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write,
+            [IO.FileShare]::None, 4096, [IO.FileOptions]::WriteThrough)
+        $created = $true
+        try { $file.Write($bytes, 0, $bytes.Length); $file.Flush($true) }
+        finally { $file.Dispose() }
+        [IO.File]::Move($temporary, $journal)
+    } finally {
+        if ($created -and [IO.File]::Exists($temporary)) { [IO.File]::Delete($temporary) }
+    }
+}
+
+function Restore-InterruptedUpgrade([string] $journal, [string] $install, [string] $parent) {
+    if (!(Test-Path -LiteralPath $journal)) { return }
+    $item = Get-Item -LiteralPath $journal -Force
+    Confirm-PlainItem $item
+    if ($item.PSIsContainer -or $item.Length -gt 4096) { throw "Could not read the upgrade journal at $journal." }
+    $receipt = [IO.File]::ReadAllText($journal) | ConvertFrom-Json
+    if ($receipt.schema -ne 1 -or $receipt.id -cnotmatch '^[a-f0-9]{32}$' -or
+        $receipt.previousMarker -cnotmatch '^[A-F0-9]{64}$' -or $receipt.candidateReceipt -cnotmatch '^[A-F0-9]{64}$') {
+        throw "Could not verify the upgrade journal at $journal."
+    }
+    $previous = Join-Path $parent ('.film-tools-previous-' + $receipt.id)
+    $stage = Join-Path $parent ('.film-tools-stage-' + $receipt.id)
+    $hasPrevious = Test-Path -LiteralPath $previous
+    $hasStage = Test-Path -LiteralPath $stage
+    $hasCurrent = Test-Path -LiteralPath $install
+    if ($hasPrevious -and $hasStage -and $hasCurrent) {
+        throw "An unexpected item occupies $install. The interrupted upgrade remains at $stage and $previous."
+    }
+    $oldPath = if ($hasPrevious) { $previous } else { $install }
+    $candidatePath = if ($hasStage) { $stage } else { $install }
+    if ($oldPath -eq $candidatePath -or (Get-UpgradeFingerprint $oldPath $markerName) -cne $receipt.previousMarker -or
+        (Get-UpgradeFingerprint $candidatePath $ownedManifestName) -cne $receipt.candidateReceipt) {
+        throw "Could not verify the interrupted upgrade. Recovery files remain at $stage and $previous."
+    }
+    if ($hasPrevious) {
+        if ($hasCurrent) {
+            Confirm-UpdateFilesAvailable $install
+            [IO.Directory]::Move($install, $stage)
+        }
+        [IO.Directory]::Move($previous, $install)
+    }
+    [IO.File]::Delete($journal)
+    Write-Output "Recovered the previous installation at $install. Interrupted upgrade files retained at $stage."
+}
+
 function Read-OwnedFiles([string] $install) {
     $owned = @{}
     $path = Join-Path $install $ownedManifestName
@@ -237,7 +312,9 @@ try {
         $programs = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs'
         $Destination = Join-Path $programs $appName
         $legacyInstall = Join-Path $programs 'Film Tools for Capture One'
-        if (!(Test-Path -LiteralPath $Destination) -and (Test-OwnedInstall $legacyInstall)) { $Destination = $legacyInstall }
+        $legacyJournal = (Get-UpgradeFiles $legacyInstall).Journal
+        if (!(Test-Path -LiteralPath $Destination) -and ((Test-OwnedInstall $legacyInstall) -or
+            (Test-Path -LiteralPath $legacyJournal))) { $Destination = $legacyInstall }
     }
     $install = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Destination).TrimEnd('\', '/')
     $desktop = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($DesktopDirectory).TrimEnd('\', '/')
@@ -298,21 +375,32 @@ try {
         }
     }
 
+    $shortcutPath = Join-Path $desktop "$appName.lnk"
+    if (!$PSCmdlet.ShouldProcess("$install and $shortcutPath", "Install $appName and create its Desktop shortcut")) { return }
+
+    [void] [IO.Directory]::CreateDirectory($parent)
+    Confirm-PlainItem (Get-Item -LiteralPath $parent -Force)
+    $upgradeFiles = Get-UpgradeFiles $install
+    if (Test-Path -LiteralPath $upgradeFiles.Lock) { Confirm-PlainItem (Get-Item -LiteralPath $upgradeFiles.Lock -Force) }
+    try {
+        $installLock = [IO.File]::Open($upgradeFiles.Lock, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+    } catch {
+        if (Test-FileInUse $_.Exception) { throw 'Another installer is working on this destination.' }
+        throw
+    }
+    Restore-InterruptedUpgrade $upgradeFiles.Journal $install $parent
     $upgrade = Test-Path -LiteralPath $install
     if ($upgrade -and !(Test-OwnedInstall $install)) {
         throw "The destination already exists and is not a $appName installation: $install"
     }
-    $shortcutPath = Join-Path $desktop "$appName.lnk"
-    if (!$PSCmdlet.ShouldProcess("$install and $shortcutPath", "Install $appName and create its Desktop shortcut")) { return }
     if ($upgrade) { Confirm-UpdateFilesAvailable $install }
-
-    [void] [IO.Directory]::CreateDirectory($parent)
     $id = [Guid]::NewGuid().ToString('N')
     $stage = Join-Path $parent ('.film-tools-stage-' + $id)
     $previous = Join-Path $parent ('.film-tools-previous-' + $id)
     $movedPrevious = $false
     $installed = $false
     $keepStage = $false
+    $journalSaved = $false
     $recoveryRelative = Join-Path 'Recovered files' $id
     try {
         [void] [IO.Directory]::CreateDirectory($stage)
@@ -336,6 +424,8 @@ try {
             $owned = Read-OwnedFiles $install
             # Copy user data before moving the original. Any copy failure leaves it intact.
             Merge-UserFiles $install $stage '' $owned (Join-Path $stage $recoveryRelative)
+            Save-UpgradeJournal $upgradeFiles.Journal $id $install $stage
+            $journalSaved = $true
             try {
                 [IO.Directory]::Move($install, $previous)
             } catch {
@@ -353,6 +443,7 @@ try {
         $installed = $true
         $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
         Save-DesktopShortcut $shortcutPath $powershell (Join-Path $install 'Start-Spektrafilm.ps1') $install $upgrade
+        if ($journalSaved) { [IO.File]::Delete($upgradeFiles.Journal) }
     } catch {
         $installError = $_
         try {
@@ -360,6 +451,7 @@ try {
             if ($movedPrevious) {
                 [IO.Directory]::Move($previous, $install)
             }
+            if ($journalSaved) { [IO.File]::Delete($upgradeFiles.Journal) }
         } catch {
             $keepStage = $true
             throw "Installation failed and could not be rolled back. The previous folder is $previous. The staged folder is $stage. The destination is $install. $($installError.Exception.Message) $($_.Exception.Message)"
@@ -380,4 +472,6 @@ try {
 } catch {
     [Console]::Error.WriteLine("${appName}: $($_.Exception.Message)")
     exit 1
+} finally {
+    if ($installLock) { $installLock.Dispose() }
 }
