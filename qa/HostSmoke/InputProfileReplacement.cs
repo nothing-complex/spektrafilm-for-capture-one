@@ -31,7 +31,7 @@ public static partial class StartupHook
         Check(File.ReadAllBytes(backup).SequenceEqual(original), "backed up the exact input ICC before injecting the failure");
         object? Source() => Field(spatial, "source");
         bool HasVerifiedImage(object? except = null) => Source() is { } frame && !ReferenceEquals(frame, except)
-            && Prop(frame, "Description") is { } description && Equals(Prop(description, "ProfileSha256"), digest)
+            && Prop(frame, "Description") is { } description && Equals(Prop(Prop(description, "Source")!, "ProfileSha256"), digest)
             && Prop(frame, "BitDepth") is 16 && Field(spatial, "sourceSize") is "2048"
             && Field(spatial, "frameCurrent") is true && Prop(viewer, "HasPainted") is true;
         async Task WaitFor(Func<bool> predicate, string detail)
@@ -78,6 +78,15 @@ public static partial class StartupHook
             await WaitFor(() => HasVerifiedImage(first), "Restoring the original ICC did not automatically rebuild the preview.");
             Check(!ReferenceEquals(bitmap, Field(spatial, "viewerFrame")) && File.ReadAllBytes(path).SequenceEqual(original),
                 "restoring the original profile automatically rebuilds a fresh matching 16-bit frame");
+            var restored = Source()!;
+            var originalDescription = Prop(restored, "Description")!;
+            var resampler = host.Assembly.GetType("ViewerDraftSource", true)!.GetMethod("Downsample", Flags)!;
+            var reduced = (await Task.Run(() => resampler.Invoke(null, new[] { restored, (object)720, CancellationToken.None, encoding })))!;
+            var draft = Prop(reduced, "Description")!;
+            Check(ReferenceEquals(Prop(draft, "Source"), Prop(originalDescription, "Source"))
+                && Prop(draft, "Sampling")!.ToString() == "LinearLightArea" && Prop(draft, "Width") is 720
+                && Call(draft, "Describes", 720, Prop(reduced, "Height"), 16, ((byte[])Prop(reduced, "FloatBytes")!).Length) is true,
+                "the real RGB16 draft preserves exact profile and host identity and describes its reduced pixels");
             File.AppendAllText(Path.Combine(folder, "host-smoke.log"),
                 $"Input-profile replacement invalidation took {detection:F1} ms on the licensed Viewer.{Environment.NewLine}");
         }

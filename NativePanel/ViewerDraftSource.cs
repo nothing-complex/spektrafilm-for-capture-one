@@ -18,6 +18,9 @@ internal static class ViewerDraftSource
         if (frame.Width <= 0 || frame.Height <= 0 || sourcePixels != frame.FloatBytes.Length / BytesPerPixel
             || frame.FloatBytes.Length % BytesPerPixel != 0)
             throw new ArgumentException("Invalid draft preview source frame.", nameof(frame));
+        if (frame.Description is { } description && (description.Source.InputEncoding != space ||
+            !description.Describes(frame.Width, frame.Height, frame.BitDepth, frame.FloatBytes.Length)))
+            throw new ArgumentException("The draft does not match its developed source descriptor.", nameof(frame));
 
         token.ThrowIfCancellationRequested();
         // Limiting the long edge also caps square frames at 6,553,600 pixels.
@@ -71,7 +74,12 @@ internal static class ViewerDraftSource
                 }
             }
         });
-        return frame with { Width = width, Height = height, Codes = Array.Empty<byte>(), FloatBytes = draft };
+        return frame with
+        {
+            Width = width, Height = height, Codes = Array.Empty<byte>(), FloatBytes = draft,
+            Description = frame.Description is { } original
+                ? original with { Width = width, Height = height, Sampling = SourceSampling.LinearLightArea } : null,
+        };
     }
 
     private static Vector4 Linear(Vector4 value, PreviewInputSpace space) => new(

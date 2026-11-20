@@ -77,8 +77,8 @@ internal sealed class SpatialPreview : IDisposable
     private bool dragging;
     private long lastDragChange;
     private HostImageSource.Frame? source;
-    private HostImageSource.Revision? failedRevision;
-    private readonly PreviewRendererRetry<(Guid Variant, int Generation, HostImageSource.Revision Source)> rendererRetry = new();
+    private NativeImageRevision? failedRevision;
+    private readonly PreviewRendererRetry<(Guid Variant, int Generation, NativeImageRevision Source)> rendererRetry = new();
     private byte[]? renderedPixels;
     private string[]? renderedArguments;
     private BitmapSource? sourceDisplay;
@@ -746,7 +746,9 @@ internal sealed class SpatialPreview : IDisposable
                     var rendered = snapshot.RenderExport(null, work.Token, useRecipeSize);
                     var source = rendered.Image;
                     if (source.BitDepth < 16 || source.Description is not { } description
-                        || description.VariantId != work.VariantId || description.InputEncoding != input.Space)
+                        || description.Source != snapshot.SourceIdentity
+                        || description.Source.VariantId != work.VariantId || description.Source.InputEncoding != input.Space
+                        || !description.Describes(source.Width, source.Height, source.BitDepth, source.FloatBytes.Length))
                         throw new InvalidDataException("Capture One did not produce the captured high-bit-depth input for this export.");
                     StartupHook.Log($"Capture One developed {target.SourceFormat} export input at {source.Width} × {source.Height}, {source.BitDepth}-bit {input.Space}.");
                     byte[]? pixels = null;
@@ -938,7 +940,7 @@ internal sealed class SpatialPreview : IDisposable
         nextViewerCheck = Environment.TickCount64 + 350;
 
         Guid selectedVariant;
-        HostImageSource.Revision revision;
+        NativeImageRevision revision;
         try
         {
             (selectedVariant, revision) = HostImageSource.GetSelectedRevision(window);
@@ -992,9 +994,11 @@ internal sealed class SpatialPreview : IDisposable
         // Resolution is a sampling choice, never a silent bit-depth/source change.
         const bool highDepthPreview = true;
         var dragEdge = DragLongEdge;
-        var needsSource = source?.Description is not { } description || description.VariantId != selectedVariant
-            || description.AdjustmentKey != revision || description.InputEncoding != space || sourceSize != size
-            || !string.Equals(description.ProfileSha256, checkedProfileHash, StringComparison.Ordinal);
+        var cachedSource = source;
+        var needsSource = cachedSource?.Description is not { } description || description.Source.VariantId != selectedVariant
+            || description.Source.AdjustmentKey != revision || description.Source.InputEncoding != space || sourceSize != size
+            || !string.Equals(description.Source.ProfileSha256, checkedProfileHash, StringComparison.Ordinal)
+            || !description.Describes(cachedSource.Width, cachedSource.Height, cachedSource.BitDepth, cachedSource.FloatBytes.Length);
         if (highDepthPreview && !needsSource && WantsDragPreview
             && source is { } liveSource && Math.Max(liveSource.Width, liveSource.Height) > dragEdge)
         {
@@ -1136,7 +1140,7 @@ internal sealed class SpatialPreview : IDisposable
             job.Token.ThrowIfCancellationRequested();
             if (settingsVersion != inputRevision)
                 return;
-            if (HostImageSource.GetRevision(window, selectedVariant) != input.Description?.AdjustmentKey)
+            if (HostImageSource.GetRevision(window, selectedVariant) != input.Description?.Source.AdjustmentKey)
             {
                 queued = true;
                 return;
@@ -1202,7 +1206,7 @@ internal sealed class SpatialPreview : IDisposable
     }
 
     private async Task TryShowInitialPreviewAsync(HostImageSource.Frame frame, long started,
-        HostImageSource.Revision revision, Guid variant, InputChoice inputColor, Choice encoding, LookSettings look,
+        NativeImageRevision revision, Guid variant, InputChoice inputColor, Choice encoding, LookSettings look,
         int dragEdge, int version, CancellationToken token)
     {
         if (version != inputRevision || DragLongEdge != dragEdge)
@@ -1241,7 +1245,7 @@ internal sealed class SpatialPreview : IDisposable
         }
     }
 
-    private async Task RefreshDraftAsync(Guid selectedVariant, HostImageSource.Revision revision,
+    private async Task RefreshDraftAsync(Guid selectedVariant, NativeImageRevision revision,
         HostImageSource.Frame input, InputChoice inputColor, Choice encoding, LookSettings look, string viewerSize, int dragEdge, bool warmup = false)
     {
         draftWarmupAttempted = true;

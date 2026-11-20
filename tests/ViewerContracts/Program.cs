@@ -13,7 +13,7 @@ using System.Windows.Media.Imaging;
 
 internal static class HostImageSource
 {
-    internal sealed record Frame(int Width, int Height, byte[] Codes, byte[] FloatBytes, int BitDepth);
+    internal sealed record Frame(int Width, int Height, byte[] Codes, byte[] FloatBytes, int BitDepth, FrameDescription? Description = null);
 }
 
 internal static class StartupHook
@@ -62,6 +62,7 @@ internal static partial class Program
         TestConversionBudget();
         TestParallelExportPixels();
         TestDraft();
+        TestDevelopedFrameDescription();
         TestExport(folder);
         TestExportProfiles(folder);
         TestExportMetadata(folder);
@@ -811,6 +812,56 @@ internal static partial class Program
             try {ViewerDraftSource.Downsample(input,edge,cancel.Token);throw new Exception("Expected cancellation");}catch(OperationCanceledException){assertions++;}
         }
         Console.WriteLine("Draft: noninteger/extreme aspect ratios, constant energy, out-of-range channels, alpha, size cap, identity and cancellation passed.");
+    }
+
+    private static void TestDevelopedFrameDescription()
+    {
+        var identity = new FrameSourceDescription(Guid.NewGuid(), "DNG", PreviewInputSpace.Srgb,
+            new string('A', 64), new NativeImageRevision(10, 20, 30), "16.4.6.2414", new string('B', 64));
+        (PreviewInputSpace Space, SourcePrimaries Primaries, SourceTransfer Transfer)[] encodings =
+        {
+            (PreviewInputSpace.Srgb, SourcePrimaries.SrgbD65, SourceTransfer.Srgb),
+            (PreviewInputSpace.AdobeRgb, SourcePrimaries.AdobeRgbD65, SourceTransfer.AdobeRgb1998),
+            (PreviewInputSpace.ProPhotoRgb, SourcePrimaries.ProPhotoRgbD50, SourceTransfer.ProPhotoRgb),
+            (PreviewInputSpace.LinearRec2020, SourcePrimaries.Rec2020D65, SourceTransfer.Linear),
+        };
+        foreach (var encoding in encodings)
+        {
+            var item = identity with { InputEncoding = encoding.Space };
+            Check(item.Primaries == encoding.Primaries && item.Transfer == encoding.Transfer
+                && item.Stage == SourceStage.CaptureOneDevelopedRgb, $"Developed encoding contract for {encoding.Space}");
+        }
+        Check(identity != (identity with { VariantId = Guid.NewGuid() })
+            && identity != (identity with { ProfileSha256 = new string('C', 64) })
+            && identity != (identity with { AdjustmentKey = new NativeImageRevision(10, 20, 31) })
+            && identity != (identity with { HostAssemblySha256 = new string('D', 64) }),
+            "Copy identity changes with variant, ICC, native settings or verified host");
+
+        const int width = 8, height = 4, bytes = width * height * 16;
+        var original = new FrameDescription(identity, width, height, NativeSourceFormat.Rgb16);
+        Check(original.Describes(width, height, 16, bytes) && original.Range == SourceSampleRange.NormalizedUnsigned
+            && original.Alpha == SourceAlpha.Opaque && original.Sampling == SourceSampling.CaptureOne,
+            "Native RGB16 descriptor records bounded data with opaque alpha");
+        Check((original with { NativeFormat = NativeSourceFormat.Rgba16 }).Alpha == SourceAlpha.PreservedNativeChannel
+            && (original with { NativeFormat = NativeSourceFormat.Rgb32Float }).Range == SourceSampleRange.FiniteExtended,
+            "RGBA16 and finite float have separate sample contracts");
+        Check(!original.Describes(width, height, 8, bytes) && !original.Describes(height, width, 16, bytes)
+            && !original.Describes(width, height, 16, bytes - 1),
+            "Descriptor rejects a different native format, orientation or byte count");
+        var image = new HostImageSource.Frame(width, height, Array.Empty<byte>(), new byte[bytes], 16, original);
+        var reduced = ViewerDraftSource.Downsample(image, 4, CancellationToken.None, PreviewInputSpace.Srgb);
+        Check(reduced.Description is { Sampling: SourceSampling.LinearLightArea } derived
+            && ReferenceEquals(derived.Source, original.Source)
+            && derived.Describes(reduced.Width, reduced.Height, reduced.BitDepth, reduced.FloatBytes.Length),
+            "A managed draft keeps exact input identity and declares its resized pixels");
+        var rejected = false;
+        try { ViewerDraftSource.Downsample(image, 4, CancellationToken.None, PreviewInputSpace.LinearRec2020); }
+        catch (ArgumentException) { rejected = true; }
+        Check(rejected, "A draft cannot reinterpret its source profile as another input encoding");
+        rejected = false;
+        try { _ = (identity with { InputEncoding = (PreviewInputSpace)int.MaxValue }).Transfer; }
+        catch (ArgumentOutOfRangeException) { rejected = true; }
+        Check(rejected, "Undeclared camera or log transfer cannot enter the developed frame contract");
     }
 
     private static void TestExport(string folder)

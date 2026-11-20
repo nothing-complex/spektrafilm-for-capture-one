@@ -75,7 +75,7 @@ public static partial class StartupHook
             BitmapCacheOption.OnLoad).Frames[0];
         Check(tiff.PixelWidth == bitmapWidth && tiff.PixelHeight == bitmapHeight && tiff.Format == PixelFormats.Rgb48
             && tiff.ColorContexts is { Count: > 0 }, $"{source} native TIFF retains the same RGB16 dimensions and embeds its profile");
-        var description = captured.GetType().GetFields(Flags).Single(field => field.FieldType.Name == "FrameDescription").GetValue(captured)!;
+        var description = Prop(captured, "SourceIdentity")!;
         using var icc = tiff.ColorContexts![0].OpenProfileStream();
         var iccSha256 = Convert.ToHexString(SHA256.HashData(icc));
         Check(Equals(Prop(description, "ProfileSha256"), iccSha256),

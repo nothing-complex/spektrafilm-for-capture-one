@@ -44,9 +44,6 @@ internal static class HostImageSource
         .GetMethod("GetDestinationDocumentManager", new[] { typeof(ICaptureOneDocument) });
     private static readonly float[] Bgra8Values = CreateByteLookup();
 
-    internal readonly record struct Revision(long HighRes, long LowRes, long Geometry);
-    internal sealed record FrameDescription(Guid VariantId, string SourceFormat, PreviewInputSpace InputEncoding,
-        string ProfileSha256, Revision AdjustmentKey);
     internal sealed record Frame(int Width, int Height, byte[] Codes, byte[] FloatBytes, int BitDepth, FrameDescription? Description = null);
     internal sealed record ExportFrame(Frame Image, Rectangle Crop);
     internal sealed record RecipeInfo(string Name, string FormatId, string ColorProfileName, string ColorProfilePath,
@@ -54,13 +51,13 @@ internal static class HostImageSource
         string Suffix, int TiffBits, int JpegQuality, int Width, int Height, double Scale, bool IgnoreCrop,
         double Resolution, string ResolutionUnit, ExportMetadata Metadata);
 
-    internal static (Guid VariantId, Revision AdjustmentKey) GetSelectedRevision(object window)
+    internal static (Guid VariantId, NativeImageRevision AdjustmentKey) GetSelectedRevision(object window)
     {
         var selected = HostProfile.ReadSelection(window).Variant;
         return (selected.UUID, ReadRevision(selected));
     }
 
-    internal static Revision GetRevision(object window, Guid variantId) => ReadRevision(RequireSelection(window, variantId).Variant);
+    internal static NativeImageRevision GetRevision(object window, Guid variantId) => ReadRevision(RequireSelection(window, variantId).Variant);
 
     internal static RecipeInfo? ActiveRecipe(object window)
     {
@@ -100,7 +97,9 @@ internal static class HostImageSource
             ?? throw new InvalidOperationException("Capture One’s image scheduler is unavailable.");
         var proxyManager = GetProxyManager?.Invoke(selection.Manager, new object[] { selection.Document }) as IProxyManager;
         var recipe = captureRecipe ? ReadRecipe(selection, ref settings) : null;
-        var description = new FrameDescription(target.VariantId, target.SourceFormat, inputSpace, profileSha256, revision);
+        var host = StartupHook.VerifiedHost ?? throw new InvalidOperationException("The Capture One image source requires a verified host.");
+        var description = new FrameSourceDescription(target.VariantId, target.SourceFormat, inputSpace, profileSha256, revision,
+            host.FileVersion, host.AssemblySha256);
         return new Snapshot(scheduler, selection.Document, variant, target.SourcePath, profilePath, settings, description, proxyManager, recipe);
     }
 
@@ -165,10 +164,10 @@ internal static class HostImageSource
             : throw new OperationCanceledException("The selected Capture One image changed.");
     }
 
-    private static Revision ReadRevision(ICoreVariant variant)
+    private static NativeImageRevision ReadRevision(ICoreVariant variant)
     {
         var counters = variant.Settings.VariantProcessCounters;
-        return new Revision(counters.HighResCounter, counters.LowResCounter, counters.SyncCounter);
+        return new NativeImageRevision(counters.HighResCounter, counters.LowResCounter, counters.SyncCounter);
     }
 
     private static PropertyInfo HostProperty(string name) =>
@@ -209,9 +208,10 @@ internal static class HostImageSource
     }
 
     internal sealed class Snapshot(ImageCoreScheduler scheduler, ICaptureOneDocument document, ICoreVariant variant,
-        string sourcePath, string profilePath, IC_ProcessSettings settings, FrameDescription description, IProxyManager? proxyManager, RecipeInfo? recipe)
+        string sourcePath, string profilePath, IC_ProcessSettings settings, FrameSourceDescription description, IProxyManager? proxyManager, RecipeInfo? recipe)
     {
-        internal Revision AdjustmentKey => description.AdjustmentKey;
+        internal NativeImageRevision AdjustmentKey => description.AdjustmentKey;
+        internal FrameSourceDescription SourceIdentity => description;
         internal RecipeInfo? Recipe => recipe;
 
         internal Frame Render(int maxDimension, CancellationToken token) =>
@@ -245,8 +245,7 @@ internal static class HostImageSource
             {
                 try
                 {
-                    var rendered = ScheduleRender(options, requestProxyCheck, token);
-                    return rendered with { Image = rendered.Image with { Description = description } };
+                    return ScheduleRender(options, requestProxyCheck, token);
                 }
                 catch (ProxyPendingException) when (attemptsLeft > 0)
                 {
@@ -398,7 +397,7 @@ internal static class HostImageSource
                 throw new InvalidOperationException($"Capture One could not develop the {(options.ForExport ? "export source" : "preview")} ({result}).");
             if (ReadRevision(source) != description.AdjustmentKey)
                 throw new OperationCanceledException("Capture One settings changed during image development.");
-            var imageFrame = CopyPixels(bitmap, pixelLimit, token, options.Purpose);
+            var imageFrame = CopyPixels(bitmap, pixelLimit, token, options.Purpose, description);
             var pixelCrop = options.ForExport ? ViewerGeometry.ScaleCrop(crop, canvas, imageFrame.Width, imageFrame.Height)
                 : new Rectangle(0, 0, imageFrame.Width, imageFrame.Height);
             return new ExportFrame(imageFrame, pixelCrop);
@@ -473,7 +472,8 @@ internal static class HostImageSource
     internal sealed class ProxyPendingException(IC_Result result) :
         InvalidOperationException($"Capture One’s native preview is not available yet ({result}).");
 
-    private static Frame CopyPixels(ImageCoreBitmap bitmap, int pixelLimit, CancellationToken token, RenderPurpose purpose)
+    private static Frame CopyPixels(ImageCoreBitmap bitmap, int pixelLimit, CancellationToken token, RenderPurpose purpose,
+        FrameSourceDescription source)
     {
         var format = (PixelFormat)ImgCoreDll.ICB_GetPixelFormat(bitmap.Handle);
         var nativeDepth = purpose != RenderPurpose.Preview;
@@ -490,8 +490,18 @@ internal static class HostImageSource
             if (format is not (PixelFormat.ipfRGB16 or PixelFormat.ipfRGBA16 or PixelFormat.ipfRGB32F))
                 throw new InvalidDataException($"Capture One returned {format} for the high-depth {destination} source.");
         }
-        return CopyPixels(bitmap.Width, bitmap.Height, bitmap.Stride, format, bitmap.Data, token, pixelLimit,
+        var frame = CopyPixels(bitmap.Width, bitmap.Height, bitmap.Stride, format, bitmap.Data, token, pixelLimit,
             includePreviewCodes: !nativeDepth);
+        var nativeFormat = format switch
+        {
+            PixelFormat.ipfARGB8 or PixelFormat.ipfBGRA8 => NativeSourceFormat.PremultipliedBgra8,
+            PixelFormat.ipfRGB8 => NativeSourceFormat.Rgb8,
+            PixelFormat.ipfRGB16 => NativeSourceFormat.Rgb16,
+            PixelFormat.ipfRGBA16 => NativeSourceFormat.Rgba16,
+            PixelFormat.ipfRGB32F => NativeSourceFormat.Rgb32Float,
+            _ => throw new InvalidDataException($"Capture One returned an unsupported bitmap format ({format})."),
+        };
+        return frame with { Description = new FrameDescription(source, frame.Width, frame.Height, nativeFormat) };
     }
 
     internal static Frame CopyPixels(int width, int height, int stride, PixelFormat format, nint data, CancellationToken token) =>

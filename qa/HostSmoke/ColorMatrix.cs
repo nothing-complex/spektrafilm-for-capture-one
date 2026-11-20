@@ -66,13 +66,21 @@ public static partial class StartupHook
                 var height = (int)Prop(frame, "Height")!;
                 var bytes = (byte[])Prop(frame, "FloatBytes")!;
                 var description = Prop(frame, "Description")!;
-                var digest = (string)Prop(description, "ProfileSha256")!;
+                var identity = Prop(description, "Source")!;
+                var digest = (string)Prop(identity, "ProfileSha256")!;
                 Check(Prop(frame, "BitDepth") is 16 && Math.Max(width, height) == 480
                     && bytes.LongLength == width * height * 16L && (dimensions is null || dimensions == (width, height)),
                     $"{source} develops as native 16-bit RGBA32F in {encoding} on identical geometry");
-                Check(Equals(Prop(description, "InputEncoding"), space) && Equals(Prop(description, "VariantId"), Prop(target, "VariantId"))
-                    && Equals(Prop(description, "AdjustmentKey"), Prop(snapshot, "AdjustmentKey")) && digest.Length == 64 && digest.All(Uri.IsHexDigit),
+                Check(Equals(Prop(identity, "InputEncoding"), space) && Equals(Prop(identity, "VariantId"), Prop(target, "VariantId"))
+                    && Equals(Prop(identity, "AdjustmentKey"), Prop(snapshot, "AdjustmentKey")) && digest.Length == 64 && digest.All(Uri.IsHexDigit),
                     $"{source} {encoding} frame identifies its selected variant, native revision and exact ICC bytes");
+                Check(Equals(identity, Prop(snapshot, "SourceIdentity")) && Prop(identity, "Stage")!.ToString() == "CaptureOneDevelopedRgb"
+                    && Prop(identity, "HostVersion") is "16.4.6.2414" && Prop(identity, "HostAssemblySha256") is string hostHash
+                    && hostHash.Length == 64 && hostHash.All(Uri.IsHexDigit)
+                    && Prop(description, "NativeFormat")!.ToString() == "Rgb16" && Prop(description, "Alpha")!.ToString() == "Opaque"
+                    && Prop(description, "Range")!.ToString() == "NormalizedUnsigned"
+                    && Call(description, "Describes", width, height, 16, bytes.Length) is true,
+                    $"{source} {encoding} declares the real host, developed stage, geometry, depth, sample range and alpha");
                 dimensions = (width, height);
                 var options = (string[])Call(spatial, "RendererOptions", look, encoding, "linear_rec709", false, false)!;
                 var film = await (Task<byte[]>)Call(renderer, "RenderAsync", width, height, bytes, options, CancellationToken.None, false)!;

@@ -88,7 +88,8 @@ public static partial class StartupHook
                 $"calibration {name} produces the expected geometry and native RGB16 data");
             var file = name + ".f32";
             File.WriteAllBytes(Path.Combine(directory, file), bytes);
-            frames.Add(new { name, file, width, height, profile = Prop(Prop(frame, "Description")!, "ProfileSha256"),
+            var description = Prop(Prop(frame, "Description")!, "Source")!;
+            frames.Add(new { name, file, width, height, profile = Prop(description, "ProfileSha256"),
                 exposure = Convert.ToDouble(exposure.GetValue(imported), CultureInfo.InvariantCulture),
                 curve = filmCurve.GetValue(imported) is { } curve ? Prop(curve, "FileName") : null });
         }

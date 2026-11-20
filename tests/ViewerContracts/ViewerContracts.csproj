@@ -18,6 +18,7 @@
     <Compile Include="../../NativePanel/ViewportQuality.cs" Link="ViewportQuality.cs" />
     <Compile Include="../../NativePanel/ViewerHistogram.cs" Link="ViewerHistogram.cs" />
     <Compile Include="../../NativePanel/ViewerDraftSource.cs" Link="ViewerDraftSource.cs" />
+    <Compile Include="../../NativePanel/DevelopedFrameDescription.cs" Link="DevelopedFrameDescription.cs" />
     <Compile Include="../../NativePanel/ColorTransfer.cs" Link="ColorTransfer.cs" />
     <Compile Include="../../NativePanel/SrgbDelivery.cs" Link="SrgbDelivery.cs" />
     <Compile Include="../../NativePanel/SpektraExport.cs" Link="SpektraExport.cs" />

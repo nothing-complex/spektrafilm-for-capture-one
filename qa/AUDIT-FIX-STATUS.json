@@ -895,7 +895,7 @@
       "id": "RC-05",
       "title": "Define developed-image colour/range contract and test earlier host seam",
       "priority": "P1",
-      "status": "partial",
+      "status": "implemented",
       "implemented": [
         "Normal viewer input now stays high-depth at small resolutions; documentation distinguishes developed bounded output from raw scene-linear data.",
         "A licensed native RAW matrix exercised Canon CR3, Fujifilm RAF, Nikon NEF and Ricoh DNG in sRGB, Adobe RGB, ProPhoto RGB and Linear Rec.2020. All 16 cases used high-depth Capture One development with the same per-image geometry, converted to float32 and rendered a finite linear Rec.709 film result with exact alpha.",
@@ -906,7 +906,10 @@
         "At the selected Linear Rec.2020 developed output, +1 EV produced median linear-luminance gains from 1.94 to 2.58 and −1 EV produced 0.316 to 0.369. Gains varied across each image’s interior midtones, verifying that these transfer-encoded-linear pixels retain Capture One’s developed-image tone behavior. White balance moves changed channel values and highlight recovery changed thousands of bright, finite pixels without changing alpha or canvas geometry.",
         "The exact audit.5 binaries passed 111 native RAW colour checks. Capture One’s bitmap and TIFF destinations were developed from the same captured settings for all four camera files. All 2,004,657 RGB16 channel codes were identical. Each native TIFF embedded the exact verified 664-byte Linear Rec.2020 profile.",
         "The licensed Viewer detects input ICC replacement at idle, cancels stale work, drops derived pixels and rebuilds the source when the original profile is restored. Previously captured native development holds the profile stable while reading and rejects a changed ICC. The isolated ProPhoto fault fixture restored the original bytes and observed a fresh painted 16-bit frame in both launches. 287 first-launch, 291 restart and 115 RAW colour assertions passed on the final source.",
-        "A generated Bayer DNG with independently verified sensor samples and black/white levels exercised the native default DNG Standard and Linear Response curves at 0 and +1 EV. The exact audit.14 source delivered 16-bit Linear Rec.2020 with the same ICC in all four cases. +1 EV measured 0.21 to 1.42 stops over usable neutral patches with DNG Standard and 0.08 to 1.61 stops with Linear Response. This measures retained Capture One development with a linear transfer. Twenty-three licensed assertions passed with the isolated source file and original catalog unchanged."
+        "A generated Bayer DNG with independently verified sensor samples and black/white levels exercised the native default DNG Standard and Linear Response curves at 0 and +1 EV. The exact audit.14 source delivered 16-bit Linear Rec.2020 with the same ICC in all four cases. +1 EV measured 0.21 to 1.42 stops over usable neutral patches with DNG Standard and 0.08 to 1.61 stops with Linear Response. This measures retained Capture One development with a linear transfer. Twenty-three licensed assertions passed with the isolated source file and original catalog unchanged.",
+        "The immutable source descriptor now includes input primaries, transfer, exact host build and DLL hash, variant, ICC and native revision. The frame describes dimensions, original native sample layout, range, alpha and managed sampling. Exact descriptor and geometry are checked through Viewer source reuse, derived drafts and captured export. Source replacement drops all derived pixels. Renderer reuse still requires reference-identical float bytes and dimensions, with new frame upload identity for a changed source.",
+        "Eleven independent descriptor contracts cover all four encodings, identity changes, invalid shape/depth/byte count, opaque and preserved sample layouts, draft metadata and rejection of undeclared transfer. All Windows and Vulkan contracts passed, including 12,266 Viewer assertions. The licensed four-RAW matrix passed 131 assertions and the full first/restart pair passed 295 and 299.",
+        "The bounded earlier-stage probe covered actual native Standard/Linear Response output and inspected the exact wrapper's bitmap, file, point-sampler and embedded-preview interfaces. It did not establish a calibrated whole-frame pre-development path, so no sensor-linear or camera-log delivery is exposed."
       ],
       "evidence_paths": [
         "NativePanel/HostImageSource.cs",
@@ -933,12 +936,14 @@
         ".test-results/host-color-matrix-profile-guard-20261120/host-smoke.log",
         "qa/color-calibration-chart.py",
         "qa/HostSmoke/CalibratedChart.cs",
-        ".test-results/host-calibrated-all-images-20261120/calibrated-report.json"
+        ".test-results/host-calibrated-all-images-20261120/calibrated-report.json",
+        "NativePanel/DevelopedFrameDescription.cs",
+        ".test-results/native-earlier-buffer-contract-20261120/members.txt",
+        ".test-results/contracts-developed-frame-description-20261120/ViewerContracts.log",
+        ".test-results/host-developed-frame-four-raws-20261120/host-smoke.log",
+        ".test-results/host-developed-frame-full-20261120/host-smoke.log"
       ],
-      "remaining_work": [
-        "Audit the pipeline-stage descriptor for all derived cache keys. The externally replaced source ICC is already tested with an open licensed document.",
-        "The synthetic sensor chart has now measured the native Standard and Linear Response routes. Identify and verify a pre-development native buffer if the supported host exposes one. The current input remains Capture One-developed RGB."
-      ],
+      "remaining_work": [],
       "original_acceptance_tests": [
         "Camera profile/WB/highlight recovery and ICC source cases",
         "Exposure ramps distinguish encoded linear from scene-linear",
@@ -3085,8 +3090,8 @@
   ],
   "counts": {
     "total": 70,
-    "implemented": 24,
-    "partial": 46,
+    "implemented": 25,
+    "partial": 45,
     "pending": 0
   },
   "last_reconciled": "2026-11-20",

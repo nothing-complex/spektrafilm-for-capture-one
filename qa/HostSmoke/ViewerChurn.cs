@@ -173,8 +173,8 @@ public static partial class StartupHook
             {
                 var live = ValidateDrawn(variant);
                 if (live is not null && Field(spatial, "frameCurrent") is true && Field(spatial, "sourceSize") is "2048"
-                    && Field(spatial, "source") is { } source && Prop(source, "Description") is { } description
-                    && Prop(description, "VariantId") is Guid sourceId && sourceId == variant
+                    && Field(spatial, "source") is { } source && Prop(source, "Description") is { } frameDescription
+                    && Prop(frameDescription, "Source") is { } description && Prop(description, "VariantId") is Guid sourceId && sourceId == variant
                     && Prop(source, "BitDepth") is 16 && Field(spatial, "viewerFrame") is BitmapSource image
                     && ReferenceEquals(Prop(live, "PaintedBitmap"), image))
                 {

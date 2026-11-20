@@ -71,6 +71,8 @@ internal static class StartupHook
                 return;
             }
 
+            VerifiedHost = verified;
+
             LaunchHealth.Report(LaunchPhase.WaitingForCatalog);
             Log($"{ProductName} startup hook loaded for Capture One {verified.FileVersion} ({verified.Architecture}).");
             // Wait for Capture One's own WinForms message loop before accessing its WPF palette.
@@ -429,5 +431,6 @@ internal static class StartupHook
         catch (Exception error) when (error is ArgumentException or IOException or UnauthorizedAccessException) { }
     }
 
+    internal static CaptureOneHost? VerifiedHost { get; private set; }
     internal static int DroppedLogEntries => PanelLogger.IsValueCreated ? PanelLogger.Value?.Dropped ?? 0 : 0;
 }
