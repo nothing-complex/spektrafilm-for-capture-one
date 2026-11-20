@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 20 bounded primary fixes implemented, 42 partial items and 8 pending items. It includes feasibility investigations and enhancements.
+Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 20 bounded primary fixes implemented, 43 partial items and 7 pending items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -489,6 +489,14 @@ Evidence is under `.test-results/contracts-runtime-provenance-final-20261120`, `
 - [x] Confirm the regular installation still identifies `ffc4819`. The ZIP remains a local development package and the source is available in the draft PR.
 
 Evidence is under `.test-results/audit5-package-verify-20261120`. The alternate source and linker experiments are under `.test-results/repro-alt-source-20261120` and `.test-results/renderer-noicf-20261120`.
+
+## Automatic exposure reuse
+
+- [x] Reuse automatic exposure for one immutable source, input space and meter method. The full and tiled paths share the same key. Sixteen cases matched their respective fresh renders byte for byte, including invalidation after changing the source, input colour or meter method.
+- [x] Record per-request meter stage time and hit state. The 100-edit sweep reused metering on 99 requests. At 1200 × 800, warm median changed from 10.26 to 9.69 ms. The 4095 × 2731 worker median was effectively unchanged.
+- [ ] Add the later film-density, print and scanner cache stages and validate them under native motion and memory overlap.
+
+Evidence is under `.test-results/metering-cache-smoke-20261120.log` and `.test-results/metering-*-20261120.json`.
 
 ## Status maintenance
 

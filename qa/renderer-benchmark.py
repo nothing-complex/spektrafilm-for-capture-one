@@ -19,6 +19,8 @@ import time
 BLOCK_BYTES = 1024 * 1024
 SCENES = {
     "color": ("--grain-model", "off", "--halation-amount", "0", "--scatter-amount", "0"),
+    "metering": ("--grain-model", "off", "--halation-amount", "0", "--scatter-amount", "0",
+                 "--auto-exposure", "true", "--auto-exposure-meter", "center_weighted"),
     "enlarger": ("--grain-model", "off", "--halation-amount", "0", "--scatter-amount", "0",
                  "--enlarger-scale", "1.4", "--enlarger-x", "3", "--enlarger-y", "-5"),
     "optics": ("--grain-model", "off", "--film-format", "super8", "--halation-amount", "1", "--scatter-amount", "0.5"),

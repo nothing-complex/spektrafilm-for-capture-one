@@ -2263,6 +2263,31 @@ float measureAutoExposureEv(
   return std::isfinite(ev) ? static_cast<float>(ev) : 0.0f;
 }
 
+struct AutoExposureCache {
+  uint64_t revision = 0;
+  int32_t width = 0;
+  int32_t height = 0;
+  ColorSpace colorSpace{};
+  AutoExposureMethod method{};
+  float exposureEv = 0.0f;
+
+  float measure(const float *pixels, int32_t w, int32_t h, const RenderParams &params, uint64_t sourceRevision,
+                double &milliseconds, bool &hit) {
+    hit = sourceRevision != 0 && sourceRevision == revision && w == width && h == height
+      && params.inputColorSpace == colorSpace && params.autoExposureMethod == method;
+    milliseconds = 0.0;
+    if (hit) return exposureEv;
+    const auto started = PerfClock::now();
+    const auto value = measureAutoExposureEv(pixels, w, h, params);
+    milliseconds = elapsedMilliseconds(started, PerfClock::now());
+    // Upstream clients can omit immutable revisions. Only the tight float
+    // source route with an immutable identity may reuse a previous result.
+    if (sourceRevision != 0)
+      *this = {sourceRevision, w, h, params.inputColorSpace, params.autoExposureMethod, value};
+    return value;
+  }
+};
+
 bool isDefaultHalationStrength(const RenderParams &params) {
   return std::abs(params.halationStrengthR - 0.05f) <= 1.0e-6f &&
          std::abs(params.halationStrengthG - 0.015f) <= 1.0e-6f &&
@@ -2697,6 +2722,7 @@ std::array<float, 3> scanIlluminantToOutputRgb(
 } // namespace
 
 struct VulkanRenderer::Impl {
+  AutoExposureCache autoExposure;
   struct ScratchBuffer {
     VkBuffer buffer = VK_NULL_HANDLE;
     VkDeviceMemory memory = VK_NULL_HANDLE;
@@ -5242,7 +5268,8 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
   float autoExposureEv = 0.0f;
   const PerfClock::time_point sourceCopyStart = PerfClock::now();
   if (sourceRevision != 0u && params.autoExposure) {
-    autoExposureEv = measureAutoExposureEv(static_cast<const float *>(source.data), width, height, params);
+    autoExposureEv = autoExposure.measure(static_cast<const float *>(source.data), width, height, params, sourceRevision,
+                                         diagnostics.meteringMs, diagnostics.meteringCacheHit);
   }
   if (uploadSource) {
     if (!coreFrame.sourceStaging.mapped) {
@@ -5255,7 +5282,8 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
         lastError = "The requested render window does not fit inside the Vulkan source image view.";
         return false;
       }
-      autoExposureEv = measureAutoExposureEv(sourcePixels.data(), width, height, params);
+      autoExposureEv = autoExposure.measure(sourcePixels.data(), width, height, params, 0,
+                                           diagnostics.meteringMs, diagnostics.meteringCacheHit);
       std::memcpy(coreFrame.sourceStaging.mapped, sourcePixels.data(), static_cast<size_t>(byteCount));
     } else if (!copySourceToFloatStaging(
                  source,
@@ -7537,6 +7565,8 @@ bool VulkanRenderer::Impl::renderTiledBootstrap(
   const uint64_t sourceRevision = reusableSourceRevision(source, window);
   RenderParams tileParams = params;
   std::vector<float> fullSourcePixels;
+  double meteringMs = 0.0;
+  bool meteringCacheHit = false;
   if (params.autoExposure) {
     const float *meterSource = static_cast<const float *>(source.data);
     if (sourceRevision == 0u) {
@@ -7553,7 +7583,8 @@ bool VulkanRenderer::Impl::renderTiledBootstrap(
       }
       meterSource = fullSourcePixels.data();
     }
-    tileParams.filmExposureEv += measureAutoExposureEv(meterSource, fullWidth, fullHeight, params);
+    tileParams.filmExposureEv += autoExposure.measure(meterSource, fullWidth, fullHeight, params,
+                                                      sourceRevision, meteringMs, meteringCacheHit);
     tileParams.autoExposure = false;
   }
 
@@ -7651,6 +7682,8 @@ bool VulkanRenderer::Impl::renderTiledBootstrap(
   }
 
   RendererDiagnostics aggregate{};
+  aggregate.meteringMs = meteringMs;
+  aggregate.meteringCacheHit = meteringCacheHit;
   aggregate.renderSerialized = true;
   aggregate.tiledRendering = true;
   aggregate.tileCount = plannedTileCount;

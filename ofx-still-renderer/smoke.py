@@ -324,6 +324,44 @@ def check_output_transfers(exe, frame, base):
     print("Verified sRGB, Rec.709 gamma 2.4, and linear Rec.709 output against their decoded color tolerances")
 
 
+def check_metering_cache(exe, frame, base):
+    height, width = 333, 517
+    image = frame[np.arange(height)[:, None] % frame.shape[0], np.arange(width) % frame.shape[1]]
+    second = image.copy()
+    second[..., :3] *= .7
+    options = f"{base} --auto-exposure true --auto-exposure-meter center_weighted"
+    adobe = f"{options} --input-color adobe_rgb"
+    median = f"{adobe} --auto-exposure-meter median"
+    for tiling in ("legacy", "tiled"):
+        environment = {key: value for key, value in os.environ.items() if not key.upper().startswith("SPEKTRAFILM_")}
+        environment["SPEKTRAFILM_VULKAN_TILE_MODE"] = tiling
+        cases = (
+            (image, options, True, False),
+            (image, f"{options} --print-exposure .3", False, True),
+            (image, adobe, False, False),
+            (image, median, False, False),
+            (image, f"{median} --stock fujifilm_provia_100f", False, True),
+            (second, median, True, False),
+            (second, f"{median} --auto-exposure false", False, False),
+            (second, f"{median} --film-exposure .2", False, True),
+        )
+        request = b"".join(
+            (frame_request(source, args) if replace else f"REUSE {args}\n".encode("ascii")) + b"METRICS\n"
+            for source, args, replace, _ in cases
+        )
+        replied = run_stream(exe, request, mode="--native-preview-stream", env=environment)
+        assert len(replied) == len(cases) * 2
+        for index, (source, args, _, hit) in enumerate(cases):
+            fresh, = run_stream(exe, frame_request(source, args), mode="--export-stream", env=environment)
+            assert fresh[0] == 0 and fresh == replied[index * 2], (tiling, index, args)
+            metrics = json.loads(replied[index * 2 + 1][1])
+            assert metrics["tiled"] == (tiling == "tiled")
+            assert metrics["meteringCacheHit"] == hit, (tiling, index, metrics)
+            ran = not hit and not args.endswith("--auto-exposure false")
+            assert (metrics["meteringMs"] > 0) == ran, (tiling, index, metrics)
+    print("Metering cache matched sixteen fresh full-frame and tiled renders, including source, input colour and method changes")
+
+
 def check_tiled_parity(exe, base):
     """Compare genuine multi-tile renders on a signal that crosses tile boundaries."""
     height, width = 769, 1027
@@ -505,6 +543,7 @@ def main():
     check_export_stream(args.exe, frame, base)
     check_enlarger_cache(args.exe, frame, base)
     check_output_transfers(args.exe, frame, base)
+    check_metering_cache(args.exe, frame, base)
     check_tiled_parity(args.exe, base)
     check_gpu_budget(args.exe, base)
     baseline, seconds = render(args.exe, frame, base)

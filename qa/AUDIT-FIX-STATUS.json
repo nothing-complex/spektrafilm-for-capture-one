@@ -1652,7 +1652,8 @@
         "Repeated full-host 24 MP export baseline was 4204 ms on first process and 4033 ms after restart, including a small TIFF decode. Viewer worker quiescence is timed separately. The test machine used an RTX 3090.",
         "Windows worker benchmark saves per-request transport wall time, renderer stages and Vulkan allocations, working-set/commit samples, cold request versus reused-source edit percentiles, and renderer fingerprint in machine-readable JSON.",
         "The worker diagnostics expose enlarger transform milliseconds, cache hits and retained bytes. Repeatable cold/warm renderer summaries measure median/p95 at three Viewer sizes with exact GPU upload counters and per-process memory.",
-        "A deterministic 24 MP CPU export benchmark separates the final 16-bit conversion from native RAW development, Vulkan and writing. Cold/warm CPU and allocation matrices are independently runnable."
+        "A deterministic 24 MP CPU export benchmark separates the final 16-bit conversion from native RAW development, Vulkan and writing. Cold/warm CPU and allocation matrices are independently runnable.",
+        "Worker diagnostics distinguish automatic exposure work and reuse. A repeatable 100-request scene records each hit, stage time and private memory usage."
       ],
       "evidence_paths": [
         "ofx-still-renderer/main.cpp",
@@ -1664,7 +1665,8 @@
         ".test-results/renderer-benchmark-color-optics-20261119.json",
         ".test-results/renderer-benchmark-grain-quality-20261119.json",
         ".test-results/enlarger-after-20261120.json",
-        ".test-results/export-pixels-20261120.json"
+        ".test-results/export-pixels-20261120.json",
+        ".test-results/metering-100-edits-20261120.json"
       ],
       "remaining_work": [
         "No structured end-to-end event model, shared request identity, p50/p95 benchmark matrix or UI latency budget yet.",
@@ -2019,15 +2021,24 @@
       "id": "RC-14",
       "title": "Cache pipeline milestones by parameter dependency graph",
       "priority": "P2",
-      "status": "pending",
-      "implemented": [],
-      "evidence_paths": [],
+      "status": "partial",
+      "implemented": [
+        "The Vulkan renderer keeps one metering value for the immutable developed source revision, dimensions, input colour and meter method. Both full and tiled paths reuse it. A mutable or unidentifiable source runs the original measurement.",
+        "Sixteen full/tiled fixture renders matched fresh computations byte for byte. Changes to source, input profile and metering method invalidate the value. Print and unrelated stock changes reuse it. A 100-request sweep found 99 reuse hits and stable bounded worker allocations.",
+        "The first measured metering stage took 0.851–1.540 ms in these fixtures. The 1200 × 800 worker median/p95 changed from 10.26/10.85 ms to 9.69/10.16 ms. The 4095 × 2731 end-to-end worker median was effectively unchanged."
+      ],
+      "evidence_paths": [
+        "upstream-ofx/src/SpektraVulkanRenderer.cpp",
+        "upstream-ofx/src/SpektraRenderer.h",
+        "ofx-still-renderer/smoke.py",
+        ".test-results/metering-cache-smoke-20261120.log",
+        ".test-results/metering-before-20261120.json",
+        ".test-results/metering-after-20261120.json",
+        ".test-results/metering-100-edits-20261120.json"
+      ],
       "remaining_work": [
-        "Build source/film/density/print/scanner/display dependency keys from actual graph",
-        "Cache expensive milestones under memory admission",
-        "Cache metering per source/space/method",
-        "Invalidate by scientific asset/schema version",
-        "Expose cache hit/miss and stage-time diagnostics"
+        "Map the scientific and optical stage dependencies and add bounded reuse for the expensive film-density, print and scanner stages. The current cache only reuses metering.",
+        "Measure the cache against native interactive workloads with realistic stock, profile, spatial effects and memory overlap."
       ],
       "original_acceptance_tests": [
         "Parameter mutation invalidation matrix",
@@ -2851,8 +2862,8 @@
   "counts": {
     "total": 70,
     "implemented": 20,
-    "partial": 42,
-    "pending": 8
+    "partial": 43,
+    "pending": 7
   },
   "last_reconciled": "2026-11-20",
   "handover": "HANDOVER.md",

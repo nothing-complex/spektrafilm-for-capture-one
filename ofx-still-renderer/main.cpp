@@ -853,6 +853,8 @@ void writeMetrics(const Renderer *renderer, uint64_t renderSequence, const Input
          << ",\"width\":" << input.size.width << ",\"height\":" << input.size.height
          << ",\"cpuSetupMs\":" << d.cpuSetupMs
          << ",\"sourceCopyMs\":" << d.sourceCopyMs
+         << ",\"meteringMs\":" << d.meteringMs
+         << ",\"meteringCacheHit\":" << (d.meteringCacheHit ? "true" : "false")
          << ",\"commandEncodingMs\":" << d.commandEncodingMs
          << ",\"commandBufferMs\":" << d.commandBufferMs
          << ",\"gpuCommandBufferMs\":" << d.gpuCommandBufferMs
