@@ -158,7 +158,7 @@ public static partial class StartupHook
                 native.Close();
                 return true;
             });
-            Check(clicked && routeCount == (compareGrain ? 11 : 5) && Prop(bridge, "Dialog") is null,
+            Check(clicked && routeCount == (compareGrain ? 13 : 5) && Prop(bridge, "Dialog") is null,
                 "the master switch delegates to the ordinary Capture One Export dialog without a Spektrafilm job");
             ((IDisposable)bridge).Dispose();
             ((IDisposable)bridge).Dispose();
@@ -174,30 +174,63 @@ public static partial class StartupHook
             async Task CheckReadOnlyDestination()
             {
                 var before = routeCount;
-                destination = Path.Combine(folder, caseName + "-read-only-destination.tif");
-                File.Copy(Path.Combine(folder, caseName + "-film-only.tif"), destination);
-                var originalAttributes = File.GetAttributes(destination);
-                var originalBytes = File.ReadAllBytes(destination);
-                File.SetAttributes(destination, originalAttributes | FileAttributes.ReadOnly);
+                var protectedPath = Path.Combine(folder, caseName + "-read-only-destination.tif");
+                var retryPath = Path.Combine(folder, caseName + "-export-after-write-failure.tif");
+                destination = protectedPath;
+                File.Copy(Path.Combine(folder, caseName + "-film-only.tif"), protectedPath);
+                var originalAttributes = File.GetAttributes(protectedPath);
+                var originalBytes = File.ReadAllBytes(protectedPath);
+                File.SetAttributes(protectedPath, originalAttributes | FileAttributes.ReadOnly);
                 try
                 {
                     job = null;
                     ExecuteNativeExportCommand(previous);
                     Check(routeCount == before + 1 && job is not null && !await job.WaitAsync(TimeSpan.FromSeconds(45)),
                         "a native previous-settings export to a read-only file reports failure without a modal dialog");
+                    CheckFailedReceipt();
+                    job = null;
+                    string? originalTitle = null;
+                    ShowNativeDialog(() =>
+                    {
+                        if (Prop(bridge, "Dialog") is not Window { IsVisible: true } owner || owner.DataContext is not { } model
+                            || Prop(model, "ExportCommand") is not ICommand confirm)
+                            return false;
+                        if (originalTitle is null)
+                        {
+                            if (!confirm.CanExecute(null)) return false;
+                            originalTitle = owner.Title;
+                            confirm.Execute(null);
+                            return false;
+                        }
+                        if (job is not { IsCompletedSuccessfully: true } || !confirm.CanExecute(null)) return false;
+                        Check(!job.Result && routeCount == before + 2 && owner.Title == originalTitle + " · Export failed",
+                            "the original Capture One Export window stays usable and shows an accepted-job failure in its title");
+                        CheckFailedReceipt();
+                        destination = retryPath;
+                        confirm.Execute(null);
+                        Check(owner.Title == originalTitle, "accepting a fresh destination clears the failure indication in the same window");
+                        return true;
+                    });
+                    Check(routeCount == before + 3 && job is not null && await job.WaitAsync(TimeSpan.FromSeconds(45))
+                        && File.Exists(retryPath) && Prop(bridge, "Dialog") is null,
+                        "the same native dialog successfully retries with a new destination and releases its command");
+                    Check(File.ReadAllBytes(protectedPath).AsSpan().SequenceEqual(originalBytes)
+                        && !Directory.EnumerateFiles(folder, ".spektra-*.tmp").Any(),
+                        "permission failure leaves previous 16-bit TIFF bytes intact and removes the staged file");
+                }
+                finally { File.SetAttributes(protectedPath, originalAttributes); }
+
+                void CheckFailedReceipt()
+                {
                     var failed = Call(Field(spatial, "exportJobs")!, "ReadLatest")!;
                     var status = (TextBlock)Field(spatial, "exportStatus")!;
-                    Check(Prop(failed, "Stage")?.ToString() == "Failed" && Equals(Prop(failed, "Destination"), destination)
+                    Check(Prop(failed, "Stage")?.ToString() == "Failed" && Equals(Prop(failed, "Destination"), protectedPath)
                         && Prop(failed, "Error") is string { Length: > 0 } explanation
                         && status.Text.StartsWith("Spektrafilm export failed.", StringComparison.Ordinal)
                         && status.Text.Contains(explanation, StringComparison.Ordinal)
                         && Field(spatial, "exportWork") is null,
                         "the accepted native job leaves its exported-file failure in the panel and durable receipt");
-                    Check(File.ReadAllBytes(destination).AsSpan().SequenceEqual(originalBytes)
-                        && !Directory.EnumerateFiles(folder, ".spektra-*.tmp").Any(),
-                        "permission failure leaves previous 16-bit TIFF bytes intact and removes the staged file");
                 }
-                finally { File.SetAttributes(destination, originalAttributes); }
             }
 
             async Task<object> CompareGrain(BitmapSource reference)

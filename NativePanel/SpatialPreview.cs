@@ -23,6 +23,7 @@ internal sealed class SpatialPreview : IDisposable
 {
     private const int InitialPreviewLongEdge = 1200;
     private const int DragSettleDelay = 220;
+    private const string ExportFailureTitleSuffix = " · Export failed";
     private static readonly InputChoice[] InputSpaces =
     {
         new(PreviewInputSpace.Srgb, "srgb", "sRGB"),
@@ -754,6 +755,8 @@ internal sealed class SpatialPreview : IDisposable
                 var approved = OutputPathGuard.Approve(destination, target.SourcePath);
                 var outputFormat = SpektraExport.PixelFormatFor(approved.Path);
                 receipt = exportJobs.Accept(work.VariantId, approved.Path);
+                if (owner is { IsVisible: true } && owner.Title.EndsWith(ExportFailureTitleSuffix, StringComparison.Ordinal))
+                    owner.Title = owner.Title[..^ExportFailureTitleSuffix.Length];
                 var jobId = receipt.JobId;
                 var started = Stopwatch.GetTimestamp();
                 cancelExport.Visibility = Visibility.Visible;
@@ -868,7 +871,13 @@ internal sealed class SpatialPreview : IDisposable
             StartupHook.Log("Spektrafilm export failed: " + error);
             var message = error.GetBaseException().Message;
             Advance(ExportStage.Failed, $"Spektrafilm export failed. {message}", error: message);
-            if (disposed || receipt is not null) return false;
+            if (disposed) return false;
+            if (receipt is not null)
+            {
+                if (owner is { IsVisible: true })
+                    owner.Title += ExportFailureTitleSuffix;
+                return false;
+            }
             if (owner is { IsVisible: true })
                 MessageBox.Show(owner, message, "Could not export with Spektrafilm", MessageBoxButton.OK, MessageBoxImage.Error);
             else
