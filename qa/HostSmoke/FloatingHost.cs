@@ -9,8 +9,11 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Forms.Integration;
+using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Threading;
+using Forms = System.Windows.Forms;
 using PixelRect = System.Drawing.Rectangle;
 
 public static partial class StartupHook
@@ -82,16 +85,36 @@ public static partial class StartupHook
                 $"returning to the first real workspace restores its native floater without activating it (active {restored.IsActive})");
             Check(changes >= 2, "the licensed workspace manager raised change notifications for both transitions");
             var livePanel = Field(returned, "panel")!;
-            await TestNativeEffectExport(hook.GetField("exportHook", Flags)!, returned, livePanel,
-                Field(livePanel, "opticalPreview")!, Field(returned, "mainWindow")!, "returned-workspace");
             restored!.Close();
             Check(ReferenceEquals(((ContentControl)Prop(returned, "Holder")!).Content, livePanel)
                 && Prop(livePanel, "ExportBridgeStatus")?.ToString() == "Connected",
                 "docking after the real workspace transitions preserves the panel and connected native Export bridge");
+            var main = (Forms.Form)Field(returned, "mainWindow")!;
+            var variant = (Guid)Field(livePanel, "displayedVariant")!;
+            var exposure = Field(livePanel, "exposure")!;
+            exposure.GetType().GetProperty("Value", Flags)!.SetValue(exposure, 1.37d);
+            var priorTab = hook.GetField("tab", Flags)!.GetValue(null)!;
+            var beforeReset = changes;
+            var menuTechnology = ResetNativeWorkspace(main);
+            var defaultScope = $"{settingsType.GetValue(active.GetValue(manager))}|DefaultWorkspace";
+            var afterReset = await WaitForWorkspace(defaultScope, expectFloating: false);
+            var resetPanel = Field(afterReset, "panel")!;
+            var palette = hook.Assembly.GetType("HostDocumentAccess")!.GetMethod("Palette", Flags)!.Invoke(null, new[] { main })!;
+            var tabs = (IList)Prop(palette, "Tabs")!;
+            var currentTab = hook.GetField("tab", Flags)!.GetValue(null)!;
+            Check(changes > beforeReset && tabs.Contains(currentTab)
+                && tabs.Cast<object>().Count(item => item.GetType() == priorTab.GetType()) == 1,
+                "Capture One reset to Default and the watchdog kept exactly one attached Spektrafilm tab");
+            Check(Equals(Field(resetPanel, "displayedVariant"), variant)
+                && Equals(Prop(Field(resetPanel, "exposure")!, "Value"), 1.37d)
+                && Prop(resetPanel, "ExportBridgeStatus")?.ToString() == "Connected",
+                "the native reset preserves the selected variant's durable look and connected Export command");
+            await TestNativeEffectExport(hook.GetField("exportHook", Flags)!, afterReset, resetPanel,
+                Field(resetPanel, "opticalPreview")!, Field(afterReset, "mainWindow")!, "default-workspace");
             File.WriteAllText(Path.Combine(folder, "native-workspace-switch.json"), JsonSerializer.Serialize(new
             {
                 original = Scope(original), first = Scope(firstPreset), second = Scope(secondPreset),
-                changes, openedWithoutFocus = true, exportedAppliedEffects = true,
+                reset = defaultScope, menuTechnology, changes, openedWithoutFocus = true, exportedAppliedEffects = true,
             }));
         }
         finally
@@ -106,6 +129,11 @@ public static partial class StartupHook
         {
             var key = Scope(preset);
             if (Scope(active.GetValue(manager)!) != key) apply.Invoke(manager, new[] { Selector(preset) });
+            return await WaitForWorkspace(key, expectFloating);
+        }
+
+        async Task<object> WaitForWorkspace(string key, bool expectFloating)
+        {
             var started = Stopwatch.GetTimestamp();
             object? settled = null;
             var stableReads = 0;
@@ -124,6 +152,36 @@ public static partial class StartupHook
             }
             throw new TimeoutException($"Capture One's active workspace did not settle on '{key}' (active '{Scope(active.GetValue(manager)!)}').");
         }
+    }
+
+    private static string ResetNativeWorkspace(Forms.Form main)
+    {
+        static string? Caption(object? value) => (value as string)?.Replace("&", "", StringComparison.Ordinal)
+            .Replace("_", "", StringComparison.Ordinal).Trim();
+
+        if (Field(main, "isExperimentalWPFMenuOn") is true)
+        {
+            var host = (ElementHost)Field(main, "m_mainMenuHost")!;
+            var model = ((FrameworkElement)host.Child).DataContext;
+            var window = Prop(model, "WindowMenuItem")!;
+            var workspace = ((IEnumerable)Prop(window, "SubItems")!).Cast<object>()
+                .Single(item => Caption(Prop(item, "DisplayName")) == "Workspace");
+            var reset = ((IEnumerable)Prop(workspace, "SubItems")!).Cast<object>()
+                .Single(item => Caption(Prop(item, "DisplayName")) == "Default");
+            var command = Prop(reset, "Command") as ICommand;
+            Check(command?.CanExecute(null) is true, "the native WPF Window > Workspace menu offers its enabled Default command");
+            command!.Execute(null);
+            return "WPF";
+        }
+
+        var presenter = Field(main, "workspaceMenuPresenter")!;
+        Call(presenter, "RefreshDropDown");
+        var menu = (Forms.ToolStripDropDown)Field(presenter, "menuDropDown")!;
+        var entry = menu.Items.OfType<Forms.ToolStripMenuItem>().SingleOrDefault(item => item.Tag is "DefaultWorkspace"
+            || Caption(item.Text) == "Default");
+        Check(entry is { Enabled: true }, "the native Window > Workspace menu offers its enabled Default command");
+        entry!.PerformClick();
+        return "WinForms";
     }
 
     private static async Task TestFloatingWorkspaceLayout(object hosted, object panel)

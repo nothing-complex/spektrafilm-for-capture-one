@@ -2211,7 +2211,9 @@
         "The live Capture One permission and lifecycle checks now pass three focus switches between two actual document windows opened in one process. The active event plus Viewer scope restored the exact original panel and deferred the unrelated catalog. The fixture verifies startup preference recovery and removes only the exact test catalog paths from recent and last-open lists.",
         "A native close while the other catalog remained open disposed the panel and Viewer, unbound Export and stopped a running film renderer. Reopening the approved document in the same process created a new form, panel and Export bridge and painted the original variant with its exact durable look. The final licensed fixture passed 33 assertions.",
         "Startup subscribes to the native lifecycle watchdog once and defers palette binding until the form has a handle and is alive. The startup hook removes its redundant filesystem existence probe and retains the launcher backup and active native document authorization. Native Export uses the same cached active document and path delegates. The Windows state suite passes 731 assertions including normalization of a UNC selection without contacting the server.",
-        "The licensed host passes 74 native workspace assertions. A handleless form and disposed form are skipped. Explicit removal of the temporary tab from the live palette restores one Spektrafilm tool and one replacement Export binding while respecting native tab selection. Two real custom workspace transitions restore floating placement and both native export commands produce 16-bit effects output. The two workspace files and original catalog verify."
+        "The licensed host passes 74 native workspace assertions. A handleless form and disposed form are skipped. Explicit removal of the temporary tab from the live palette restores one Spektrafilm tool and one replacement Export binding while respecting native tab selection. Two real custom workspace transitions restore floating placement and both native export commands produce 16-bit effects output. The two workspace files and original catalog verify.",
+        "Pass 85 Capture One 16.4 checks including its actual WinForms Window > Workspace > Default command. The native workspace event fires, one Spektrafilm tab stays attached, the same variant and 1.37 EV look are available, and both native export commands deliver 16-bit output with stacked film and optics. Both original workspace files and the donor catalog verify.",
+        "Run the exact extracted audit.35 launcher in Windows PowerShell 5.1 against a unique nonexistent loopback UNC share with an explicit installed host path. It returns the missing-catalog error in 699 ms, with no Capture One process or user-data directory created."
       ],
       "evidence_paths": [
         "NativePanel/HostDocumentAccess.cs",
@@ -2224,10 +2226,14 @@
         ".test-results/host-concurrent-exact-preference-restore-20261120/host-smoke.log",
         ".test-results/host-concurrent-close-reopen-final-20261120/host-smoke.log",
         ".test-results/sf-startup-palette-final/host-smoke.log",
-        ".test-results/sf-startup-palette-final/native-workspace-files-verified.json"
+        ".test-results/sf-startup-palette-final/native-workspace-files-verified.json",
+        ".test-results/host-default-workspace-reset-20261121/host-smoke.log",
+        ".test-results/host-default-workspace-reset-20261121/native-workspace-switch.json",
+        ".test-results/host-default-workspace-reset-20261121/native-workspace-files-verified.json",
+        ".test-results/catalog-unavailable-loopback-20261121/receipt.json"
       ],
       "remaining_work": [
-        "Exercise Capture One's actual built-in workspace reset command and launcher/host behavior with an unavailable network catalog. Explicit live palette tab removal, a delayed native form handle, custom workspace changes, same-process focus and approved form replacement have fixture coverage. The startup hook does not probe the UNC target."
+        "Measure launcher and native host behavior when a previously accessible network share stops responding, including OS timeout and eventual reconnect. The missing loopback share fails quickly and the startup hook uses lexical authorization without probing the UNC target."
       ],
       "original_acceptance_tests": [
         "measure idle UI thread cost/IO and zero-change work",
@@ -3205,17 +3211,19 @@
       "implemented": [
         "Ordinary launches keep Capture One’s existing workspace selection while they initialize the attached Spektrafilm tool, Viewer and Export bridge. An explicit -ShowTool or desktop shortcut request selects it once.",
         "The production slot selector refuses all 18 occupied native IDs and selects only an available registered custom position. The real workspace contains one attached instance. Tests do not populate the user’s saved workspace with extra tabs.",
-        "Licensed ordinary mode passed 197 initial and 201 restart assertions. An explicit tool-show launch passed 196 checks with a copied catalog."
+        "Licensed ordinary mode passed 197 initial and 201 restart assertions. An explicit tool-show launch passed 196 checks with a copied catalog.",
+        "Verify exactly one attached tool after removing the live palette entry in the fixture and after Capture One's actual Default workspace menu command. Both native effect export routes remain connected after Default and the original workspace files verify."
       ],
       "evidence_paths": [
         "NativePanel/StartupHook.cs",
         "Start-Spektrafilm.ps1",
         ".test-results/host-workspace-selection-20261120/host-smoke.log",
-        ".test-results/host-workspace-explicit-20261120/host-smoke.log"
+        ".test-results/host-workspace-explicit-20261120/host-smoke.log",
+        ".test-results/host-default-workspace-reset-20261121/host-smoke.log"
       ],
       "remaining_work": [
         "Determine whether a registered factory and stable namespaced ID can serialize this tool natively. The temporary slot remains the verified route.",
-        "Test actual reorder, explicit removal and saved-workspace reopen with and without the launcher using a backed-up workspace fixture."
+        "Test actual reorder, removal through the native tool-tab menu and saved-workspace reopen with and without the launcher using a backed-up workspace fixture. Direct fixture removal from the live palette and Capture One's Default workspace menu command have separate evidence."
       ],
       "original_acceptance_tests": [
         "all slots used, custom tab reorder, user removes plugin tab, saved workspace reopen with and without launcher, one-instance guarantee, no duplicated tab on retry."
