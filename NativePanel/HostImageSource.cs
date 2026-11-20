@@ -26,6 +26,8 @@ internal static class HostImageSource
 {
     private static readonly Lazy<Func<IGeometryTransformer, ICoreImage, IDestinationProcessingSettings, int, bool, ScaleCalc>> RecipeScale =
         new(() => NativeRecipeScale.Bind<IGeometryTransformer, ICoreImage, IDestinationProcessingSettings, ScaleCalc>(typeof(ScaleCalcHelpers)));
+    private static readonly Lazy<Func<IDestinationProcessingSettings, FileFormat>> ReadRecipeFormat =
+        new(NativeRecipeFileFormat.Bind<IDestinationProcessingSettings, FileFormat>);
     private static readonly NativeBitmapMetadata<IC_FileDestination> BitmapMetadata = new();
     private const int DraftEdgeLimit = 1200;
     private const int ScaledPreviewEdgeLimit = 4096;
@@ -135,14 +137,15 @@ internal static class HostImageSource
             recipe, ApplicationSettings.Default.PreviewSizeInPx, ignoreCrop);
         var variant = selection.Variant;
         var metadata = ReadRecipeMetadata(variant, recipe);
-        var compression = recipe.FileType == FileFormat.Tiff ? recipe.TiffCompression switch
+        var format = ReadRecipeFormat.Value(recipe);
+        var compression = format == FileFormat.Tiff ? recipe.TiffCompression switch
         {
             TiffCompressionMethod.None => TiffCompressOption.None,
             TiffCompressionMethod.LZW => TiffCompressOption.Lzw,
             TiffCompressionMethod.Zip => TiffCompressOption.Zip,
             _ => throw new InvalidOperationException("Choose uncompressed, LZW or ZIP in Capture One’s TIFF recipe."),
         } : TiffCompressOption.Zip;
-        return new RecipeInfo(recipe.Name, recipe.FileType.ToString(), recipe.ColorProfileName, recipe.ColorProfilePath,
+        return new RecipeInfo(recipe.Name, format.ToString(), recipe.ColorProfileName, recipe.ColorProfilePath,
             recipe.CropExportMethod.ToString(), recipe.DestinationRootFolder.ToString(), recipe.DestinationCustomRootFolder,
             recipe.DestinationSubFolder, recipe.DestinationFilename, recipe.DestinationSubName, recipe.TiffBits, recipe.JpegQuality,
             scale.ScaledPixelWidth, scale.ScaledPixelHeight, scale.Scale, ignoreCrop, recipe.Resolution, recipe.ResolutionUnit.ToString(),

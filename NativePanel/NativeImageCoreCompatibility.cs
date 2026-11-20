@@ -34,6 +34,20 @@ internal static class NativeRecipeScale
     }
 }
 
+internal static class NativeRecipeFileFormat
+{
+    internal static Func<TRecipe, TFormat> Bind<TRecipe, TFormat>()
+    {
+        var recipe = typeof(TRecipe);
+        // FileType moved from IBasicProcessingSettings to IFileTypeProcessSettings.
+        var getter = recipe.GetInterfaces().Prepend(recipe)
+            .Select(contract => contract.GetProperty("FileType", BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly))
+            .SingleOrDefault(property => property?.PropertyType == typeof(TFormat) && property.GetMethod is not null)?.GetMethod
+            ?? throw new MissingMemberException(recipe.FullName, "FileType");
+        return getter.CreateDelegate<Func<TRecipe, TFormat>>();
+    }
+}
+
 internal sealed class NativeBitmapMetadata<TDestination>
 {
     private readonly FieldInfo? author;

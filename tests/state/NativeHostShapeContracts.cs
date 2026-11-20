@@ -58,6 +58,10 @@ internal static class NativeHostShapeContracts
         check("enum scale maps active and full crop without relying on enum ordinals",
             afterRecipe(new Geometry(), "raw", "tiff", 1234, false) == "geometry/raw/tiff/1234/ActiveCrop/none"
             && afterRecipe(new Geometry(), "raw", "png", 1000, true) == "geometry/raw/png/1000/FullCrop/none");
+        var legacyFileType = NativeRecipeFileFormat.Bind<ILegacyDestination, FileFormat>();
+        var currentFileType = NativeRecipeFileFormat.Bind<ICurrentDestination, FileFormat>();
+        check("recipe format binds on either native interface and reads the actual value",
+            legacyFileType(new LegacyDestination()) == FileFormat.Tiff && currentFileType(new CurrentDestination()) == FileFormat.Png);
 
         var legacyMetadata = new NativeBitmapMetadata<int>();
         check("legacy bitmap destination remains unchanged", !legacyMetadata.RequiresAuthor && legacyMetadata.SetUnsigned(16, null) == 16);
@@ -88,6 +92,19 @@ internal static class NativeHostShapeContracts
             $"{geometry}/{raw}/{recipe}/{preview}/{ignoreCrop}";
     }
     private enum ScaleByArea { ActiveCrop = 21, FullCrop = -2 }
+    private enum FileFormat { Tiff, Png }
+    private interface ILegacyDestination : IBasicProcessingSettings;
+    private interface ICurrentDestination : IFileTypeProcessSettings;
+    private interface IBasicProcessingSettings { FileFormat FileType { get; } }
+    private interface IFileTypeProcessSettings { FileFormat FileType { get; } }
+    private sealed class LegacyDestination : ILegacyDestination
+    {
+        FileFormat IBasicProcessingSettings.FileType => FileFormat.Tiff;
+    }
+    private sealed class CurrentDestination : ICurrentDestination
+    {
+        FileFormat IFileTypeProcessSettings.FileType => FileFormat.Png;
+    }
     private interface IVariantGeometryTransformer;
     private sealed class Geometry : IVariantGeometryTransformer
     {

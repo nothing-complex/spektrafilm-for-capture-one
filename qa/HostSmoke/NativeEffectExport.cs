@@ -330,7 +330,7 @@ public static partial class StartupHook
                 native.Close();
                 return true;
             });
-            var expectedRoutes = 5 + (compareGrain ? 8 : 0) + (compareCompression ? 6 : 0)
+            var expectedRoutes = 5 + (compareGrain ? 8 : 0) + (compareCompression ? 8 : 0)
                 + (compareFolders ? 5 : 0) + (comparePanelModes ? 6 : 0) + (compareProfiles ? 11 : 0);
             Check(clicked && routeCount == expectedRoutes && Prop(bridge, "Dialog") is null,
                 "the master switch delegates to the ordinary Capture One Export dialog without a Spektrafilm job");
@@ -742,6 +742,20 @@ public static partial class StartupHook
                             var frame = await Render(kind, ".tif", usePrevious, expectedCompression: expected);
                             Measure(kind, expected, frame);
                         }
+                    }
+                    format.SetValue(selected, Enum.Parse(format.PropertyType, "Png"));
+                    var pngRecipe = host.GetMethod("ActiveRecipe", Flags)!.Invoke(null, new[] { window })!;
+                    Check(Equals(Prop(pngRecipe, "FormatId"), "Png"), "the live recipe reader follows the PNG file type");
+                    foreach (var usePrevious in new[] { false, true })
+                    {
+                        var kind = (usePrevious ? "previous" : "export") + "-png-recipe";
+                        var png = await Render(kind, ".png", usePrevious);
+                        Check(offeredFilename?.EndsWith(".png", StringComparison.OrdinalIgnoreCase) == true,
+                            kind + " offers a PNG name from the native recipe");
+                        var parity = Difference(zip, png);
+                        Check(parity.Mean < 8d / 65535 && parity.Maximum < .01,
+                            kind + " preserves the same processed 16-bit RGB as the TIFF recipe");
+                        measurements.Add(new { command = kind, format = "Png", parity });
                     }
                 }
                 finally
