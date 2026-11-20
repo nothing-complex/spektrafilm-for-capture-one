@@ -823,6 +823,56 @@ public static partial class StartupHook
             .Any(code => code % 257 != 0), "full RAW export contains codes between 8-bit steps");
         File.AppendAllText(Path.Combine(folder, "host-smoke.log"),
             $"Full export benchmark: {Stopwatch.GetElapsedTime(started).TotalMilliseconds:F0} ms incl. one decoded sample, {input.Length} bytes." + Environment.NewLine);
+        input.Dispose();
+        await TestNativeEncoderCancellation();
+
+        async Task TestNativeEncoderCancellation()
+        {
+            string HashOutput()
+            {
+                using var bytes = File.OpenRead(output);
+                return Convert.ToHexString(SHA256.HashData(bytes));
+            }
+            var previousHash = HashOutput();
+            var previousId = Prop(receipt, "JobId");
+            var cancel = (Button)Field(spatial, "cancelExport")!;
+            var writing = (Task<bool>)Call(spatial, "ExportWithDestinationAsync", false, null,
+                (Func<SaveFileDialog, Window?, string?>)((_, _) => output))!;
+            var queued = Stopwatch.GetTimestamp();
+            long stagedBytes = 0;
+            while (!writing.IsCompleted && Stopwatch.GetElapsedTime(queued) < TimeSpan.FromSeconds(30))
+            {
+                if (Call(jobs, "ReadLatest") is { } progress && !Equals(Prop(progress, "JobId"), previousId)
+                    && Prop(progress, "Stage")?.ToString() == "Encoding")
+                {
+                    foreach (var path in Directory.EnumerateFiles(folder, ".spektra-*.tmp"))
+                    {
+                        try { stagedBytes = Math.Max(stagedBytes, new FileInfo(path).Length); }
+                        catch (IOException) { /* The write may have closed between enumeration and query. */ }
+                    }
+                    if (stagedBytes >= 1024 * 1024) break;
+                }
+                await Task.WhenAny(writing, Task.Delay(20));
+            }
+            var cancellable = !writing.IsCompleted && cancel.Visibility == Visibility.Visible && cancel.IsEnabled;
+            var signaled = Stopwatch.GetTimestamp();
+            if (!writing.IsCompleted) cancel.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Check(stagedBytes >= 1024 * 1024 && cancellable,
+                "Capture One's Spektrafilm Cancel export button is active during actual TIFF writes");
+            var result = await writing.WaitAsync(TimeSpan.FromSeconds(15));
+            var cancelMs = Stopwatch.GetElapsedTime(signaled).TotalMilliseconds;
+            Check(!result, "native Cancel export stopped the WIC encoder");
+            var after = Call(jobs, "ReadLatest")!;
+            Check(Prop(after, "Stage")?.ToString() == "Canceled" && !Equals(Prop(after, "JobId"), previousId)
+                && Equals(Prop(after, "Destination"), output), "the encoding cancellation records its accepted job as canceled");
+            Check(HashOutput() == previousHash && !Directory.EnumerateFiles(folder, ".spektra-*.tmp").Any(),
+                "native encoding cancellation preserves the prior full-size TIFF and removes the staging file");
+            var phase = File.ReadAllText(Path.Combine(folder, "phase.txt"));
+            File.WriteAllText(Path.Combine(folder, phase + "-encoder-cancellation.json"), JsonSerializer.Serialize(new
+            {
+                stagedBytes, cancelMs, previousHash,
+            }, new JsonSerializerOptions { WriteIndented = true }));
+        }
     }
 
     static async Task TestWorkerQuiescence(object panel, object spatial, Type rendererType)

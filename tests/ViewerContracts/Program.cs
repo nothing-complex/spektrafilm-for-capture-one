@@ -50,6 +50,12 @@ internal static partial class Program
             Console.WriteLine($"PASS: {assertions} large 16-bit encoder checks.");
             return;
         }
+        if (args is ["--cancel-file-encoding", var cancellationResults])
+        {
+            TestFileEncoderCancellation(cancellationResults);
+            Console.WriteLine($"PASS: {assertions} native encoder cancellation checks.");
+            return;
+        }
         var folder = args.Length > 0 ? args[0] : Path.Combine(Path.GetTempPath(), "Spektrafilm-viewer-contracts-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(folder);
         TestGeometry();
@@ -875,7 +881,8 @@ internal static partial class Program
                 : new ushort[]{1,257,32769,32770,65534,2001,257,258,259,62321,21234,54321};
             var expected=new byte[values.Length*2];Buffer.BlockCopy(values,0,expected,0,expected.Length);
             var stride=expected.Length/2;var image=BitmapSource.Create(2,2,150,200,format,null,values,stride);
-            SpektraExport.Save(path,image,CancellationToken.None);
+            using var active = new CancellationTokenSource();
+            SpektraExport.Save(path,image,active.Token);
             using var file=File.OpenRead(path);
             var decoded=BitmapDecoder.Create(file,BitmapCreateOptions.PreservePixelFormat|BitmapCreateOptions.IgnoreColorProfile,BitmapCacheOption.OnLoad).Frames[0];
             Check(decoded.Format==format,"Wrong decoded pixel format");

@@ -60,7 +60,15 @@ internal static class SpektraExport
         void Encode(Stream stream)
         {
             stop.ThrowIfCancellationRequested();
-            encoder.Save(stream);
+            try
+            {
+                encoder.Save(stop.CanBeCanceled ? new CancelableEncoderStream(stream, stop) : stream);
+            }
+            catch (Exception error) when (stop.IsCancellationRequested)
+            {
+                // WIC may translate the callback's cancellation into a codec error.
+                throw new OperationCanceledException("Spektrafilm file encoding was canceled.", error, stop);
+            }
             stop.ThrowIfCancellationRequested();
             if (png && xmp is not null)
                 PngXmp.Insert(stream, xmp);
@@ -94,4 +102,40 @@ internal static class SpektraExport
             TiffCompressOption.Zip => code is 8 or 32946,
             _ => false,
         };
+
+    private sealed class CancelableEncoderStream(Stream inner, CancellationToken stop) : Stream
+    {
+        public override bool CanRead => inner.CanRead;
+        public override bool CanSeek => inner.CanSeek;
+        public override bool CanWrite => inner.CanWrite;
+        public override long Length => inner.Length;
+        public override long Position { get => inner.Position; set => inner.Position = value; }
+        public override int Read(byte[] buffer, int offset, int count) => inner.Read(buffer, offset, count);
+        public override int Read(Span<byte> buffer) => inner.Read(buffer);
+        public override long Seek(long offset, SeekOrigin origin) => inner.Seek(offset, origin);
+
+        public override void Flush()
+        {
+            stop.ThrowIfCancellationRequested();
+            inner.Flush();
+        }
+
+        public override void SetLength(long value)
+        {
+            stop.ThrowIfCancellationRequested();
+            inner.SetLength(value);
+        }
+
+        public override void Write(byte[] buffer, int offset, int count)
+        {
+            stop.ThrowIfCancellationRequested();
+            inner.Write(buffer, offset, count);
+        }
+
+        public override void Write(ReadOnlySpan<byte> buffer)
+        {
+            stop.ThrowIfCancellationRequested();
+            inner.Write(buffer);
+        }
+    }
 }

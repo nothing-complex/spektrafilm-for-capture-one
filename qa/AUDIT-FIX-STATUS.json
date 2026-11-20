@@ -1307,7 +1307,7 @@
       "id": "RC-15",
       "title": "Add cooperative cancellation and stage progress to worker protocol",
       "priority": "P2",
-      "status": "partial",
+      "status": "implemented",
       "implemented": [
         "Cancellation now safely aborts the child and resets its stream/cache; fake-worker mid-request and queued cancellation pass.",
         "Renderer cancellation now waits for verified child termination. Async disposal covers idle shutdown and active abort without starting a replacement while an earlier child is shutting down.",
@@ -1315,7 +1315,8 @@
         "The Windows panel and renderer negotiate a per-worker cancellation signal and exact numbered replies. Complete uploads can stop during CPU preparation, between Vulkan tiles and after full-frame work. An acknowledged cancellation or fully drained late result preserves the warm worker. An interrupted upload, misaligned reply or unresponsive worker is shut down before retry.",
         "An opt-in progress stream emits bounded, strictly increasing source, preparation, Vulkan, verification and readback stages for the active request. The native export label uses live worker stages for the current accepted job. Old protocol-compatible workers keep the previous cancellation fallback.",
         "The renderer client passed 157 checks, with explicit stopped upload/reply, synchronized cancellation, stale output drainage, stuck-worker timeout and invalid progress cases. Physical Vulkan passed 27 checks, including a 26.65 ms in-flight acknowledgment with the same PID. Ten independent 24-tile Vulkan requests acknowledged cancellation at p50 0.56 ms after the signal and matched the original SHA-256 on each next render in the same worker. Licensed runs passed 265 and 269 assertions.",
-        "The typed managed client passed 167 checks including a stalled worker deadline and malformed device-loss reply. A separately built worker substituted device loss after a successful real Vulkan fence. Protocol 2 returned status 5, protocol 1 returned status 1, and both resumed with identical pixels in the same process after source resend. Capture One recovered from the injected status in 561 ms using a replacement process and kept Export attached."
+        "The typed managed client passed 167 checks including a stalled worker deadline and malformed device-loss reply. A separately built worker substituted device loss after a successful real Vulkan fence. Protocol 2 returned status 5, protocol 1 returned status 1, and both resumed with identical pixels in the same process after source resend. Capture One recovered from the injected status in 561 ms using a replacement process and kept Export attached.",
+        "Cancellation is checked during actual WIC staging writes. The 24 MP portable TIFF and PNG encodes returned in 2.56–2.86 ms and 0.76–0.96 ms in four trials each, versus earlier 1.81 and 2.62 seconds. The licensed WPF Cancel export action stopped actual TIFF writes in 5.16–5.60 ms on both launches. It preserved the exact previous destination, removed the staging file and recorded Canceled. The complete licensed suite passed 321 and 325 assertions."
       ],
       "evidence_paths": [
         "NativePanel/OpticalRenderer.cs",
@@ -1334,11 +1335,14 @@
         ".test-results/contracts-device-loss-and-deadline-20261120/RendererContracts.log",
         "qa/Build-DeviceLossFixture.ps1",
         "qa/device-loss-probe.py",
-        ".test-results/host-native-device-loss-20261120/native-vulkan-device-loss.json"
+        ".test-results/host-native-device-loss-20261120/native-vulkan-device-loss.json",
+        "tests/ViewerContracts/EncoderCancellation.cs",
+        ".test-results/native-encoder-cancel-before-20261120/encoder-cancellation.json",
+        ".test-results/native-encoder-cancel-repeat-3-20261120/encoder-cancellation.json",
+        ".test-results/host-interruptible-encoder-full-20261120/first-encoder-cancellation.json",
+        ".test-results/host-interruptible-encoder-full-20261120/restart-encoder-cancellation.json"
       ],
-      "remaining_work": [
-        "Exercise device- or driver-originated loss and measure bounded waiting and fallback on additional hardware. A submitted full-frame command still completes before graceful cancellation can acknowledge it. Native export cancellation guards publication, and interruption handling remains covered separately under VE-13."
-      ],
+      "remaining_work": [],
       "original_acceptance_tests": [
         "Cancel at upload/GPU/readback/file write",
         "Stuck worker and device loss",
@@ -3212,7 +3216,8 @@
         "After the user approves an output path, atomically store the variant, immutable destination and real export stage. The panel reports waiting, native development, film rendering and encoding. Completion, cancel and failure are distinct terminal outcomes. Reopening displays the most recent durable outcome or unfinished export.",
         "Each accepted export has its own receipt. Tests prove a late completion cannot replace the newer job, malformed history stays preserved and unavailable progress storage does not change an authorized output transaction.",
         "The licensed host observed actual film and encoding stages during a 6000 × 4000 RGB48 export. The completed receipt matched the exact path and dimensions. Detach canceled an accepted export without replacing its previous file, and restart reloaded the canceled state.",
-        "The native Export label now follows the real GPU stages during rendering. Updates are guarded by the same accepted job and cannot overwrite final delivery or cancellation status."
+        "The native Export label now follows the real GPU stages during rendering. Updates are guarded by the same accepted job and cannot overwrite final delivery or cancellation status.",
+        "Cancellation is checked during actual WIC staging writes. The 24 MP portable TIFF and PNG encodes returned in 2.56–2.86 ms and 0.76–0.96 ms in four trials each, versus earlier 1.81 and 2.62 seconds. The licensed WPF Cancel export action stopped actual TIFF writes in 5.16–5.60 ms on both launches. It preserved the exact previous destination, removed the staging file and recorded Canceled. The complete licensed suite passed 321 and 325 assertions."
       ],
       "evidence_paths": [
         "NativePanel/SpatialPreview.cs",
@@ -3221,11 +3226,16 @@
         "tests/ViewerContracts/Program.cs",
         ".test-results/contracts-export-progress-20261120/summary.json",
         ".test-results/host-export-progress-20261120/host-smoke.log",
-        ".test-results/host-cooperative-renderer-20261120/host-smoke.log"
+        ".test-results/host-cooperative-renderer-20261120/host-smoke.log",
+        "tests/ViewerContracts/EncoderCancellation.cs",
+        ".test-results/native-encoder-cancel-before-20261120/encoder-cancellation.json",
+        ".test-results/native-encoder-cancel-repeat-3-20261120/encoder-cancellation.json",
+        ".test-results/host-interruptible-encoder-full-20261120/first-encoder-cancellation.json",
+        ".test-results/host-interruptible-encoder-full-20261120/restart-encoder-cancellation.json"
       ],
       "remaining_work": [
         "Add resumable authorized descriptors and an explicit batch queue with per-image isolation. Current receipts preserve progress and outcome for a single accepted export.",
-        "Run hard interruption and storage-failure probes at each native/GPU/encoding stage, and replace any lingering modal errors with nonmodal job completion where the host supports it."
+        "Run hard interruption, denied access and actual disk-full probes for native, GPU and encoding stages. The real encoding cancellation is now verified. Move lingering modal errors to nonmodal completion where the host supports it."
       ],
       "original_acceptance_tests": [
         "Close dialog during each stage: documented continuation/cancellation and no dangling native command.",
@@ -3285,8 +3295,8 @@
   ],
   "counts": {
     "total": 70,
-    "implemented": 29,
-    "partial": 41,
+    "implemented": 30,
+    "partial": 40,
     "pending": 0
   },
   "last_reconciled": "2026-11-20",

@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The 70-item integration audit tracks 29 bounded primary fixes implemented and 41 partial items. It includes feasibility investigations and enhancements.
+Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The 70-item integration audit tracks 30 bounded primary fixes implemented and 40 partial items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -660,6 +660,15 @@ To repeat, run `python qa/prepare-metadata-fixture.py <closed-catalog> <RAW-samp
 - [ ] Exercise loss caused by a device or driver and repeat cancellation on slower hardware. An already submitted full-frame GPU command must finish before graceful acknowledgment. The process watchdog bounds an unresponsive child. [Vulkan fence behavior](https://docs.vulkan.org/refpages/latest/refpages/source/vkWaitForFences.html)
 
 Evidence is under `.test-results/cooperative-vulkan-runtime-20261120`, `.test-results/contracts-cooperative-progress-20261120`, `.test-results/host-cooperative-renderer-20261120` and `.test-results/host-native-device-loss-20261120`. Use `qa/renderer-cancel-probe.py` for tiled cancellation trials and `qa/Build-DeviceLossFixture.ps1` plus `qa/device-loss-probe.py` for the disposable Vulkan fault fixture. The licensed fixture uses `Run-HostSmoke.ps1 -DeviceLossFixtureDirectory` and the exact native settings backup.
+
+## Cancellation inside file encoding
+
+- [x] Detect the actual Windows TIFF and PNG codecs writing more than 1 MiB to a private staging file for 24 MP output. Previously the jobs kept encoding after cancellation for 1.81 s and 2.62 s. The guarded commit still preserved the earlier output.
+- [x] Pass the encoder a stream that checks the accepted job's token before each write, flush or length change. Normalize errors from a canceled WIC callback to the existing cancellation state. The positive export tests reopen exact TIFF and PNG sample codes through a cancellable stream.
+- [x] Repeat each portable cancellation four times. TIFF returned for cancellation in 2.56–2.86 ms and PNG in 0.76–0.96 ms in these runs. Every case preserved the prior destination and source bytes and removed the staging file.
+- [x] Use the real Cancel export button while the licensed 24 MP TIFF writes staging data. Both launches preserved the previous TIFF's full SHA-256, removed the staging file and wrote a canceled job receipt. The two measured returns were 5.16 and 5.60 ms. The full first-launch and restart suites passed 321 and 325 assertions. The independent four-RAW native effects Export matrix passed 191 assertions on each launch.
+
+Run `dotnet run --project tests/ViewerContracts/ViewerContracts.csproj -c Release -- --cancel-file-encoding <new-results-directory>` to repeat the actual codec test. Evidence is under `.test-results/native-encoder-cancel-before-20261120`, `.test-results/native-encoder-cancel-after-20261120`, `.test-results/native-encoder-cancel-repeat-1-20261120` through repeat 3, `.test-results/contracts-interruptible-encoder-20261120` and `.test-results/host-interruptible-encoder-full-20261120`.
 
 ## Installer linked paths and failed rollback
 
