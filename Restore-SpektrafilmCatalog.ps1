@@ -3,6 +3,7 @@ param(
     [Parameter(Mandatory)][string] $BackupDatabase,
     [Parameter(Mandatory)][string] $DestinationDatabase,
     [string] $UserDataRoot = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'FilmToolsForCaptureOne'),
+    [switch] $SavedLooksOnly,
     [switch] $Apply
 )
 
@@ -98,7 +99,11 @@ function Copy-VerifiedState($zip, $manifest, [string] $catalogKey, [hashtable] $
             if ($writing) {
                 $checkpoint.CatalogKey = $catalogKey
                 [IO.Directory]::CreateDirectory((Split-Path -Parent $path)) | Out-Null
-                [IO.File]::WriteAllText($path, ($checkpoint | ConvertTo-Json -Depth 32 -Compress), (New-Object Text.UTF8Encoding($false)))
+                $rebased = (New-Object Text.UTF8Encoding($false)).GetBytes(($checkpoint | ConvertTo-Json -Depth 32 -Compress))
+                if ($rebased.Length -gt 64KB) { throw "Rebased recovery checkpoint is too large: $($record.path)" }
+                $output = [IO.File]::Open($path, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+                try { $output.Write($rebased, 0, $rebased.Length); $output.Flush($true) }
+                finally { $output.Dispose() }
             }
             continue
         }
@@ -120,7 +125,11 @@ $dataRoot = Get-PlainPath $UserDataRoot -AllowMissing
 if ([IO.Path]::GetExtension($backup) -ine '.cocatalogdb' -or [IO.Path]::GetExtension($destination) -ine '.cocatalogdb') {
     throw 'Choose .cocatalogdb files for the backup and destination.'
 }
-if (Test-Path -LiteralPath $destination) { throw 'Choose a new catalog filename. Restore requires an unused destination.' }
+if ($SavedLooksOnly) {
+    if (!(Test-Path -LiteralPath $destination -PathType Leaf)) { throw 'Choose the existing catalog copy that matches the backup.' }
+} elseif (Test-Path -LiteralPath $destination) {
+    throw 'Choose a new catalog filename. Restore requires an unused destination.'
+}
 foreach ($suffix in '-wal', '-shm', '-journal') {
     if ((Test-Path -LiteralPath ($destination + $suffix)) -or (Test-Path -LiteralPath ($backup + $suffix))) {
         throw 'Close the catalog and resolve its SQLite sidecar files before restoring.'
@@ -140,9 +149,22 @@ $id = [Guid]::NewGuid().ToString('N')
 $staging = @{}
 $published = New-Object 'System.Collections.Generic.List[string]'
 $verified = $false
-$stageCatalog = Join-Path (Split-Path -Parent $destination) ('.spektra-restore-' + $id + '.tmp')
+$stageCatalog = if (!$SavedLooksOnly) { Join-Path (Split-Path -Parent $destination) ('.spektra-restore-' + $id + '.tmp') }
+$existingCatalogStream = $null
 $archiveStream = [IO.File]::Open($lookArchive, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
 try {
+    if ($SavedLooksOnly) {
+        # Keep the verified database at this path through publishing and rollback.
+        $existingCatalogStream = [IO.File]::Open($destination, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+        if ((Get-FileHash -InputStream $existingCatalogStream -Algorithm SHA256).Hash -ne $manifest.catalogSha256) {
+            throw 'The existing catalog bytes differ from this backup. Choose the matching backup generation.'
+        }
+        foreach ($suffix in '-wal', '-shm', '-journal') {
+            if (Test-Path -LiteralPath ($destination + $suffix)) {
+                throw 'Close the catalog and resolve its SQLite sidecar files before restoring.'
+            }
+        }
+    }
     $databaseStream = [IO.File]::Open($backup, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
     try {
         if ((Get-FileHash -InputStream $databaseStream -Algorithm SHA256).Hash -ne $manifest.catalogSha256 -or
@@ -153,11 +175,13 @@ try {
         $zip = New-Object IO.Compression.ZipArchive($archiveStream, [IO.Compression.ZipArchiveMode]::Read, $true)
         try {
             if ($Apply) {
-                [IO.Directory]::CreateDirectory((Split-Path -Parent $destination)) | Out-Null
-                $databaseStream.Position = 0
-                $file = [IO.File]::Open($stageCatalog, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
-                try { $databaseStream.CopyTo($file); $file.Flush($true) }
-                finally { $file.Dispose() }
+                if (!$SavedLooksOnly) {
+                    [IO.Directory]::CreateDirectory((Split-Path -Parent $destination)) | Out-Null
+                    $databaseStream.Position = 0
+                    $file = [IO.File]::Open($stageCatalog, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+                    try { $databaseStream.CopyTo($file); $file.Flush($true) }
+                    finally { $file.Dispose() }
+                }
                 foreach ($scope in $scopes) { $staging[$scope] = Join-Path (Split-Path -Parent $targets[$scope]) ('.spektra-restore-' + $id) }
             }
             Copy-VerifiedState $zip $manifest $catalogKey $staging
@@ -166,33 +190,37 @@ try {
     if (!$Apply) {
         Write-Output "Restore preview verified backup checksums for $(@($manifest.files).Count) saved-look and recovery files."
         Write-Output "Destination: $destination"
-        Write-Output 'Run the same command with -Apply to restore into this new location.'
+        if ($SavedLooksOnly) { Write-Output 'Run the same command with -Apply to restore saved looks for the verified catalog.' }
+        else { Write-Output 'Run the same command with -Apply to restore into this new location.' }
         return
     }
-    Confirm-CatalogIntegrity $stageCatalog
+    if ($SavedLooksOnly) { Confirm-CatalogIntegrity $destination }
+    else { Confirm-CatalogIntegrity $stageCatalog }
     foreach ($scope in $scopes) {
         if (!(Test-Path -LiteralPath $staging[$scope])) { continue }
         [IO.Directory]::Move($staging[$scope], $targets[$scope])
         $published.Add($targets[$scope])
     }
-    # The database's exclusive publish is the visible commit. State already
-    # exists at this point, so a subsequent launcher can find it immediately.
-    [IO.File]::Move($stageCatalog, $destination)
+    # A full restore publishes the database after its state is ready.
+    if (!$SavedLooksOnly) { [IO.File]::Move($stageCatalog, $destination) }
     $verified = $true
-    Write-Output "Restored verified catalog and saved looks: $destination"
+    if ($SavedLooksOnly) { Write-Output "Restored saved looks for the verified catalog: $destination" }
+    else { Write-Output "Restored verified catalog and saved looks: $destination" }
 } finally {
-    $archiveStream.Dispose()
-    if (Test-Path -LiteralPath $stageCatalog -PathType Leaf) { Remove-Item -LiteralPath $stageCatalog }
-    $cleanup = @($staging.Values)
-    if (!$verified) { $cleanup += @($published.ToArray()) }
-    foreach ($scratch in $cleanup) {
-        if (!(Test-Path -LiteralPath $scratch -PathType Container)) { continue }
-        $plain = Get-PlainPath $scratch -AllowMissing
-        $parent = Split-Path -Parent $plain
-        $intendedParents = @($scopes | ForEach-Object { Join-Path $dataRoot $_ })
-        if ($parent -notin $intendedParents -or (Split-Path -Leaf $plain) -notin @('.spektra-restore-' + $id, $catalogKey)) {
-            throw "Unexpected restore cleanup path: $plain"
+    try {
+        $archiveStream.Dispose()
+        if ($stageCatalog -and (Test-Path -LiteralPath $stageCatalog -PathType Leaf)) { Remove-Item -LiteralPath $stageCatalog }
+        $cleanup = @($staging.Values)
+        if (!$verified) { $cleanup += @($published.ToArray()) }
+        foreach ($scratch in $cleanup) {
+            if (!(Test-Path -LiteralPath $scratch -PathType Container)) { continue }
+            $plain = Get-PlainPath $scratch -AllowMissing
+            $parent = Split-Path -Parent $plain
+            $intendedParents = @($scopes | ForEach-Object { Join-Path $dataRoot $_ })
+            if ($parent -notin $intendedParents -or (Split-Path -Leaf $plain) -notin @('.spektra-restore-' + $id, $catalogKey)) {
+                throw "Unexpected restore cleanup path: $plain"
+            }
+            Remove-Item -LiteralPath $plain -Recurse -Force
         }
-        Remove-Item -LiteralPath $plain -Recurse -Force
-    }
+    } finally { if ($existingCatalogStream) { $existingCatalogStream.Dispose() } }
 }

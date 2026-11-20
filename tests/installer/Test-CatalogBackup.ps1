@@ -172,6 +172,73 @@ try { $null = & $restore -BackupDatabase $restorable -DestinationDatabase $resto
 catch { $failure = $_.Exception.Message }
 Assert ($failure -match 'unused destination') 'Restore refuses to overwrite a catalog'
 Assert ((Get-FileHash -LiteralPath $restored -Algorithm SHA256).Hash -eq $originalHash) 'Failed overwrite leaves restored catalog unchanged'
+$movedRoot = Join-Path $root 'moved'
+[void][IO.Directory]::CreateDirectory($movedRoot)
+$moved = Join-Path $movedRoot 'existing.cocatalogdb'
+[IO.File]::Copy($restorable, $moved)
+$movedData = Join-Path $root 'moved-state'
+$looksOnly = @{BackupDatabase=$restorable; DestinationDatabase=$moved; UserDataRoot=$movedData; SavedLooksOnly=$true}
+$preview = & $restore @looksOnly
+Assert (($preview -join ' ').Contains('preview verified') -and !(Test-Path -LiteralPath $movedData)) 'Saved-look restore preview verifies the existing catalog without creating state'
+$failure = $null
+try {
+    $locked = [IO.File]::Open($moved, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+    try { $null = & $restore @looksOnly -Apply }
+    finally { $locked.Dispose() }
+} catch { $failure = $_.Exception.Message }
+Assert ($failure -and !(Test-Path -LiteralPath $movedData)) 'A locked existing catalog refuses saved-look publication'
+$sidecar = $moved + '-wal'
+try {
+    [IO.File]::WriteAllText($sidecar, 'isolated sidecar')
+    $failure = $null
+    try { $null = & $restore @looksOnly -Apply }
+    catch { $failure = $_.Exception.Message }
+    Assert ($failure -match 'SQLite sidecar' -and !(Test-Path -LiteralPath $movedData)) 'Saved-look restore refuses a stale SQLite sidecar'
+} finally { Remove-Item -LiteralPath $sidecar }
+$unmatched = Join-Path $movedRoot 'unmatched.cocatalogdb'
+[IO.File]::Copy($moved, $unmatched)
+[IO.File]::AppendAllText($unmatched, 'different generation')
+$differentHash = (Get-FileHash -LiteralPath $unmatched).Hash
+$failure = $null
+try { $null = & $restore -BackupDatabase $restorable -DestinationDatabase $unmatched -UserDataRoot $movedData -SavedLooksOnly -Apply }
+catch { $failure = $_.Exception.Message }
+Assert ($failure -match 'bytes differ' -and !(Test-Path -LiteralPath $movedData) -and
+    (Get-FileHash -LiteralPath $unmatched).Hash -eq $differentHash) 'Saved-look restore refuses a nonmatching existing database without editing it'
+$failure = $null
+try { $null = & $restore -BackupDatabase $restorable -DestinationDatabase (Join-Path $movedRoot 'missing.cocatalogdb') -UserDataRoot $movedData -SavedLooksOnly -Apply }
+catch { $failure = $_.Exception.Message }
+Assert ($failure -match 'existing catalog copy' -and !(Test-Path -LiteralPath $movedData)) 'Saved-look restore requires an existing catalog copy'
+$movedAttributes = [IO.File]::GetAttributes($moved)
+try {
+    [IO.File]::SetAttributes($moved, $movedAttributes -bor [IO.FileAttributes]::ReadOnly)
+    $applyLooks = & $restore @looksOnly -Apply
+    Assert (([IO.File]::GetAttributes($moved) -band [IO.FileAttributes]::ReadOnly) -ne 0) 'Saved-look restore retains a read-only matching database attribute'
+} finally { [IO.File]::SetAttributes($moved, $movedAttributes) }
+Assert (($applyLooks -join ' ').Contains('Restored saved looks for the verified catalog')) 'Saved-look restore commits against an existing matching catalog'
+Assert ((Get-FileHash -LiteralPath $moved).Hash -eq $originalHash -and
+    @(Get-ChildItem -LiteralPath $movedRoot -Filter '.spektra-restore-*.tmp').Count -eq 0) 'Saved-look restore preserves database bytes and writes no database stage'
+$sha = [Security.Cryptography.SHA256]::Create()
+try { $movedKey = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($moved.ToUpperInvariant())))).Replace('-', '') }
+finally { $sha.Dispose() }
+$movedLook = Join-Path (Join-Path (Join-Path $movedData 'Variant looks') $movedKey) '11111111111111111111111111111111.json'
+$movedPending = Join-Path (Join-Path (Join-Path $movedData 'Look recovery') $movedKey) '11111111111111111111111111111111.pending.json'
+$movedPrevious = [IO.Path]::ChangeExtension($movedLook, '.previous.look')
+$movedGrain = Join-Path (Split-Path -Parent $movedPending) '11111111111111111111111111111111.grain.json'
+$movedRecovery = [IO.File]::ReadAllText($movedPending) | ConvertFrom-Json
+Assert ((Get-FileHash -LiteralPath $movedLook).Hash -eq $baseHash -and
+    (Get-FileHash -LiteralPath $movedPrevious).Hash -eq (Get-FileHash -LiteralPath $previousFile).Hash -and
+    (Get-FileHash -LiteralPath $movedGrain).Hash -eq (Get-FileHash -LiteralPath $grain).Hash -and
+    $movedRecovery.CatalogKey -eq $movedKey -and $movedRecovery.BaseHash -eq $baseHash -and
+    $movedRecovery.Look.Look.Exposure -eq 2.2) 'All verified look and native grain bytes publish under the moved catalog identity with recovery rebased'
+$failure = $null
+try { $null = & $restore @looksOnly -Apply }
+catch { $failure = $_.Exception.Message }
+Assert ($failure -match 'Saved looks already exist' -and (Get-FileHash -LiteralPath $movedLook).Hash -eq $baseHash -and
+    (Get-FileHash -LiteralPath $moved).Hash -eq $originalHash) 'Saved-look restore preserves existing state and catalog on repeat'
+$failure = $null
+try { $null = & $restore -BackupDatabase $restorable -DestinationDatabase ($moved.ToUpperInvariant()) -UserDataRoot $movedData -SavedLooksOnly -Apply }
+catch { $failure = $_.Exception.Message }
+Assert ($failure -match 'Saved looks already exist') 'Changing only the Windows path case cannot create a second state identity'
 $blocked = Join-Path $root 'blocked\test.cocatalogdb'
 $archivePath = $restorable + '.spektrafilm.zip'
 $archiveBytes = [IO.File]::ReadAllBytes($archivePath)

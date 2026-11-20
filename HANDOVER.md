@@ -1099,6 +1099,14 @@ Evidence is in `.test-results/host-native-export-hidden-and-floating-20261120`. 
 
 Evidence is in `.test-results/host-native-export-background-notice-20261120` and `.test-results/host-native-export-notice-submitted-20261120/native-notice-submission.json`. The fixture uses `-NativeEffectPanelModes`; set `SPEKTRAFILM_QA_SUBMIT_EXPORT_TOAST=1` for one clearly labelled submission during the first launch. This source checkpoint is newer than audit.24.
 
+## Restore looks onto an already moved catalog
+
+- [x] Add `Restore-SpektrafilmCatalog.ps1 -SavedLooksOnly`. It verifies both archived payloads and checks that the existing destination catalog has the exact archived database bytes. Hold a read lease on that closed database while publishing the look state under its new catalog key.
+- [x] Keep the existing preview and `-Apply` flow. Check SQLite integrity, protect existing destination looks and refuse stale journals, mismatched databases and locked files. Preserve the database bytes, previous looks and grain records. Flush rebased recovery checkpoints before staging becomes visible.
+- [x] Pass 54 backup and restore assertions in Windows PowerShell 5.1 and PowerShell 7. Keep an existing read-only catalog attribute and recognize the same state key under a case-only path change. In the licensed host, the already copied closed DNG catalog loads its saved enabled 1.37 EV look and paints against real 16-bit development on launch and restart. Both runs pass 19 assertions with no rewrite of the archived look bytes.
+
+Evidence is in `.test-results/contracts-catalog-restore-durable-20261120`, `.test-results/contracts-catalog-restore-durable-ps7-20261120` and `.test-results/host-real-moved-catalog-looks-only-20261120`. The native fixture takes `-SavedLooksBackup` and uses a separate copied catalog. Automated discovery after a later database change and crash recovery around multi-directory publication remain open.
+
 ## Status maintenance
 
 `qa/AUDIT-FIX-STATUS.json` owns task IDs, status, implemented substeps, remaining acceptance work and evidence. This handover owns context, runtime identity and resume instructions. `.test-results/FINAL-RESULT.json` is the completed runtime delivery receipt; keep its runtime commit/package identity distinct from later documentation-only commits.

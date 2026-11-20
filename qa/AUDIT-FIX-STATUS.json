@@ -2111,16 +2111,20 @@
       "status": "partial",
       "implemented": [
         "Launcher backups now include film-state archives and manifests alongside catalog snapshots.",
-        "Verified joint restore to a new catalog path publishes rebased film state and pending edits. The production reader recovered two looks and native Capture One opened a disposable copy of the restored database."
+        "Verified joint restore to a new catalog path publishes rebased film state and pending edits. The production reader recovered two looks and native Capture One opened a disposable copy of the restored database.",
+        "An explicit saved-look-only restore attaches an exact matching joint backup generation to an existing moved or copied database without rewriting it. Native launch and restart load the actual enabled 1.37 EV look and paint over Capture One high-depth RGB. Both pass 19 assertions and preserve the archived look bytes."
       ],
       "evidence_paths": [
         "Start-Spektrafilm.ps1",
         "tests/installer/Test-CatalogBackup.ps1",
         "Restore-SpektrafilmCatalog.ps1",
-        ".test-results/restored-real-catalog-20261119/result.txt"
+        ".test-results/restored-real-catalog-20261119/result.txt",
+        ".test-results/host-real-moved-catalog-looks-only-20261120",
+        ".test-results/contracts-catalog-restore-durable-20261120/catalog-backup.log",
+        ".test-results/contracts-catalog-restore-durable-ps7-20261120"
       ],
       "remaining_work": [
-        "Identify moves and clones outside the restore flow, handle case aliases and read-only/reverted catalogs, offer portable cross-account state, and validate conflict and rollback paths."
+        "Identify moves and clones automatically or after database changes, handle case aliases and read-only/reverted catalogs, verify portability with a second Windows account, and exercise abrupt interruption during saved-look publication."
       ],
       "original_acceptance_tests": [
         "original/moved/renamed/case-alias/copied/reverted catalog, two clones diverging, read-only directory, separate Windows account, missing sidecar, rollback. Verify edited source catalog never changes during copy migration."
@@ -2829,7 +2833,8 @@
         "Version 2 uses ordinal sorted file fingerprints. Restore verifies paired embedded and outer manifests plus all file hashes. Version 1 remains usable across shells, including an actual three-file legacy restore in PowerShell 7.",
         "Windows 2022 CI exposed a timestamp collision during rapid look-only backups. Versioned backup basenames now have a monotonic same-tick suffix, and a per-catalog lock serializes backup generation and rotation.",
         "If publishing a companion fails, remove only parts published by that attempt and preserve prior complete generations. Frozen-clock rotation, blocked manifest publication and competing backups passed 42 assertions in both PowerShell 5.1 and 7.",
-        "Created two real Capture One backup generations with the same timestamp, restored the latest one and matched both look files and the original catalog hash exactly."
+        "Created two real Capture One backup generations with the same timestamp, restored the latest one and matched both look files and the original catalog hash exactly.",
+        "Restore just the saved look and recovery scopes against a closed, existing database that matches the verified joint backup. Keep a read lease while applying and flush rebased checkpoints before publication. Checkpoint rekeying, previous state, native grain, locked and stale SQLite refusals, read-only attributes, Windows path aliases, different generations and conflicting destinations pass in 54 assertions in each Windows shell."
       ],
       "evidence_paths": [
         "Start-Spektrafilm.ps1",
@@ -2842,6 +2847,8 @@
         ".test-results/legacy-three-entry-state",
         ".test-results/real-same-tick-backup-20261119/result.txt",
         ".test-results/contracts-grain-backup-policy-20261119/catalog-backup.log",
+        ".test-results/contracts-catalog-restore-durable-20261120/catalog-backup.log",
+        ".test-results/contracts-catalog-restore-durable-ps7-20261120",
         "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44628947791"
       ],
       "remaining_work": [

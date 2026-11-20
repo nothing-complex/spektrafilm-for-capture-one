@@ -6,6 +6,7 @@ param(
     [string] $PackagedRuntime,
     [string] $UpgradeFromPackage,
     [Alias('ProofingSettingsConfig')][string] $NativeSettingsConfig,
+    [string] $SavedLooksBackup,
     [switch] $CatalogIsolation,
     [switch] $ConcurrentCatalogs,
     [switch] $SessionIsolation,
@@ -40,6 +41,9 @@ param(
     [string] $ResultsDirectory
 )
 $ErrorActionPreference='Stop'
+if ($SavedLooksBackup -and (!$NativeSettingsConfig -or $UpgradeFromPackage -or $CatalogIsolation -or $ConcurrentCatalogs -or $SessionIsolation)) {
+    throw 'Moved-catalog look verification requires a single disposable catalog and a native preferences backup.'
+}
 if ($NativeEffectClone) { $NativeEffectGrain=$true; $SkipRestart=$true }
 $isolatedEffects=@($NativeEffectCompression,$NativeEffectFolders,$NativeEffectPanelModes) | Where-Object { $_ }
 if ($isolatedEffects -and (!$NativeSettingsConfig -or $NativeEffectGrain -or $NativeEffectExportMatrix -or
@@ -425,6 +429,12 @@ if($CatalogIsolation -or $ConcurrentCatalogs){
 } else {
     Copy-Item -LiteralPath $source -Destination $catalog
 }
+if ($SavedLooksBackup) {
+    $SavedLooksBackup=(Resolve-Path -LiteralPath $SavedLooksBackup).ProviderPath
+    & (Join-Path $root 'Restore-SpektrafilmCatalog.ps1') -BackupDatabase $SavedLooksBackup -DestinationDatabase $catalog `
+        -UserDataRoot $folder -SavedLooksOnly -Apply
+    if ((Get-FileHash -LiteralPath $catalog).Hash -ne $sourceHash) { throw 'The saved-look restore wrote to the copied catalog.' }
+}
 if($ConcurrentCatalogs){$catalog=$fixtureCatalogs[0]}
 $sessionDatabase=$null
 if($SessionIsolation){
@@ -483,7 +493,7 @@ $names=@(
     'DOTNET_STARTUP_HOOKS','SPEKTRAFILM_ROOT','SPEKTRAFILM_CATALOG','SPEKTRAFILM_DATA_ROOT',
     'SPEKTRAFILM_PANEL_LOG','SPEKTRAFILM_HOST_SMOKE','SPEKTRAFILM_LAUNCH_ID','SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX',
     'SPEKTRAFILM_HOST_VIEWER_STRESS','SPEKTRAFILM_HOST_PANEL_INVENTORY','SPEKTRAFILM_EXPECTED_CONTROL_INVENTORY',
-    'SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT',
+    'SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT','SPEKTRAFILM_HOST_MOVED_LOOK_BACKUP',
     'SPEKTRAFILM_SHOW_TOOL','SPEKTRAFILM_HOST_PROOF_TEST','SPEKTRAFILM_HOST_CATALOG_ISOLATION',
     'SPEKTRAFILM_HOST_VIEWER_LAYOUTS','SPEKTRAFILM_HOST_DURABLE_EDITS','SPEKTRAFILM_HOST_METADATA_FIXTURE',
     'SPEKTRAFILM_HOST_VIEWER_CHURN','SPEKTRAFILM_HOST_VIEWER_CHURN_RESOLUTION','SPEKTRAFILM_HOST_VIEWER_TELEMETRY_SECONDS','SPEKTRAFILM_HOST_EXPORT_INTERRUPTION',
@@ -506,6 +516,7 @@ try {
     $env:SPEKTRAFILM_HOST_VIEWER_STRESS=if($ViewerStress){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_PANEL_INVENTORY=if($PanelInventory){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT=if($NativeEffectExportMatrix){'matrix'}elseif($NativeEffectClone){'clone'}elseif($NativeEffectGrain){'grain'}elseif($NativeEffectCompression){'compression'}elseif($NativeEffectFolders){'folders'}elseif($NativeEffectPanelModes){'panel-modes'}elseif($NativeEffectExport){'1'}else{$null}
+    $env:SPEKTRAFILM_HOST_MOVED_LOOK_BACKUP=$SavedLooksBackup
     $env:SPEKTRAFILM_EXPECTED_CONTROL_INVENTORY=Join-Path $root 'qa\panel-controls.json'
     $env:SPEKTRAFILM_SHOW_TOOL=if($ShowTool){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_PROOF_TEST=if($NativeSettingsConfig -and !$CatalogIsolation -and !$ViewerLayouts -and !$DurableSliderEdits -and !$MetadataFixtureRoot -and !$ViewerChurn -and !$ConcurrentCatalogs){'1'}else{$null}

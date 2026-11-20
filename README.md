@@ -102,6 +102,8 @@ To restore a backup, open PowerShell in the Spektrafilm installation folder. Cho
 .\Restore-SpektrafilmCatalog.ps1 -BackupDatabase 'C:\Backups\Catalog.cocatalogdb' -DestinationDatabase 'D:\Restored\Catalog.cocatalogdb'
 ```
 
+If you already moved or copied the catalog, close Capture One and use `-SavedLooksOnly` with the existing catalog path. Choose the backup generation that matches the catalog bytes. Preview first, then add `-Apply`. This restores Spektrafilm's saved looks and recovery records for the new location. Existing Spektrafilm state at that path is protected from replacement.
+
 To uninstall, close Capture One, delete the **Spektrafilm for Capture One** desktop shortcut, and remove the installation folder printed by the installer. Keep the saved looks and catalog backups under `%LOCALAPPDATA%\FilmToolsForCaptureOne` if you want to use them later. If you used portable mode, remove the extracted folder.
 
 ## Build from source
