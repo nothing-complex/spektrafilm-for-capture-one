@@ -6,7 +6,7 @@ Updated 2026-11-20. The critical-fix batch is implemented, tested, installed loc
 
 1. Read this file, `AGENTS.md` and `qa/AUDIT-FIX-STATUS.json` before changing code. The JSON is the authoritative task-progress ledger; its `remaining_work` and original acceptance tests matter more than a short status label.
 2. Check `git status`, current branch and PR head. Do not discard existing edits or switch the installed build merely because this documentation has a newer commit.
-3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP is `0.2.0-audit.25` from clean `14f1d5b`. The exact package passed all five native effects and recipe campaigns, moved catalog restore, the full licensed host suite, the numeric inventory, physical Vulkan and a private upgrade.
+3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP is `0.2.0-audit.26` from clean `5720dea`. The exact package passed the native effects and recipe campaigns, interruption recovery, moved catalog restore, the full licensed host suite, the numeric inventory, physical Vulkan and a private upgrade.
 4. Choose an unresolved task and an exact ownership boundary. Do not repeat the completed installation, crash test or old defect reproductions as if nothing had happened.
 5. Update task evidence and the delivery ledger at each completed milestone. Never mark a broad parent task complete because one mitigation shipped.
 
@@ -946,6 +946,16 @@ The combined receipt is `.test-results/audit24-package-verify-20261120/result.js
 - [x] Privately upgrade audit.24 to audit.25. Preserve fixture custom files and the external preset. Retire the previous runtime after the licensed host reports Ready with native Export Connected.
 
 The combined receipt is `.test-results/audit25-package-verify-20261120/result.json`. The independent decoder receipt is `.test-results/audit25-package-verify-20261120/independent-rgb16.json`. Individual runs use `.test-results/host-audit25-*-20261120`. The upgrade receipt is at `D:/Library AI testing/sf-audit25-ready-20261120/installed-upgrade-receipt.json`.
+
+## Development package audit.26
+
+- [x] Build clean `5720deaed43d3797691362720aaecf497e4a2267` and verify 153 package entries, 19 critical runtime entries and regenerated capability bytes. ZIP SHA-256 is `5705a3534bd5fc6706a52cd127fe6740b1e3886546e8413f7a3b8e90c65c7db4`. [Windows 2022 and 2025 checks](https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44739459517)
+- [x] Pass 213 four-RAW effects checks, 114 native and optical grain checks, 112 TIFF compression checks, 87 recipe folder checks and 104 hidden/floating tool checks in each launch. These campaigns produce 118 accepted 16-bit effect and control files. Mixed selection preflight preserves the enabled secondary look and allows native fallback when both masters are off.
+- [x] Independently decode eight DNG, CR3, RAF and NEF cases. Separate film, diffusion, and additional halation and scatter from their controls. The largest mean difference between native commands is 6.99e-7 of full scale across 156,601,728 uint16 RGB codes per comparison.
+- [x] Stop the licensed disposable process after 1,819,025 encoder bytes. Pass 17 checks before the stop and 22 after reopening. Preserve the exact previous 16-bit TIFF, unrelated temporary file and enabled 1.37 EV look. No owned stage remains. A new explicit retry writes a 24 MP RGB48 TIFF with its embedded ICC.
+- [x] Pass 344 general assertions on launch and 348 on restart, 19 moved catalog assertions per launch, 20 numeric inventory assertions and 32 managed physical Vulkan checks. Privately upgrade audit.25 to audit.26 and preserve the fixture's custom file and outside preset until the licensed host reports Ready with native Export Connected.
+
+The combined receipt is `.test-results/audit26-package-verify-20261120/result.json`. The independent decoder receipt is `.test-results/audit26-package-verify-20261120/independent-rgb16.json`. Individual runs use `.test-results/host-audit26-*-20261120`. The upgrade receipt is at `D:/Library AI testing/sf-audit26-ready-20261120/installed-upgrade-receipt.json`.
 
 ## Accepted export dialog and storage failure
 

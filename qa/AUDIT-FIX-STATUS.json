@@ -3465,29 +3465,30 @@
     "original_test_catalog_hash_unchanged": true,
     "local_evidence_note": "Paths under .test-results/build/dist are ignored local artifacts and are not present in a public clone.",
     "latest_development_package": {
-      "version": "0.2.0-audit.25",
-      "archive": "dist/Spektrafilm-for-Capture-One-v0.2.0-audit.25-windows-x64.zip",
-      "sha256": "b8bc072d96d633471973f4e4ad455d11b0e007ab6a579c6261565a9897bafb9c",
+      "version": "0.2.0-audit.26",
+      "archive": "dist/Spektrafilm-for-Capture-One-v0.2.0-audit.26-windows-x64.zip",
+      "sha256": "5705a3534bd5fc6706a52cd127fe6740b1e3886546e8413f7a3b8e90c65c7db4",
       "source": {
-        "commit": "14f1d5b7953ef1bc1f1691cfe2983847c9025979",
+        "commit": "5720deaed43d3797691362720aaecf497e4a2267",
         "dirty": false,
-        "treeDigest": "b58b46b7437c92b9f51d67836c84b120ba783e177d62a1fbc952b11df8f3f09a"
+        "treeDigest": "fb1129f85e68d36a8813ce722b9dbae2886e6fde8bf60d9b56c33fad7d1dd232"
       },
       "verified_package_entries": 153,
       "verified_runtime_entries": 19,
       "renderer_protocol": 2,
       "renderer_sha256": "54e41c5a11c41db7b9bb194c0010eb7fa22fa42ed27a6d38fa7a4996c682f1ff",
+      "panel_sha256": "f3a72e930dd59cfc9658ac939c4278dd70989106621aa52bb58274e8ffd77cd3",
       "asset_contract": "254f2d26eb50d37ed74ad1fec3d20276d28b0ff601573b32724884ffbdf99e47",
       "generated_capabilities_sha256": "ca685935a18f9884b0c86f85c9d3f54c5c81927c44c9838c932f7a0fe5ed6876",
       "native_control_count": 197,
       "version3_native_preset_verified": true,
-      "isolated_install_and_checkonly": "passed audit.24 to audit.25 with real native readiness, preserved user files and exact installed capability report",
+      "isolated_install_and_checkonly": "passed audit.25 to audit.26 with real native readiness, preserved user files and exact installed capability report",
       "exact_package_host_tests": {
         "first_launch": 344,
         "restart": 348,
         "managed_gpu": 32,
-        "native_effect_export_first": 207,
-        "native_effect_export_restart": 207,
+        "native_effect_export_first": 213,
+        "native_effect_export_restart": 213,
         "native_effect_files": 40,
         "native_grain_first": 114,
         "native_grain_restart": 114,
@@ -3503,14 +3504,18 @@
         "native_workspace_files": 18,
         "native_moved_catalog_first": 19,
         "native_moved_catalog_restart": 19,
+        "native_crash_cleanup_first": 17,
+        "native_crash_cleanup_restart": 22,
         "native_numeric_inventory": 20,
         "native_numeric_slider_count": 112
       },
       "independent_rgb16_codes_per_comparison": 156601728,
-      "independent_native_command_maximum_mean_full_scale": 7.255410594847537e-7,
-      "remote_windows_contracts": "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44735588072",
+      "independent_native_command_maximum_mean_full_scale": 6.983494824648406e-7,
+      "crash_cleanup_encoder_bytes": 1819025,
+      "crash_cleanup_orphan_bytes": 0,
+      "remote_windows_contracts": "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44739459517",
       "normal_installed_revision": "ffc481988eb2e6e7ef7a1379486c4a8b2656ac81",
-      "receipt": ".test-results/audit25-package-verify-20261120/result.json"
+      "receipt": ".test-results/audit26-package-verify-20261120/result.json"
     }
   },
   "completed_milestones": [
