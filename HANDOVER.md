@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The 70-item integration audit tracks 38 bounded primary fixes implemented and 32 partial items. It includes feasibility investigations and enhancements.
+Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The 70-item integration audit tracks 39 bounded primary fixes implemented and 31 partial items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -1270,6 +1270,15 @@ Evidence is in `.test-results/host-real-unsaved-close-prompt-20261120`. This com
 - [x] Compare the two actual native Scan Negative outputs with different dormant print settings. Both reopen as 16-bit files with the exact recipe ICC and agree within 4.17e-7 mean full scale across 18 million codes per launch. Both source launches pass 146 checks and write 32 verified effect and control files in total. The native UI inventory passes 20 checks.
 
 The initial UI probe evaluated individual controls inside collapsed sections. The successful fixture verifies the owning groups, active neighboring controls and actual native output. Evidence is in `.test-results/host-scan-mode-print-optics-retry-20261120` and `.test-results/host-scan-mode-optics-inventory-20261120`. This is source validation after audit.31.
+
+## Reusable linear-light drag previews
+
+- [x] Keep a 128 MiB least-recently-used cache of float drag source levels per active Viewer. Each level is computed directly from the same exact developed frame and its declared input encoding. Turning drag preview off or redeveloping the RAW clears all levels. A renderer already using a level retains its buffer.
+- [x] Both licensed Viewer stress launches pass 52 checks. Switching 720 to 1600 px and back reuses the same source and at least 32,807,680 bytes of float buffers. The fixture verifies that rebuilding a level gives byte-identical pixels and uses the same native developed source. Windows Viewer contracts pass 12,416 checks. Evidence is in `.test-results/host-draft-pyramid-20261120` and `.test-results/contracts-draft-pyramid-20261120`.
+- [x] Run `qa/blur-support.py --measure-optical-scales` at 720, 1600, 2560 and 4096 px with the exact audit.31 worker. The 48 effect cases compare the same normalized bar on Super 8, 35 mm and 70 mm. In 35 mm, the camera diffusion off-bar RMS width spans 1,041 to 1,066 µm and print diffusion spans 1,866 to 1,909 µm. Scatter weakens markedly below a pixel at coarse settings, especially for 70 mm. The receipt separates mean, peak and off-bar response so later work can identify gains against the same chart. See `.test-results/optical-preview-scales-nvidia-20261120.json`.
+- [x] Recheck real Capture One Export and Export with Previous Settings with the new Viewer cache. Both licensed launches pass 222 assertions and write 40 confirmed RGB48 TIFF and RGBA64 PNG effect and control files across four RAW formats and input encodings. The independent decoder checks more than 156 million 16-bit codes per comparison, exact ICC and the separate film, diffusion, halation and scatter changes. The largest mean route difference is 6.72e-7 of full scale. Compared with audit.31 the largest mean change is 2.81e-6 on the DNG film-only control. Native no-film controls vary slightly between the runs too. See `.test-results/host-effects-after-draft-pyramid-20261120/independent-rgb16.json`.
+
+The primary RC-03 work is complete. Cross-context memory ownership is tracked under VE-09. The low-resolution scatter response and full-frame versus tiled diffusion still need renderer work.
 
 ## Status maintenance
 

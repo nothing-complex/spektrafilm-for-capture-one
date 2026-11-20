@@ -1,13 +1,16 @@
 using System;
+using System.Collections;
 using System.Diagnostics;
 using System.Drawing;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 
 public static partial class StartupHook
@@ -18,6 +21,62 @@ public static partial class StartupHook
         while (type is not null && type.FullName != "P1.C1.Tools.Viewer.WPFViewing.VariantViewWpf")
             type = type.BaseType;
         return type!.GetProperty("ViewerModel", Flags | BindingFlags.DeclaredOnly)!.GetValue(view)!;
+    }
+
+    private static async Task TestNativeDraftPyramid(object spatial, object source)
+    {
+        var picker = (ComboBox)Field(spatial, "dragPreviewSize")!;
+        var previous = picker.SelectedItem;
+        var loading = spatial.GetType().GetField("loading", Flags)!;
+        var options = ((IEnumerable)picker.ItemsSource).Cast<object>().ToArray();
+        var cache = Field(spatial, "draftPyramid")!;
+        var encoding = Prop(Prop(Prop(source, "Description")!, "Source")!, "InputEncoding")!;
+
+        void Select(object item)
+        {
+            loading.SetValue(spatial, true);
+            try { picker.SelectedItem = item; }
+            finally { loading.SetValue(spatial, false); }
+            Call(spatial, "RequestRefresh");
+        }
+
+        object? Cached(int edge) => Call(cache, "Find", source, edge, encoding);
+
+        async Task<object> Load(int edge)
+        {
+            Select(options.Single(item => Equals(Prop(item, "LongEdge"), edge)));
+            var start = Stopwatch.GetTimestamp();
+            while (Stopwatch.GetElapsedTime(start) < TimeSpan.FromSeconds(20))
+            {
+                if (Field(spatial, "pendingDraft") is null && Cached(edge) is { } draft)
+                    return draft;
+                await Task.Delay(50);
+            }
+            throw new TimeoutException($"The licensed Viewer did not prepare the {edge} px drag source.");
+        }
+
+        try
+        {
+            var small = await Load(720);
+            var large = await Load(1600);
+            var back = await Load(720);
+            var bytes = ((byte[])Prop(small, "FloatBytes")!).LongLength + ((byte[])Prop(large, "FloatBytes")!).LongLength;
+            Check(ReferenceEquals(back, small) && ReferenceEquals(large, Cached(1600))
+                && ReferenceEquals(source, Field(spatial, "source")),
+                "switching 720 to 1600 and back reuses the two float levels of the same developed RGB16 source");
+            Check((long)Prop(cache, "RetainedBytes")! >= bytes && (long)Prop(cache, "RetainedBytes")! <= 128L * 1024 * 1024,
+                "the licensed Viewer's cached drag levels stay within the byte limit");
+            Select(options.Single(item => Equals(Prop(item, "LongEdge"), 0)));
+            Check(Cached(720) is null && Cached(1600) is null && (long)Prop(cache, "RetainedBytes")! == 0,
+                "turning off drag preview clears retained levels immediately");
+            var reloaded = await Load(720);
+            Check(!ReferenceEquals(small, reloaded) && ((byte[])Prop(small, "FloatBytes")!).SequenceEqual(
+                (byte[])Prop(reloaded, "FloatBytes")!),
+                "rebuilding an evicted drag level produces identical float pixels");
+            File.AppendAllText(Path.Combine(folder, "host-smoke.log"),
+                $"Draft pyramid reused at least {bytes} bytes across 720 and 1600 px without redeveloping the RAW." + Environment.NewLine);
+        }
+        finally { Select(previous); }
     }
 
     private static async Task TestNativeAutoQualityMotion(object spatial, object viewer, Guid variant)

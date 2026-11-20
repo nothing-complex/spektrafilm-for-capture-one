@@ -1,6 +1,7 @@
 """Measure the physical Gaussian support of the current Vulkan filters."""
 
 import argparse
+from hashlib import sha256
 import json
 import math
 from pathlib import Path
@@ -18,6 +19,13 @@ FILTERS = {
     "DIR core": ("dir-diffusion", 1.0, 256),
     "DIR longest tail lobe": ("dir-tail-size", 2.7684, 256),
     "grain final blur": ("grain-final-blur", 1.0, 64),
+}
+
+OPTICAL_CASES = {
+    "cameraDiffusion": "--camera-diffusion-family pro_mist --camera-diffusion-strength .75",
+    "printDiffusion": "--print-diffusion-family black_pro_mist --print-diffusion-strength .75",
+    "halation": "--halation-amount 1 --halation-scale 2 --halation-boost 1",
+    "scatter": "--scatter-amount .5",
 }
 
 
@@ -55,11 +63,15 @@ def kernel_report(parameters, long_edges):
 
 
 def render_scanner(exe, frame, film, unsharp):
+    return render(exe, frame, film, f"--halation-amount 0 --scatter-amount 0 --scanner-enabled true "
+                  f"--scanner-glare 0 --scanner-mtf 0 --scanner-unsharp-radius 100 --scanner-unsharp-amount {unsharp}")
+
+
+def render(exe, frame, film, options):
     height, width = frame.shape[:2]
     header = (f"FRAME {width} {height} --stock kodak_portra_400 --film-format {film}"
-              " --grain-model off --halation-amount 0 --scatter-amount 0 --output-color linear_rec709"
-              " --scanner-enabled true --scanner-glare 0 --scanner-mtf 0 --scanner-unsharp-radius 100"
-              f" --scanner-unsharp-amount {unsharp}\n").encode("ascii")
+              " --grain-model off --output-color linear_rec709 "
+              f"{options}\n").encode("ascii")
     result = subprocess.run([str(exe), "--native-preview-stream"], input=header + frame.tobytes(),
                             capture_output=True, timeout=90)
     if result.returncode or len(result.stdout) < 8:
@@ -68,6 +80,45 @@ def render_scanner(exe, frame, film, unsharp):
     if status or length != frame.nbytes or len(result.stdout) != 8 + length:
         raise RuntimeError(result.stdout[8:4096].decode("utf-8", errors="replace"))
     return np.frombuffer(result.stdout, dtype="<f4", offset=8).reshape(frame.shape)
+
+
+def measure_optical_scales(exe, long_edges):
+    """Measure actual linear output against controls from the same normalized chart."""
+    cases = []
+    baseline = "--paper kodak_portra_endura --input-color linear_rec2020 "
+    for width in sorted(set(long_edges)):
+        height = width // 16
+        pixels = np.arange(width, dtype=np.float64)
+        bar_left, bar_right = .485 * width, .515 * width
+        coverage = np.clip(np.minimum(pixels + 1, bar_right) - np.maximum(pixels, bar_left), 0, 1)
+        frame = np.ones((height, width, 4), dtype="<f4")
+        frame[:, :, :3] = (.08 + .84 * coverage)[None, :, None]
+        bar_distance = np.abs(pixels + .5 - width / 2) / width - .015
+        outside_bar = coverage == 0
+        for film in ("8", "35", "70"):
+            control = render(exe, frame, film, baseline + "--halation-amount 0 --scatter-amount 0")
+            for name, effect in OPTICAL_CASES.items():
+                options = ("--halation-amount 0 " if name != "halation" else "")
+                options += ("--scatter-amount 0 " if name != "scatter" else "") + effect
+                result = render(exe, frame, film, baseline + options)
+                if not np.isfinite(result).all() or not np.array_equal(result[..., 3], frame[..., 3]):
+                    raise ValueError(f"Invalid RGB or altered alpha for {name}, {film} mm at edge {width}.")
+                row = slice(height // 2 - 2, height // 2 + 2)
+                delta = result[row, :, :3].astype(np.float64) - control[row, :, :3]
+                response = np.mean(np.abs(delta), axis=(0, 2))
+                off_bar = response[outside_bar]
+                distances_um = bar_distance[outside_bar] * FILM_EDGE_MM[film] * 1000
+                mass = float(off_bar.sum())
+                if mass <= 1e-7:
+                    raise ValueError(f"No measurable off-bar response for {name}, {film} mm at edge {width}.")
+                cases.append({
+                    "effect": name, "filmFormat": film, "longEdge": width, "rows": height,
+                    "meanAbsRgbDelta": float(response.mean()),
+                    "peakAbsRgbDelta": float(response.max()),
+                    "offBarAbsRgbIntegrated": mass / width,
+                    "offBarAbsRgbRmsMicrometers": float(np.sqrt(np.dot(distances_um ** 2, off_bar) / mass)),
+                })
+    return cases
 
 
 def measure_scanner(exe, long_edges):
@@ -149,6 +200,7 @@ def main():
     parser.add_argument("--renderer", required=True, type=Path)
     parser.add_argument("--edge", action="append", type=int)
     parser.add_argument("--measure-scanner", action="store_true")
+    parser.add_argument("--measure-optical-scales", action="store_true")
     parser.add_argument("--prototype-tent", action="store_true", help="Check an isolated CPU multiscale reference.")
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
@@ -161,6 +213,9 @@ def main():
     result = {"parameterContract": description["parameterContract"], "kernels": kernel_report(parameters, edges)}
     if args.measure_scanner:
         result["scannerImpulse"] = measure_scanner(exe, edges)
+    if args.measure_optical_scales:
+        result["rendererSha256"] = sha256(exe.read_bytes()).hexdigest()
+        result["opticalScales"] = measure_optical_scales(exe, edges)
     if args.prototype_tent:
         result["prototypeTent"] = prototype_tent_kernels(result["kernels"])
     with args.output.open("x", encoding="utf-8") as output:

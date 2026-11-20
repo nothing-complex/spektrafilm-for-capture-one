@@ -580,6 +580,7 @@ public static partial class StartupHook
                 "manual quality applies its exact high-depth resolution after Auto");
             await TestNativePresentationMotion(spatial, view, variant, manual);
             await TestSaveViewerPng(spatial);
+            await TestNativeDraftPyramid(spatial, manual);
             Check(ReferenceEquals(savedPreferences, preferences.GetValue(null)), "fixture quality changes leave the user's stored preference unchanged");
         }
         finally { Select(previous); }

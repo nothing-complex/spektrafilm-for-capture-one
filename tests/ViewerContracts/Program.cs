@@ -79,6 +79,7 @@ internal static partial class Program
         TestConversionBudget();
         TestParallelExportPixels();
         TestDraft();
+        TestDraftPyramid();
         TestDevelopedFrameDescription();
         TestExport(folder);
         TestExportFilenameSuggestion(folder);
@@ -976,6 +977,58 @@ internal static partial class Program
         try { _ = (identity with { InputEncoding = (PreviewInputSpace)int.MaxValue }).Transfer; }
         catch (ArgumentOutOfRangeException) { rejected = true; }
         Check(rejected, "Undeclared camera or log transfer cannot enter the developed frame contract");
+    }
+
+    private static void TestDraftPyramid()
+    {
+        var identity = new FrameSourceDescription(Guid.NewGuid(), "DNG", PreviewInputSpace.Srgb,
+            new string('A', 64), new NativeImageRevision(10, 20, 30), "16.4.6.2414", new string('B', 64));
+        const int width = 31, height = 23;
+        var data = new byte[width * height * 16];
+        var components = MemoryMarshal.Cast<byte, float>(data);
+        for (var index = 0; index < components.Length; index++)
+            components[index] = (index % 47 - 7) / 36f;
+        var source = new HostImageSource.Frame(width, height, data, 16,
+            new FrameDescription(identity, width, height, NativeSourceFormat.Rgba16));
+        const PreviewInputSpace space = PreviewInputSpace.Srgb;
+        var small = ViewerDraftSource.Downsample(source, 7, CancellationToken.None, space);
+        var medium = ViewerDraftSource.Downsample(source, 13, CancellationToken.None, space);
+        var large = ViewerDraftSource.Downsample(source, 19, CancellationToken.None, space);
+        var limit = Math.Max(large.FloatBytes.LongLength, small.FloatBytes.LongLength + medium.FloatBytes.LongLength);
+        var pyramid = new ViewerDraftPyramid(limit);
+        pyramid.Remember(source, 7, space, small);
+        pyramid.Remember(source, 13, space, medium);
+        Check(pyramid.RetainedBytes == small.FloatBytes.LongLength + medium.FloatBytes.LongLength,
+            "Draft pyramid must account for every retained source level");
+        Check(ReferenceEquals(pyramid.Find(source, 13, space), medium)
+            && ReferenceEquals(pyramid.Find(source, 7, space), small), "Changing draft size must find the original level buffers");
+        Check(pyramid.Find(source, 13, PreviewInputSpace.AdobeRgb) is null, "Encoded sources cannot share cached levels");
+        Check(pyramid.Find(source with { FloatBytes = (byte[])data.Clone() }, 7, space) is null,
+            "A redevelopment must miss even when the descriptor is identical");
+        var revisedIdentity = identity with { AdjustmentKey = new NativeImageRevision(10, 21, 30) };
+        var revised = source with { Description = source.Description! with { Source = revisedIdentity } };
+        Check(pyramid.Find(revised, 7, space) is null, "Native adjustment revision must invalidate levels");
+        pyramid.Remember(source, 19, space, large);
+        Check(pyramid.Find(source, 13, space) is null && pyramid.RetainedBytes <= limit,
+            "Least recently used levels must leave the byte budget before a large insertion");
+        var retained = pyramid.Find(source, 19, space)!;
+        Check(ReferenceEquals(retained, large) && retained.FloatBytes.SequenceEqual(
+            ViewerDraftSource.Downsample(source, 19, CancellationToken.None, space).FloatBytes),
+            "Every cached level must match direct downsampling of the full developed source exactly");
+        var replacement = ViewerDraftSource.Downsample(revised, 7, CancellationToken.None, space);
+        pyramid.Remember(revised, 7, space, replacement);
+        Check(pyramid.Find(source, 19, space) is null && pyramid.RetainedBytes == replacement.FloatBytes.LongLength,
+            "Remembering a new developed source must drop all old levels");
+        pyramid.Clear();
+        Check(pyramid.RetainedBytes == 0 && pyramid.Find(revised, 7, space) is null
+            && retained.FloatBytes.SequenceEqual(large.FloatBytes), "Clearing cache must preserve buffers still held by rendering");
+
+        var tinyCache = new ViewerDraftPyramid(small.FloatBytes.LongLength - 1);
+        tinyCache.Remember(source, 7, space, small);
+        tinyCache.Remember(source, 31, space, source);
+        Check(tinyCache.RetainedBytes == 0 && tinyCache.Find(source, 7, space) is null,
+            "Oversized levels and the full source must never count as retained draft levels");
+        Console.WriteLine("Draft pyramid: exact buffers, source and transfer isolation, byte budget, eviction and in-flight ownership passed.");
     }
 
     private static void TestExport(string folder)

@@ -72,7 +72,7 @@ internal sealed class SpatialPreview : IDisposable
     private CancellationTokenSource? pending;
     private CancellationTokenSource? pendingDraft;
     private OpticalRenderer? draftRenderer;
-    private HostImageSource.Frame? draftSource;
+    private readonly ViewerDraftPyramid draftPyramid = new();
     private byte[]? draftPixels;
     private string[]? draftArguments;
     private bool draftWarmupAttempted;
@@ -603,7 +603,7 @@ internal sealed class SpatialPreview : IDisposable
         {
             if (DragLongEdge == 0)
                 EndSliderDrag();
-            ResetDraft(keepRenderer: DragLongEdge > 0);
+            ResetDraft(keepRenderer: DragLongEdge > 0, keepSourceLevels: DragLongEdge > 0);
             OnPreferencesChanged();
         };
         panel.Children.Add(resolutions);
@@ -1345,12 +1345,13 @@ internal sealed class SpatialPreview : IDisposable
         renderer = null;
     }
 
-    private void ResetDraft(bool keepRenderer = false)
+    private void ResetDraft(bool keepRenderer = false, bool keepSourceLevels = false)
     {
         pendingDraft?.Cancel();
         if (pendingDraft is null && !keepRenderer)
             ReleaseDraftRenderer();
-        draftSource = null;
+        if (!keepSourceLevels)
+            draftPyramid.Clear();
         draftPixels = null;
         draftArguments = null;
         draftWarmupAttempted = false;
@@ -1422,13 +1423,13 @@ internal sealed class SpatialPreview : IDisposable
         pendingDraft = job;
         try
         {
-            if (draftSource is null)
+            var frame = draftPyramid.Find(input, dragEdge, inputColor.Space);
+            if (frame is null)
             {
-                var reduced = await Task.Run(() => ViewerDraftSource.Downsample(input, dragEdge, job.Token, inputColor.Space), job.Token);
+                frame = await Task.Run(() => ViewerDraftSource.Downsample(input, dragEdge, job.Token, inputColor.Space), job.Token);
                 job.Token.ThrowIfCancellationRequested();
-                draftSource = reduced;
+                draftPyramid.Remember(input, dragEdge, inputColor.Space, frame);
             }
-            var frame = draftSource;
             byte[]? packed = null;
             if (look.Strength > 0 && (draftPixels is null || !args.SequenceEqual(draftArguments!)))
             {

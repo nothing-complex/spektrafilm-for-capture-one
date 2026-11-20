@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -6,7 +7,7 @@ using System.Threading.Tasks;
 
 internal static class ViewerDraftSource
 {
-    private const int MaxSide = 2560;
+    internal const int MaxSide = 2560;
     private const int BytesPerPixel = 4 * sizeof(float);
     private const int RowsPerBlock = 8;
 
@@ -103,4 +104,60 @@ internal static class ViewerDraftSource
     }
 
     private readonly record struct Box(int First, int Last, float FirstWeight, float LastWeight);
+}
+
+// Owned by one Viewer dispatcher. Each level is sampled directly from the
+// developed source. Resampling a cached level would change fractional edges.
+internal sealed class ViewerDraftPyramid(long byteLimit = ViewerDraftPyramid.DefaultByteLimit)
+{
+    internal const long DefaultByteLimit = 128L * 1024 * 1024;
+    private readonly LinkedList<Level> levels = new();
+    private HostImageSource.Frame? source;
+    private PreviewInputSpace inputSpace;
+    internal long RetainedBytes { get; private set; }
+
+    internal HostImageSource.Frame? Find(HostImageSource.Frame input, int longEdge, PreviewInputSpace space)
+    {
+        if (!ReferenceEquals(input, source) || space != inputSpace)
+            return null;
+        var edge = Math.Min(longEdge, ViewerDraftSource.MaxSide);
+        for (var node = levels.First; node is not null; node = node.Next)
+        {
+            if (node.Value.Edge != edge)
+                continue;
+            levels.Remove(node);
+            levels.AddFirst(node);
+            return node.Value.Frame;
+        }
+        return null;
+    }
+
+    internal void Remember(HostImageSource.Frame input, int longEdge, PreviewInputSpace space, HostImageSource.Frame draft)
+    {
+        if (!ReferenceEquals(input, source) || space != inputSpace)
+        {
+            Clear();
+            source = input;
+            inputSpace = space;
+        }
+        var bytes = draft.FloatBytes.LongLength;
+        if (ReferenceEquals(input, draft) || bytes > byteLimit || Find(input, longEdge, space) is not null)
+            return;
+        while (RetainedBytes + bytes > byteLimit && levels.Last is { } oldest)
+        {
+            RetainedBytes -= oldest.Value.Frame.FloatBytes.LongLength;
+            levels.RemoveLast();
+        }
+        levels.AddFirst(new Level(Math.Min(longEdge, ViewerDraftSource.MaxSide), draft));
+        RetainedBytes += bytes;
+    }
+
+    internal void Clear()
+    {
+        source = null;
+        levels.Clear();
+        RetainedBytes = 0;
+    }
+
+    private sealed record Level(int Edge, HostImageSource.Frame Frame);
 }

@@ -1976,6 +1976,7 @@
       "implemented": [
         "The existing shared managed RAM model gates native development, worker transport and encoding by Windows physical and commit headroom. The Vulkan stage uses separate measured adapter headroom.",
         "The existing Auto Viewer choice uses native projection and the same managed headroom. Viewer refresh retains one active source plus the bounded draft and display caches, and waits for workers to exit before accepting competing output work.",
+        "The per-Viewer drag-source pyramid evicts by actual float-buffer byte length with a 128 MiB retention ceiling. Source replacement and switching drag preview Off discard the levels. A render already using an evicted level retains valid ownership until it returns.",
         "Measure 100 settled Capture One visits on DNG, NEF, RAF and CR3 at 2048 px and strength 0%, 50% and 100%. The same-process peak was 7,934,210,048 host private bytes, 700,862,464 worker private bytes and 958,644,384 managed bytes. After explicit drain, the process exited, all 100 sampled source objects became collectible and managed use measured 160,011,408 bytes. Host private bytes include Capture One’s own caches.",
         "Paired 100-visit no-plugin and film runs with the same RAW and 30 interleaved selection sequence measured 5,028,196,352 and 7,954,604,032 host private bytes respectively. Managed peaks were 168,062,504 and 928,270,840 bytes. The film worker independently peaked at 700,903,424 bytes. All sampled film sources were collectible after the worker drained."
       ],
@@ -1986,6 +1987,7 @@
         ".test-results/contracts-grain-backup-policy-20261119/ViewerContracts.log",
         ".test-results/host-auto-viewport-quality-20261120/host-smoke.log",
         ".test-results/host-viewer-100-visits-current-paint-20261120/viewer-churn.json",
+        ".test-results/host-draft-pyramid-20261120/host-smoke.log",
         ".test-results/host-native-only-viewer-baseline-20261120/viewer-native-baseline.json",
         ".test-results/host-viewer-paired-live-20261120/viewer-churn.json"
       ],
@@ -2407,19 +2409,30 @@
       "id": "RC-03",
       "title": "Build colour-correct preview pyramids",
       "priority": "P2",
-      "status": "partial",
+      "status": "implemented",
       "implemented": [
         "Draft area filtering decodes/re-encodes the declared input transfer; Adobe near-black encode accuracy and signed range are tested.",
-        "Independent continuous-area reference validated spatially nonconstant colour and alpha, including signed and high values in all supported input spaces."
+        "Independent continuous-area reference validated spatially nonconstant colour and alpha, including signed and high values in all supported input spaces.",
+        "The developed source descriptor declares exact variant, native adjustment revision, profile, primaries, transfer, alpha and native pixel format. Each level derives directly from the exact developed frame instance and input encoding, retains its descriptor and records its linear-light area sampling.",
+        "The Viewer retains up to 128 MiB of float draft source buffers in least-recently-used order. The two licensed stress runs pass 52 checks each and reuse 32,807,680 bytes across 720 and 1600 px, with the same developed RAW, exact rebuilt pixels and immediate release when disabled. The current Windows contracts pass 12,416 Viewer and export assertions.",
+        "Measure 48 actual optical output cases at 720, 1600, 2560 and 4096 px across Super 8, 35 mm and 70 mm. A matched linear-light bar reports magnitude and off-bar extent for camera diffusion, print diffusion, halation and scatter separately. Scanner and kernel probe defaults remain unchanged.",
+        "The separate full-depth pipeline still delivers the composited effects through both real native Export commands. Two licensed runs each pass 222 assertions on four RAW formats. Independently decode the 40 component and composed files, exact ICC and 156,601,728 codes per comparison. Both routes agree within 6.72e-7 mean full scale."
       ],
       "evidence_paths": [
         "NativePanel/ColorTransfer.cs",
         "NativePanel/ViewerDraftSource.cs",
+        "NativePanel/DevelopedFrameDescription.cs",
+        "qa/blur-support.py",
         "tests/ViewerContracts",
-        ".test-results/contracts-audit-resolution-20261119/summary.json"
+        ".test-results/contracts-audit-resolution-20261119/summary.json",
+        ".test-results/contracts-draft-pyramid-20261120/summary.json",
+        ".test-results/host-draft-pyramid-20261120/host-smoke.log",
+        ".test-results/optical-preview-scales-nvidia-20261120.json",
+        ".test-results/scanner-campaign-after-draft-pyramid-20261120.json",
+        ".test-results/host-effects-after-draft-pyramid-20261120/independent-rgb16.json"
       ],
       "remaining_work": [
-        "Finish full frame descriptor, bounded cached pyramid and measured physical-effect resolution statistics."
+        "Treat draft optics as an approximation. At coarse resolution, 35 and 70 mm scatter has a much weaker response to the chart edge. Integrated subpixel optics and strict full-frame versus tiled parity need separate renderer investigation under RC-04."
       ],
       "original_acceptance_tests": [
         "Black/white checker linear result .5 vs encoded .5 regression",
@@ -3499,8 +3512,8 @@
   ],
   "counts": {
     "total": 70,
-    "implemented": 38,
-    "partial": 32,
+    "implemented": 39,
+    "partial": 31,
     "pending": 0
   },
   "last_reconciled": "2026-11-20",
