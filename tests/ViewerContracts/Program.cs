@@ -21,7 +21,7 @@ internal static class StartupHook
     internal static void Log(string message) => throw new InvalidOperationException(message);
 }
 
-internal static class Program
+internal static partial class Program
 {
     private static int assertions;
     private static void Check(bool value, string message)
@@ -33,6 +33,16 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
+        if (args is ["--benchmark-rgb16", var report])
+        {
+            BenchmarkRgb16(report);
+            return;
+        }
+        if (args is ["--benchmark-export-pixels", var exportReport])
+        {
+            BenchmarkExportPixels(exportReport);
+            return;
+        }
         if (args is ["--large-encoding", var results])
         {
             Directory.CreateDirectory(results);
@@ -46,6 +56,10 @@ internal static class Program
         TestDpiAndCropGeometry();
         TestViewportQuality();
         TestViewerHistogram();
+        TestRgb16();
+        TestFloatSource();
+        TestConversionBudget();
+        TestParallelExportPixels();
         TestDraft();
         TestExport(folder);
         TestExportMetadata(folder);

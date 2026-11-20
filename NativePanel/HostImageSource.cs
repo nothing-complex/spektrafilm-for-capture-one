@@ -458,14 +458,14 @@ internal static class HostImageSource
                 throw new InvalidDataException($"Capture One returned {format} for the high-depth {destination} source.");
         }
         return CopyPixels(bitmap.Width, bitmap.Height, bitmap.Stride, format, bitmap.Data, token, pixelLimit,
-            includePreviewCodes: !nativeDepth, fastPreview: nativeDepth && purpose != RenderPurpose.Export);
+            includePreviewCodes: !nativeDepth);
     }
 
     internal static Frame CopyPixels(int width, int height, int stride, PixelFormat format, nint data, CancellationToken token) =>
         CopyPixels(width, height, stride, format, data, token, PixelLimit, includePreviewCodes: true);
 
     private static Frame CopyPixels(int width, int height, int stride, PixelFormat format, nint data,
-        CancellationToken token, int pixelLimit, bool includePreviewCodes, bool fastPreview = false)
+        CancellationToken token, int pixelLimit, bool includePreviewCodes)
     {
         var (pixelBytes, depth) = format switch
         {
@@ -481,9 +481,11 @@ internal static class HostImageSource
             throw new InvalidDataException("Capture One returned an invalid or oversized preview bitmap.");
 
         token.ThrowIfCancellationRequested();
-        if (fastPreview && depth == 16)
+        if (!includePreviewCodes && depth == 16)
             return new Frame(width, height, Array.Empty<byte>(),
-                Rgb16Preview.Convert(width, height, stride, data, format == PixelFormat.ipfRGBA16, token), depth);
+                HighDepthSource.Convert16(width, height, stride, data, format == PixelFormat.ipfRGBA16, token), depth);
+        if (!includePreviewCodes && depth == 32)
+            return new Frame(width, height, Array.Empty<byte>(), HighDepthSource.ConvertFloat(width, height, stride, data, token), depth);
         if (pixelBytes == 4)
             return CopyBgra8(data, width, height, stride, token);
 

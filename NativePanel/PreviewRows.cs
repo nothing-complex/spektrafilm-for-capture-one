@@ -7,20 +7,23 @@ internal static class PreviewRows
 {
     private const int ParallelPixelThreshold = 4_000_000;
     private const int MaximumWorkers = 6;
+    private static readonly SemaphoreSlim LargeConversion = new(1, 1);
 
-    internal static void Process(int width, int height, CancellationToken token, Action<int, int> processRange)
+    internal static void Process(int width, int height, CancellationToken token, Action<int, int> processRange,
+        int parallelPixelThreshold = ParallelPixelThreshold, int maxWorkers = MaximumWorkers)
     {
         token.ThrowIfCancellationRequested();
-        var workers = Math.Min(Math.Min(Environment.ProcessorCount, MaximumWorkers), height);
-        if ((long)width * height < ParallelPixelThreshold || workers <= 1)
+        var workers = Math.Min(Math.Min(Environment.ProcessorCount, maxWorkers), height);
+        if ((long)width * height < parallelPixelThreshold || workers <= 1)
         {
             processRange(0, height);
             return;
         }
 
-        var options = new ParallelOptions { CancellationToken = token, MaxDegreeOfParallelism = workers };
+        LargeConversion.Wait(token);
         try
         {
+            var options = new ParallelOptions { CancellationToken = token, MaxDegreeOfParallelism = workers };
             Parallel.For(0, workers, options, worker =>
             {
                 var start = (int)((long)height * worker / workers);
@@ -32,5 +35,6 @@ internal static class PreviewRows
         {
             ExceptionDispatchInfo.Capture(error.InnerExceptions[0]).Throw();
         }
+        finally { LargeConversion.Release(); }
     }
 }

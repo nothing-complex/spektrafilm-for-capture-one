@@ -1252,16 +1252,34 @@
       "id": "RC-17",
       "title": "Vectorize measured host/export conversion bottlenecks under shared CPU budget",
       "priority": "P3",
-      "status": "pending",
-      "implemented": [],
-      "evidence_paths": [],
-      "remaining_work": [
-        "Measure conversion share before optimizing",
-        "Format-specialized Span/MemoryMarshal/SIMD scalar-equivalent loops",
-        "Bounded reusable buffers and central CPU worker budget",
-        "Parallel independent export rows with cancellation",
-        "Retain host bitmap lifetime until complete"
+      "status": "implemented",
+      "implemented": [
+        "Measured both available CPU seams, including the former sequential final export conversion and the former parallel RGB16 Viewer source conversion. SSE vector conversion was measured and discarded because it increased elapsed time versus the lookup-based path.",
+        "Native RGB16/RGBA16 and RGB32F now read the validated padded bitmap rows directly as spans, with one owned float output buffer. Each integer code matches scalar division exactly. Float inputs preserve signed and extended finite values and reject NaN and infinity.",
+        "Use one shared cancellable CPU slot for large native input, display and 16-bit output conversions. At most eight workers own disjoint rows, and cancellation waits for running native reads to leave before the bitmap can be released.",
+        "The controlled 6000×4000 half-strength ProPhoto/linear Rec.709 case matched all 72,000,000 RGB16 codes. Warm median final conversion fell from 318.01 ms to 52.35 ms. Twenty-four additional cropped cases match sequential rounding at three strengths, four spaces and both alpha modes.",
+        "Direct 24 MP RGB16/RGBA16 source conversion saved about 0.29/0.38 MB allocated per frame. On the tested CPU its warm median was about 0.9/1.8 ms slower than the former parallel Viewer path. The direct conversion also serves export, whose prior native input branch was sequential.",
+        "Licensed tests passed 177 initial and 182 restart assertions, plus 59 native RAW colour cases. Independent native TIFF acquisitions preserve RGB16 depth, shape and ICC but vary even among prior builds. Exact numerical proof uses a single shared input buffer across conversion paths.",
+        "The cold/warm repeat matched all codes again. First export conversion calls took 419.14 ms sequential and 82.33 ms parallel in that process. Warm medians were 319.18 and 53.77 ms."
       ],
+      "evidence_paths": [
+        "NativePanel/HighDepthSource.cs",
+        "NativePanel/PreviewRows.cs",
+        "NativePanel/ExportPixels.cs",
+        "tests/ViewerContracts/Rgb16Contracts.cs",
+        "tests/ViewerContracts/ExportPixelContracts.cs",
+        ".test-results/rgb16-before-20261120.json",
+        ".test-results/rgb16-after-20261120.json",
+        ".test-results/rgb16-final-20261120.json",
+        ".test-results/export-pixels-20261120.json",
+        ".test-results/contracts-viewer-analysis-edges-20261120/ViewerContracts.log",
+        ".test-results/host-high-depth-final-20261120/host-smoke.log",
+        ".test-results/host-high-depth-final-20261120/native-development-repeatability.json",
+        ".test-results/host-high-depth-matrix-20261120/color-matrix/common-srgb.json",
+        ".test-results/export-pixels-cold-warm-20261120.json",
+        ".test-results/rgb16-cold-warm-20261120.json"
+      ],
+      "remaining_work": [],
       "original_acceptance_tests": [
         "Exact RGB16/RGBA16/RGB32F scalar equivalence",
         "Padded rows/alpha/1-row/finite errors",
@@ -1620,7 +1638,8 @@
         "Versioned worker metrics and reproducible synthetic/host test entry points supply initial telemetry.",
         "Repeated full-host 24 MP export baseline was 4204 ms on first process and 4033 ms after restart, including a small TIFF decode. Viewer worker quiescence is timed separately. The test machine used an RTX 3090.",
         "Windows worker benchmark saves per-request transport wall time, renderer stages and Vulkan allocations, working-set/commit samples, cold request versus reused-source edit percentiles, and renderer fingerprint in machine-readable JSON.",
-        "The worker diagnostics expose enlarger transform milliseconds, cache hits and retained bytes. Repeatable cold/warm renderer summaries measure median/p95 at three Viewer sizes with exact GPU upload counters and per-process memory."
+        "The worker diagnostics expose enlarger transform milliseconds, cache hits and retained bytes. Repeatable cold/warm renderer summaries measure median/p95 at three Viewer sizes with exact GPU upload counters and per-process memory.",
+        "A deterministic 24 MP CPU export benchmark separates the final 16-bit conversion from native RAW development, Vulkan and writing. Cold/warm CPU and allocation matrices are independently runnable."
       ],
       "evidence_paths": [
         "ofx-still-renderer/main.cpp",
@@ -1631,7 +1650,8 @@
         "qa/renderer-benchmark.py",
         ".test-results/renderer-benchmark-color-optics-20261119.json",
         ".test-results/renderer-benchmark-grain-quality-20261119.json",
-        ".test-results/enlarger-after-20261120.json"
+        ".test-results/enlarger-after-20261120.json",
+        ".test-results/export-pixels-20261120.json"
       ],
       "remaining_work": [
         "No structured end-to-end event model, shared request identity, p50/p95 benchmark matrix or UI latency budget yet.",
@@ -2773,9 +2793,9 @@
   ],
   "counts": {
     "total": 70,
-    "implemented": 19,
+    "implemented": 20,
     "partial": 41,
-    "pending": 10
+    "pending": 9
   },
   "last_reconciled": "2026-11-20",
   "handover": "HANDOVER.md",

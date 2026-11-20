@@ -4,6 +4,7 @@
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <CaptureOneDirectory Condition="'$(CaptureOneDirectory)' == ''">C:\Program Files\Capture One\Capture One</CaptureOneDirectory>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">

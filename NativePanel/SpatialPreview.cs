@@ -1449,28 +1449,11 @@ internal sealed class SpatialPreview : IDisposable
     private static BitmapSource DecodeExport(HostImageSource.Frame frame, byte[]? rendered, double strength,
         PreviewInputSpace space, string outputEncoding, PixelFormat format, System.Drawing.Rectangle crop, CancellationToken token, double dpi)
     {
-        var source = MemoryMarshal.Cast<byte, float>(frame.FloatBytes.AsSpan());
-        var floats = MemoryMarshal.Cast<byte, float>(rendered.AsSpan());
         var transform = new SrgbDelivery(space, outputEncoding, strength);
         var hasAlpha = format == PixelFormats.Rgba64;
         var channels = hasAlpha ? 4 : 3;
         var stride = checked(crop.Width * channels * sizeof(ushort));
-        var pixels = GC.AllocateUninitializedArray<ushort>(checked(crop.Width * crop.Height * channels));
-        var destination = 0;
-        for (var y = crop.Top; y < crop.Bottom; y++)
-        {
-            token.ThrowIfCancellationRequested();
-            var i = (y * frame.Width + crop.Left) * 4;
-            for (var x = 0; x < crop.Width; x++, i += 4)
-            {
-                var rgb = transform.GetSrgb(source, floats, i);
-                pixels[destination++] = (ushort)Math.Round(rgb.Red * ushort.MaxValue);
-                pixels[destination++] = (ushort)Math.Round(rgb.Green * ushort.MaxValue);
-                pixels[destination++] = (ushort)Math.Round(rgb.Blue * ushort.MaxValue);
-                if (hasAlpha)
-                    pixels[destination++] = (ushort)Math.Round(Math.Clamp((double)source[i + 3], 0, 1) * ushort.MaxValue);
-            }
-        }
+        var pixels = ExportPixels.Encode(frame.Width, crop, frame.FloatBytes, rendered, transform, hasAlpha, token);
         var image = BitmapSource.Create(crop.Width, crop.Height, dpi, dpi, format, null, pixels, stride);
         image.Freeze();
         return image;

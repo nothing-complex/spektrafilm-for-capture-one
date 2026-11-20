@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 19 bounded primary fixes implemented, 41 partial items and 10 pending items. It includes feasibility investigations and enhancements.
+Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 20 bounded primary fixes implemented, 41 partial items and 9 pending items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -432,6 +432,15 @@ Evidence is under `.test-results/contracts-numbered-renderer-final-20261120`, `.
 - [ ] Validate cache interruption on the licensed host and additional hardware. Simultaneous original and transformed source residency on the GPU remains open.
 
 Evidence is under `.test-results/enlarger-before-20261120.json`, `.test-results/enlarger-after-20261120.json`, `.test-results/enlarger-cache-smoke-20261120.log` and `.test-results/host-enlarger-cache-20261120`.
+
+## High-depth input and export conversion
+
+- [x] Read native RGB16, RGBA16 and RGB32F directly from validated row spans. Keep one owned float buffer, exact normalization and a shared cancelable CPU allocation for large conversions. A controlled blocked read stays valid through cancellation and drains before native memory is released.
+- [x] At 6000 × 4000, final half-strength RGB16 conversion dropped from 318 to 52 ms warm median with all 72 million output codes equal on the same source and film inputs. Twenty-four more cases cover cropped RGB16 and RGBA16 in four input spaces and three strengths.
+- [x] Retain the faster lookup implementation after measuring a slower SSE alternative. Direct source conversion allocated roughly 0.29–0.38 MB less at 24 MP with a warm median 0.9–1.8 ms above the previous parallel Viewer conversion. Export now shares the high-depth route. The full end-to-end export latency was not isolated by the conversion benchmark.
+- [x] Pass 177 first-launch and 182 restart checks in licensed Capture One and 59 native RAW colour checks. Separate native TIFF acquisitions had identical 16-bit dimensions and ICC but showed small pixel variation between previous builds as well. Exact conversion comparison uses the same captured input on each path.
+
+Evidence is under `.test-results/contracts-high-depth-final-20261120`, `.test-results/contracts-viewer-analysis-edges-20261120`, `.test-results/host-high-depth-final-20261120` and `.test-results/host-high-depth-matrix-20261120`. Use ViewerContracts with `--benchmark-rgb16 <report.json>` or `--benchmark-export-pixels <report.json>` for the CPU measurements.
 
 ## Status maintenance
 
