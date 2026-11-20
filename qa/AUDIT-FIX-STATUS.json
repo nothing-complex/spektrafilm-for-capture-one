@@ -874,7 +874,8 @@
         "Adapted all four known host API differences in shared source. Built from the same source against the installed 16.4 assemblies and independently against authentic 16.7.8.3529 reference files extracted from the signed installer without installing it. Static metadata confirms the actual six-parameter 16.7 crop overload, optional settings, native async closure, unsigned temporary bitmap fields, selection message and the retained Viewer Paint event. The runtime support manifest still admits only the verified installed 16.4 build.",
         "The 314-assertion state suite covers the two export callback shapes and lifecycle, both crop calculations, and unsigned bitmap metadata. On the installed 16.4 host, 40 launch and 40 restart checks verify native export failure recovery and 16-bit TIFF/PNG with the selected recipe profile. A second disposable recipe fixture passes 105 checks on each launch including native destination names, collision handling and applied effects. All recipe backups and source catalogs verify.",
         "Compared the CLR metadata from two separately compiled panels. Clean builds still emitted different recipe FileType getter owners. Adapted the relocated getter with a cached typed delegate over the actual loaded recipe interface. The read-only checker now reports 563 matching host type, member and specialization references across the 16.4.6.2414 and 16.7.8.3529 binaries, with matching host assembly names, cultures and public-key tokens. Fourteen focused host-shape assertions include the moved property and explicit interface implementations.",
-        "The licensed 16.4 recipe fixture passes 128 assertions on launch and 128 after restart. Both native commands follow the actual TIFF and PNG recipe types, retain applied effects and carry the exact recipe ICC. An independent PNG chunk reader confirms all four recipe-selected PNGs are 3000 by 2000, 16 bits per channel in RGBA with the selected ICC. All nine original recipe files verify and the source catalog remains unchanged."
+        "The licensed 16.4 recipe fixture passes 128 assertions on launch and 128 after restart. Both native commands follow the actual TIFF and PNG recipe types, retain applied effects and carry the exact recipe ICC. An independent PNG chunk reader confirms all four recipe-selected PNGs are 3000 by 2000, 16 bits per channel in RGBA with the selected ICC. All nine original recipe files verify and the source catalog remains unchanged.",
+        "The signed 16.4 and 16.7 assemblies resolve all nine Viewer attachment members identically by declaring assembly, type and signature. This includes private fields and methods resolved by name as well as Paint. Selection order, realized controls and actual paint delivery still require licensed runtime testing."
       ],
       "evidence_paths": [
         "capture-one-hosts.json",
@@ -891,6 +892,7 @@
         "qa/HostReferenceCheck/Program.cs",
         ".test-results/host67-contracts/reference-drift-before.json",
         ".test-results/host67-contracts/reference-drift-after.json",
+        ".test-results/host67-contracts/viewer-members",
         ".test-results/host-164-recipe-format-adapter-20261120/host-smoke.log",
         ".test-results/host-164-recipe-format-adapter-20261120/independent-png-header.json",
         ".test-results/host67-contracts/signed-16.7.8-api-expanded.txt",
