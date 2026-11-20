@@ -943,6 +943,7 @@ void writeMetrics(const Renderer *renderer, uint64_t renderSequence, const Input
          << ",\"sourceCopyMs\":" << d.sourceCopyMs
          << ",\"meteringMs\":" << d.meteringMs
          << ",\"meteringCacheHit\":" << (d.meteringCacheHit ? "true" : "false")
+         << ",\"negativeDensityCacheHit\":" << (d.negativeDensityCacheHit ? "true" : "false")
          << ",\"commandEncodingMs\":" << d.commandEncodingMs
          << ",\"commandBufferMs\":" << d.commandBufferMs
          << ",\"gpuCommandBufferMs\":" << d.gpuCommandBufferMs

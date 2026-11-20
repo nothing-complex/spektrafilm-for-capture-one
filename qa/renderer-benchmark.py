@@ -100,7 +100,7 @@ def command_json(child, command):
 
 
 def run_case(executable, shape, scene, route, repetitions, timeout, simulated_cap_mib, hash_replies, tile_size,
-             source_change_interval, before_request=None):
+             source_change_interval, edit, before_request=None):
     packed = route == "viewer"
     width, height = shape
     pixels = width * height
@@ -130,7 +130,7 @@ def run_case(executable, shape, scene, route, repetitions, timeout, simulated_ca
             send_source = iteration == 0 or (source_change_interval > 0 and iteration % source_change_interval == 0)
             mode = ("FRAME8" if packed else "FRAME") if send_source else ("REUSE8" if packed else "REUSE")
             command = (mode, str(width), str(height)) if send_source else (mode,)
-            options = SCENES[scene] + ("--film-exposure", f"{iteration % 5 / 10:.1f}")
+            options = SCENES[scene] + (f"--{edit}-exposure", f"{iteration % 5 / 10:.1f}")
             if before_request is not None:
                 before_request()
             started = time.perf_counter_ns()
@@ -169,7 +169,7 @@ def run_case(executable, shape, scene, route, repetitions, timeout, simulated_ca
             measurements.append(measurement)
         warm = sorted(entry["wallMs"] for entry in measurements[1:])
         return {
-            "width": width, "height": height, "route": route, "scene": scene,
+            "width": width, "height": height, "route": route, "scene": scene, "edit": edit,
             "rendererParameterContract": version["parameterContract"],
             "coldMs": measurements[0]["wallMs"],
             "warmMedianMs": statistics.median(warm) if warm else None,
@@ -194,7 +194,7 @@ def run_case(executable, shape, scene, route, repetitions, timeout, simulated_ca
 def run_overlap(executable, viewer_size, export_size, scene, args):
     sizes = {"viewer": viewer_size, "export": export_size}
     options = (args.repetitions, args.case_timeout, args.simulate_gpu_cap_mib,
-               args.hash_replies, args.tile_size, args.source_change_interval)
+               args.hash_replies, args.tile_size, args.source_change_interval, args.edit)
     serial = {route: run_case(executable, shape, scene, route, *options) for route, shape in sizes.items()}
     barrier = threading.Barrier(2, timeout=args.case_timeout)
 
@@ -259,6 +259,8 @@ def main():
     parser.add_argument("--size", action="append", type=dimensions)
     parser.add_argument("--route", action="append", choices=("viewer", "export"))
     parser.add_argument("--scene", action="append", choices=SCENES)
+    parser.add_argument("--edit", choices=("film", "print"), default="film",
+                        help="Choose the exposure slider to sweep between requests.")
     parser.add_argument("--repetitions", type=int, default=5)
     parser.add_argument("--case-timeout", type=int, default=180)
     parser.add_argument("--simulate-gpu-cap-mib", type=int, help="Test-only cap for the renderer allocator. Does not change physical VRAM.")
@@ -312,7 +314,8 @@ def main():
             for shape in args.size or ((1200, 800), (3000, 2000), (6000, 4000)):
                 try:
                     case = run_case(executable, shape, scene, route, args.repetitions, args.case_timeout,
-                                    args.simulate_gpu_cap_mib, args.hash_replies, args.tile_size, args.source_change_interval)
+                                    args.simulate_gpu_cap_mib, args.hash_replies, args.tile_size, args.source_change_interval,
+                                    args.edit)
                 except Exception as error:
                     result["failure"] = {"route": route, "scene": scene, "size": shape, "reason": str(error)}
                     update_result(result, args.output)

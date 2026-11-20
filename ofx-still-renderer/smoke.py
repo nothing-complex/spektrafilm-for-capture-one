@@ -436,6 +436,67 @@ def check_metering_cache(exe, frame, base):
     print("Metering cache matched sixteen fresh full-frame and tiled renders, including source, input colour and method changes")
 
 
+def check_negative_density_cache(exe, frame, base):
+    height, width = 259, 521
+    chart = frame[np.arange(height)[:, None] % frame.shape[0], np.arange(width) % frame.shape[1]]
+    changed = chart.copy()
+    changed[..., :3] *= .85
+    plain = f"{base} --grain-model off"
+    optics = (f"{plain} --film-format super8 --halation-amount 1 --scatter-amount .5 --halation-boost 1 "
+              "--camera-diffusion-family pro_mist --camera-diffusion-strength 1.5 "
+              "--dir-amount 1.5 --dir-diffusion 80 --dir-tail-weight .3")
+    printer = "--print-exposure .3 --print-diffusion-family black_pro_mist --print-diffusion-strength 1.5"
+    scanner = "--scanner-enabled true --scanner-glare .08 --scanner-mtf 15"
+    cases = (
+        (chart, plain, False),
+        (None, f"{plain} --print-exposure .4", True),
+        (None, f"{plain} --negative-bleach-bypass .2", True),
+        (None, f"{plain} --film-exposure .2", False),
+        (None, f"{plain} --film-exposure .2 --output-color linear_rec709", True),
+        (None, f"{plain} --input-color prophoto", False),
+        (None, f"{plain} --stock fujifilm_provia_100f", False),
+        (None, f"{plain} --uv-enabled true --uv-cutoff 415", False),
+        (None, optics, False),
+        (None, f"{optics} {printer}", True),
+        (None, f"{optics} {printer} {scanner}", True),
+        (None, f"{optics} --grain-model preview --grain-amount 1.6", True),
+        (None, f"{optics} --grain-model production --grain-amount 1.6", False),
+        (None, f"{optics} --grain-model production --grain-amount 2", True),
+        (None, f"{optics} --halation-protect 1.3", False),
+        (None, f"{optics} --camera-diffusion-warmth .5", False),
+        (None, f"{optics} --dir-amount 1.1", False),
+        (None, f"{optics} --dir-amount 1.1 --mode scan_inverted {scanner}", True),
+        (changed, f"{optics} --dir-amount 1.1 --mode scan_inverted {scanner}", False),
+        (None, f"{optics} --dir-amount 1.1 --mode scan_inverted {scanner} --scanner-mtf 25", True),
+        (chart[:, :-3].copy(), f"{optics} --dir-amount 1.1 --mode scan_inverted {scanner}", False),
+        (None, f"{optics} --dir-amount 1.1 --mode scan_inverted {scanner} --scanner-mtf 25", True),
+    )
+    packet = b"".join(
+        (frame_request(source, options) if source is not None else f"REUSE {options}\n".encode("ascii")) + b"METRICS\n"
+        for source, options, _ in cases
+    )
+    clean = {key: value for key, value in os.environ.items() if not key.upper().startswith("SPEKTRAFILM_")}
+    full = {**clean, "SPEKTRAFILM_VULKAN_TILE_MODE": "legacy"}
+    tiled = {**clean, "SPEKTRAFILM_VULKAN_TILE_MODE": "tiled", "SPEKTRAFILM_VULKAN_TILE_WIDTH": "512",
+             "SPEKTRAFILM_VULKAN_TILE_HEIGHT": "512"}
+    for env in (full, tiled):
+        disable = {**env, "SPEKTRAFILM_VULKAN_NEGATIVE_DENSITY_CACHE": "0"}
+        candidate = run_stream(exe, packet, mode="--native-preview-stream", env=env, timeout=60)
+        reference = run_stream(exe, packet, mode="--native-preview-stream", env=disable, timeout=60)
+        assert len(candidate) == len(reference) == len(cases) * 2
+        for index, (_, options, hit) in enumerate(cases):
+            actual, stats = candidate[index * 2:index * 2 + 2]
+            expected, clean_stats = reference[index * 2:index * 2 + 2]
+            assert actual[0] == 0 and stats[0] == 0 and clean_stats[0] == 0, (options, actual[1][:400])
+            assert actual == expected, (index, options, env["SPEKTRAFILM_VULKAN_TILE_MODE"])
+            metrics, uncached = json.loads(stats[1]), json.loads(clean_stats[1])
+            hit = hit and env is full
+            assert metrics["negativeDensityCacheHit"] == hit, (index, options, metrics)
+            assert (metrics["passCount"] < uncached["passCount"]) == hit, (index, options)
+            assert metrics["transientCachedBytes"] == uncached["transientCachedBytes"], (index, options)
+    print(f"Negative density reuse matched {2 * len(cases)} recomputed full/tiled results with unchanged scratch allocations")
+
+
 def check_tiled_parity(exe, base):
     """Compare genuine multi-tile renders on a signal that crosses tile boundaries."""
     height, width = 769, 1027
@@ -760,6 +821,7 @@ def main():
     check_output_transfers(args.exe, frame, base)
     check_packed_readback(args.exe, base)
     check_metering_cache(args.exe, frame, base)
+    check_negative_density_cache(args.exe, frame, base)
     check_tiled_parity(args.exe, base)
     check_optical_scratch_lifetime(args.exe, base)
     check_gpu_budget(args.exe, base)

@@ -2546,7 +2546,11 @@
       "implemented": [
         "The Vulkan renderer keeps one metering value for the immutable developed source revision, dimensions, input colour and meter method. Both full and tiled paths reuse it. A mutable or unidentifiable source runs the original measurement.",
         "Sixteen full/tiled fixture renders matched fresh computations byte for byte. Changes to source, input profile and metering method invalidate the value. Print and unrelated stock changes reuse it. A 100-request sweep found 99 reuse hits and stable bounded worker allocations.",
-        "The first measured metering stage took 0.851–1.540 ms in these fixtures. The 1200 × 800 worker median/p95 changed from 10.26/10.85 ms to 9.69/10.16 ms. The 4095 × 2731 end-to-end worker median was effectively unchanged."
+        "The first measured metering stage took 0.851–1.540 ms in these fixtures. The 1200 × 800 worker median/p95 changed from 10.26/10.85 ms to 9.69/10.16 ms. The 4095 × 2731 end-to-end worker median was effectively unchanged.",
+        "A full-frame Viewer worker can now reuse the developed negative immediately before grain. It matches the immutable source revision and effective film, color, camera diffusion, halation and DIR inputs. The density is retained in existing film or DIR scratch. A static resource rebuild, new source, tile, or buffer replacement invalidates the checkpoint.",
+        "The Vulkan smoke matches 44 cache-enabled/recomputed float frames across full and tiled paths. Another 156 packed Viewer replies match the previous executable by SHA-256 and use the same GPU scratch. The 100-request sweep reused 95 results, cleared on all five source uploads and held 161,283,184 transient bytes. A concurrent Viewer/Export run matched all 24 serial outputs by SHA-256.",
+        "At 3000 × 2000 on the RTX 3090, print-only edits with stacked optics dropped from 140 to 64 passes. The median worker reply fell from 118.33 to 49.24 ms and p95 from 119.02 to 49.54 ms, including reply hashing. Color-only stayed at about 19 ms.",
+        "The new worker passed 36 licensed Capture One 16.4 Viewer assertions and eight drawn RGB16-source frames across four RAW formats. The original fixture catalog hash stayed unchanged."
       ],
       "evidence_paths": [
         "upstream-ofx/src/SpektraVulkanRenderer.cpp",
@@ -2555,11 +2559,17 @@
         ".test-results/metering-cache-smoke-20261120.log",
         ".test-results/metering-before-20261120.json",
         ".test-results/metering-after-20261120.json",
-        ".test-results/metering-100-edits-20261120.json"
+        ".test-results/metering-100-edits-20261120.json",
+        ".test-results/negative-density-full-smoke-20261120.log",
+        ".test-results/density-baseline-20261120.json",
+        ".test-results/density-candidate-20261120.json",
+        ".test-results/density-sweep-20261120.json",
+        ".test-results/density-overlap-20261120.json",
+        ".test-results/host-density-viewer-20261120"
       ],
       "remaining_work": [
-        "Map the scientific and optical stage dependencies and add bounded reuse for the expensive film-density, print and scanner stages. The current cache only reuses metering.",
-        "Measure the cache against native interactive workloads with realistic stock, profile, spatial effects and memory overlap."
+        "Map and measure downstream print and scanner checkpoints. Tiled preview and export use the original negative-development path.",
+        "Measure end-to-end native print-slider response, with real camera files and displayed Viewer frames, and use shader timestamps if supported for individual stage attribution."
       ],
       "original_acceptance_tests": [
         "Parameter mutation invalidation matrix",

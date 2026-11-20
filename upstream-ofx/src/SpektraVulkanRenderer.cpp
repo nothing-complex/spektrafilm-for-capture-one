@@ -1360,6 +1360,33 @@ constexpr uint32_t kCoreDescriptorSetCount =
   kCoreScannerPostSetCount + kCoreGrainSetCount;
 constexpr uint32_t kMaxVulkanDiffusionComponents = 32u;
 constexpr uint32_t kDirFloatCount = 18u;
+
+// The checkpoint ends at developed negative density, after camera optics and
+// DIR and before grain, print exposure, print optics, and scanner processing.
+struct NegativeDensityKey {
+  uint64_t sourceRevision = 0;
+  VulkanCorePushConstants constants{};
+  uint32_t halationFlags = 0;
+  uint32_t dirPasses = 0;
+  std::array<float, 14> halation{};
+  std::array<float, kDirFloatCount> dir{};
+  VulkanDiffusionInfo diffusion{};
+  std::vector<VulkanDiffusionComponent> diffusionComponents;
+
+  bool matches(const NegativeDensityKey &other) const {
+    return sourceRevision != 0u && sourceRevision == other.sourceRevision &&
+      std::memcmp(&constants, &other.constants, sizeof(constants)) == 0 &&
+      halationFlags == other.halationFlags && dirPasses == other.dirPasses &&
+      std::memcmp(halation.data(), other.halation.data(), sizeof(halation)) == 0 &&
+      std::memcmp(dir.data(), other.dir.data(), sizeof(dir)) == 0 &&
+      std::memcmp(&diffusion, &other.diffusion, sizeof(diffusion)) == 0 &&
+      diffusionComponents.size() == other.diffusionComponents.size() &&
+      (diffusionComponents.empty() ||
+       std::memcmp(diffusionComponents.data(), other.diffusionComponents.data(),
+                   diffusionComponents.size() * sizeof(VulkanDiffusionComponent)) == 0);
+  }
+};
+
 enum : uint32_t {
   kHalationOpClear = 0u,
   kHalationOpBlurX = 1u,
@@ -2800,6 +2827,7 @@ struct VulkanRenderer::Impl {
     uint64_t alternateSourceRevision = 0;
     ScratchBuffer filmRaw;
     ScratchBuffer filmDensity;
+    NegativeDensityKey negativeDensity;
     ScratchBuffer destination;
     ScratchBuffer destinationConverted;
     ScratchBuffer destinationStaging;
@@ -4132,6 +4160,7 @@ bool VulkanRenderer::Impl::prepareStaticFilmResources(
   if (coreResourcesCached && printScanResourcesCached && grainResourcesCached) {
     return true;
   }
+  coreFrame.negativeDensity.sourceRevision = 0;
 
   const ProfileCurveSet *curves = filmProfileCurves(params.film);
   if (!curves) {
@@ -4599,6 +4628,7 @@ void VulkanRenderer::Impl::destroyCopyFrameResources() {
 void VulkanRenderer::Impl::destroyCoreFrameResources() {
   coreFrame.sourceRevision = 0;
   coreFrame.alternateSourceRevision = 0;
+  coreFrame.negativeDensity = {};
   if (coreFrame.fence != VK_NULL_HANDLE) {
     vkDestroyFence(device, coreFrame.fence, nullptr);
     coreFrame.fence = VK_NULL_HANDLE;
@@ -5256,6 +5286,11 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
              )) {
     return false;
   }
+  const ScratchBuffer &negativeDensityBuffer = dirPath ? coreFrame.dirDensity : coreFrame.filmDensity;
+  if (negativeDensityBuffer.capacity < pixelStorageByteCount ||
+      (negativeDensityBuffer.memoryFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) == 0u) {
+    coreFrame.negativeDensity.sourceRevision = 0;
+  }
   if (filmDensityIntermediateEnabled &&
       !ensurePrivateScratchBuffer(coreFrame.filmDensity, pixelStorageByteCount, "core film density")) {
     return false;
@@ -5374,42 +5409,49 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
   diagnostics.sourceCopyMs = elapsedMilliseconds(sourceCopyStart, sourceCopyEnd);
   VkResult result = VK_SUCCESS;
 
-  if (cameraDiffusionPath &&
-      (!uploadScratchBuffer(coreFrame.cameraDiffusionInfo, &cameraDiffusionInfo, sizeof(cameraDiffusionInfo), "camera diffusion info") ||
-       !uploadScratchBuffer(
-         coreFrame.cameraDiffusionComponents,
-         cameraDiffusionComponents.data(),
-         static_cast<VkDeviceSize>(cameraDiffusionComponents.size() * sizeof(VulkanDiffusionComponent)),
-         "camera diffusion components"
-       ))) {
-    return false;
+  VulkanCorePushConstants pushConstants{};
+  pushConstants.width = static_cast<uint32_t>(width);
+  pushConstants.height = static_cast<uint32_t>(height);
+  pushConstants.filmExposureEv = params.filmExposureEv + autoExposureEv;
+  pushConstants.filmGamma = effectiveFilmGamma;
+  pushConstants.exposureCount = staticFilm.exposureCount;
+  pushConstants.inputColorSpace = static_cast<int32_t>(params.inputColorSpace);
+  pushConstants.rgbToRawMethod = static_cast<int32_t>(params.rgbToRawMethod);
+  pushConstants.colorSpaceCount = kSpektraColorSpaceCount;
+  pushConstants.transferLutSize = kSpektraColorTransferLutSize;
+  pushConstants.colorDecodeMin = colorDecodeLutMin();
+  pushConstants.colorDecodeMax = colorDecodeLutMax();
+  pushConstants.hanatosWidth = staticFilm.hanatosWidth;
+  pushConstants.hanatosHeight = staticFilm.hanatosHeight;
+  pushConstants.filmPushPullMode = static_cast<int32_t>(params.filmPushPullMode);
+  pushConstants.filmPushPullStops = params.filmPushPullStops;
+  pushConstants.fullWidth = coordinateWidth;
+  pushConstants.fullHeight = coordinateHeight;
+  pushConstants.tileOriginX = activeTileContext.enabled ? activeTileContext.tileOriginX : 0u;
+  pushConstants.tileOriginY = activeTileContext.enabled ? activeTileContext.tileOriginY : 0u;
+
+  const bool canReuseNegativeDensity = sourceRevision != 0u && printScanPassEnabled &&
+    !activeTileContext.enabled && !finalProcessNegative &&
+    envFlagEnabledOrDefault("SPEKTRAFILM_VULKAN_NEGATIVE_DENSITY_CACHE", true);
+  NegativeDensityKey negativeDensity{};
+  if (canReuseNegativeDensity) {
+    negativeDensity.sourceRevision = sourceRevision;
+    negativeDensity.constants = pushConstants;
+    negativeDensity.constants._pad1 = colorAdaptationFlags(params);
+    negativeDensity.diffusion = cameraDiffusionInfo;
+    negativeDensity.diffusionComponents = cameraDiffusionComponents;
+    negativeDensity.halationFlags = (halationScatterEnabled ? 1u : 0u) |
+      (halationBounceEnabled ? 2u : 0u) | (halationBoostEnabled ? 4u : 0u);
+    negativeDensity.dirPasses = dirExtraPassCount;
   }
-  if (printDiffusionPath &&
-      (!uploadScratchBuffer(coreFrame.printDiffusionInfo, &printDiffusionInfo, sizeof(printDiffusionInfo), "print diffusion info") ||
-       !uploadScratchBuffer(
-         coreFrame.printDiffusionComponents,
-         printDiffusionComponents.data(),
-         static_cast<VkDeviceSize>(printDiffusionComponents.size() * sizeof(VulkanDiffusionComponent)),
-         "print diffusion components"
-       ))) {
-    return false;
-  }
+  std::array<float, kDirFloatCount> dirFloats{};
   if (dirPath) {
     if (!staticFilm.curves || !staticFilm.curves->densityCurves || !staticFilm.curves->logExposure) {
       lastError = "Unable to locate generated film density curves for DIR correction.";
       return false;
     }
-    const std::array<float, kDirFloatCount> dirFloats = makeDirFloatParams(*staticFilm.curves, params, filmPixelSizeUm);
-    const std::vector<float> correctedDensityCurves = makeDirCorrectedDensityCurves(*staticFilm.curves, dirFloats);
-    if (!uploadScratchBuffer(coreFrame.dirFloats, dirFloats.data(), dirFloats.size() * sizeof(float), "DIR params") ||
-        !uploadScratchBuffer(
-          coreFrame.dirCorrectedDensityCurves,
-          correctedDensityCurves.data(),
-          static_cast<VkDeviceSize>(correctedDensityCurves.size() * sizeof(float)),
-          "DIR corrected density curves"
-        )) {
-      return false;
-    }
+    dirFloats = makeDirFloatParams(*staticFilm.curves, params, filmPixelSizeUm);
+    negativeDensity.dir = dirFloats;
   }
 
   if (frameParamsEnabled) {
@@ -5506,6 +5548,11 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
     frameFloats[75] = params.halationBoostEv;
     frameFloats[76] = params.halationBoostRange;
     frameFloats[77] = params.halationProtectEv;
+    if (canReuseNegativeDensity && halationPassEnabled) {
+      // Match the exact float inputs of SpektraHalation.comp.
+      std::copy_n(frameFloats.data() + 29, 11, negativeDensity.halation.begin());
+      std::copy_n(frameFloats.data() + 75, 3, negativeDensity.halation.begin() + 11);
+    }
     const float grainSynthesisQuality = std::clamp(params.grainSynthesisQuality, 0.25f, 4.0f);
     const float grainSynthesisSize = std::clamp(params.grainSynthesisSize, 0.25f, 4.0f);
     const float grainSynthesisSharpness = std::max(params.grainSynthesisSharpness, 0.25f);
@@ -5568,6 +5615,48 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
     std::memcpy(coreFrame.frameInts.mapped, frameInts.data(), frameInts.size() * sizeof(uint32_t));
     if (!flushMappedScratchBuffer(coreFrame.frameFloats, frameFloats.size() * sizeof(float), "core frame float params") ||
         !flushMappedScratchBuffer(coreFrame.frameInts, frameInts.size() * sizeof(uint32_t), "core frame int params")) {
+      return false;
+    }
+  }
+
+  const bool reuseNegativeDensity = negativeDensity.matches(coreFrame.negativeDensity);
+  diagnostics.negativeDensityCacheHit = reuseNegativeDensity;
+  if (reuseNegativeDensity) {
+    diagnostics.passCount -= 2u + cameraDiffusionExtraPassCount + halationExtraPassCount + dirExtraPassCount;
+  } else {
+    // Invalidate before recording work that may overwrite either density buffer.
+    coreFrame.negativeDensity.sourceRevision = 0;
+  }
+
+  if (cameraDiffusionPath && !reuseNegativeDensity &&
+      (!uploadScratchBuffer(coreFrame.cameraDiffusionInfo, &cameraDiffusionInfo, sizeof(cameraDiffusionInfo), "camera diffusion info") ||
+       !uploadScratchBuffer(
+         coreFrame.cameraDiffusionComponents,
+         cameraDiffusionComponents.data(),
+         static_cast<VkDeviceSize>(cameraDiffusionComponents.size() * sizeof(VulkanDiffusionComponent)),
+         "camera diffusion components"
+       ))) {
+    return false;
+  }
+  if (printDiffusionPath &&
+      (!uploadScratchBuffer(coreFrame.printDiffusionInfo, &printDiffusionInfo, sizeof(printDiffusionInfo), "print diffusion info") ||
+       !uploadScratchBuffer(
+         coreFrame.printDiffusionComponents,
+         printDiffusionComponents.data(),
+         static_cast<VkDeviceSize>(printDiffusionComponents.size() * sizeof(VulkanDiffusionComponent)),
+         "print diffusion components"
+       ))) {
+    return false;
+  }
+  if (dirPath && !reuseNegativeDensity) {
+    const std::vector<float> correctedDensityCurves = makeDirCorrectedDensityCurves(*staticFilm.curves, dirFloats);
+    if (!uploadScratchBuffer(coreFrame.dirFloats, dirFloats.data(), dirFloats.size() * sizeof(float), "DIR params") ||
+        !uploadScratchBuffer(
+          coreFrame.dirCorrectedDensityCurves,
+          correctedDensityCurves.data(),
+          static_cast<VkDeviceSize>(correctedDensityCurves.size() * sizeof(float)),
+          "DIR corrected density curves"
+        )) {
       return false;
     }
   }
@@ -6313,27 +6402,6 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
     );
   }
 
-  VulkanCorePushConstants pushConstants{};
-  pushConstants.width = static_cast<uint32_t>(width);
-  pushConstants.height = static_cast<uint32_t>(height);
-  pushConstants.filmExposureEv = params.filmExposureEv + autoExposureEv;
-  pushConstants.filmGamma = effectiveFilmGamma;
-  pushConstants.exposureCount = staticFilm.exposureCount;
-  pushConstants.inputColorSpace = static_cast<int32_t>(params.inputColorSpace);
-  pushConstants.rgbToRawMethod = static_cast<int32_t>(params.rgbToRawMethod);
-  pushConstants.colorSpaceCount = kSpektraColorSpaceCount;
-  pushConstants.transferLutSize = kSpektraColorTransferLutSize;
-  pushConstants.colorDecodeMin = colorDecodeLutMin();
-  pushConstants.colorDecodeMax = colorDecodeLutMax();
-  pushConstants.hanatosWidth = staticFilm.hanatosWidth;
-  pushConstants.hanatosHeight = staticFilm.hanatosHeight;
-  pushConstants.filmPushPullMode = static_cast<int32_t>(params.filmPushPullMode);
-  pushConstants.filmPushPullStops = params.filmPushPullStops;
-  pushConstants.fullWidth = coordinateWidth;
-  pushConstants.fullHeight = coordinateHeight;
-  pushConstants.tileOriginX = activeTileContext.enabled ? activeTileContext.tileOriginX : 0u;
-  pushConstants.tileOriginY = activeTileContext.enabled ? activeTileContext.tileOriginY : 0u;
-
   struct ActiveRect {
     uint32_t x = 0;
     uint32_t y = 0;
@@ -6568,7 +6636,7 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
     insertComputeBarrier();
   };
 
-  if (!finalProcessNegative) {
+  if (!finalProcessNegative && !reuseNegativeDensity) {
     pushConstants._pad0 = preExposureRawPath ? 1u : 0u;
     pushConstants._pad1 = colorAdaptationFlags(params);
     pushConstants._pad2 = fullFrameSourcePath ? 1u : 0u;
@@ -6638,7 +6706,7 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
     vkCmdDispatch(commandBuffer, activeGroupsX(), activeGroupsY(), 1);
   }
 
-  if (dirPath) {
+  if (dirPath && !reuseNegativeDensity) {
     insertComputeBarrier();
     dispatchDir(coreFrame.dirDescriptorSets[0], kDirOpCorrectionFromDensity, 0u);
     if (dirBlurPath) {
@@ -6950,6 +7018,10 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
   diagnostics.outputCopyMs = elapsedMilliseconds(outputCopyStart, outputCopyEnd);
   diagnostics.readbackBytes = destinationReadbackBytes;
 
+  if (canReuseNegativeDensity && !reuseNegativeDensity) {
+    coreFrame.negativeDensity = std::move(negativeDensity);
+  }
+
   RendererPassDiagnostics exposurePass{};
   exposurePass.name = preExposureRawPath ? "spektrafilm_raw_exposure" : "spektrafilm_film_exposure";
   exposurePass.width = static_cast<uint32_t>(width);
@@ -6957,7 +7029,7 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
   exposurePass.threadgroupWidth = 32;
   exposurePass.threadgroupHeight = 8;
   exposurePass.estimatedBytes = static_cast<uint64_t>(pixelStorageByteCount) * 2u;
-  diagnostics.passes.push_back(exposurePass);
+  if (!reuseNegativeDensity) diagnostics.passes.push_back(exposurePass);
 
   auto addComputePassDepth = [&](const std::string &name, uint32_t depth) {
     RendererPassDiagnostics pass{};
@@ -7049,13 +7121,13 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
     }
     addComputePass(std::string(prefix) + "_diffusion_resolve");
   };
-  if (cameraDiffusionPath) {
+  if (cameraDiffusionPath && !reuseNegativeDensity) {
     addDiffusionPasses("spektrafilm_camera", cameraDiffusionComponents);
     if (!halationPassEnabled) {
       addComputePass("spektrafilm_raw_to_log_raw");
     }
   }
-  if (halationPassEnabled) {
+  if (halationPassEnabled && !reuseNegativeDensity) {
     if (halationBoostEnabled) {
       if (halationBoostLocalReductionEnabled) {
         addComputePass("spektrafilm_halation_boost_max");
@@ -7092,9 +7164,9 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
   developPass.threadgroupWidth = 32;
   developPass.threadgroupHeight = 8;
   developPass.estimatedBytes = static_cast<uint64_t>(pixelStorageByteCount) * 2u;
-  diagnostics.passes.push_back(developPass);
+  if (!reuseNegativeDensity) diagnostics.passes.push_back(developPass);
 
-  if (dirPath) {
+  if (dirPath && !reuseNegativeDensity) {
     addComputePass("spektrafilm_dir_correction_from_density");
     if (dirBlurPath) {
       addComputePass("spektrafilm_dir_blur_x");
