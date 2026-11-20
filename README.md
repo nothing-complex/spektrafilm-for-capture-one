@@ -84,6 +84,7 @@ py -3.13 -m pip download --only-binary=:all: --require-hashes -r requirements-lu
 | The Spektrafilm tab is missing after restart | Close every Capture One window and launch again through **Spektrafilm for Capture One**. Open the catalog selected at launch. |
 | Launcher reports a version mismatch | Select the x64 Capture One 16.4.6.2414 installation. |
 | Viewer is slow | Select a smaller Viewer and drag-preview resolution. Lower the grain synthesis sample count if you are using synthesis. |
+| Viewer stops after a processing error | Choose **Retry Viewer** to render the current photo again with its saved look. |
 | Launcher finds an open or busy catalog | Open it in Capture One normally, close it, and retry. |
 | GPU or startup error | Run `.\Start-Spektrafilm.ps1 -CheckOnly` in PowerShell from the installed folder. It checks the release files, Capture One build and a Vulkan test frame. |
 

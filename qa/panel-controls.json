@@ -17,6 +17,7 @@
   {"Section": "Tool", "Label": "Print stock", "Kind": "select", "Capability": "vulkan", "Option": "paper"},
   {"Section": "Tool", "Label": "Processing mode", "Kind": "select", "Capability": "vulkan", "Option": "mode"},
   {"Section": "Tool", "Label": "Recover saved look / Restore previous saved look", "Kind": "button", "Capability": "look-state", "Option": null},
+  {"Section": "Tool", "Label": "Retry Viewer", "Kind": "button", "Capability": "viewer-overlay", "Option": null},
   {"Section": "Tool", "Label": "Save preview PNG…", "Kind": "button", "Capability": "viewer-overlay", "Option": null},
   {"Section": "Tool", "Label": "Show source", "Kind": "toggle", "Capability": "viewer-overlay", "Option": null},
   {"Section": "Tool", "Label": "Spectral reconstruction and DIR", "Kind": "section", "Capability": "workspace-layout", "Option": null},

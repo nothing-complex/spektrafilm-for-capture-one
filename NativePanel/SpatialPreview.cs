@@ -103,6 +103,14 @@ internal sealed class SpatialPreview : IDisposable
     private readonly Button holdCompare = new() { Content = "Hold to compare", Margin = new Thickness(8, 4, 0, 1) };
     private static readonly DependencyPropertyDescriptor ComparePress = DependencyPropertyDescriptor.FromProperty(Button.IsPressedProperty, typeof(Button));
     private readonly Button savePreview = new() { Content = "Save preview PNG…", Margin = new Thickness(0, 4, 0, 1), HorizontalAlignment = HorizontalAlignment.Left, IsEnabled = false };
+    private readonly Button retryViewer = new()
+    {
+        Content = "Retry Viewer",
+        Visibility = Visibility.Collapsed,
+        HorizontalAlignment = HorizontalAlignment.Left,
+        Margin = new Thickness(0, 4, 0, 1),
+        ToolTip = "Try again with the current photo and saved film settings.",
+    };
     private readonly CheckBox fastSynthesis = new()
     {
         Content = "Draft synthesis preview",
@@ -149,6 +157,7 @@ internal sealed class SpatialPreview : IDisposable
         histogram.ClippingChanged += viewer.ShowClipping;
         var liveControls = new StackPanel();
         liveControls.Children.Add(status);
+        liveControls.Children.Add(retryViewer);
         var actions = new WrapPanel();
         actions.Children.Add(showSource);
         holdCompare.SetBinding(UIElement.IsEnabledProperty, new Binding(nameof(UIElement.IsEnabled)) { Source = showSource });
@@ -173,6 +182,13 @@ internal sealed class SpatialPreview : IDisposable
         showSource.Checked += (_, _) => RequestRefresh();
         showSource.Unchecked += (_, _) => RequestRefresh();
         savePreview.Click += async (_, _) => await SavePreviewAsync();
+        retryViewer.Click += (_, _) =>
+        {
+            if (!enabled || disposed || failedRevision is null) return;
+            rendererRetry.Reset();
+            failedRevision = null;
+            RequestRefresh();
+        };
         var exportControls = new StackPanel();
         exportStatus.Text = DescribePreviousExport(exportJobs.ReadLatest());
         exportControls.Children.Add(exportStatus);
@@ -610,6 +626,7 @@ internal sealed class SpatialPreview : IDisposable
         histogram.SetFrame(null);
         selectionUnavailable = false;
         savePreview.IsEnabled = false;
+        retryViewer.Visibility = Visibility.Collapsed;
         inputRevision++;
         if (renderingFinal && !dragging)
             pending?.Cancel();
@@ -917,6 +934,7 @@ internal sealed class SpatialPreview : IDisposable
         source = null;
         sourceSize = null;
         failedRevision = null;
+        retryViewer.Visibility = Visibility.Collapsed;
         failedSpace = null;
         failedSize = null;
         sourceDisplay = null;
@@ -1081,6 +1099,7 @@ internal sealed class SpatialPreview : IDisposable
         }
         queued = false;
         failedRevision = null;
+        retryViewer.Visibility = Visibility.Collapsed;
         var settingsVersion = inputRevision;
         var started = Stopwatch.GetTimestamp();
         using var job = new CancellationTokenSource();
@@ -1225,6 +1244,7 @@ internal sealed class SpatialPreview : IDisposable
             failedSpace = space;
             failedSize = size;
             ClearFrame(error);
+            retryViewer.Visibility = Visibility.Visible;
         }
         catch (Exception) when (settingsVersion != inputRevision) { }
         finally

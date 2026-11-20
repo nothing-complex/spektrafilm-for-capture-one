@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows;
 using System.Windows.Controls;
 
 public static partial class StartupHook
@@ -159,6 +160,34 @@ public static partial class StartupHook
             CheckReady("a second transport failure stops retrying and reports a Viewer error while Export stays connected", "ProcessingError");
             Check(Field(spatial, "viewerFrame") is null && Field(spatial, "queued") is false && Worker() is null,
                 "an exhausted retry publishes no obsolete frame and starts no additional worker");
+            var retry = (Button)Field(spatial, "retryViewer")!;
+            Check(retry.Visibility == Visibility.Visible && retry.IsEnabled,
+                "the native panel exposes a retry action after automatic Viewer recovery is exhausted");
+            var latestSaved = File.ReadAllBytes(editPath);
+            retry.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await WaitFor(Settled, "The native Viewer retry action did not recover the same image.");
+            Check(retry.Visibility == Visibility.Collapsed && ReferenceEquals(before, Field(spatial, "source"))
+                && File.ReadAllBytes(editPath).SequenceEqual(latestSaved),
+                "the retry action restores the current picture from the same high-depth source and durable look");
+            CheckReady("manual Viewer retry restores Ready with native Export connected", "Visible");
+
+            var beforeDisable = Worker()!.Id;
+            using var activeWorker = Process.GetProcessById(beforeDisable);
+            exposureValue.SetValue(exposure, testEdit);
+            await WaitFor(() => Field(spatial, "renderingFinal") is true && Worker()?.Id == beforeDisable,
+                "The actual worker did not enter a final request before disable.");
+            var duringDisable = File.ReadAllBytes(editPath);
+            Call(spatial, "SetEnabled", false);
+            await WaitFor(() => Field(spatial, "pending") is null && activeWorker.HasExited,
+                "Disabling did not drain the in-flight Viewer request.");
+            Check(Field(spatial, "viewerFrame") is null && Prop(viewer, "HasPainted") is false
+                && retry.Visibility == Visibility.Collapsed && Worker() is null,
+                "disabling during an active final render discards the result and exits its worker");
+            CheckReady("disabled Viewer keeps the native Export bridge connected", "Disabled");
+            Call(spatial, "SetEnabled", true);
+            await WaitFor(Settled, "Enabling the Viewer did not recover the saved look.");
+            Check(Worker()!.Id != beforeDisable && File.ReadAllBytes(editPath).SequenceEqual(duringDisable),
+                "enabling after cancellation renders the same durable edit in a fresh worker");
         }
         finally
         {

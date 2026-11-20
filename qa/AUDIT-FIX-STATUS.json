@@ -1349,7 +1349,8 @@
         "All production Viewer and Export source requests bypass the retired proxy-dependent 8-bit path and request only high-depth Capture One development. Four licensed RAW formats exercise the refusal of an 8-bit substitution. The original proxy-pending behavior applied only to the removed implementation.",
         "A private calibrated DNG rename reproduced a fully painted cached frame while Capture One reported its original offline. The Viewer now reads the native availability state with the current revision, clears the source and derivatives, stops obsolete work and suspends the overlay. Reconnecting the unmodified bytes automatically redeveloped and painted a new RGB16 frame with the same look. The final measured suspension and repaint took 307 ms and 1.72 seconds. The 29-check fixture also verified native recipe export refuses disconnected originals. Full Windows/Vulkan, 311 first-launch, 315 restart and paired 39-check native effects export regressions passed.",
         "A typed native development deadline and device-loss reply share the existing bounded generation-aware retry. A licensed 17-check fixture exhausted the 180-second development admission deadline and repainted in 703 ms when the slot reopened. A separate 16-check licensed Vulkan fixture recovered in 561 ms after an injected post-fence device loss, preserving the same source, durable look and Export connection. Full licensed 311/315, native effects 39/39, Windows and GPU regressions passed.",
-        "All four publication boundaries now recheck both native original availability and the current variant and revision. The 31-check licensed chart fixture directly called the publication guard on the live private RAW and after it was moved offline, then verified repaint from fresh high-depth development after restoring the file."
+        "All four publication boundaries now recheck both native original availability and the current variant and revision. The 31-check licensed chart fixture directly called the publication guard on the live private RAW and after it was moved offline, then verified repaint from fresh high-depth development after restoring the file.",
+        "After two actual worker interruptions, the native Retry Viewer button restored the same durable look from the same high-depth source with native Export still connected. A second case disabled the Viewer during a verified 4096 px request, drained and exited that worker with no obsolete publication, then re-enabled it from the exact saved bytes. Both licensed stress launches passed 43 assertions."
       ],
       "evidence_paths": [
         "NativePanel/RenderCoordination.cs",
@@ -1374,10 +1375,11 @@
         ".test-results/host-native-device-loss-20261120/native-vulkan-device-loss.json",
         ".test-results/host-renderer-device-loss-contract-full-20261120/host-smoke.log",
         ".test-results/host-renderer-device-loss-contract-export-20261120/host-smoke.log",
-        ".test-results/host-original-available-at-publication-20261120/host-smoke.log"
+        ".test-results/host-original-available-at-publication-20261120/host-smoke.log",
+        ".test-results/host-viewer-manual-retry-20261120/host-smoke.log"
       ],
       "remaining_work": [
-        "Exercise a stall inside native development beyond the already verified admission deadline, and test delayed completion explicitly across disabled, detached and export-owned contexts."
+        "Exercise a stall inside native development beyond the verified admission deadline. Test delayed publication explicitly across detached, inactive and export-owned contexts. The active-disable path and manual retry are verified."
       ],
       "original_acceptance_tests": [
         "Deterministic virtual clock and delayed fake renderer: latest settled request publishes; out-of-order final/draft completions never regress quality or variant.",
@@ -1632,7 +1634,8 @@
         "Native docked and floated menus expose Copy support details and offer Retry look save while pending. The copied report uses an allow-list of build/runtime identities, typed Export/Viewer states, look durability and dropped-log count. Real missing-delegate, restored bridge, master-off and locked-look fixtures verify the reported route without including native error paths.",
         "Local panel diagnostics now enqueue bounded JSON records on a background writer with one capped previous generation. Nine contracts cover rotation, newline escaping, concurrent producers, a locked destination and eventual recovery. Final licensed runs passed 240 and 244 assertions.",
         "A 600-second contention test submitted 148,608 records to each of two local async loggers. The writable logger dropped none and retained two files under 1 MiB each. The locked logger dropped all records and recovered cleanly on exit. The pair of enqueue calls took p99 0.0036 ms and at most 0.4652 ms.",
-        "Structured event data is optional and serialized by the existing bounded background pump. One event identifies accepted export timing without source or destination paths. Invalid or oversize details are discarded without ending the pump. Portable tests confirm valid structured events still arrive after both errors."
+        "Structured event data is optional and serialized by the existing bounded background pump. One event identifies accepted export timing without source or destination paths. Invalid or oversize details are discarded without ending the pump. Portable tests confirm valid structured events still arrive after both errors.",
+        "A native Retry Viewer action is shown after a terminal frame-processing error. The real WPF control restored the saved look after automatic recovery was exhausted, with Export connection preserved."
       ],
       "evidence_paths": [
         "NativePanel/SpektraFilmTool.cs",
@@ -1643,7 +1646,8 @@
         ".test-results/state-final-isolated-20261120",
         ".test-results/host-protected-look-formats-20261120/host-smoke.log",
         ".test-results/panel-log-ten-minute-20261120/measurement.json",
-        ".test-results/contracts-structured-export-compression-20261120/StateContracts.log"
+        ".test-results/contracts-structured-export-compression-20261120/StateContracts.log",
+        ".test-results/host-viewer-manual-retry-20261120/host-smoke.log"
       ],
       "remaining_work": [
         "Add per-capability native fault scenarios, exercise the user clipboard flow and extend structured event IDs beyond accepted export timings. Ten-minute native interaction telemetry is tracked under VE-17."
@@ -3126,7 +3130,8 @@
         "A licensed capture of the native panel generated 196 declared controls, sections and menu entries, including 136 controls mapped to compiled worker options. A second native launch matches the tracked inventory exactly and verifies the developer exhaustion control is disabled with a reason. CAPABILITIES.md generation rejects unknown renderer options, unknown local capabilities, duplicate identities and invalid table cells. Thirty-one manifest assertions passed under Windows PowerShell 5.1.",
         "The Viewer Save Preview PNG now uses the same window-owner-aware dialog pattern as image export. Both licensed runs saved the settled 2048 px Viewer image, reopened exact dimensions, colour context and the sampled BGRA pixel, and re-enabled the command. All Windows and Vulkan contracts passed.",
         "The exact extracted audit.15 package regenerated identical capability documentation, passed all package and runtime checksums and reproduced the 196-control inventory in the licensed host. It passed 310 first-launch and 314 restart assertions, 131 native RAW assertions on each launch, 28 managed Vulkan checks, and both public Windows contract jobs.",
-        "An altered capability report in a disposable copy of the exact audit.15 archive was rejected by checksum. The separate native installer upgrade kept exactly the verified generated report."
+        "An altered capability report in a disposable copy of the exact audit.15 archive was rejected by checksum. The separate native installer upgrade kept exactly the verified generated report.",
+        "The licensed native panel inventory now includes the conditional Retry Viewer button. All 197 controls, sections and menus matched the revised package source inventory in the actual WPF tree."
       ],
       "evidence_paths": [
         "README.md",
@@ -3150,7 +3155,8 @@
         ".test-results/audit15-package-verify-20261120/result.json",
         ".test-results/host-audit15-inventory-20261120/host-smoke.log",
         "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44687634647",
-        ".test-results/audit15-capability-tamper-20261120/result.txt"
+        ".test-results/audit15-capability-tamper-20261120/result.txt",
+        ".test-results/host-viewer-retry-inventory-final-20261120/panel-control-inventory.json"
       ],
       "remaining_work": [
         "Individually exercise the remaining conditional commands, including the live LUT cancellation button and recent-preset menu selection. Recheck public URLs after future releases."

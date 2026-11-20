@@ -50,7 +50,7 @@ public static partial class StartupHook
         BindFields(panel, "color-delivery", ("strength", null));
         BindFields(panel, "native-grain", ("grainType", null), ("grainImpact", null), ("grainSize", null),
             ("applyGrain", null), ("restoreGrain", null));
-        BindFields(spatial, "viewer-overlay", ("showSource", null), ("holdCompare", null), ("savePreview", null));
+        BindFields(spatial, "viewer-overlay", ("showSource", null), ("holdCompare", null), ("savePreview", null), ("retryViewer", null));
         BindFields(spatial, "viewer-quality", ("previewSize", null), ("dragPreviewSize", null), ("fastSynthesis", null));
         BindFields(spatial, "native-export", ("cancelExport", null));
         BindFields(panel, "lut-export", ("cancelLut", null));
