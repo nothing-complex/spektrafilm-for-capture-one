@@ -946,6 +946,9 @@ void writeMetrics(const Renderer *renderer, uint64_t renderSequence, const Input
          << ",\"passCount\":" << d.passCount
          << ",\"tiled\":" << (d.tiledRendering ? "true" : "false")
          << ",\"tileCount\":" << d.tileCount
+         << ",\"tileWidth\":" << d.tileWidth
+         << ",\"tileHeight\":" << d.tileHeight
+         << ",\"tileOverlap\":" << d.tileOverlap
          << ",\"estimatedFullFrameGpuBytes\":" << memory.fullFrameBytes
          << ",\"gpuMemoryBudgetBytes\":" << memory.budgetBytes
          << ",\"dynamicGpuBudget\":" << (memory.dynamicBudget ? "true" : "false")

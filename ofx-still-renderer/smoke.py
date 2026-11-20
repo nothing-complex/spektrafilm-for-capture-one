@@ -497,6 +497,48 @@ def check_gpu_budget(exe, base):
           "preserved requested size, and recovered after two refused renders.")
 
 
+def check_adaptive_viewer(exe):
+    # Trigger natural tiling above 32 MP with cuts, edges and varying alpha.
+    width, height = 8191, 4103
+    x = np.arange(width, dtype=np.int32)[None, :]
+    y = np.arange(height, dtype=np.int32)[:, None]
+    frame = np.empty((height, width, 4), dtype="<f4")
+    frame[..., 0] = np.where(x % 719 < 290, .05, .85)
+    frame[..., 1] = np.where((x + y) % 611 < 260, .09, .91)
+    frame[..., 2] = np.where((x + 2 * y) % 513 < 142, .06, .75)
+    frame[..., 3] = .15 + .82 * x / width
+    source = frame.tobytes()
+    del frame
+    clean = {key: value for key, value in os.environ.items()
+             if not key.upper().startswith("SPEKTRAFILM_") and key.upper() != "DOTNET_STARTUP_HOOKS"}
+    fixed = {**clean, "SPEKTRAFILM_VULKAN_TILE_WIDTH": "512", "SPEKTRAFILM_VULKAN_TILE_HEIGHT": "256"}
+    for input_color in ("srgb", "adobe_rgb", "linear_rec2020"):
+        options = (f"--input-color {input_color} --output-color srgb --grain-model off "
+                   "--film-format 8 --halation-amount 1 --scatter-amount .5")
+        command = f"FRAME8 {width} {height} {options}\n".encode("ascii")
+        request = b"".join((command, source, b"METRICS\n"))
+        frames = []
+        for environment in (fixed, clean):
+            replies = run_stream(exe, request, mode="--native-preview-stream", env=environment, timeout=90)
+            assert len(replies) == 2 and all(status == 0 for status, _ in replies), input_color
+            picture = np.frombuffer(replies[0][1], dtype=np.uint8).reshape(height, width, 4)
+            metrics = json.loads(replies[1][1])
+            assert metrics["tiled"] and metrics["readbackBytes"] == width * height * 4 + 4 * metrics["tileCount"], input_color
+            frames.append((picture, metrics))
+
+        (reference, fixed_metrics), (adaptive, adaptive_metrics) = frames
+        assert adaptive_metrics["tileCount"] <= fixed_metrics["tileCount"], input_color
+        max_error = 0
+        for row in range(0, height, 64):
+            first = reference[row:row + 64]
+            second = adaptive[row:row + 64]
+            np.testing.assert_array_equal(first[..., 3], second[..., 3], err_msg=input_color)
+            max_error = max(max_error, int(np.max(np.abs(first[..., :3].astype(np.int16) - second[..., :3]))))
+        assert max_error <= 1, (input_color, max_error)
+        print(f"Adaptive {input_color}: {fixed_metrics['tileCount']} to {adaptive_metrics['tileCount']} tiles, "
+              f"max BGRA error {max_error}, exact alpha")
+
+
 def check_spectral_stock_matrix(exe):
     root = Path(__file__).resolve().parents[1]
     options = json.loads((root / "stocks.json").read_text(encoding="utf-8"))
@@ -591,12 +633,16 @@ def main():
                         / "build-ofx-still" / "Release" / "SpektraStillRenderer.exe")
     parser.add_argument("--spectral-stock-matrix", action="store_true", help="Check stock calibration and all spectral methods across input spaces.")
     parser.add_argument("--parameter-matrix", action="store_true", help="Check the compiled parameter descriptions against the Vulkan parser and renderer.")
+    parser.add_argument("--adaptive-viewer", action="store_true", help="Compare packed tile layouts on a 33 MP chart using a physical GPU.")
     args = parser.parse_args()
     if args.parameter_matrix:
         check_parameter_description(args.exe)
         return
     if args.spectral_stock_matrix:
         check_spectral_stock_matrix(args.exe)
+        return
+    if args.adaptive_viewer:
+        check_adaptive_viewer(args.exe)
         return
     frame = source_frame(args.image)
     base = "--stock kodak_portra_400 --paper kodak_portra_endura --input-color srgb"

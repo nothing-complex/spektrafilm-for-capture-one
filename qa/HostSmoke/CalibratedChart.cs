@@ -164,7 +164,13 @@ public static partial class StartupHook
         var target = assembly.GetType("HostProfile", true)!.GetMethod("CaptureTarget", Flags)!.Invoke(null, new[] { window })!;
         var host = assembly.GetType("HostImageSource", true)!;
         var capture = host.GetMethod("Capture", Flags)!;
+        var checkPublication = host.GetMethod("IsCurrentAvailableSource", Flags)!;
+        var nativeRevision = host.GetMethod("GetRevision", Flags)!;
+        var targetVariant = (Guid)Prop(target, "VariantId")!;
         var encoding = Enum.Parse(assembly.GetType("PreviewInputSpace", true)!, "Srgb");
+        var onlineRevision = nativeRevision.Invoke(null, new[] { window, (object)targetVariant })!;
+        Check(checkPublication.Invoke(null, new[] { window, (object)targetVariant, onlineRevision }) is true,
+            "publication accepts this live native variant and source revision");
         trace.Add(Snapshot("online"));
         var moved = false;
         var suspended = false;
@@ -186,6 +192,9 @@ public static partial class StartupHook
                     offlineMs ??= Stopwatch.GetElapsedTime(offlineStarted).TotalMilliseconds;
                 }
             }
+            var offlineRevision = nativeRevision.Invoke(null, new[] { window, (object)targetVariant })!;
+            Check(checkPublication.Invoke(null, new[] { window, (object)targetVariant, offlineRevision }) is false,
+                "publication refuses a supplied current source revision once its original is unavailable");
             try
             {
                 capture.Invoke(null, new[] { window, target, encoding, true });

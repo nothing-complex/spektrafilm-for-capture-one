@@ -50,6 +50,12 @@ internal static class HostImageSource
         return (selected.UUID, ReadRevision(selected), selected.CoreImage?.IsFileAvailable == true);
     }
 
+    internal static bool IsCurrentAvailableSource(object window, Guid expectedVariant, NativeImageRevision expectedRevision)
+    {
+        var (variant, revision, available) = GetSelectedSourceState(window);
+        return available && variant == expectedVariant && revision == expectedRevision;
+    }
+
     internal static NativeImageRevision GetRevision(object window, Guid variantId) => ReadRevision(RequireSelection(window, variantId).Variant);
 
     internal static RecipeInfo? ActiveRecipe(object window)

@@ -24,6 +24,12 @@ SCENES = {
     "enlarger": ("--grain-model", "off", "--halation-amount", "0", "--scatter-amount", "0",
                  "--enlarger-scale", "1.4", "--enlarger-x", "3", "--enlarger-y", "-5"),
     "optics": ("--grain-model", "off", "--film-format", "super8", "--halation-amount", "1", "--scatter-amount", "0.5"),
+    "stacked-optics": ("--grain-model", "production", "--film-format", "super8", "--halation-amount", "1",
+                       "--halation-boost", "1", "--scatter-amount", "0.5", "--camera-diffusion-family", "pro_mist",
+                       "--camera-diffusion-strength", "1.5", "--print-diffusion-family", "black_pro_mist",
+                       "--print-diffusion-strength", "1.5", "--dir-amount", "1.5", "--dir-diffusion", "80",
+                       "--scanner-enabled", "true", "--scanner-glare", "0.08", "--scanner-glare-roughness", "1",
+                       "--scanner-unsharp-radius", "100", "--scanner-unsharp-amount", "2"),
     "synthesis-draft": ("--grain-model", "synthesis", "--film-format", "35", "--grain-synthesis-samples", "2"),
     "synthesis-full": ("--grain-model", "synthesis", "--film-format", "35"),
 }

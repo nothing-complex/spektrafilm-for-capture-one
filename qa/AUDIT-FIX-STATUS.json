@@ -1065,7 +1065,8 @@
         "Measure peak worker working set and Vulkan allocation counters at 0.96, 6 and 24 MP for color and optics in packed Viewer and float export routes. Separate benchmark measured 2-sample draft synthesis and renderer-default synthesis.",
         "Shared system RAM admission estimates and reserves physical/commit headroom for native development, worker transport, and output encoding. Verified reusable reservations and pressure in synthetic 4/6/8 GiB system headroom cases, plus an actual full 24 MP export under guard.",
         "Query VK_EXT_memory_budget on the selected adapter where available and fall back to the conservative heap-based allocator budget. Use estimated graph bytes and reserved headroom to choose full-size tiling or refuse an infeasible frame. Grain synthesis retains the full-frame requirement.",
-        "The exact audit.15 worker completed all 16 renderer/transport cases and 80 requests at 24, 45, 61 and 100 MP on RTX 3090. Both colour-only and optical cases used packed Viewer and float image export. At 100 MP, warm p95 was 428 ms or 5.30 s in the Viewer and 2.20 s or 8.51 s for float export, from four warm requests per case. The optical export used 6.33 GiB peak worker commit and 3.09 GiB transient cache. Its 800 tiled results returned 9.38 GB of GPU readback for the 1.60 GB float reply, identifying tile overlap transfer as the main measured candidate for improvement. These timings exclude Capture One development, ICC conversion and file encoding."
+        "The exact audit.15 worker completed all 16 renderer/transport cases and 80 requests at 24, 45, 61 and 100 MP on RTX 3090. Both colour-only and optical cases used packed Viewer and float image export. At 100 MP, warm p95 was 428 ms or 5.30 s in the Viewer and 2.20 s or 8.51 s for float export, from four warm requests per case. The optical export used 6.33 GiB peak worker commit and 3.09 GiB transient cache. Its 800 tiled results returned 9.38 GB of GPU readback for the 1.60 GB float reply, identifying tile overlap transfer as the main measured candidate for improvement. These timings exclude Capture One development, ICC conversion and file encoding.",
+        "The worker now chooses larger packed Viewer tiles only on images at least 4096 px in each dimension, with an existing halo no greater than 256 px and reported dynamic budget for source plus estimated scratch. Float and wide-halo plans retain their previous geometry. At 100 MP on RTX 3090, the actual default packed plan moved from 800 to 28 tiles, with one warm hashed exposure change at 4.89 to 1.55 seconds. Simulated 6 and 4 GiB caps selected 104 and 800 tiles respectively. All 12 complete pixel reply hashes matched the explicit prior plan and warm packed sources were reused without upload."
       ],
       "evidence_paths": [
         "qa/renderer-benchmark.py",
@@ -1081,11 +1082,14 @@
         ".test-results/renderer-gpu-budget-3072-20261119.json",
         ".test-results/renderer-gpu-budget-4096-20261119.json",
         ".test-results/matrix-24-45-61-100mp-20261120/nvidia.json",
-        ".test-results/matrix-24-45-61-100mp-20261120/adapter.txt"
+        ".test-results/matrix-24-45-61-100mp-20261120/adapter.txt",
+        ".test-results/adaptive-viewer-only-20261120/verified-layouts.json",
+        ".test-results/contracts-adaptive-viewer-only-20261120/summary.json"
       ],
       "remaining_work": [
         "Calibrate all optics graphs, shared GPU activity and system memory on real 4/6/8 GB hardware from different vendors.",
-        "Add process-wide adapter-aware admission for two Viewer contexts; explicitly release idle buffers by ownership and model allocator overlap at each tile."
+        "Add process-wide adapter-aware admission for two Viewer contexts; explicitly release idle buffers by ownership and model allocator overlap at each tile.",
+        "The 45 MP jointly enabled optics graph reached 14.15 GiB of transient allocations against a 7 GiB admission target because its 1359 px support enlarged the working tiles. Profile actual per-graph scratch and bound large-halo working tiles without degrading their output or making the worker unresponsive."
       ],
       "original_acceptance_tests": [
         "4/6/8GB GPU scenarios and100MP source sizing",
@@ -1211,7 +1215,8 @@
         "Added a compiled-parameter-aware baseline probe. It measures discrete capped-kernel mass, second moment and normalized L1 error in 48 cases across Standard 8, Standard 35 and IMAX 70, plus 12 genuine Vulkan scanner impulse responses with unchanged alpha.",
         "At 16,384 px on Standard 8, a 100 µm scanner unsharp sigma measured 41.81 µm with the current 256 px cap. The same setting measured 99.53 µm at 1,200 px. The ideal finite 3-sigma kernel predicts 98.66 µm at 16,384 px.",
         "A CPU centered-impulse prototype tests globally aligned tent reduction, reduced Gaussian convolution and linear reconstruction at four subpixel phases where the production cap clips. All 16 cases preserve mass and centroid within numerical noise, with at most 0.316% sigma error and 0.00184 normalized L1 error.",
-        "A real 4097 by 33 Standard 8 Vulkan test combined glare, MTF blur and unsharp. The old capped planner underestimated the serial support, yielding a 0.03222 maximum RGB error across tiled boundaries, and MTF changed source alpha by up to 0.60313. The tile planner and scheduler now share the sum of actual finite scanner support. The MTF passes preserve alpha. All RGB samples match between full and tiled renders and alpha matches the input exactly. Full Windows contracts and Vulkan smoke passed."
+        "A real 4097 by 33 Standard 8 Vulkan test combined glare, MTF blur and unsharp. The old capped planner underestimated the serial support, yielding a 0.03222 maximum RGB error across tiled boundaries, and MTF changed source alpha by up to 0.60313. The tile planner and scheduler now share the sum of actual finite scanner support. The MTF passes preserve alpha. All RGB samples match between full and tiled renders and alpha matches the input exactly. Full Windows contracts and Vulkan smoke passed.",
+        "The exact audit.16 worker matched full-frame results for scatter or halation alone on a 12,501 by 31 Super8 chart. Their composition differed by up to 0.000126 float RGB at a 512 px tile seam with exact alpha. The 100 MP layout comparison independently found maximum 0.0000341 and 15,264,000 affected 16-bit channel samples. The scatter resolve feeds the bounce pass, but both passes currently share a single 256 px halo in planning and per-pass dispatch."
       ],
       "evidence_paths": [
         "qa/blur-support.py",
@@ -1219,9 +1224,12 @@
         ".test-results/physical-blur-tent-verified-20261120.json",
         "ofx-still-renderer/smoke.py",
         ".test-results/scanner-composed-halo-baseline-20261120/old.json",
-        ".test-results/contracts-scanner-composed-halo-20261120/renderer-smoke.log"
+        ".test-results/contracts-scanner-composed-halo-20261120/renderer-smoke.log",
+        ".test-results/rc04-halation-overlap-baseline-20261120.json",
+        ".test-results/adaptive-optical-tile-budget-20261120/float-parity-100mp.json"
       ],
       "remaining_work": [
+        "Compute the composed finite support for scatter followed by halation and shrink the dispatch between the two passes. Compare against full-frame RGB16/float references and resolve the wide-halo budget before enabling adaptive export layouts.",
         "Extend the direct impulse/energy experiments to DIR, grain and other blur backends. The initial reports for those capped kernels are analytical.",
         "Add a Vulkan version of the phase-aligned reduction as an explicit appearance version, starting with scanner unsharp. Preserve old looks and validate boundary behavior and actual performance.",
         "Recompute the tile overlap for the planned multiscale implementation and remaining physical blur paths. The current scanner support is computed from each active finite pass.",
@@ -1332,7 +1340,8 @@
         "The licensed first and restart runs sent 100 rapid exposure changes while a real 4096 px final request was active. Each burst coalesced to one completed final render on the surviving worker, reused the same RGB16 source, and published the last persisted value. No subsequent final or draft work remained after the quiet window. The same runs passed the one-retry and exhausted-retry cases, and all 306 first-launch and 310 restart assertions.",
         "All production Viewer and Export source requests bypass the retired proxy-dependent 8-bit path and request only high-depth Capture One development. Four licensed RAW formats exercise the refusal of an 8-bit substitution. The original proxy-pending behavior applied only to the removed implementation.",
         "A private calibrated DNG rename reproduced a fully painted cached frame while Capture One reported its original offline. The Viewer now reads the native availability state with the current revision, clears the source and derivatives, stops obsolete work and suspends the overlay. Reconnecting the unmodified bytes automatically redeveloped and painted a new RGB16 frame with the same look. The final measured suspension and repaint took 307 ms and 1.72 seconds. The 29-check fixture also verified native recipe export refuses disconnected originals. Full Windows/Vulkan, 311 first-launch, 315 restart and paired 39-check native effects export regressions passed.",
-        "A typed native development deadline and device-loss reply share the existing bounded generation-aware retry. A licensed 17-check fixture exhausted the 180-second development admission deadline and repainted in 703 ms when the slot reopened. A separate 16-check licensed Vulkan fixture recovered in 561 ms after an injected post-fence device loss, preserving the same source, durable look and Export connection. Full licensed 311/315, native effects 39/39, Windows and GPU regressions passed."
+        "A typed native development deadline and device-loss reply share the existing bounded generation-aware retry. A licensed 17-check fixture exhausted the 180-second development admission deadline and repainted in 703 ms when the slot reopened. A separate 16-check licensed Vulkan fixture recovered in 561 ms after an injected post-fence device loss, preserving the same source, durable look and Export connection. Full licensed 311/315, native effects 39/39, Windows and GPU regressions passed.",
+        "All four publication boundaries now recheck both native original availability and the current variant and revision. The 31-check licensed chart fixture directly called the publication guard on the live private RAW and after it was moved offline, then verified repaint from fresh high-depth development after restoring the file."
       ],
       "evidence_paths": [
         "NativePanel/RenderCoordination.cs",
@@ -1356,7 +1365,8 @@
         ".test-results/host-native-development-deadline-20261120/native-development-deadline.json",
         ".test-results/host-native-device-loss-20261120/native-vulkan-device-loss.json",
         ".test-results/host-renderer-device-loss-contract-full-20261120/host-smoke.log",
-        ".test-results/host-renderer-device-loss-contract-export-20261120/host-smoke.log"
+        ".test-results/host-renderer-device-loss-contract-export-20261120/host-smoke.log",
+        ".test-results/host-original-available-at-publication-20261120/host-smoke.log"
       ],
       "remaining_work": [
         "Exercise a stall inside native development beyond the already verified admission deadline, and test delayed completion explicitly across disabled, detached and export-owned contexts."
@@ -1724,7 +1734,9 @@
         "The exact audit.14 worker passed the full standalone Vulkan smoke suite on isolated physical Intel integrated graphics, including packed/scalar parity, float stability, all seven multi-tile cases and the 128 MiB pressure fixture. Intel tile parity worst difference was 1.20e-7.",
         "The exact audit.15 worker completed all 16 renderer/transport cases and 80 requests at 24, 45, 61 and 100 MP on RTX 3090. Both colour-only and optical cases used packed Viewer and float image export. At 100 MP, warm p95 was 428 ms or 5.30 s in the Viewer and 2.20 s or 8.51 s for float export, from four warm requests per case. The optical export used 6.33 GiB peak worker commit and 3.09 GiB transient cache. Its 800 tiled results returned 9.38 GB of GPU readback for the 1.60 GB float reply, identifying tile overlap transfer as the main measured candidate for improvement. These timings exclude Capture One development, ICC conversion and file encoding.",
         "The standalone and licensed Viewer tests recovered from a Vulkan device-loss status substituted after real GPU completion. The worker rebuilt its backend and repainted the same source. Protocol 2 preserves the typed error, while legacy protocol 1 keeps its ordinary request-error semantics.",
-        "The Vulkan tiled readback now gathers only the centre rows into tightly packed staging and copies them directly into the final image. Full optical halos remain on-device and packed validation still covers the working tile. Across the same 80-request RTX 3090 matrix, 100 MP optical readback fell from 9.38 GB to 1.60 GB for float and 2.34 GB to 0.40 GB for packed. Warm medians fell from 8.40 s to 5.95 s and 5.27 s to 4.81 s respectively. All four complete 100 MP reply hashes matched the prior binary. Windows contracts, eight full/tile graphs and padded-row half/float parity passed on physical NVIDIA and Intel."
+        "The Vulkan tiled readback now gathers only the centre rows into tightly packed staging and copies them directly into the final image. Full optical halos remain on-device and packed validation still covers the working tile. Across the same 80-request RTX 3090 matrix, 100 MP optical readback fell from 9.38 GB to 1.60 GB for float and 2.34 GB to 0.40 GB for packed. Warm medians fell from 8.40 s to 5.95 s and 5.27 s to 4.81 s respectively. All four complete 100 MP reply hashes matched the prior binary. Windows contracts, eight full/tile graphs and padded-row half/float parity passed on physical NVIDIA and Intel.",
+        "The worker now chooses larger packed Viewer tiles only on images at least 4096 px in each dimension, with an existing halo no greater than 256 px and reported dynamic budget for source plus estimated scratch. Float and wide-halo plans retain their previous geometry. At 100 MP on RTX 3090, the actual default packed plan moved from 800 to 28 tiles, with one warm hashed exposure change at 4.89 to 1.55 seconds. Simulated 6 and 4 GiB caps selected 104 and 800 tiles respectively. All 12 complete pixel reply hashes matched the explicit prior plan and warm packed sources were reused without upload.",
+        "The separate 33.6 MP high-contrast chart checked every packed channel for three input encodings. Each route reduced 272 tiles to 12 with at most one 8-bit RGB code difference and exact alpha. Standalone smoke passed on the NVIDIA and Intel physical adapters."
       ],
       "evidence_paths": [
         "upstream-ofx/shaders/vulkan/SpektraFormatConvert.comp",
@@ -1746,7 +1758,11 @@
         ".test-results/tile-centre-100mp-parity-20261120/before.json",
         ".test-results/tile-centre-100mp-parity-20261120/after.json",
         ".test-results/contracts-tile-centre-20261120/summary.json",
-        ".test-results/contracts-tile-centre-20261120/intel-half-and-float.log"
+        ".test-results/contracts-tile-centre-20261120/intel-half-and-float.log",
+        ".test-results/adaptive-viewer-only-20261120/verified-layouts.json",
+        ".test-results/contracts-adaptive-viewer-only-20261120/summary.json",
+        ".test-results/adaptive-viewer-only-20261120/packed-chart.log",
+        ".test-results/adaptive-viewer-only-20261120/intel-smoke.log"
       ],
       "remaining_work": [
         "Explore GPU linear-strength blending and pre-transform source alpha for the enlarger. Both retain their existing exact fallback.",
@@ -2396,7 +2412,8 @@
         "The exact audit.14 worker passed the full standalone Vulkan smoke suite on isolated physical Intel integrated graphics, including packed/scalar parity, float stability, all seven multi-tile cases and the 128 MiB pressure fixture. Intel tile parity worst difference was 1.20e-7.",
         "The exact audit.15 worker completed all 16 renderer/transport cases and 80 requests at 24, 45, 61 and 100 MP on RTX 3090. Both colour-only and optical cases used packed Viewer and float image export. At 100 MP, warm p95 was 428 ms or 5.30 s in the Viewer and 2.20 s or 8.51 s for float export, from four warm requests per case. The optical export used 6.33 GiB peak worker commit and 3.09 GiB transient cache. Its 800 tiled results returned 9.38 GB of GPU readback for the 1.60 GB float reply, identifying tile overlap transfer as the main measured candidate for improvement. These timings exclude Capture One development, ICC conversion and file encoding.",
         "The optimized worker passed the paired 24–100 MP matrix. Four full 100 MP optics frame hashes matched across binaries. Production exports also recorded eight job-correlated native-to-file measurements across two licensed launches of a DNG with the active 6 MP TIFF recipe, optionally delivered as PNG.",
-        "Both native Export commands passed on DNG/sRGB, CR3/Adobe RGB, RAF/ProPhoto and NEF/Linear Rec.2020, all using the exact Adobe RGB recipe profile at 6.00–7.53 MP in RGB48 TIFF and RGBA64 PNG. Across 32 accepted outputs and 159 assertions each at first launch and restart, film changed mean RGB code by 6.23–11.66% of full scale and camera diffusion added 2.43–4.76%. Native command outputs differed by at most 1.21e-6 mean full-scale code."
+        "Both native Export commands passed on DNG/sRGB, CR3/Adobe RGB, RAF/ProPhoto and NEF/Linear Rec.2020, all using the exact Adobe RGB recipe profile at 6.00–7.53 MP in RGB48 TIFF and RGBA64 PNG. Across 32 accepted outputs and 159 assertions each at first launch and restart, film changed mean RGB code by 6.23–11.66% of full scale and camera diffusion added 2.43–4.76%. Native command outputs differed by at most 1.21e-6 mean full-scale code.",
+        "The worker now chooses larger packed Viewer tiles only on images at least 4096 px in each dimension, with an existing halo no greater than 256 px and reported dynamic budget for source plus estimated scratch. Float and wide-halo plans retain their previous geometry. At 100 MP on RTX 3090, the actual default packed plan moved from 800 to 28 tiles, with one warm hashed exposure change at 4.89 to 1.55 seconds. Simulated 6 and 4 GiB caps selected 104 and 800 tiles respectively. All 12 complete pixel reply hashes matched the explicit prior plan and warm packed sources were reused without upload."
       ],
       "evidence_paths": [
         "tests",
@@ -2420,7 +2437,9 @@
         ".test-results/tile-centre-100mp-parity-20261120/after.json",
         ".test-results/host-tile-centre-native-export-20261120/first-native-effect-export.json",
         ".test-results/host-four-raw-native-effects-20261120/host-smoke.log",
-        ".test-results/host-four-raw-native-effects-20261120/restart-NEF-native-effect-export.json"
+        ".test-results/host-four-raw-native-effects-20261120/restart-NEF-native-effect-export.json",
+        ".test-results/adaptive-viewer-only-20261120/verified-layouts.json",
+        ".test-results/contracts-adaptive-viewer-only-20261120/summary.json"
       ],
       "remaining_work": [
         "Complete the end-to-end hardware and source-format matrix and choose release budgets. Native-to-file telemetry covers four RAWs at recipe sizes of 6.00–7.53 MP on the licensed RTX 3090 workstation.",

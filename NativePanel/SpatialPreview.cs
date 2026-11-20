@@ -1118,7 +1118,7 @@ internal sealed class SpatialPreview : IDisposable
                         initialStarted, snapshot.AdjustmentKey, selectedVariant, selectedSpace, encoding, look, dragEdge, settingsVersion, token), job.Token)
                     : await development;
                 job.Token.ThrowIfCancellationRequested();
-                if (HostImageSource.GetRevision(window, selectedVariant) != snapshot.AdjustmentKey)
+                if (!HostImageSource.IsCurrentAvailableSource(window, selectedVariant, snapshot.AdjustmentKey))
                 {
                     queued = true;
                     return;
@@ -1189,7 +1189,8 @@ internal sealed class SpatialPreview : IDisposable
             job.Token.ThrowIfCancellationRequested();
             if (settingsVersion != inputRevision)
                 return;
-            if (HostImageSource.GetRevision(window, selectedVariant) != input.Description?.Source.AdjustmentKey)
+            if (input.Description is not { } publishedSource
+                || !HostImageSource.IsCurrentAvailableSource(window, selectedVariant, publishedSource.Source.AdjustmentKey))
             {
                 queued = true;
                 return;
@@ -1271,7 +1272,7 @@ internal sealed class SpatialPreview : IDisposable
                 : DecodeResult(frame, pixels, look.Strength, inputColor.Space, encoding.Id, stop), stop);
             stop.ThrowIfCancellationRequested();
             if (version != inputRevision || DragLongEdge != dragEdge || OutputRenderActive
-                || HostImageSource.GetRevision(window, variant) != revision)
+                || !HostImageSource.IsCurrentAvailableSource(window, variant, revision))
                 return;
             viewerFrame = display;
             frameCurrent = false;
@@ -1332,7 +1333,7 @@ internal sealed class SpatialPreview : IDisposable
             if (!WantsDragPreview || OutputRenderActive || activeVariant != selectedVariant || !ReferenceEquals(source, input)
                 || !ReferenceEquals(inputSpace.SelectedItem, inputColor) || !ReferenceEquals(outputSpace.SelectedItem, encoding)
                 || ViewerRenderSize != viewerSize || DragLongEdge != dragEdge
-                || HostImageSource.GetRevision(window, selectedVariant) != revision)
+                || !HostImageSource.IsCurrentAvailableSource(window, selectedVariant, revision))
                 return;
 
             viewerFrame = output;

@@ -7598,7 +7598,8 @@ bool VulkanRenderer::Impl::renderTiledBootstrap(
   if (fullWidth <= 0 || fullHeight <= 0) {
     return true;
   }
-  if (!isStillBgra8(source, destination, params) && !isSupportedRgba(source, destination)) {
+  const bool packedDisplay = isStillBgra8(source, destination, params);
+  if (!packedDisplay && !isSupportedRgba(source, destination)) {
     lastError = "Only RGBA 16-bit half and 32-bit float images are supported by the Windows Vulkan path.";
     return false;
   }
@@ -7661,6 +7662,37 @@ bool VulkanRenderer::Impl::renderTiledBootstrap(
   };
   centerTileWidth = growTileForOverlap(centerTileWidth, static_cast<uint32_t>(fullWidth));
   centerTileHeight = growTileForOverlap(centerTileHeight, static_cast<uint32_t>(fullHeight));
+#ifdef SPEKTRAFILM_STILL_RENDERER
+  // Changing the tile seams can alter low float codes. Keep the exact export
+  // tile plan and tune only the packed display path within supported overlap.
+  if (packedDisplay && backend && fullWidth >= 4096 && fullHeight >= 4096 && overlap <= kVulkanSpatialEffectRadiusPx &&
+      envString("SPEKTRAFILM_VULKAN_TILE_WIDTH", "").empty() &&
+      envString("SPEKTRAFILM_VULKAN_TILE_HEIGHT", "").empty()) {
+    const uint64_t cached = transientAllocationBytes();
+    const auto budget = backend->availableDeviceLocalMemory(cached);
+    if (budget.dynamic) {
+      // Keep one quarter of the reported budget free. Charge both full-size
+      // source allocations and allow scratch for the complete optical graph.
+      const uint64_t memoryLimit = budget.bytes - budget.bytes / 4u;
+      const uint64_t sourceAndFixedBytes = 64u * 1024u * 1024u + static_cast<uint64_t>(fullWidth) * fullHeight * 32u;
+      if (cached > budget.bytes - budget.bytes / 8u) releaseTransientResourcesNoLock();
+      if (memoryLimit > sourceAndFixedBytes) {
+        const uint64_t availableScratch = memoryLimit - sourceAndFixedBytes;
+        constexpr uint64_t estimatedScratchBytesPerPixel = 448u;
+        for (const uint32_t edge : {2048u, 1536u, 1024u, 768u}) {
+          const auto candidateWidth = std::max(centerTileWidth, edge);
+          const auto candidateHeight = std::max(centerTileHeight, edge);
+          const auto workingWidth = std::min<uint64_t>(fullWidth, candidateWidth + 2ull * overlap);
+          const auto workingHeight = std::min<uint64_t>(fullHeight, candidateHeight + 2ull * overlap);
+          if (workingWidth * workingHeight * estimatedScratchBytesPerPixel > availableScratch) continue;
+          centerTileWidth = candidateWidth;
+          centerTileHeight = candidateHeight;
+          break;
+        }
+      }
+    }
+  }
+#endif
   const uint32_t tileColumns =
     (static_cast<uint32_t>(fullWidth) + centerTileWidth - 1u) / centerTileWidth;
   const uint32_t tileRows =
