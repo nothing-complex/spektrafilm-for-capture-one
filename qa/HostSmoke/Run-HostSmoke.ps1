@@ -4,7 +4,8 @@ param(
     [string] $CaptureOnePath='C:\Program Files\Capture One\Capture One\CaptureOne.exe',
     [string] $TestHookPath=(Join-Path $PSScriptRoot 'bin\Release\net8.0-windows\HostSmoke.dll'),
     [string] $PackagedRuntime,
-    [string] $ProofingSettingsConfig,
+    [Alias('ProofingSettingsConfig')][string] $NativeSettingsConfig,
+    [switch] $CatalogIsolation,
     [switch] $SkipRestart,
     [switch] $CheckOrdinaryLaunch,
     [switch] $ShowTool,
@@ -12,6 +13,9 @@ param(
     [string] $ResultsDirectory
 )
 $ErrorActionPreference='Stop'
+if ($CatalogIsolation -and ($SkipRestart -or $CheckOrdinaryLaunch -or $ColorMatrix)) {
+    throw 'The catalog isolation fixture controls all four launches.'
+}
 $root=(Resolve-Path (Join-Path $PSScriptRoot '..\..')).ProviderPath
 $tokens=$null
 $parseErrors=$null
@@ -41,28 +45,30 @@ function Clear-TestCrashMarkers([datetime] $started,[string] $phase) {
         Remove-Item -LiteralPath $marker.FullName
     }
 }
-function Restore-ProofingPreferences([string] $profile,[string] $backup,[string] $catalog,[string] $folder) {
+function Restore-TestCatalogPreferences([string] $profile,[string] $backup,[string[]] $catalogs,[string] $folder) {
     if(Get-Process CaptureOne -ErrorAction SilentlyContinue){throw 'Capture One is still active. Its verified preference backup was retained.'}
     $original=(Get-FileHash -LiteralPath $backup).Hash
     $observed=(Get-FileHash -LiteralPath $profile).Hash
     if($original -ne $observed){
         $before=[xml](Get-Content -Raw -LiteralPath $backup)
         $xmlPath="//setting[@name='DocumentManagerSettings']/value//string"
-        if(@($before.SelectNodes($xmlPath) | Where-Object {$_.InnerText -ceq $catalog}).Count){
+        if(@($before.SelectNodes($xmlPath) | Where-Object {$catalogs -ccontains $_.InnerText}).Count){
             throw 'The disposable catalog was already in the settings backup.'
         }
         $captured=Join-Path $folder 'Capture One user.config.after-proofing'
         Copy-Item -LiteralPath $profile -Destination $captured
         if((Get-FileHash -LiteralPath $captured).Hash -ne $observed){throw 'Could not verify changed preferences.'}
         $after=[xml](Get-Content -Raw -LiteralPath $captured)
-        $entries=@($after.SelectNodes($xmlPath) | Where-Object {$_.InnerText -ceq $catalog})
-        if($entries.Count -gt 1){throw 'Several recent entries matched the disposable catalog.'}
+        $entries=@($after.SelectNodes($xmlPath) | Where-Object {$catalogs -ccontains $_.InnerText})
+        if(@($entries | Group-Object InnerText | Where-Object Count -gt 1).Count){
+            throw 'Several recent entries matched one disposable catalog.'
+        }
         if($entries.Count -eq 0){
             [ordered]@{before=$original;afterTest=$observed;restored=$observed;removedRecentCatalog=$false} |
                 ConvertTo-Json | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $folder 'proof-settings-receipt.json')
             return
         }
-        [void]$entries[0].ParentNode.RemoveChild($entries[0])
+        foreach($entry in $entries){[void]$entry.ParentNode.RemoveChild($entry)}
         $id=[Guid]::NewGuid().ToString('N')
         $temp=$profile+'.'+$id+'.restore'
         $replaced=$profile+'.'+$id+'.previous'
@@ -74,12 +80,13 @@ function Restore-ProofingPreferences([string] $profile,[string] $backup,[string]
                 $preserved=[xml]::new()
                 $preserved.PreserveWhitespace=$true
                 $preserved.Load($captured)
-                $entry=$preserved.SelectNodes($xmlPath) | Where-Object {$_.InnerText -ceq $catalog}
-                $previous=$entry.PreviousSibling
-                if($null -ne $previous -and $previous.NodeType -eq [Xml.XmlNodeType]::Whitespace){
-                    [void]$entry.ParentNode.RemoveChild($previous)
+                foreach($entry in @($preserved.SelectNodes($xmlPath) | Where-Object {$catalogs -ccontains $_.InnerText})){
+                    $previous=$entry.PreviousSibling
+                    if($null -ne $previous -and $previous.NodeType -eq [Xml.XmlNodeType]::Whitespace){
+                        [void]$entry.ParentNode.RemoveChild($previous)
+                    }
+                    [void]$entry.ParentNode.RemoveChild($entry)
                 }
-                [void]$entry.ParentNode.RemoveChild($entry)
                 $preserved.Save($temp)
                 $candidate=[xml](Get-Content -Raw -LiteralPath $temp)
                 if($candidate.OuterXml -cne $after.OuterXml){throw 'The candidate did not preserve other Capture One preferences.'}
@@ -118,9 +125,9 @@ if(!$ResultsDirectory){$ResultsDirectory=Join-Path $root ('.test-results\host-'+
 $folder=[IO.Path]::GetFullPath($ResultsDirectory)
 if(Test-Path -LiteralPath $folder){throw 'Use a new empty results directory.'}
 [void][IO.Directory]::CreateDirectory($folder)
-if ($ProofingSettingsConfig) {
-    $profile=(Get-Item -LiteralPath $ProofingSettingsConfig).FullName
-    if ([IO.Path]::GetFileName($profile) -ne 'user.config') { throw 'Pass the existing Capture One user.config to back up before proof tests.' }
+if ($NativeSettingsConfig) {
+    $profile=(Get-Item -LiteralPath $NativeSettingsConfig).FullName
+    if ([IO.Path]::GetFileName($profile) -ne 'user.config') { throw 'Pass the existing Capture One user.config to back up before testing.' }
     $backup=Join-Path $folder 'Capture One user.config.before-proofing'
     Copy-Item -LiteralPath $profile -Destination $backup
     if ((Get-FileHash -LiteralPath $profile).Hash -ne (Get-FileHash -LiteralPath $backup).Hash) {
@@ -128,8 +135,20 @@ if ($ProofingSettingsConfig) {
     }
 }
 $catalog=Join-Path $folder 'Host Smoke.cocatalogdb'
-Copy-Item -LiteralPath $source -Destination $catalog
 $sourceHash=(Get-FileHash -LiteralPath $source).Hash
+$fixtureCatalogs=@($catalog)
+if($CatalogIsolation){
+    $fixtureCatalogs=foreach($copy in 'A','B'){
+        $directory=Join-Path $folder $copy
+        [void][IO.Directory]::CreateDirectory($directory)
+        $copyPath=Join-Path $directory 'Host Smoke.cocatalogdb'
+        Copy-Item -LiteralPath $source -Destination $copyPath
+        if((Get-FileHash -LiteralPath $copyPath).Hash -ne $sourceHash){throw 'Isolated catalog bytes did not match the original.'}
+        $copyPath
+    }
+} else {
+    Copy-Item -LiteralPath $source -Destination $catalog
+}
 [IO.File]::WriteAllText((Join-Path $folder 'disposable-catalog.marker'),$sourceHash)
 $runtime=Join-Path $folder 'runtime'
 [void][IO.Directory]::CreateDirectory($runtime)
@@ -144,7 +163,7 @@ $testHook=$TestHookPath
 if(!(Test-Path -LiteralPath $testHook)){throw 'Build qa/HostSmoke and NativePanel first.'}
 Copy-Item -LiteralPath $testHook -Destination $runtime
 $testHook=Join-Path $runtime 'HostSmoke.dll'
-$names=@('DOTNET_STARTUP_HOOKS','SPEKTRAFILM_ROOT','SPEKTRAFILM_CATALOG','SPEKTRAFILM_DATA_ROOT','SPEKTRAFILM_PANEL_LOG','SPEKTRAFILM_HOST_SMOKE','SPEKTRAFILM_LAUNCH_ID','SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX','SPEKTRAFILM_SHOW_TOOL','SPEKTRAFILM_HOST_PROOF_TEST')
+$names=@('DOTNET_STARTUP_HOOKS','SPEKTRAFILM_ROOT','SPEKTRAFILM_CATALOG','SPEKTRAFILM_DATA_ROOT','SPEKTRAFILM_PANEL_LOG','SPEKTRAFILM_HOST_SMOKE','SPEKTRAFILM_LAUNCH_ID','SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX','SPEKTRAFILM_SHOW_TOOL','SPEKTRAFILM_HOST_PROOF_TEST','SPEKTRAFILM_HOST_CATALOG_ISOLATION')
 $prior=@{}
 foreach($name in $names){$prior[$name]=[Environment]::GetEnvironmentVariable($name,'Process')}
 try {
@@ -156,12 +175,15 @@ try {
     $env:SPEKTRAFILM_HOST_SMOKE=$folder
     $env:SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX=if($ColorMatrix){'1'}else{$null}
     $env:SPEKTRAFILM_SHOW_TOOL=if($ShowTool){'1'}else{$null}
-    $env:SPEKTRAFILM_HOST_PROOF_TEST=if($ProofingSettingsConfig){'1'}else{$null}
-    $phases=if($SkipRestart){@('first')}else{@('first','restart')}
-    if (!$SkipRestart) { [IO.File]::WriteAllText((Join-Path $folder 'verify-grain-restart.marker'), 'test only') }
+    $env:SPEKTRAFILM_HOST_PROOF_TEST=if($NativeSettingsConfig -and !$CatalogIsolation){'1'}else{$null}
+    $env:SPEKTRAFILM_HOST_CATALOG_ISOLATION=if($CatalogIsolation){'1'}else{$null}
+    $phases=if($CatalogIsolation){@('A-first','B-first','A-restart','B-restart')}elseif($SkipRestart){@('first')}else{@('first','restart')}
+    if (!$SkipRestart -and !$CatalogIsolation) { [IO.File]::WriteAllText((Join-Path $folder 'verify-grain-restart.marker'), 'test only') }
     foreach($phase in $phases){
         [IO.File]::WriteAllText((Join-Path $folder 'phase.txt'),$phase)
-        if($phase -eq 'restart'){Start-Sleep -Seconds 10}
+        if($phase -ne $phases[0]){Start-Sleep -Seconds 10}
+        if($CatalogIsolation){$catalog=$fixtureCatalogs[[int]($phase.StartsWith('B'))]}
+        $env:SPEKTRAFILM_CATALOG=$catalog
         $phaseStarted=[DateTime]::UtcNow
         $env:SPEKTRAFILM_LAUNCH_ID=[Guid]::NewGuid().ToString('N')
         [IO.File]::WriteAllText((Join-Path $folder ($phase+'.launch')), $env:SPEKTRAFILM_LAUNCH_ID)
@@ -223,7 +245,7 @@ try {
         }
     }
     if((Get-FileHash -LiteralPath $source).Hash -ne $sourceHash){throw 'Source catalog changed unexpectedly.'}
-    if ($ProofingSettingsConfig) { Restore-ProofingPreferences $profile $backup $catalog $folder }
+    if ($NativeSettingsConfig) { Restore-TestCatalogPreferences $profile $backup $fixtureCatalogs $folder }
     Write-Output "Host test passed; source catalog unchanged. Evidence: $folder"
 } finally {
     foreach($name in $names){[Environment]::SetEnvironmentVariable($name,$prior[$name],'Process')}

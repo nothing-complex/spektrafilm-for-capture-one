@@ -81,6 +81,11 @@ public static partial class StartupHook
             Check(Field(panel, "displayedVariant") is Guid, "selected image bound to panel");
             var variant = (Guid)Field(panel, "displayedVariant")!;
             var spatial = Field(panel, "opticalPreview")!;
+            if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_CATALOG_ISOLATION") == "1")
+            {
+                await TestCatalogIsolation(panelAssembly!, panel, spatial, window, store, variant, catalog);
+                return;
+            }
             if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX") == "1")
             {
                 await RunColorMatrix(panelAssembly!, panel, window, spatial);

@@ -2864,11 +2864,20 @@
       "id": "NI-03",
       "title": "Investigate sessions and multiple-document support through isolated adapters",
       "priority": "P3",
-      "status": "pending",
-      "implemented": [],
-      "evidence_paths": [],
+      "status": "partial",
+      "implemented": [
+        "Verified two byte-identical disposable Capture One catalogs share an isolated plugin data root while keeping different durable looks for the same native document UUID, variant UUID, RAW path and catalog basename.",
+        "Four licensed launches passed 22, 25, 25 and 25 assertions. Opposite film exposure edits persisted independently. WPF drew the correct settled bitmap and native full-size RGB48 export produced the expected distinct output after both restarts. Original catalog and RAW hashes matched.",
+        "An installed-assembly metadata probe identified ICaptureOneDocument identity and lifecycle, ISessionDocument folder selectors and DocumentManager's open-document enumeration without creating a session."
+      ],
+      "evidence_paths": [
+        "qa/HostSmoke/CatalogIsolation.cs",
+        "qa/HostSmoke/Run-HostSmoke.ps1",
+        ".test-results/host-catalog-isolation-painted-20261120",
+        ".test-results/native-multiview-metadata-20261120/metadata.txt"
+      ],
       "remaining_work": [
-        "Create read-only capability probes for session/document identity, source lifecycle and selection on exact supported builds.",
+        "Create a disposable native session to prove source lifecycle, identity, selection and reopen behavior. Probe affected host versions independently.",
         "Define explicit user opt-in and backup policy per document type; preserve safe default isolation.",
         "Move attachment/render/state ownership into a document registry with clean dispose/rebind and per-document keys.",
         "Test tethered incoming files, multiple windows and switching document focus without state or output crossing boundaries.",
@@ -2892,8 +2901,8 @@
   "counts": {
     "total": 70,
     "implemented": 21,
-    "partial": 46,
-    "pending": 3
+    "partial": 47,
+    "pending": 2
   },
   "last_reconciled": "2026-11-20",
   "handover": "HANDOVER.md",

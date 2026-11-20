@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 21 bounded primary fixes implemented, 46 partial items and 3 pending items. It includes feasibility investigations and enhancements.
+Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 21 bounded primary fixes implemented, 47 partial items and 2 pending items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -533,6 +533,15 @@ Evidence is under `.test-results/host-recipe-proofing-final-20261120`.
 - [ ] Validate an appearance-versioned larger-support filter and tile margins. Compare energy, resolution, boundaries, full/tiled parity and performance before enabling it.
 
 Evidence is in `.test-results/physical-blur-support-reference-20261120.json`.
+
+## Catalog identity and look isolation
+
+- [x] Clone one test database byte for byte into two folders. The native catalog and variant UUIDs, the database basename and RAW source are identical. The plugin uses the full opted-in catalog path to keep distinct look files in one shared test data root.
+- [x] Pass 97 assertions across four licensed launches. Both clones restored their own film exposure, drew their own film bitmap and exported a distinct full-resolution RGB48 TIFF. The source catalog and RAW hashes matched.
+- [x] Back up the host preferences and remove only the two fixture recent catalog entries. Preserve other settings. Identify session interfaces in metadata for the supported version.
+- [ ] Verify concurrently open windows, focus switching, actual native sessions, tethered files and document teardown.
+
+Evidence is under `.test-results/host-catalog-isolation-painted-20261120`.
 
 ## Status maintenance
 
