@@ -12,6 +12,59 @@ function Get-CatalogStateDigest([object[]] $records) {
     finally { $sha.Dispose() }
 }
 
+function Get-CatalogLookFiles([string] $dataRoot, [string] $key) {
+    foreach ($scope in @('Variant looks', 'Look recovery')) {
+        $root = Join-Path (Join-Path $dataRoot $scope) $key
+        if (!(Test-Path -LiteralPath $root -PathType Container)) { continue }
+        $root = (Get-Item -LiteralPath $root -Force).FullName
+        $directories = New-Object 'System.Collections.Generic.Queue[string]'
+        $directories.Enqueue($root)
+        while ($directories.Count -gt 0) {
+            $directory = Get-Item -LiteralPath $directories.Dequeue() -Force
+            if ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Saved-look backup cannot follow linked folders.' }
+            foreach ($item in Get-ChildItem -LiteralPath $directory.FullName -Force | Sort-Object Name) {
+                if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Saved-look backup cannot follow linked files.' }
+                if ($item.PSIsContainer) { $directories.Enqueue($item.FullName); continue }
+                [pscustomobject]@{
+                    Relative = $scope + '/' + $item.FullName.Substring($root.Length + 1).Replace('\', '/')
+                    Path = $item.FullName
+                }
+            }
+        }
+    }
+}
+
+function Write-CatalogLookArchive([IO.Stream] $stream, [string] $key, [object[]] $files) {
+    Add-Type -AssemblyName System.IO.Compression
+    $records = New-Object 'System.Collections.Generic.List[object]'
+    $zip = New-Object IO.Compression.ZipArchive($stream, [IO.Compression.ZipArchiveMode]::Create, $true)
+    try {
+        foreach ($file in $files) {
+            $sourceStream = [IO.File]::Open($file.Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)
+            try {
+                $entry = $zip.CreateEntry($file.Relative, [IO.Compression.CompressionLevel]::Optimal)
+                $output = $entry.Open()
+                try { $sourceStream.CopyTo($output) } finally { $output.Dispose() }
+                $sourceStream.Position = 0
+                $digest = (Get-FileHash -InputStream $sourceStream -Algorithm SHA256).Hash.ToLowerInvariant()
+                $records.Add([ordered]@{path=$file.Relative;bytes=$sourceStream.Length;sha256=$digest})
+            } finally { $sourceStream.Dispose() }
+        }
+        $manifest = [ordered]@{schemaVersion=2;catalogKey=$key;stateDigest=(Get-CatalogStateDigest $records.ToArray());files=$records.ToArray()}
+        $entry = $zip.CreateEntry('manifest.json')
+        $writer = New-Object IO.StreamWriter($entry.Open(), (New-Object Text.UTF8Encoding($false)))
+        try { $writer.Write(($manifest | ConvertTo-Json -Depth 6)) } finally { $writer.Dispose() }
+    } finally { $zip.Dispose() }
+    return $manifest
+}
+
+function Test-HasRecoverableLook([string[]] $paths) {
+    foreach ($path in $paths) {
+        if ($path -cmatch '^(Variant looks/[0-9a-f]{32}\.json|Look recovery/[0-9a-f]{32}\.pending\.json)$') { return $true }
+    }
+    return $false
+}
+
 function Get-CatalogRestoreReceiptPath([string] $dataRoot, [string] $catalog) {
     Join-Path (Join-Path $dataRoot 'Catalog restores') ((Get-CatalogKey $catalog) + '.json')
 }
@@ -28,7 +81,9 @@ function Read-CatalogRestoreReceipt([string] $path) {
         $receipt.BackupDatabase -isnot [string] -or ![IO.Path]::IsPathRooted($receipt.BackupDatabase) -or
         $receipt.BackupHash -notmatch '^[0-9A-F]{64}$' -or $receipt.ArchiveHash -notmatch '^[0-9A-F]{64}$' -or
         $receipt.DestinationHash -notmatch '^[0-9A-F]{64}$' -or $receipt.SavedLooksOnly -isnot [bool] -or
-        $receipt.AllowUpdatedCatalog -isnot [bool] -or !$receipt.Scopes) {
+        $receipt.AllowUpdatedCatalog -isnot [bool] -or !$receipt.Scopes -or
+        ($receipt.PSObject.Properties['LatestLocalLooks'] -and $receipt.LatestLocalLooks -isnot [bool]) -or
+        ($receipt.LatestLocalLooks -and !$receipt.SavedLooksOnly)) {
         throw 'The interrupted catalog restore receipt is invalid.'
     }
     foreach ($scope in @('Variant looks', 'Look recovery')) {

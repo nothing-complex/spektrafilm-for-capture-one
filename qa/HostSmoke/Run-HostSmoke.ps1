@@ -9,6 +9,7 @@ param(
     [string] $SavedLooksBackup,
     [switch] $SavedLooksFromUpdatedCatalog,
     [switch] $DiscoverSavedLooks,
+    [ValidateRange(-6,6)][double] $LatestLocalLookExposure,
     [switch] $CatalogIsolation,
     [switch] $ConcurrentCatalogs,
     [switch] $SessionIsolation,
@@ -98,6 +99,9 @@ if ($NativeLookBatch -and (!$NativeSettingsConfig -or $SkipRestart -or $Packaged
 if ($SavedLooksFromUpdatedCatalog -and !$SavedLooksBackup) { throw 'An updated catalog fixture needs its saved-look backup.' }
 if ($DiscoverSavedLooks -and (!$SavedLooksBackup -or $PackagedRuntime)) {
     throw 'Discovered saved looks use a source fixture and a verified catalog backup.'
+}
+if ($PSBoundParameters.ContainsKey('LatestLocalLookExposure') -and !$DiscoverSavedLooks) {
+    throw 'The latest local look fixture needs discovery and a verified catalog backup.'
 }
 if ($SavedLooksBackup -and (!$NativeSettingsConfig -or $UpgradeFromPackage -or $CatalogIsolation -or $ConcurrentCatalogs -or $SessionIsolation)) {
     throw 'Moved-catalog look verification requires a single disposable catalog and a native preferences backup.'
@@ -286,7 +290,7 @@ if($parseErrors.Count){throw 'Launcher syntax failed.'}
 $launcherHelpers = @('Read-SpektrafilmLaunchStatus','Wait-SpektrafilmPanel')
 if ($DiscoverSavedLooks) {
     . (Join-Path $root 'CatalogIntegrity.ps1')
-    $launcherHelpers += @('Confirm-CatalogIsIdle','Get-CatalogLookFiles','Test-CatalogLookState','New-LookBackup','Save-CatalogBackup',
+    $launcherHelpers += @('Confirm-CatalogIsIdle','Test-CatalogLookState','New-LookBackup','Save-CatalogBackup',
         'Read-LookRecoveryManifest','Find-CatalogLookBackup','Test-CurrentBackupLookState','Restore-DiscoveredCatalogLooks','Prepare-SpektrafilmCatalog')
 }
 foreach($name in $launcherHelpers){
@@ -593,10 +597,35 @@ if ($SavedLooksBackup) {
         foreach ($suffix in @('', '.spektrafilm.zip', '.manifest.json')) {
             Copy-Item -LiteralPath ($SavedLooksBackup + $suffix) -Destination $seed
         }
+        if ($PSBoundParameters.ContainsKey('LatestLocalLookExposure')) {
+            $saved = @($archived.files | Where-Object path -CMatch '^Variant looks/[0-9a-f]{32}\.json$')
+            if ($saved.Count -ne 1) { throw 'The latest local fixture needs one archived variant look.' }
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            $zip = [IO.Compression.ZipFile]::OpenRead($SavedLooksBackup + '.spektrafilm.zip')
+            try {
+                $reader = New-Object IO.StreamReader($zip.GetEntry($saved[0].path).Open())
+                try { $look = $reader.ReadToEnd() | ConvertFrom-Json } finally { $reader.Dispose() }
+            } finally { $zip.Dispose() }
+            if ($look.Look.Exposure -eq $LatestLocalLookExposure -or !$look.Enabled) { throw 'The fixture needs an enabled and changed look.' }
+            $look.Look.Exposure = $LatestLocalLookExposure
+            $leaf = [IO.Path]::GetFileName($saved[0].path)
+            $sourceRoot = Join-Path (Join-Path $folder 'Variant looks') $archived.catalogKey
+            [void][IO.Directory]::CreateDirectory($sourceRoot)
+            $local = Join-Path $sourceRoot $leaf
+            [IO.File]::WriteAllText($local, ($look | ConvertTo-Json -Depth 24 -Compress))
+            $latestHash = (Get-FileHash -LiteralPath $local).Hash
+            $expected = @{sha256=$latestHash; exposure=$LatestLocalLookExposure}
+            [IO.File]::WriteAllText((Join-Path $folder 'latest-local-look.json'), ($expected | ConvertTo-Json -Compress))
+        }
         $prepared = Prepare-SpektrafilmCatalog $catalog $restoreScript -AcceptUpdated:$SavedLooksFromUpdatedCatalog
         $manifest = Read-LookRecoveryManifest ($prepared + '.manifest.json')
         if (!$manifest -or @($manifest.files).Count -eq 0 -or !(Test-CatalogLookState (Get-CatalogKey $catalog))) {
             throw 'The actual launcher preparation did not attach and back up the discovered saved looks.'
+        }
+        if ($PSBoundParameters.ContainsKey('LatestLocalLookExposure') -and
+            (($manifest.files | Where-Object path -CEQ $saved[0].path).sha256 -ne $latestHash -or
+                (Get-FileHash -LiteralPath $local).Hash -ne $latestHash)) {
+            throw 'Discovery did not back up the latest exact look bytes while preserving their source.'
         }
         [IO.File]::WriteAllText((Join-Path $folder 'discovered-catalog-look.txt'), $prepared)
     } else {

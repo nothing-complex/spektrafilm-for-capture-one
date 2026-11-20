@@ -13,7 +13,7 @@ $tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $repo 'Start-Spektrafilm.ps1'),[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'Launcher syntax failed.'}
 . (Join-Path $repo 'CatalogIntegrity.ps1')
-foreach($name in @('Get-CatalogLookFiles','Test-CatalogLookState','New-LookBackup','Save-CatalogBackup',
+foreach($name in @('Test-CatalogLookState','New-LookBackup','Save-CatalogBackup',
         'Read-LookRecoveryManifest','Find-CatalogLookBackup','Test-CurrentBackupLookState','Restore-DiscoveredCatalogLooks',
         'Prepare-SpektrafilmCatalog')) {
     $definition=$ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name},$true)
@@ -394,32 +394,43 @@ Assert (!(Test-CatalogLookState (Get-CatalogKey $clone))) 'A launch that skips r
 $matches = @(Find-CatalogLookBackup $clone $cloneCopy)
 Assert ($matches.Count -eq 1 -and $matches[0].Exact -and $matches[0].Database -eq $launchBackup) 'A renamed copy finds the exact backup with saved state'
 
+$launcherState = $userData
+$userData = Join-Path $root 'update-state'
+$seed = Join-Path (Join-Path $userData 'Catalog backups') $autoKey.Substring(0, 20)
+[void][IO.Directory]::CreateDirectory($seed)
+foreach ($suffix in @('', '.manifest.json', '.spektrafilm.zip')) {
+    Copy-Item -LiteralPath ($launchBackup + $suffix) -Destination $seed
+}
+$updateSource = Join-Path $seed (Split-Path -Leaf $launchBackup)
 $updatedCopy = Save-CatalogBackup $updated
 $matches = @(Find-CatalogLookBackup $updated $updatedCopy)
 Assert ($matches.Count -eq 1 -and !$matches[0].Exact) 'An updated catalog discovers the archived native document identity'
-$indexPath = $launchBackup + '.manifest.json'
+$indexPath = $updateSource + '.manifest.json'
 $indexBytes = [IO.File]::ReadAllBytes($indexPath)
 try {
     $launchManifest.PSObject.Properties.Remove('nativeDocumentId')
     [IO.File]::WriteAllText($indexPath, ($launchManifest | ConvertTo-Json -Depth 6))
     $legacyMatches = @(Find-CatalogLookBackup $updated $updatedCopy)
-    Assert ($legacyMatches.Count -eq 1 -and $legacyMatches[0].Database -eq $launchBackup) 'Discovery also reads native identity from pre-index backup generations'
+    Assert ($legacyMatches.Count -eq 1 -and $legacyMatches[0].Database -eq $updateSource) 'Discovery also reads native identity from pre-index backup generations'
 } finally { [IO.File]::WriteAllBytes($indexPath, $indexBytes) }
 Assert (!(Restore-DiscoveredCatalogLooks $updated $updatedCopy $restore -WarningAction SilentlyContinue) -and
     !(Test-CatalogLookState (Get-CatalogKey $updated))) 'Unattended launch leaves an updated candidate untouched until approved'
-Assert (Restore-DiscoveredCatalogLooks $updated $updatedCopy $restore -AcceptUpdated) 'An approved updated catalog passes variant verification and restores the looks'
 $wrong = $databasesByName.remappedImage
 $wrongCopy = Save-CatalogBackup $wrong
 Assert (!(Restore-DiscoveredCatalogLooks $wrong $wrongCopy $restore -AcceptUpdated -WarningAction SilentlyContinue) -and
     !(Test-CatalogLookState (Get-CatalogKey $wrong))) 'An indexed document UUID cannot authorize a remapped native variant'
+Assert (Restore-DiscoveredCatalogLooks $updated $updatedCopy $restore -AcceptUpdated) 'An approved updated catalog passes variant verification and restores the looks'
+$userData = $launcherState
 
 $fresh = Join-Path $identityFixtures 'another copy.cocatalogdb'
 [IO.File]::Copy($autoSource, $fresh)
 $freshCopy = Save-CatalogBackup $fresh
-[IO.File]::WriteAllText($autoLook, ($changed | ConvertTo-Json -Depth 10 -Compress))
-Assert (!(Restore-DiscoveredCatalogLooks $fresh $freshCopy $restore -WarningAction SilentlyContinue) -and
-    !(Test-CatalogLookState (Get-CatalogKey $fresh))) 'The launcher refuses an older backup when the live source has a newer look'
-[IO.File]::Copy($look, $autoLook, $true)
+$unknownVariant = Join-Path (Split-Path -Parent $autoLook) '33333333333333333333333333333333.json'
+try {
+    [IO.File]::WriteAllText($unknownVariant, ($changed | ConvertTo-Json -Depth 10 -Compress))
+    Assert (!(Restore-DiscoveredCatalogLooks $fresh $freshCopy $restore -WarningAction SilentlyContinue) -and
+        !(Test-CatalogLookState (Get-CatalogKey $fresh))) 'A newer local variant absent from the archived native database blocks automatic migration'
+} finally { [IO.File]::Delete($unknownVariant) }
 $sourceArchive = $launchBackup + '.spektrafilm.zip'
 $archiveBytes = [IO.File]::ReadAllBytes($sourceArchive)
 try {
@@ -451,6 +462,40 @@ Assert ((Get-FileHash -LiteralPath $autoLook).Hash -eq $baseHash -and
     (Get-FileHash -LiteralPath $clone).Hash -eq $cloneHash -and
     (Get-FileHash -LiteralPath $updated).Hash -eq $updatedHash) 'The exact and updated copies retain independent looks and leave both source and copied catalogs unchanged'
 
+$userData = Join-Path $root 'unarchived'
+$oldDatabase = Join-Path $identityFixtures 'prior name.cocatalogdb'
+$newDatabase = Join-Path $identityFixtures 'moved name.cocatalogdb'
+[IO.File]::Copy($autoSource, $oldDatabase)
+$firstLaunchBackup = Save-CatalogBackup $oldDatabase
+$firstLaunchManifest = Read-LookRecoveryManifest ($firstLaunchBackup + '.manifest.json')
+Assert (@($firstLaunchManifest.files).Count -eq 0) 'The first-launch anchor predates all Spektrafilm edits'
+$oldDatabaseKey = Get-CatalogKey $oldDatabase
+$newerLook = Join-Path (Join-Path (Join-Path $userData 'Variant looks') $oldDatabaseKey) '11111111111111111111111111111111.json'
+$newerPending = Join-Path (Join-Path (Join-Path $userData 'Look recovery') $oldDatabaseKey) '11111111111111111111111111111111.pending.json'
+foreach ($state in @($newerLook, $newerPending)) { [void][IO.Directory]::CreateDirectory((Split-Path -Parent $state)) }
+[IO.File]::WriteAllText($newerLook, ($changed | ConvertTo-Json -Depth 10 -Compress))
+$newerHash = (Get-FileHash -LiteralPath $newerLook).Hash
+$nextEdit = [IO.File]::ReadAllText($newerLook) | ConvertFrom-Json
+$nextEdit.Look.Exposure = 2.7
+$pendingEdit = @{Version=1; CatalogKey=$oldDatabaseKey; Variant=$pending.Variant; BaseHash=$newerHash; Look=$nextEdit}
+[IO.File]::WriteAllText($newerPending, ($pendingEdit | ConvertTo-Json -Depth 12 -Compress))
+$pendingHash = (Get-FileHash -LiteralPath $newerPending).Hash
+[IO.File]::Move($oldDatabase, $newDatabase)
+$newDatabaseKey = Get-CatalogKey $newDatabase
+$currentOptions = @{BackupDatabase=$firstLaunchBackup; DestinationDatabase=$newDatabase; UserDataRoot=$userData; SavedLooksOnly=$true; LatestLocalLooks=$true}
+$preview = & $restore @currentOptions
+Assert (($preview -join ' ') -match '2 current local files' -and !(Test-CatalogLookState $newDatabaseKey)) 'Newer-local preview verifies the variant mapping and does not write destination state'
+$prepared = Prepare-SpektrafilmCatalog $newDatabase $restore
+$latestManifest = Read-LookRecoveryManifest ($prepared + '.manifest.json')
+$newerFiles = @(Get-CatalogLookFiles $userData $newDatabaseKey)
+$carriedLook = $newerFiles | Where-Object Relative -like 'Variant looks/*'
+$carriedPending = $newerFiles | Where-Object Relative -like 'Look recovery/*.pending.json'
+$checkpoint = [IO.File]::ReadAllText($carriedPending.Path) | ConvertFrom-Json
+Assert ($latestManifest.files.Count -eq 2 -and (Get-FileHash -LiteralPath $carriedLook.Path).Hash -eq $newerHash -and
+    $checkpoint.CatalogKey -eq $newDatabaseKey -and $checkpoint.BaseHash -eq $newerHash -and $checkpoint.Look.Look.Exposure -eq 2.7) 'The launcher carries the current look and pending edit even though the archived look ZIP was empty'
+Assert (!(Test-Path -LiteralPath $oldDatabase) -and (Get-FileHash -LiteralPath $newDatabase).Hash -eq $cloneHash -and
+    (Get-FileHash -LiteralPath $newerLook).Hash -eq $newerHash -and (Get-FileHash -LiteralPath $newerPending).Hash -eq $pendingHash) 'Recovery leaves the genuinely moved catalog and both source state files unchanged'
+
 # Pause a separate process at the real publication boundaries. The pause only
 # exists in the disposable script copy. The retry uses the unmodified entry point.
 $crashFixture = Join-Path $root 'crash'
@@ -463,7 +508,7 @@ $afterScope = '[IO.Directory]::Move($staging[$scope], $targets[$scope])'
 $afterCatalog = '[IO.File]::Move($stageCatalog, $destination)'
 Assert ($instrumented.Contains($afterScope) -and $instrumented.Contains($afterCatalog)) 'The interruption fixture found both production publication boundaries'
 $instrumented = $instrumented.Replace($afterScope, ($afterScope + '; ' + @'
-if (($env:SPEKTRA_TEST_RESTORE_STOP -eq 'looks' -and $scope -eq 'Variant looks') -or
+if (($env:SPEKTRA_TEST_RESTORE_STOP -in 'looks', 'latest' -and $scope -eq 'Variant looks') -or
     ($env:SPEKTRA_TEST_RESTORE_STOP -eq 'before-db' -and $scope -eq 'Look recovery')) {
     [IO.File]::WriteAllText($env:SPEKTRA_TEST_RESTORE_MARKER, $scope)
     [Threading.Thread]::Sleep(120000)
@@ -477,12 +522,28 @@ if ($env:SPEKTRA_TEST_RESTORE_STOP -eq 'after-db') {
 '@))
 [IO.File]::WriteAllText($fixtureScript, $instrumented)
 
-foreach ($phase in @('looks', 'before-db', 'after-db')) {
+foreach ($phase in @('looks', 'before-db', 'after-db', 'latest')) {
     $userData = Join-Path $crashFixture ($phase + '-data')
     $database = Join-Path $crashFixture ($phase + '.cocatalogdb')
     $catalogKey = Get-CatalogKey $database
-    $stateOnly = $phase -eq 'looks'
-    if ($stateOnly) { [IO.File]::Copy($restorable, $database) }
+    $localSnapshot = $phase -eq 'latest'
+    $stateOnly = $phase -in 'looks', 'latest'
+    $backupToRestore = $restorable
+    $expectedLookHash = $baseHash
+    $expectedDatabaseHash = $originalHash
+    $expectedPendingExposure = 2.2
+    if ($localSnapshot) {
+        $backupToRestore = $firstLaunchBackup
+        $expectedLookHash = $newerHash
+        $expectedDatabaseHash = $cloneHash
+        $expectedPendingExposure = 2.7
+        $localLook = Join-Path (Join-Path (Join-Path $userData 'Variant looks') $oldDatabaseKey) (Split-Path -Leaf $newerLook)
+        $localPending = Join-Path (Join-Path (Join-Path $userData 'Look recovery') $oldDatabaseKey) (Split-Path -Leaf $newerPending)
+        foreach ($state in @($localLook, $localPending)) { [void][IO.Directory]::CreateDirectory((Split-Path -Parent $state)) }
+        [IO.File]::Copy($newerLook, $localLook)
+        [IO.File]::Copy($newerPending, $localPending)
+    }
+    if ($stateOnly) { [IO.File]::Copy($backupToRestore, $database) }
     $marker = Join-Path $crashFixture ($phase + '.marker')
     $start = New-Object Diagnostics.ProcessStartInfo
     $start.FileName = [Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
@@ -493,8 +554,9 @@ foreach ($phase in @('looks', 'before-db', 'after-db')) {
     $start.EnvironmentVariables['SPEKTRA_TEST_RESTORE_STOP'] = $phase
     $start.EnvironmentVariables['SPEKTRA_TEST_RESTORE_MARKER'] = $marker
     $start.Arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $fixtureScript + '" -BackupDatabase "' +
-        $restorable + '" -DestinationDatabase "' + $database + '" -UserDataRoot "' + $userData + '" -Apply'
+        $backupToRestore + '" -DestinationDatabase "' + $database + '" -UserDataRoot "' + $userData + '" -Apply'
     if ($stateOnly) { $start.Arguments += ' -SavedLooksOnly' }
+    if ($localSnapshot) { $start.Arguments += ' -LatestLocalLooks' }
     $child = [Diagnostics.Process]::Start($start)
     $receiptPath = Get-CatalogRestoreReceiptPath $userData $database
     try {
@@ -512,14 +574,21 @@ foreach ($phase in @('looks', 'before-db', 'after-db')) {
     $job = Read-CatalogRestoreReceipt $receiptPath
     $publishedLook = Join-Path (Join-Path (Join-Path $userData 'Variant looks') $catalogKey) '11111111111111111111111111111111.json'
     $publishedRecovery = Join-Path (Join-Path (Join-Path $userData 'Look recovery') $catalogKey) '11111111111111111111111111111111.pending.json'
-    Assert ($job.SavedLooksOnly -eq $stateOnly -and (Get-FileHash -LiteralPath $publishedLook).Hash -eq $baseHash -and
+    Assert ($job.SavedLooksOnly -eq $stateOnly -and $job.LatestLocalLooks -eq $localSnapshot -and
+        (Get-FileHash -LiteralPath $publishedLook).Hash -eq $expectedLookHash -and
         (Test-Path -LiteralPath $database) -eq ($phase -ne 'before-db') -and
         (Test-Path -LiteralPath $publishedRecovery) -eq !$stateOnly) "$phase leaves only the planned parts visible at interruption"
-    $restoreArgs = @{BackupDatabase=$restorable; DestinationDatabase=$database; UserDataRoot=$userData; SavedLooksOnly=$stateOnly}
+    $restoreArgs = @{BackupDatabase=$backupToRestore; DestinationDatabase=$database; UserDataRoot=$userData
+        SavedLooksOnly=$stateOnly; LatestLocalLooks=$localSnapshot}
     $preview = & $restore @restoreArgs
     Assert (($preview -join ' ') -match 'resume the interrupted restore' -and (Test-Path -LiteralPath $receiptPath)) "$phase preview verifies the original backup without completing publication"
 
-    if ($stateOnly) {
+    if ($localSnapshot) {
+        [IO.File]::AppendAllText($localPending, 'changed after the approved snapshot')
+        $modified = (Get-FileHash -LiteralPath $localPending).Hash
+        $null = Prepare-SpektrafilmCatalog $database $restore -SkipRecovery
+        Assert ((Get-FileHash -LiteralPath $localPending).Hash -eq $modified) 'Latest-local retry preserves a later change at the old path while finishing the already verified snapshot'
+    } elseif ($stateOnly) {
         $failure = $null
         try { $null = Save-CatalogBackup $database } catch { $failure = $_.Exception.Message }
         Assert ($failure -match 'Resume the interrupted catalog restore') 'The launcher cannot back up a partly published catalog'
@@ -550,8 +619,8 @@ foreach ($phase in @('looks', 'before-db', 'after-db')) {
         $null = Prepare-SpektrafilmCatalog $database $restore -SkipRecovery
     }
     $resumedPending = [IO.File]::ReadAllText($publishedRecovery) | ConvertFrom-Json
-    Assert (!(Test-Path -LiteralPath $receiptPath) -and (Get-FileHash -LiteralPath $database).Hash -eq $originalHash -and
-        (Get-FileHash -LiteralPath $publishedLook).Hash -eq $baseHash -and $resumedPending.CatalogKey -eq $catalogKey -and
-        $resumedPending.Look.Look.Exposure -eq 2.2) "$phase resumes exactly once with the original database, looks and rebased pending edit"
+    Assert (!(Test-Path -LiteralPath $receiptPath) -and (Get-FileHash -LiteralPath $database).Hash -eq $expectedDatabaseHash -and
+        (Get-FileHash -LiteralPath $publishedLook).Hash -eq $expectedLookHash -and $resumedPending.CatalogKey -eq $catalogKey -and
+        $resumedPending.Look.Look.Exposure -eq $expectedPendingExposure) "$phase resumes exactly once with the original database, looks and rebased pending edit"
 }
 Write-Output "PASS: $count joint backup assertions. Evidence: $root"

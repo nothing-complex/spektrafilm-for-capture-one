@@ -5,6 +5,7 @@ param(
     [string] $UserDataRoot = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'FilmToolsForCaptureOne'),
     [switch] $SavedLooksOnly,
     [switch] $AllowUpdatedCatalog,
+    [switch] $LatestLocalLooks,
     [switch] $Apply
 )
 
@@ -12,6 +13,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'CatalogIntegrity.ps1')
 Add-Type -AssemblyName System.IO.Compression
 if ($AllowUpdatedCatalog -and !$SavedLooksOnly) { throw 'Use -AllowUpdatedCatalog with -SavedLooksOnly.' }
+if ($LatestLocalLooks -and !$SavedLooksOnly) { throw 'Use -LatestLocalLooks with -SavedLooksOnly.' }
 
 function Get-PlainPath([string] $path, [switch] $AllowMissing) {
     $full = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($path)
@@ -31,6 +33,20 @@ function Get-PlainPath([string] $path, [switch] $AllowMissing) {
     return $full
 }
 
+function Get-VerifiedLookVariantIds([string[]] $paths) {
+    $names = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    $variants = New-Object 'System.Collections.Generic.HashSet[Guid]'
+    foreach ($path in $paths) {
+        if ($path -cnotmatch '^(Variant looks/[0-9a-f]{32}(\.json|\.previous\.look)|Look recovery/[0-9a-f]{32}\.(pending|grain)\.json|Look recovery/Preserved originals/[0-9a-f]{32}-[A-Za-z0-9-]+\.json)$' -or
+            !$names.Add($path)) {
+            throw 'The backup manifest has an invalid or duplicate state entry.'
+        }
+        $leaf = $path.Substring($path.LastIndexOf('/') + 1)
+        [void]$variants.Add([Guid]::ParseExact($leaf.Substring(0, 32), 'N'))
+    }
+    return [Guid[]]@($variants)
+}
+
 function Read-Manifest([string] $path) {
     if ((Get-Item -LiteralPath $path).Length -gt 32MB) { throw 'The backup manifest is unexpectedly large.' }
     $document = [IO.File]::ReadAllText($path) | ConvertFrom-Json
@@ -39,10 +55,9 @@ function Read-Manifest([string] $path) {
         $document.stateDigest -notmatch '^[0-9a-fA-F]{64}$' -or $null -eq $document.files) {
         throw 'This is not a supported joint catalog backup manifest.'
     }
-    $names = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    $null = Get-VerifiedLookVariantIds $document.files.path
     foreach ($record in $document.files) {
-        if ($record.path -cnotmatch '^(Variant looks/[0-9a-f]{32}(\.json|\.previous\.look)|Look recovery/[0-9a-f]{32}\.(pending|grain)\.json|Look recovery/Preserved originals/[0-9a-f]{32}-[A-Za-z0-9-]+\.json)$' -or
-            !$names.Add($record.path) -or $record.sha256 -notmatch '^[0-9a-fA-F]{64}$' -or
+        if ($record.sha256 -notmatch '^[0-9a-fA-F]{64}$' -or
             ($record.bytes -isnot [int] -and $record.bytes -isnot [long]) -or $record.bytes -lt 0) {
             throw 'The backup manifest has an invalid or duplicate state entry.'
         }
@@ -115,6 +130,37 @@ function Copy-VerifiedState($zip, $manifest, [string] $catalogKey, [hashtable] $
     }
 }
 
+function Copy-LatestLocalLooks([string] $backup, [string] $destination, [string] $dataRoot, [string] $sourceKey,
+    [string] $destinationKey, [string] $stagingFolder, [string] $id, [hashtable] $staging) {
+    if (Get-Process -Name CaptureOne -ErrorAction SilentlyContinue) {
+        throw 'Close Capture One before recovering newer local looks.'
+    }
+    if (Test-Path -LiteralPath (Join-Path $stagingFolder ($sourceKey + '.json'))) {
+        throw 'Finish the interrupted restore of the source looks before copying them.'
+    }
+    foreach ($scope in @('Variant looks', 'Look recovery')) {
+        $null = Get-PlainPath (Join-Path (Join-Path $dataRoot $scope) $sourceKey) -AllowMissing
+    }
+    $files = @(Get-CatalogLookFiles $dataRoot $sourceKey)
+    if (!(Test-HasRecoverableLook $files.Relative)) { throw 'No committed or pending local looks remain at the source catalog key.' }
+    $variantIds = [Guid[]]@(Get-VerifiedLookVariantIds $files.Relative)
+    Confirm-RelatedCatalogs $backup $destination $variantIds
+    if ($staging.Count -eq 0) { return $files.Count }
+
+    [IO.Directory]::CreateDirectory($stagingFolder) | Out-Null
+    $snapshot = Join-Path $stagingFolder ('.look-source-' + $id + '.zip')
+    $stream = New-Object IO.FileStream($snapshot, [IO.FileMode]::CreateNew, [IO.FileAccess]::ReadWrite,
+        [IO.FileShare]::None, 65536, [IO.FileOptions]::DeleteOnClose)
+    try {
+        $fresh = Write-CatalogLookArchive $stream $sourceKey $files
+        $stream.Position = 0
+        $zip = New-Object IO.Compression.ZipArchive($stream, [IO.Compression.ZipArchiveMode]::Read, $true)
+        try { Copy-VerifiedState $zip $fresh $destinationKey $staging }
+        finally { $zip.Dispose() }
+    } finally { $stream.Dispose() }
+    return $files.Count
+}
+
 function Get-RestoreScopeDigest([string] $path) {
     if (!(Test-Path -LiteralPath $path)) { return $null }
     $root = Get-PlainPath $path -AllowMissing
@@ -163,7 +209,7 @@ $receiptPath = Get-PlainPath (Get-CatalogRestoreReceiptPath $dataRoot $destinati
 $job = Read-CatalogRestoreReceipt $receiptPath
 $resuming = $null -ne $job
 if ($resuming -and ($job.BackupDatabase -ine $backup -or $job.SavedLooksOnly -ne [bool]$SavedLooksOnly -or
-    $job.AllowUpdatedCatalog -ne [bool]$AllowUpdatedCatalog)) {
+    $job.AllowUpdatedCatalog -ne [bool]$AllowUpdatedCatalog -or [bool]$job.LatestLocalLooks -ne [bool]$LatestLocalLooks)) {
     throw 'This catalog has an interrupted restore. Retry the original backup and restore options.'
 }
 if ($SavedLooksOnly) {
@@ -201,6 +247,7 @@ $existingCatalogStream = $null
 $verifyCatalogIdentity = $false
 $destinationHash = $manifest.catalogSha256
 $publishLease = $null
+$localFileCount = $null
 $archiveStream = [IO.File]::Open($lookArchive, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
 try {
     if ($SavedLooksOnly -or ($resuming -and (Test-Path -LiteralPath $destination))) {
@@ -227,12 +274,9 @@ try {
             throw 'Catalog or saved-look archive checksum failed.'
         }
         if ($verifyCatalogIdentity) {
-            $variants = New-Object 'System.Collections.Generic.HashSet[Guid]'
-            foreach ($record in $manifest.files) {
-                $leaf = $record.path.Substring($record.path.LastIndexOf('/') + 1)
-                [void]$variants.Add([Guid]::ParseExact($leaf.Substring(0, 32), 'N'))
+            if (!$LatestLocalLooks) {
+                Confirm-RelatedCatalogs $backup $destination ([Guid[]]@(Get-VerifiedLookVariantIds $manifest.files.path))
             }
-            Confirm-RelatedCatalogs $backup $destination ([Guid[]]@($variants))
             Confirm-CatalogIntegrity $destination
         }
         $archiveStream.Position = 0
@@ -247,13 +291,18 @@ try {
                     finally { $file.Dispose() }
                 }
             }
-            $extract = if ($Apply -and !$resuming) { $staging } else { @{} }
+            $extract = if ($Apply -and !$resuming -and !$LatestLocalLooks) { $staging } else { @{} }
             Copy-VerifiedState $zip $manifest $catalogKey $extract
         } finally { $zip.Dispose() }
+        if ($LatestLocalLooks -and !$resuming) {
+            $extract = if ($Apply) { $staging } else { @{} }
+            $localFileCount = Copy-LatestLocalLooks $backup $destination $dataRoot $manifest.catalogKey $catalogKey (Split-Path -Parent $receiptPath) $id $extract
+        }
     } finally { $databaseStream.Dispose() }
     if (!$Apply) {
         Write-Output "Restore preview verified backup checksums for $(@($manifest.files).Count) saved-look and recovery files."
-        if ($verifyCatalogIdentity) { Write-Output 'Verified the updated catalog identity and all saved variants.' }
+        if ($null -ne $localFileCount) { Write-Output "Verified the native variant identities for $localFileCount current local files." }
+        elseif ($verifyCatalogIdentity -and !$LatestLocalLooks) { Write-Output 'Verified the updated catalog identity and all saved variants.' }
         Write-Output "Destination: $destination"
         if ($resuming) { Write-Output 'Run the same command with -Apply to resume the interrupted restore.' }
         elseif ($SavedLooksOnly) { Write-Output 'Run the same command with -Apply to restore saved looks for the verified catalog.' }
@@ -266,7 +315,8 @@ try {
         $job = [ordered]@{
             Version=1; Id=$id; CatalogKey=$catalogKey; BackupDatabase=$backup
             BackupHash=$manifest.catalogSha256; ArchiveHash=$manifest.looksSha256; DestinationHash=$destinationHash
-            SavedLooksOnly=[bool]$SavedLooksOnly; AllowUpdatedCatalog=[bool]$AllowUpdatedCatalog; Scopes=@{}
+            SavedLooksOnly=[bool]$SavedLooksOnly; AllowUpdatedCatalog=[bool]$AllowUpdatedCatalog
+            LatestLocalLooks=[bool]$LatestLocalLooks; Scopes=@{}
         }
     }
     [IO.Directory]::CreateDirectory((Split-Path -Parent $receiptPath)) | Out-Null

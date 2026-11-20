@@ -16,16 +16,28 @@ public static partial class StartupHook
         var original = manifest.RootElement.GetProperty("files").EnumerateArray().Single(record =>
             record.GetProperty("path").GetString() == $"Variant looks/{variant:N}.json");
         var hash = original.GetProperty("sha256").GetString();
+        double? expectedExposure = null;
+        var latestPath = Path.Combine(folder, "latest-local-look.json");
+        if (File.Exists(latestPath))
+        {
+            using var latest = JsonDocument.Parse(File.ReadAllBytes(latestPath));
+            var latestHash = latest.RootElement.GetProperty("sha256").GetString();
+            Check(!string.Equals(hash, latestHash, StringComparison.OrdinalIgnoreCase),
+                "the disposable local edit differs from the look in the original backup");
+            hash = latestHash;
+            expectedExposure = latest.RootElement.GetProperty("exposure").GetDouble();
+        }
         var bytes = File.ReadAllBytes(path);
         Check(string.Equals(Convert.ToHexString(SHA256.HashData(bytes)), hash, StringComparison.OrdinalIgnoreCase)
             && !string.Equals(Prop(store, "CatalogIdentity") as string, manifest.RootElement.GetProperty("catalogKey").GetString(),
                 StringComparison.OrdinalIgnoreCase),
-            "the selected variant has the verified archived look bytes at its relocated catalog key");
+            "the selected variant has the verified look bytes at its relocated catalog key");
         using var restored = JsonDocument.Parse(bytes);
         var settings = restored.RootElement.GetProperty("Look");
         var exposure = settings.GetProperty("Exposure").GetDouble();
         var expectedFilm = settings.GetProperty("Film").GetString();
-        Check(exposure != 0 && restored.RootElement.GetProperty("Enabled").GetBoolean(),
+        Check(exposure != 0 && (expectedExposure is null || exposure == expectedExposure)
+            && restored.RootElement.GetProperty("Enabled").GetBoolean(),
             "the fixture restores a nondefault enabled film look");
         Check(Equals(Prop(Field(panel, "exposure")!, "Value"), exposure) && Prop(panel, "IsSpektraExportActive") is true
             && ((CheckBox)Field(panel, "enableSpektraFilm")!).IsChecked == true

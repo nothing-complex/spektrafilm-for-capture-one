@@ -125,28 +125,6 @@ function Get-CatalogPath([string] $path) {
     return $item.FullName
 }
 
-function Get-CatalogLookFiles([string] $key) {
-    foreach ($scope in @('Variant looks', 'Look recovery')) {
-        $root = Join-Path (Join-Path $userData $scope) $key
-        if (!(Test-Path -LiteralPath $root -PathType Container)) { continue }
-        $root = (Get-Item -LiteralPath $root -Force).FullName
-        $directories = New-Object 'System.Collections.Generic.Queue[string]'
-        $directories.Enqueue($root)
-        while ($directories.Count -gt 0) {
-            $directory = Get-Item -LiteralPath $directories.Dequeue() -Force
-            if ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Saved-look backup cannot follow linked folders.' }
-            foreach ($item in Get-ChildItem -LiteralPath $directory.FullName -Force | Sort-Object Name) {
-                if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Saved-look backup cannot follow linked files.' }
-                if ($item.PSIsContainer) { $directories.Enqueue($item.FullName); continue }
-                [pscustomobject]@{
-                    Relative = $scope + '/' + $item.FullName.Substring($root.Length + 1).Replace('\', '/')
-                    Path = $item.FullName
-                }
-            }
-        }
-    }
-}
-
 function Test-CatalogLookState([string] $key) {
     foreach ($scope in @('Variant looks', 'Look recovery')) {
         if (Test-Path -LiteralPath (Join-Path (Join-Path $userData $scope) $key)) { return $true }
@@ -155,30 +133,10 @@ function Test-CatalogLookState([string] $key) {
 }
 
 function New-LookBackup([string] $path, [string] $archive) {
-    Add-Type -AssemblyName System.IO.Compression
     $key = Get-CatalogKey $path
-    $records = New-Object 'System.Collections.Generic.List[object]'
     $zipStream = [IO.File]::Open($archive, [IO.FileMode]::CreateNew, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
     try {
-        $zip = New-Object IO.Compression.ZipArchive($zipStream, [IO.Compression.ZipArchiveMode]::Create, $true)
-        try {
-            foreach ($file in Get-CatalogLookFiles $key) {
-                $input = [IO.File]::Open($file.Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)
-                try {
-                    $entry = $zip.CreateEntry($file.Relative, [IO.Compression.CompressionLevel]::Optimal)
-                    $output = $entry.Open()
-                    try { $input.CopyTo($output) } finally { $output.Dispose() }
-                    $input.Position = 0
-                    $digest = (Get-FileHash -InputStream $input -Algorithm SHA256).Hash.ToLowerInvariant()
-                    $records.Add([ordered]@{path=$file.Relative;bytes=$input.Length;sha256=$digest})
-                } finally { $input.Dispose() }
-            }
-            $stateDigest = Get-CatalogStateDigest $records.ToArray()
-            $manifest = [ordered]@{schemaVersion=2;catalogKey=$key;stateDigest=$stateDigest;files=$records.ToArray()}
-            $entry = $zip.CreateEntry('manifest.json')
-            $writer = New-Object IO.StreamWriter($entry.Open(), (New-Object Text.UTF8Encoding($false)))
-            try { $writer.Write(($manifest | ConvertTo-Json -Depth 6)) } finally { $writer.Dispose() }
-        } finally { $zip.Dispose() }
+        $manifest = Write-CatalogLookArchive $zipStream $key @(Get-CatalogLookFiles $userData $key)
         $zipStream.Flush($true)
     } finally { $zipStream.Dispose() }
     return $manifest
@@ -315,6 +273,7 @@ function Find-CatalogLookBackup([string] $path, [string] $backup) {
     $documentId = $selected.nativeDocumentId
     if (!$documentId) { $documentId = Get-CatalogDocumentId $backup }
     $legacyDocumentIds = @{}
+    $liveLookKeys = @{}
     $exactBySource = @{}
     $relatedBySource = @{}
     foreach ($origin in Get-ChildItem -LiteralPath $backups.FullName -Directory -Force) {
@@ -323,9 +282,7 @@ function Find-CatalogLookBackup([string] $path, [string] $backup) {
                 Sort-Object LastWriteTimeUtc, Name -Descending) {
             if ($candidate.Attributes -band [IO.FileAttributes]::ReparsePoint) { continue }
             $manifest = Read-LookRecoveryManifest ($candidate.FullName + '.manifest.json')
-            if (!$manifest -or !$manifest.catalogKey.StartsWith($origin.Name, [StringComparison]::OrdinalIgnoreCase) -or
-                !($manifest.files | Where-Object { $_.path -cmatch '^(Variant looks/[0-9a-f]{32}\.json|Look recovery/[0-9a-f]{32}\.pending\.json)$' } |
-                    Select-Object -First 1)) { continue }
+            if (!$manifest -or !$manifest.catalogKey.StartsWith($origin.Name, [StringComparison]::OrdinalIgnoreCase)) { continue }
             $exact = $manifest.catalogSha256 -eq $selected.catalogSha256
             if (!$exact) {
                 if (!$documentId) { continue }
@@ -338,6 +295,13 @@ function Find-CatalogLookBackup([string] $path, [string] $backup) {
                     $candidateId = $legacyDocumentIds[$digest]
                 }
                 if ($documentId -ne $candidateId) { continue }
+            }
+            if (!(Test-HasRecoverableLook $manifest.files.path)) {
+                $sourceKey = $manifest.catalogKey
+                if (!$liveLookKeys.ContainsKey($sourceKey)) {
+                    $liveLookKeys[$sourceKey] = Test-HasRecoverableLook @(Get-CatalogLookFiles $userData $sourceKey | ForEach-Object Relative)
+                }
+                if (!$liveLookKeys[$sourceKey]) { continue }
             }
             $matchesBySource = if ($exact) { $exactBySource } else { $relatedBySource }
             if (!$matchesBySource.ContainsKey($manifest.catalogKey)) {
@@ -362,7 +326,7 @@ function Test-CurrentBackupLookState($manifest) {
     $key = [string]$manifest.catalogKey
     if (!$key -or $key -notmatch '^[0-9A-F]{64}$') { return $false }
     if (!(Test-CatalogLookState $key)) { return $true }
-    $live = @(Get-CatalogLookFiles $key)
+    $live = @(Get-CatalogLookFiles $userData $key)
     if ($live.Count -ne @($manifest.files).Count) { return $false }
     $archives = @{}
     foreach ($record in $manifest.files) { $archives[$record.path] = $record }
@@ -386,16 +350,14 @@ function Restore-DiscoveredCatalogLooks {
             return $false
         }
         $match = $candidates[0]
-        if (!(Test-CurrentBackupLookState $match.Manifest)) {
-            Write-Warning "Saved looks at the source path have changed since the matching backup. No older looks were attached. Backup: $($match.Database)"
-            return $false
-        }
+        $newerLocal = !(Test-CurrentBackupLookState $match.Manifest)
         $options = @{
             BackupDatabase = $match.Database
             DestinationDatabase = $path
             UserDataRoot = $userData
             SavedLooksOnly = $true
             AllowUpdatedCatalog = !$match.Exact
+            LatestLocalLooks = $newerLocal
         }
         if (!$match.Exact -and !$AcceptUpdated) {
             if (!$AskAboutUpdated) {
@@ -404,15 +366,18 @@ function Restore-DiscoveredCatalogLooks {
             }
             $null = & $restoreScript @options
             Add-Type -AssemblyName System.Windows.Forms
+            $description = if ($newerLocal) { 'Restore the newer local looks verified against this backup?' }
+                else { 'Restore the saved looks from this verified backup?' }
             $answer = [System.Windows.Forms.MessageBox]::Show(
-                "Verified saved looks for this updated catalog. Restore them from this backup?`n`n$($match.Database)", $appName,
+                "$description`n`n$($match.Database)", $appName,
                 [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Question,
                 [System.Windows.Forms.MessageBoxDefaultButton]::Button2)
             if ($answer -ne [System.Windows.Forms.DialogResult]::Yes) { return $false }
         }
         Confirm-CatalogIsIdle $path
         $null = & $restoreScript @options -Apply
-        Write-Host "Restored Spektrafilm looks from $($match.Database)"
+        if ($newerLocal) { Write-Host "Restored newer local Spektrafilm looks verified against $($match.Database)" }
+        else { Write-Host "Restored Spektrafilm looks from $($match.Database)" }
         return $true
     } catch {
         Write-Warning "Could not recover Spektrafilm looks from a matching backup. $($_.Exception.Message)"
@@ -429,6 +394,7 @@ function Prepare-SpektrafilmCatalog([string] $path, [string] $restoreScript, [sw
         $options = @{
             BackupDatabase=$pending.BackupDatabase; DestinationDatabase=$path; UserDataRoot=$userData
             SavedLooksOnly=$pending.SavedLooksOnly; AllowUpdatedCatalog=$pending.AllowUpdatedCatalog
+            LatestLocalLooks=[bool]$pending.LatestLocalLooks
         }
         $null = & $restoreScript @options -Apply
         Write-Host 'Resumed an interrupted Spektrafilm catalog restore.'
