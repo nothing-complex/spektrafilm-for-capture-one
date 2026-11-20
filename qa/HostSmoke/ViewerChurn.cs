@@ -112,7 +112,7 @@ public static partial class StartupHook
     }
 
     private sealed record ViewerVisit(int Index, string Format, int StrengthPercent, double SaveMs, double SettledPaintMs, long ManagedBytes,
-        long HostPrivateBytes, long RendererPrivateBytes, double Scale, int PixelWidth, int PixelHeight);
+        long HostPrivateBytes, long RendererPrivateBytes, double Scale, int PixelWidth, int PixelHeight, int SettingsGeneration);
 
     private static async Task MeasureViewerChurn(object panel, object spatial, object store, int visitCount)
     {
@@ -125,7 +125,8 @@ public static partial class StartupHook
         var exposureValue = exposure.GetType().GetProperty("Value", Flags)!;
         var strengthValue = strength.GetType().GetProperty("Value", Flags)!;
         var size = (ComboBox)Field(spatial, "previewSize")!;
-        size.SelectedItem = size.ItemsSource.Cast<object>().Single(item => Prop(item, "Id") is "2048");
+        var quality = Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_VIEWER_CHURN_RESOLUTION") ?? "2048";
+        size.SelectedItem = size.ItemsSource.Cast<object>().Single(item => Equals(Prop(item, "Id"), quality));
         var viewer = Field(spatial, "viewer")!;
         Call(spatial, "SetEnabled", true);
         var samples = new List<ViewerVisit>(visitCount);
@@ -172,7 +173,7 @@ public static partial class StartupHook
             while (true)
             {
                 var live = ValidateDrawn(variant);
-                if (live is not null && Field(spatial, "frameCurrent") is true && Field(spatial, "sourceSize") is "2048"
+                if (live is not null && Field(spatial, "frameCurrent") is true && Equals(Field(spatial, "sourceSize"), quality)
                     && Field(spatial, "source") is { } source && Prop(source, "Description") is { } frameDescription
                     && Prop(frameDescription, "Source") is { } description && Prop(description, "VariantId") is Guid sourceId && sourceId == variant
                     && Prop(source, "BitDepth") is 16 && Field(spatial, "viewerFrame") is BitmapSource image
@@ -184,17 +185,43 @@ public static partial class StartupHook
                     host.Refresh();
                     samples.Add(new(visit + 1, (string)Prop(description, "SourceFormat")!, strengthPercent, saveTime,
                         Stopwatch.GetElapsedTime(started).TotalMilliseconds, GC.GetTotalMemory(false), host.PrivateMemorySize64,
-                        rendererBytes, (double)Call(viewer, "ProjectedLongEdge", variant)!, image.PixelWidth, image.PixelHeight));
+                        rendererBytes, (double)Call(viewer, "ProjectedLongEdge", variant)!, image.PixelWidth, image.PixelHeight,
+                        (int)Field(spatial, "inputRevision")!));
                     sources.Add(new WeakReference(source));
                     break;
                 }
                 if (Stopwatch.GetElapsedTime(started) > TimeSpan.FromSeconds(18))
-                    throw new TimeoutException($"Viewer visit {visit + 1} never painted the exact selected 16-bit source at 2048 px.");
+                    throw new TimeoutException($"Viewer visit {visit + 1} never painted the exact selected 16-bit source at {quality} quality.");
                 await Task.Delay(16);
             }
             if ((visit + 1) % 20 == 0)
                 File.AppendAllText(Path.Combine(folder, "host-smoke.log"), $"Recorded {visit + 1} live Viewer visits.{Environment.NewLine}");
         }
+
+        var lastSource = Field(spatial, "source")!;
+        var currentVariant = selection.Variants[(visitCount - 1) % selection.Variants.Length];
+        await ChangeLookAndPaint(100d, .71);
+        var packedReuse = await ChangeLookAndPaint(100d, .76);
+        var floatReuse = await ChangeLookAndPaint(50d, .76);
+        var blendReuse = await ChangeLookAndPaint(25d, .76);
+        var warm = await ReadViewerTimingRecords(new HashSet<int> { packedReuse, floatReuse, blendReuse });
+        Check(warm.Count == 3 && warm.Values.All(timing => timing.GetProperty("NativeDevelopmentMs").ValueKind == JsonValueKind.Null),
+            "exposure and strength edits retain the developed high-depth Viewer source and record no repeated native work");
+        foreach (var (generation, packed) in new[] { (packedReuse, true), (floatReuse, false) })
+        {
+            var timing = warm[generation];
+            var worker = timing.GetProperty("Worker");
+            Check(timing.GetProperty("FilmRenderAndTransportMs").GetDouble() > 0 && !worker.GetProperty("SourceUploaded").GetBoolean()
+                && worker.GetProperty("PackedDisplay").GetBoolean() == packed,
+                "both packed and float warm edits reuse the worker source and report its exact transfer mode");
+        }
+        Check(warm[blendReuse].GetProperty("Worker").ValueKind == JsonValueKind.Null
+            && warm[blendReuse].GetProperty("FilmRenderAndTransportMs").ValueKind == JsonValueKind.Null
+            && warm[blendReuse].GetProperty("CreateDisplayBitmapMs").GetDouble() > 0,
+            "strength-only blending from retained float pixels leaves both native development and Vulkan idle");
+        File.WriteAllText(Path.Combine(folder, "viewer-warm-stage-timings.json"),
+            JsonSerializer.Serialize(new { PackedReuse = warm[packedReuse], FloatReuse = warm[floatReuse], BlendReuse = warm[blendReuse] },
+                new JsonSerializerOptions { WriteIndented = true }));
 
         Call(spatial, "SetEnabled", false);
         var runningWorker = Field(spatial, "renderer") is { } owned ? Field(owned, "process") as Process : null;
@@ -204,10 +231,11 @@ public static partial class StartupHook
         GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
         var retained = sources.Count(item => item.IsAlive);
         Check(retained <= 4, "all but the bounded current RAW frames are collectible after navigation and drain");
+        await VerifyViewerStageTimings(samples, quality);
         var detailed = new JsonSerializerOptions { WriteIndented = true };
         File.WriteAllText(Path.Combine(folder, "viewer-churn.json"), JsonSerializer.Serialize(new
         {
-            Visits = visitCount, InterleavedSelections = superseded, DistinctSourceFormats = samples.Select(s => s.Format).Distinct().ToArray(),
+            Visits = visitCount, Quality = quality, InterleavedSelections = superseded, DistinctSourceFormats = samples.Select(s => s.Format).Distinct().ToArray(),
             EditAndDurableSaveMs = Percentiles(samples.Select(s => s.SaveMs).ToArray()),
             SettledPaintMs = Percentiles(samples.Select(s => s.SettledPaintMs).ToArray()),
             PeakHostPrivateBytes = samples.Max(s => s.HostPrivateBytes), PeakRendererPrivateBytes = samples.Max(s => s.RendererPrivateBytes),
@@ -215,5 +243,83 @@ public static partial class StartupHook
             PostDrainManagedBytes = GC.GetTotalMemory(false), Samples = samples,
         }, detailed));
         File.WriteAllText(Path.Combine(folder, "first.passed"), $"PASS {checks} Viewer churn assertions; {visitCount} individually verified drawn frames");
+
+        async Task<int> ChangeLookAndPaint(double filmStrength, double filmExposure)
+        {
+            var previous = Field(spatial, "viewerFrame");
+            strengthValue.SetValue(strength, filmStrength);
+            exposureValue.SetValue(exposure, filmExposure);
+            var started = Stopwatch.GetTimestamp();
+            while (Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(18))
+            {
+                if (ValidateDrawn(currentVariant) is { } live && Field(spatial, "frameCurrent") is true
+                    && Field(spatial, "viewerFrame") is BitmapSource image && !ReferenceEquals(previous, image)
+                    && ReferenceEquals(image, Prop(live, "PaintedBitmap")))
+                {
+                    Check(ReferenceEquals(lastSource, Field(spatial, "source")), "a same-variant edit retains the exact developed source");
+                    return (int)Field(spatial, "inputRevision")!;
+                }
+                await Task.Delay(16);
+            }
+            throw new TimeoutException("The warm Viewer edit did not paint a settled frame.");
+        }
+    }
+
+    private static async Task<Dictionary<int, JsonElement>> ReadViewerTimingRecords(HashSet<int> generations)
+    {
+        var seen = new Dictionary<int, JsonElement>();
+        var log = Path.Combine(folder, "panel.log");
+        var start = Stopwatch.GetTimestamp();
+        while (!generations.All(seen.ContainsKey) && Stopwatch.GetElapsedTime(start) < TimeSpan.FromSeconds(4))
+        {
+            foreach (var line in File.ReadLines(log).Where(line => line.Contains("viewer.performance.v1", StringComparison.Ordinal)))
+            {
+                try
+                {
+                    using var entry = JsonDocument.Parse(line);
+                    var detail = entry.RootElement.GetProperty("Details");
+                    var generation = detail.GetProperty("SettingsGeneration").GetInt32();
+                    if (generations.Contains(generation)) seen[generation] = detail.Clone();
+                }
+                catch (JsonException) { /* The log can end with a partial entry while it flushes. */ }
+            }
+            if (!generations.All(seen.ContainsKey)) await Task.Delay(80);
+        }
+        return seen;
+    }
+
+    private static async Task VerifyViewerStageTimings(IReadOnlyList<ViewerVisit> visits, string quality)
+    {
+        var generations = visits.Select(visit => visit.SettingsGeneration).ToHashSet();
+        var seen = await ReadViewerTimingRecords(generations);
+        Check(generations.Count == visits.Count && generations.All(seen.ContainsKey),
+            "each exact settled native frame has a structured stage record for its settings generation");
+        foreach (var visit in visits)
+        {
+            var entry = seen[visit.SettingsGeneration];
+            var film = visit.StrengthPercent != 0;
+            var timings = new[] { "NativeDevelopmentMs", "FilmRenderAndTransportMs", "CreateDisplayBitmapMs", "ReadyToPaintMs" }
+                .Select(key => entry.GetProperty(key)).ToArray();
+            var total = entry.GetProperty("RequestToPaintMs").GetDouble();
+            var measured = timings.Where(value => value.ValueKind == JsonValueKind.Number).Select(value => value.GetDouble()).ToArray();
+            var worker = entry.GetProperty("Worker");
+            Check(entry.GetProperty("SourceFormat").GetString() == visit.Format && entry.GetProperty("Quality").GetString() == quality
+                && entry.GetProperty("Width").GetInt32() == visit.PixelWidth && entry.GetProperty("Height").GetInt32() == visit.PixelHeight
+                && entry.GetProperty("SourceBitDepth").GetInt32() == 16 && entry.GetProperty("FilmApplied").GetBoolean() == film
+                && entry.GetProperty("HostAssemblySha256").GetString() is { Length: 64 }
+                && !entry.TryGetProperty("VariantId", out _) && !entry.TryGetProperty("SourcePath", out _)
+                && double.IsFinite(total) && total >= measured.Sum() && measured.All(value => double.IsFinite(value) && value >= 0)
+                && timings[0].GetDouble() > 0 && timings[2].GetDouble() > 0
+                && (film ? timings[1].GetDouble() > 0 && worker.GetProperty("Request").GetUInt64() > 0
+                    && worker.GetProperty("ProcessId").GetInt32() > 0 && worker.GetProperty("SourceUploaded").GetBoolean()
+                    && worker.GetProperty("PackedDisplay").GetBoolean() == (visit.StrengthPercent == 100)
+                    && worker.GetProperty("ParameterContract").GetString() is { Length: 64 }
+                    : timings[1].ValueKind == JsonValueKind.Null && worker.ValueKind == JsonValueKind.Null),
+                "the actual settled paint timing matches the fixture's native source, settings and worker request");
+        }
+        Check(seen.Values.Select(entry => entry.GetProperty("FrameId").GetGuid()).Distinct().Count() == visits.Count,
+            "the timed native paints have independent ephemeral identifiers");
+        File.WriteAllText(Path.Combine(folder, "viewer-stage-timings.json"),
+            JsonSerializer.Serialize(visits.Select(visit => seen[visit.SettingsGeneration]), new JsonSerializerOptions { WriteIndented = true }));
     }
 }

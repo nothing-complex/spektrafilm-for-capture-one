@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Reflection;
 using System.Text;
 using System.Threading;
@@ -26,6 +27,7 @@ internal sealed class ViewerPreview : IDisposable
     private readonly object window;
     private readonly byte[] sampleBytes = new byte[4];
     private Attachment? attachment;
+    private (BitmapSource Bitmap, ViewerFrameTiming Timing)? firstPaint;
     private DispatcherOperation? statusNotification;
     private BitmapSource? clippingSource;
     private BitmapSource? clippingMask;
@@ -42,10 +44,18 @@ internal sealed class ViewerPreview : IDisposable
     internal double? ProjectedLongEdge(Guid variant) => UnavailableReason is null && attachment is { HasDrawn: true, PaintUnavailable: null } current
         && current.VariantId == variant ? current.ProjectedLongEdge : null;
 
+    internal void TrackFirstPaint(BitmapSource bitmap, ViewerFrameTiming timing)
+    {
+        if (!ReferenceEquals(attachment?.PaintedBitmap, bitmap))
+            firstPaint = (bitmap, timing);
+    }
+
     internal bool Show(Guid variantId, BitmapSource bitmap)
     {
         if (disposed)
             return false;
+        if (firstPaint is { } pending && !ReferenceEquals(pending.Bitmap, bitmap))
+            firstPaint = null;
 
         try
         {
@@ -114,12 +124,14 @@ internal sealed class ViewerPreview : IDisposable
 
     internal void Suspend(string reason = InactiveDocument)
     {
+        firstPaint = null;
         Detach();
         SetStatus(reason);
     }
 
     internal void Clear()
     {
+        firstPaint = null;
         Detach();
         SetStatus(null);
     }
@@ -171,6 +183,7 @@ internal sealed class ViewerPreview : IDisposable
     public void Dispose()
     {
         disposed = true;
+        firstPaint = null;
         Detach();
         statusNotification?.Abort();
         statusNotification = null;
@@ -269,12 +282,17 @@ internal sealed class ViewerPreview : IDisposable
             if (!current.HasDrawn)
             {
                 current.HasDrawn = true;
-                StartupHook.Log($"Viewer preview painted on {current.Painter.GetType().FullName} for {current.VariantId:D} at {width}x{height}.");
+                StartupHook.Log($"Viewer preview painted on {current.Painter.GetType().FullName} at {width}x{height}.");
             }
             current.PaintUnavailable = null;
             current.ProjectedLongEdge = geometry.ProjectedLongEdge;
             current.Geometry = geometry;
             current.PaintedBitmap = current.Bitmap;
+            if (firstPaint is { } pending && ReferenceEquals(pending.Bitmap, current.Bitmap))
+            {
+                firstPaint = null;
+                pending.Timing.Log(width, height);
+            }
             SetStatus(null);
         }
         catch (Exception error)
@@ -446,3 +464,22 @@ internal sealed class ViewerPreview : IDisposable
 }
 
 internal readonly record struct ViewerPixel(BitmapSource Frame, int X, int Y, byte Red, byte Green, byte Blue);
+
+internal readonly record struct ViewerFrameTiming(long Started, long Ready, int SettingsGeneration, string Quality, bool AutoQuality,
+    int SourceBitDepth, string SourceFormat, string HostVersion, string HostAssemblySha256, string InputEncoding, string FilmEncoding,
+    bool FilmApplied, double? NativeDevelopmentMs, double? FilmRenderAndTransportMs, double? CreateDisplayBitmapMs, OpticalRenderReceipt? Render)
+{
+    internal void Log(int width, int height)
+    {
+        var painted = Stopwatch.GetTimestamp();
+        StartupHook.Log("viewer.performance.v1", new
+        {
+            FrameId = Guid.NewGuid(), SettingsGeneration, Quality, AutoQuality, SourceBitDepth, SourceFormat, HostVersion, HostAssemblySha256,
+            InputEncoding, FilmEncoding, FilmApplied, Width = width, Height = height, NativeDevelopmentMs, FilmRenderAndTransportMs,
+            CreateDisplayBitmapMs, ReadyToPaintMs = Stopwatch.GetElapsedTime(Ready, painted).TotalMilliseconds,
+            RequestToPaintMs = Stopwatch.GetElapsedTime(Started, painted).TotalMilliseconds,
+            Worker = Render is { } worker ? new { worker.ProcessId, worker.Request, worker.SourceUploaded,
+                worker.PackedDisplay, worker.ParameterContract, worker.AssetContract } : null,
+        });
+    }
+}

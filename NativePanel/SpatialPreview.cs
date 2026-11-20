@@ -1110,6 +1110,8 @@ internal sealed class SpatialPreview : IDisposable
         retryViewer.Visibility = Visibility.Collapsed;
         var settingsVersion = inputRevision;
         var started = Stopwatch.GetTimestamp();
+        double? nativeDevelopmentMs = null, filmRenderMs = null, bitmapMs = null;
+        OpticalRenderReceipt? renderReceipt = null;
         using var job = new CancellationTokenSource();
         pending = job;
         try
@@ -1120,6 +1122,7 @@ internal sealed class SpatialPreview : IDisposable
             var args = strength > 0 ? RendererOptions(look, selectedSpace.Id, encoding.Id) : Array.Empty<string>();
             if (needsSource)
             {
+                var developStarted = Stopwatch.GetTimestamp();
                 var target = HostProfile.CaptureTarget(window);
                 var snapshot = HostImageSource.Capture(window, target, space);
                 var initialStarted = Stopwatch.GetTimestamp();
@@ -1157,7 +1160,8 @@ internal sealed class SpatialPreview : IDisposable
                 renderedPixels = null;
                 renderedArguments = null;
                 renderedDisplay = null;
-                StartupHook.Log($"Capture One developed {target.SourceFormat} input at {developed.Width} × {developed.Height}, {developed.BitDepth}-bit {space} in {Stopwatch.GetElapsedTime(started).TotalMilliseconds:F0} ms.");
+                nativeDevelopmentMs = Stopwatch.GetElapsedTime(developStarted).TotalMilliseconds;
+                StartupHook.Log($"Capture One developed {target.SourceFormat} input at {developed.Width} × {developed.Height}, {developed.BitDepth}-bit {space} in {nativeDevelopmentMs:F0} ms.");
             }
             if (settingsVersion != inputRevision)
                 return;
@@ -1168,9 +1172,11 @@ internal sealed class SpatialPreview : IDisposable
             {
                 if (sourceDisplay is null)
                 {
+                    var bitmapStarted = Stopwatch.GetTimestamp();
                     var display = await Task.Run(() => DecodeResult(input, null, 0, space, encoding.Id, job.Token), job.Token);
                     job.Token.ThrowIfCancellationRequested();
                     sourceDisplay = display;
+                    bitmapMs = Stopwatch.GetElapsedTime(bitmapStarted).TotalMilliseconds;
                 }
                 output = sourceDisplay;
             }
@@ -1189,11 +1195,17 @@ internal sealed class SpatialPreview : IDisposable
                     byte[]? packed = null;
                     if (renderedPixels is null)
                     {
-                        renderer ??= new OpticalRenderer(nativePreview: true);
+                        var renderWorker = renderer ??= new OpticalRenderer(nativePreview: true);
                         renderingFinal = true;
                         byte[] reply;
-                        try { reply = await renderer.RenderAsync(input.Width, input.Height, input.FloatBytes, args, job.Token, displayPixels); }
+                        var renderStarted = Stopwatch.GetTimestamp();
+                        try
+                        {
+                            reply = await renderWorker.RenderAsync(input.Width, input.Height, input.FloatBytes, args, job.Token, displayPixels);
+                            renderReceipt = renderWorker.LastRender;
+                        }
                         finally { renderingFinal = false; }
+                        filmRenderMs = Stopwatch.GetElapsedTime(renderStarted).TotalMilliseconds;
                         job.Token.ThrowIfCancellationRequested();
                         if (displayPixels)
                             packed = reply;
@@ -1204,12 +1216,14 @@ internal sealed class SpatialPreview : IDisposable
                         return;
 
                     var completedPixels = renderedPixels;
+                    var bitmapStarted = Stopwatch.GetTimestamp();
                     var display = await Task.Run(() => packed is not null
                         ? CreateDisplayBitmap(input, packed)
                         : DecodeResult(input, completedPixels, strength, space, encoding.Id, job.Token), job.Token);
                     job.Token.ThrowIfCancellationRequested();
                     renderedDisplay = display;
                     renderedStrength = strength;
+                    bitmapMs = Stopwatch.GetElapsedTime(bitmapStarted).TotalMilliseconds;
                 }
                 output = renderedDisplay;
             }
@@ -1226,8 +1240,11 @@ internal sealed class SpatialPreview : IDisposable
             frameCurrent = true;
             showSource.IsEnabled = true;
             previewDetail = comparing ? "Source preview" : automatic ? "Auto Viewer" : "Live Viewer";
+            viewer.TrackFirstPaint(output, new ViewerFrameTiming(started, Stopwatch.GetTimestamp(), settingsVersion, size, automatic,
+                input.BitDepth, publishedSource.Source.SourceFormat, publishedSource.Source.HostVersion,
+                publishedSource.Source.HostAssemblySha256, selectedSpace.Id, encoding.Id, strength > 0,
+                nativeDevelopmentMs, filmRenderMs, bitmapMs, renderReceipt));
             ShowFrame(selectedVariant, output);
-            StartupHook.Log($"Live Viewer frame {input.Width} × {input.Height} in {Stopwatch.GetElapsedTime(started).TotalMilliseconds:F0} ms. {DescribeRender(args)}");
         }
         catch (OperationCanceledException)
         {
@@ -1509,20 +1526,6 @@ internal sealed class SpatialPreview : IDisposable
             saveInProgress = false;
             if (!disposed) UpdateViewerStatus();
         }
-    }
-
-    private static string DescribeRender(string[] arguments)
-    {
-        var settings = new List<string>();
-        for (var index = 0; index < arguments.Length; index += 2)
-        {
-            var option = arguments[index];
-            if (option is "--stock" or "--paper" or "--mode" or "--input-color" or "--output-color" or "--grain-model" or "--camera-diffusion-family"
-                or "--print-diffusion-family" or "--halation-amount" or "--scatter-amount" or "--scanner-enabled"
-                or "--enlarger-scale")
-                settings.Add($"{option[2..]}={arguments[index + 1]}");
-        }
-        return string.Join(' ', settings);
     }
 
     internal static IReadOnlyList<(string StateKey, string WorkerKey)> DevelopmentRendererParameters { get; } = Array.AsReadOnly(new[]

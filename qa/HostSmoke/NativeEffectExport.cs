@@ -43,7 +43,8 @@ public static partial class StartupHook
         }
     }
 
-    private static async Task TestNativeEffectExport(FieldInfo hookField, object hosted, object panel, object spatial, object window, string caseName)
+    private static async Task TestNativeEffectExport(FieldInfo hookField, object hosted, object panel, object spatial, object window,
+        string caseName, bool compareGrain = false, bool compareClone = false)
     {
         var toggle = (CheckBox)Field(panel, "enableSpektraFilm")!;
         var inputEncoding = (string)Prop(((ComboBox)Field(spatial, "inputSpace")!).SelectedItem, "Id")!;
@@ -145,6 +146,7 @@ public static partial class StartupHook
             Check(commandDifference.Mean < 8d / 65535 && commandDifference.Maximum < .01,
                 "native Export TIFF and Export with Previous Settings PNG retain the same processed RGB16 image");
 
+            var grain = compareGrain ? await CompareGrain(fullEffects) : null;
             toggle.IsChecked = false;
             bool clicked = false;
             ShowNativeDialog(() =>
@@ -155,7 +157,7 @@ public static partial class StartupHook
                 native.Close();
                 return true;
             });
-            Check(clicked && routeCount == 5 && Prop(bridge, "Dialog") is null,
+            Check(clicked && routeCount == (compareGrain ? 10 : 5) && Prop(bridge, "Dialog") is null,
                 "the master switch delegates to the ordinary Capture One Export dialog without a Spektrafilm job");
             ((IDisposable)bridge).Dispose();
             ((IDisposable)bridge).Dispose();
@@ -164,9 +166,130 @@ public static partial class StartupHook
             File.WriteAllText(Path.Combine(folder, caseName + "-native-effect-export.json"), JsonSerializer.Serialize(new
             {
                 width = expectedWidth, height = expectedHeight, iccSha256 = iccSha, tiffCompression = compression.ToString(),
-                filmDifference, opticsDifference, halationScatterDifference, commandDifference,
+                filmDifference, opticsDifference, halationScatterDifference, commandDifference, grain,
                 nativeExportCallbacks = routeCount, masterOffDelegated = clicked, timings,
             }, new JsonSerializerOptions { WriteIndented = true }));
+
+            async Task<object> CompareGrain(BitmapSource reference)
+            {
+                var nativeGrain = panel.GetType().Assembly.GetType("NativeGrain", true)!;
+                var store = Field(panel, "looks")!;
+                var selection = new FixtureSelection(panel);
+                object ReadGrain() => nativeGrain.GetMethod("Read", Flags)!.Invoke(null, new[] { window })!;
+                bool CanRestore(Guid variant) => nativeGrain.GetMethod("HasApplied", Flags)!
+                    .Invoke(null, new[] { window, store, variant }) is true;
+                var initialGrain = ReadGrain();
+                var initialStage = Prop(Call(panel, "CaptureLook")!, "Grain")!;
+                var opticalGrain = (ComboBox)choices["grain-model"]!;
+                var initialChoice = opticalGrain.SelectedItem;
+                var impact = Field(panel, "grainImpact")!;
+                var size = Field(panel, "grainSize")!;
+                var amount = values["grain-amount"]!;
+                var initialAmount = Prop(amount, "Value");
+                var apply = (Button)Field(panel, "applyGrain")!;
+                var restore = (Button)Field(panel, "restoreGrain")!;
+                void Click(Button button) => button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, button));
+                Check(Prop(initialChoice, "Id") is "off" && !CanRestore(expectedVariant),
+                    "the disposable comparison starts with optical grain off and independent Capture One grain");
+                try
+                {
+                    ((ComboBox)Field(panel, "grainType")!).SelectedIndex = 2;
+                    impact.GetType().GetProperty("Value", Flags)!.SetValue(impact, 70d);
+                    size.GetType().GetProperty("Value", Flags)!.SetValue(size, 75d);
+                    Check(initialGrain.Equals(ReadGrain()), "staged native Grain settings leave the actual Capture One grain alone");
+                    var staged = Difference(reference, await Render("staged-native-grain", ".tif", false));
+                    Check(staged.Mean < 3d / 65535, "staging native grain controls does not change the native TIFF pixels");
+                    Click(apply);
+                    var applied = ReadGrain();
+                    Check(CanRestore(expectedVariant) && !initialGrain.Equals(applied), "the native Apply grain button changed the actual Capture One variant");
+                    var native = await Render("active-native-grain", ".tif", false);
+                    var nativeDifference = Difference(reference, native);
+                    opticalGrain.SelectedItem = opticalGrain.ItemsSource.Cast<object>().Single(item => Prop(item, "Id") is "production");
+                    amount.GetType().GetProperty("Value", Flags)!.SetValue(amount, 1.65d);
+                    Check(applied.Equals(ReadGrain()), "opting into Spektrafilm optical grain leaves effective Capture One grain unchanged");
+                    var combined = await Render("both-native-and-optical-grain", ".tif", false);
+                    var previous = await Render("both-grains-previous", ".png", true);
+                    var opticalOverNative = Difference(native, combined);
+                    var commandDifference = Difference(combined, previous);
+                    if (compareClone) await CompareClonedGrain(applied);
+                    Click(restore);
+                    Check(!CanRestore(expectedVariant) && initialGrain.Equals(ReadGrain()), "the native Restore grain button restored the exact prior state");
+                    var optical = await Render("active-optical-grain", ".tif", false);
+                    var opticalDifference = Difference(reference, optical);
+                    var nativeOverOptical = Difference(optical, combined);
+                    Check(new[] { nativeDifference, opticalDifference, opticalOverNative, nativeOverOptical }
+                            .All(diff => diff.Mean > .0001 && diff.ChangedFraction > .1),
+                        "native and optical grain each affect output independently and both remain present when combined");
+                    Check(commandDifference.Mean < 8d / 65535 && commandDifference.Maximum < .01,
+                        "both native commands preserve the combined grain through TIFF and PNG delivery");
+                    return new { staged, nativeDifference, opticalDifference, opticalOverNative, nativeOverOptical, commandDifference };
+                }
+                finally
+                {
+                    Call(panel, "SyncSelection");
+                    if (!Equals(Field(panel, "displayedVariant"), expectedVariant)) selection.Select(expectedVariant, expectedVariant);
+                    if (CanRestore(expectedVariant)) Click(restore);
+                    opticalGrain.SelectedItem = initialChoice;
+                    amount.GetType().GetProperty("Value", Flags)!.SetValue(amount, initialAmount);
+                    Call(panel, "SetGrainControls", initialStage);
+                    Call(panel, "SaveLook");
+                }
+
+                async Task CompareClonedGrain(object applied)
+                {
+                    var command = Field(Field(window, "mCommands")!, "CloneVariant")!;
+                    var execute = command.GetType().GetMethod("Execute", Flags, null, new[] { typeof(bool) }, null)
+                        ?? throw new MissingMethodException(command.GetType().FullName, "Execute(Boolean)");
+                    var profile = panel.GetType().Assembly.GetType("HostProfile", true)!;
+                    var capture = profile.GetMethod("CaptureTarget", Flags)!;
+                    var sourcePath = Prop(capture.Invoke(null, new[] { window })!, "SourcePath");
+                    var nativeSelection = profile.GetMethod("ReadSelection", Flags)!.Invoke(null, new[] { window })!;
+                    var documentVariant = Prop(nativeSelection, "Variant")!;
+                    var core = AppDomain.CurrentDomain.GetAssemblies().Single(item => item.GetName().Name == "P1.C1.Core");
+                    var imageProperty = core.GetType("P1.C1.Core.ICoreVariant", true)!.GetProperty("CoreImage")!;
+                    var image = imageProperty.GetValue(documentVariant)!;
+                    var variantsProperty = imageProperty.PropertyType.GetProperty("CoreVariants")!;
+                    Guid[] ImageVariants() => ((IEnumerable)variantsProperty.GetValue(image)!).Cast<object>().Select(selection.Identity).ToArray();
+                    var before = ImageVariants();
+                    execute.Invoke(command, new object[] { false });
+                    var started = Stopwatch.GetTimestamp();
+                    Guid clone;
+                    while (true)
+                    {
+                        Call(panel, "SyncSelection");
+                        if (Field(panel, "displayedVariant") is Guid selected && selected != expectedVariant)
+                        {
+                            clone = selected;
+                            break;
+                        }
+                        if (Stopwatch.GetElapsedTime(started) > TimeSpan.FromSeconds(8))
+                            throw new TimeoutException("Capture One did not select a newly cloned variant.");
+                        await Task.Delay(35);
+                    }
+                    try
+                    {
+                        Call(panel, "RefreshNativeGrain", true);
+                        Check(ImageVariants().Except(before).SequenceEqual(new[] { clone })
+                            && Equals(Prop(capture.Invoke(null, new[] { window })!, "SourcePath"), sourcePath),
+                            "the native Clone command adds exactly one independent variant of the same RAW");
+                        Check(Equals(Prop(applied, "Values"), Prop(ReadGrain(), "Values")),
+                            "the actual clone inherits the applied Capture One grain values");
+                        Check(!CanRestore(clone) && !restore.IsEnabled,
+                            "the cloned variant cannot claim the original variant's native grain restore receipt");
+                        Check(Prop(opticalGrain.SelectedItem, "Id") is "off",
+                            "the independent cloned variant starts with its own default Spektrafilm optical grain");
+                    }
+                    finally
+                    {
+                        // Keep the new variant in this disposable catalog. Capture One may not add Clone to its adjustment history.
+                        selection.Select(expectedVariant, expectedVariant);
+                        Call(panel, "RefreshNativeGrain", true);
+                    }
+                    Check(ImageVariants().Contains(clone) && CanRestore(expectedVariant)
+                        && applied.Equals(ReadGrain()) && Prop(opticalGrain.SelectedItem, "Id") is "production",
+                        "reselecting the source preserves its independent optical look and native grain restore action");
+                }
+            }
 
             async Task<BitmapSource> Render(string kind, string extension, bool usePrevious)
             {

@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The 70-item integration audit tracks 31 bounded primary fixes implemented and 39 partial items. It includes feasibility investigations and enhancements.
+Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The 70-item integration audit tracks 32 bounded primary fixes implemented and 38 partial items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -320,7 +320,7 @@ Evidence is under `.test-results/host-selective-presets-ranges-20261119`, `.test
 
 ## Native grain, colour delivery and concurrent backups checkpoint
 
-- [x] Display actual Capture One Grain alongside staged controls. Apply and Restore work with the Spektrafilm switch off. The live tests verified native Undo and Redo, a changed outside value, a restart with a restorable receipt and staging preserved by Restore. Clone and pixel-level native/optical grain separation remain open.
+- [x] Display actual Capture One Grain alongside staged controls. Apply and Restore work with the Spektrafilm switch off. The live tests verified native Undo and Redo, a changed outside value, a restart with a restorable receipt and staging preserved by Restore. The later native grain checkpoint records separate clone and pixel-level export checks.
 - [x] Share the existing strength blend between Viewer, high-depth image delivery and LUT export. Test all input and output transfers, signed and saturated values, continuity and non-finite inputs. Nineteen GPU checks passed. The packed Viewer path matched managed sRGB BGRA byte for byte. The half-strength LUT differed from the independent formula by at most 0.000007125 in normalized code values.
 - [x] Fix the same-tick backup filename collision observed on Windows 2022. Serialize per-catalog backup publication and rotate only successful complete generations. Verify 42 joint-backup assertions in both PowerShell versions, including a competing lock and a deliberately blocked manifest. A real closed catalog backed up twice at the same instant and restored the later generation with both look hashes intact.
 - [x] Pass 12,404 local contract assertions with physical hard-link and junction fixtures, plus 146 first-launch and 150 restart checks. The source catalog hash remained unchanged. Local symlink privilege was unavailable. The earlier launch and selective preset checkpoints passed the full Windows 2022 and 2025 CI matrix.
@@ -713,6 +713,17 @@ Evidence is under `.test-results/host-adaptive-watchdog-accessibility-20261120`.
 
 Repeat with `qa/HostSmoke/Run-HostSmoke.ps1 -ViewerChurn 100` using the disposable four-RAW catalog and `-NativeSettingsConfig`. Add `-ViewerNativeBaseline` for the no-plugin run. Evidence is under `.test-results/host-viewer-100-visits-current-paint-20261120`, `.test-results/host-native-only-viewer-baseline-20261120` and `.test-results/host-viewer-paired-live-20261120`.
 
+## Structured timings for actual Viewer paints
+
+- [x] Enqueue one `viewer.performance.v1` record when the current settled bitmap first reaches the native WPF drawing context. Include an ephemeral frame ID, settings generation, actual source format and dimensions, exact Capture One build, and the associated renderer request and asset contract when available. Record native development, render and transport, display bitmap creation and paint timing. A cached stage has no duration. The event carries no source path, catalog identifier or variant UUID.
+- [x] Match all 100 selected 2048 px painted frames to their exact settings generation, high-depth RAW source and renderer request in a licensed run. Capture One development measured p50 324 ms and p95 835 ms. Film render and transport measured p50 72 ms and p95 96 ms across 66 film requests. Display bitmap creation measured p50 14 ms and p95 100 ms. First WPF draw submission followed bitmap readiness in p95 0.80 ms. The interaction-to-settled-paint p50 and p95 were 494 and 1015 ms. These subtimings separate the native event, Viewer request and WPF draw endpoints.
+- [x] Repeat across 40 selected frames at 4096 px. Native development measured p50 401 ms and p95 808 ms. Film render and transport measured p50 226 ms and p95 380 ms across 26 film requests. Three same-variant edits traced actual cache reuse. The packed exposure edit took 56 ms and the transition to float took 208 ms from request to draw, with no repeated native development or worker upload. A following strength-only blend took 43 ms and used the existing float pixels without a Vulkan request.
+- [ ] Correlate discarded generations and measure first visible draft latency during a ten-minute licensed interaction and broader hardware matrix. Earlier ten-minute results apply to the background logger in isolation.
+
+Repeat using `qa/HostSmoke/Run-HostSmoke.ps1 -ViewerChurn 100 -ViewerChurnResolution 2048` with the disposable four-RAW catalog and exact native settings backup. The fixture also supports 1200, 4096 and native resolution. The raw and summarized timings are in `.test-results/host-viewer-stage-timings-20261120` and `.test-results/host-viewer-stage-4096-and-warm-20261120`. Audit.19 predates `viewer.performance.v1`.
+
+The current-source general host suite passed 321 and 325 assertions after the timing change, and the managed worker passed 167 transport checks. Evidence is under `.test-results/host-viewer-timing-full-20261120`.
+
 ## Live Viewer worker recovery
 
 - [x] Retry a settled Viewer request once after transport interruption or a renderer deadline. The retry waits for the previous worker to exit, keeps the exact high-depth source, rechecks the variant and settings generation, and clears the stale preview. The failure stays local to the Viewer. Bad render settings and incompatible protocol replies still produce their normal errors.
@@ -827,6 +838,14 @@ Evidence is under `.test-results/host-grain-atomic-history-20261120`. The curren
 - [x] Pass 39 licensed checks on first launch and restart with the exact audit.15 extraction and the newer source runtime, for four runs. The source catalog hash was checked and temporary native settings were restored. Run `Run-HostSmoke.ps1 -NativeEffectExport` with the exact native settings backup and disposable test catalog.
 
 Evidence and TIFF/PNG examples are under `.test-results/host-native-effect-export-final-20261120` and `.test-results/host-source-native-effect-export-20261120`. Native Export support remains tied to the verified Capture One build and one selected photo with one enabled recipe.
+
+## Native and optical grain in Export and cloned variants
+
+- [x] Use the panel's actual Apply grain and Restore grain buttons with the extracted audit.19 runtime. Staged native grain controls changed mean exported RGB by less than one millionth of full scale. Applied native grain changed it by 1.66%, and Spektrafilm production grain alone changed it by 1.81%. With both present, adding optical grain over native changed RGB by 2.13% on average, and adding native grain over optical changed it by 0.93%. Applying optical grain left the native values unchanged, and Restore returned the exact original settings.
+- [x] Compare native Export TIFF and Export with Previous Settings PNG with both grains enabled alongside the film look, diffusion, halation and scatter. Mean RGB differences were at most 1.12e-6 of full scale. Both reopened at 3000 by 2000, 16-bit, using the exact Adobe RGB recipe profile. First launch and restart each passed 99 licensed checks across ten accepted exports.
+- [x] Trigger Capture One's real Clone Variant command on a separately copied catalog with four private RAWs. The clone used the same RAW and inherited the actual native grain values. Its Spektrafilm optical grain began at the default and its Restore button remained disabled because only the source owns the receipt. Reselecting the source restored its own look and Restore action. The licensed fixture passed 104 checks and all four private RAW hashes matched. Clone history is distinct from the native Grain Apply/Restore Undo already verified. Matching an outside edit that recreates the same native values remains under HS-08.
+
+Run `qa/HostSmoke/Run-HostSmoke.ps1 -NativeEffectGrain` for the two-launch export comparison, or `-NativeEffectClone` with private RAW copies for the additional single-launch clone check. Evidence is under `.test-results/host-native-grain-effects-20261120` and `.test-results/host-native-clone-tuple-final-20261120`.
 
 ## Native export stage timings and lossless TIFF recipe settings
 

@@ -1003,7 +1003,8 @@
         "The exact audit.14 worker passed the full standalone Vulkan smoke suite on isolated physical Intel integrated graphics, including packed/scalar parity, float stability, all seven multi-tile cases and the 128 MiB pressure fixture. Intel tile parity worst difference was 1.20e-7.",
         "Correlated native export timings identify the exact accepted job, processing encoding, pixel depth, geometry, format and end-to-end stage durations. Actual file-level timings now distinguish native development, film and transport, blend, ICC and verified commit.",
         "The exact audit.17 package timed two accepted full-size 24 MP DNG exports at 3.60 and 4.08 s over separate licensed launches. Native RGB16 development took 209–265 ms, film render and transport 1.08–1.41 s, and encoding, verification and commit about 2.12 s both times. Dialog interaction is excluded.",
-        "Khronos synchronization validation exposed a real 31-slot pipeline on a 30-slot SwiftShader device. The renderer now uses 30 slots and checks both required limits before selecting a device. Four full SwiftShader reply hashes matched with validation active and no errors. The Profiles layer tested both automatic and explicit admission at 29 and 30 slots. NVIDIA and Intel passed the new warm optical scratch lifetime test and full smoke. NVIDIA passed 480 spectral cases."
+        "Khronos synchronization validation exposed a real 31-slot pipeline on a 30-slot SwiftShader device. The renderer now uses 30 slots and checks both required limits before selecting a device. Four full SwiftShader reply hashes matched with validation active and no errors. The Profiles layer tested both automatic and explicit admission at 29 and 30 slots. NVIDIA and Intel passed the new warm optical scratch lifetime test and full smoke. NVIDIA passed 480 spectral cases.",
+        "Each settled Viewer drawing now emits one structured timing record with its local settings generation, exact source geometry and host fingerprint, and the actual renderer process/request and parameter/assets contract when used. The 100-frame 2048 px and 40-frame 4096 px licensed runs verified each record against the selected RGB16 source. Same-variant edits distinguish packed and float reuse and an existing-float blend with no native work or GPU call."
       ],
       "evidence_paths": [
         "ofx-still-renderer/main.cpp",
@@ -1021,10 +1022,12 @@
         ".test-results/audit17-package-verify-20261120/native-export-24mp.json",
         ".test-results/optical-scratch-final-20261120/swiftshader-validation.log",
         ".test-results/portable-vulkan-bindings-20261120/receipt.json",
-        ".test-results/optical-scratch-final-20261120/intel-full.log"
+        ".test-results/optical-scratch-final-20261120/intel-full.log",
+        ".test-results/host-viewer-stage-timings-20261120/viewer-stage-summary.json",
+        ".test-results/host-viewer-stage-4096-and-warm-20261120/viewer-stage-summary.json"
       ],
       "remaining_work": [
-        "Add frame/build/settings identity to Viewer and worker diagnostics and correlate their stages. Set wider quality and hardware p50/p95/memory budgets.",
+        "Correlate canceled and preliminary Viewer generations as well as verified settled draws. Set wider quality and hardware p50/p95/memory budgets.",
         "Expand across multiple memory sizes and vendors and measure additional end-to-end actual display, RAW development, and codec workloads."
       ],
       "original_acceptance_tests": [
@@ -1924,7 +1927,8 @@
         "The exact audit.15 worker completed all 16 renderer/transport cases and 80 requests at 24, 45, 61 and 100 MP on RTX 3090. Both colour-only and optical cases used packed Viewer and float image export. At 100 MP, warm p95 was 428 ms or 5.30 s in the Viewer and 2.20 s or 8.51 s for float export, from four warm requests per case. The optical export used 6.33 GiB peak worker commit and 3.09 GiB transient cache. Its 800 tiled results returned 9.38 GB of GPU readback for the 1.60 GB float reply, identifying tile overlap transfer as the main measured candidate for improvement. These timings exclude Capture One development, ICC conversion and file encoding.",
         "The structured export.performance.v1 event uses the accepted journal job ID and records elapsed Viewer drain, native RGB16 development, Vulkan work and transport, crop and blend, ICC conversion, and encode/verify/commit without logging paths in the event. Two licensed launches timed eight 3000 by 2000 DNG exports. Effect TIFF took 1.40–1.42 seconds after job acceptance. The matching PNG took 1.68–1.71 seconds. The file stage dominated at 568–569 ms for TIFF and 888–936 ms for PNG.",
         "The four-camera effect export matrix records 32 job-correlated v2 timing events and 159 licensed checks per launch. TIFF with film and diffusion took 1.27–1.68 s after acceptance and equivalent PNG took 1.55–2.26 s. The v2 ICC setup time is distinct from the file stage where WIC may lazily transform pixels. The v1 field named IccConversionMs measured setup.",
-        "The exact audit.17 package timed two accepted full-size 24 MP DNG exports at 3.60 and 4.08 s over separate licensed launches. Native RGB16 development took 209–265 ms, film render and transport 1.08–1.41 s, and encoding, verification and commit about 2.12 s both times. Dialog interaction is excluded."
+        "The exact audit.17 package timed two accepted full-size 24 MP DNG exports at 3.60 and 4.08 s over separate licensed launches. Native RGB16 development took 209–265 ms, film render and transport 1.08–1.41 s, and encoding, verification and commit about 2.12 s both times. Dialog interaction is excluded.",
+        "Correlate settled native drawing with the settings generation, exact host identity, high-depth source and worker request in a pathless event. One hundred 2048 px and 40 4096 px draws were validated against their actual fixture selections. A 4096 px exposure edit reused GPU source at 56 ms to draw, a float transition reused it at 208 ms, and an existing-float strength blend drew after 43 ms without native development or Vulkan."
       ],
       "evidence_paths": [
         "ofx-still-renderer/main.cpp",
@@ -1948,10 +1952,13 @@
         ".test-results/host-tile-centre-native-export-20261120/first-native-effect-export.json",
         ".test-results/host-tile-centre-native-export-20261120/restart-native-effect-export.json",
         ".test-results/host-four-raw-native-effects-20261120/first-CR3-native-effect-export.json",
-        ".test-results/audit17-package-verify-20261120/native-export-24mp.json"
+        ".test-results/audit17-package-verify-20261120/native-export-24mp.json",
+        ".test-results/host-viewer-stage-timings-20261120/viewer-stage-summary.json",
+        ".test-results/host-viewer-stage-4096-and-warm-20261120/viewer-stage-summary.json",
+        ".test-results/host-viewer-stage-4096-and-warm-20261120/viewer-warm-stage-timings.json"
       ],
       "remaining_work": [
-        "Correlate Viewer generations across development, render and paint, and run full interaction p50/p95 and memory budgets. Accepted export work has structured stage timing.",
+        "Correlate discarded render generations and first-visible brief previews with settled paint. Run the full licensed rapid-edit workload for ten minutes and record cold/warm driver, settings and memory provenance. The background logger has a separate ten-minute bounded test.",
         "Expand across multiple memory sizes and vendors and measure end-to-end actual display, RAW development, and codec stages."
       ],
       "original_acceptance_tests": [
@@ -2816,21 +2823,25 @@
       "id": "HS-07",
       "title": "Native grain controls diverge from effective image state",
       "priority": "P2",
-      "status": "partial",
+      "status": "implemented",
       "implemented": [
         "The native Grain tool now displays current Capture One values from the selected variant beside the staged controls and shows whether the current settings match its durable receipt. Restore is available only on a verified applied match.",
         "Apply and Restore are explicit operations available while the Spektrafilm master is off. Moving staged controls does not modify native output. Restore leaves staged controls intact so the look keeps the same saved values.",
-        "Tested real WPF actions, native Undo and Redo, external native changes, disabled-master behavior and receipt availability after process termination/restart. Full suites passed 146 first-launch and 150 restart checks with the source catalog unchanged."
+        "Tested real WPF actions, native Undo and Redo, external native changes, disabled-master behavior and receipt availability after process termination/restart. Full suites passed 146 first-launch and 150 restart checks with the source catalog unchanged.",
+        "The audit.19 package passed 99 licensed checks per launch for grain, including 20 accepted ICC-tagged TIFF/PNG outputs over two launches. Staging native grain had negligible pixel effect. Native and optical grain changed the exported pixels independently, and both remained visible together. Both native commands delivered the combined RGB16 treatment with mean channel difference at most 1.12e-6 of full scale.",
+        "The real Clone Variant command inherited native grain in a new variant of the same private RAW. The clone had its own default optical grain and no source restore receipt. Returning to the source kept its original optical look and Restore action. Four private RAW hashes matched through 104 licensed checks. Exact-value outside edits remain the separate HS-08 revision-identification issue."
       ],
       "evidence_paths": [
         "NativePanel/NativeGrain.cs",
         "NativePanel/SpektraFilmTool.cs",
         "qa/HostSmoke/StartupHook.cs",
-        ".test-results/host-native-grain-state-20261119/host-smoke.log"
+        ".test-results/host-native-grain-state-20261119/host-smoke.log",
+        "qa/HostSmoke/NativeEffectExport.cs",
+        ".test-results/host-native-grain-effects-20261120/first-native-effect-export.json",
+        ".test-results/host-native-grain-effects-20261120/restart-native-effect-export.json",
+        ".test-results/host-native-clone-tuple-final-20261120/host-smoke.log"
       ],
-      "remaining_work": [
-        "Verify the separation of native and optical grain through clone and pixel-level export tests. The adapter cannot yet identify an outside edit that leaves the exact same field values."
-      ],
+      "remaining_work": [],
       "original_acceptance_tests": [
         "native edits, Ctrl+Z, master on/off, apply/restore, clone, export and restart produce truthful controls. Verify changing Spektrafilm optics grain does not accidentally double native grain."
       ],
@@ -3312,8 +3323,8 @@
   ],
   "counts": {
     "total": 70,
-    "implemented": 31,
-    "partial": 39,
+    "implemented": 32,
+    "partial": 38,
     "pending": 0
   },
   "last_reconciled": "2026-11-20",

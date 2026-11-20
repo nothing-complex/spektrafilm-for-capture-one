@@ -15,6 +15,9 @@ internal sealed class RendererDeadlineException(string message) : TimeoutExcepti
 internal sealed class RendererDeviceLostException(string detail)
     : InvalidOperationException("The Spektrafilm renderer lost its Vulkan device. " + detail);
 
+internal readonly record struct OpticalRenderReceipt(int ProcessId, ulong Request, bool SourceUploaded, bool PackedDisplay,
+    string? ParameterContract, string? AssetContract);
+
 internal sealed class OpticalRenderer(bool export = false, bool nativePreview = false) : IDisposable, IAsyncDisposable
 {
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
@@ -38,6 +41,7 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
     internal Action<RendererStage>? ReportProgress { get; init; }
     internal string? ParameterContract { get; private set; }
     internal string? AssetContract { get; private set; }
+    internal OpticalRenderReceipt? LastRender { get; private set; }
 
     internal async Task<byte[]> RenderAsync(int width, int height, byte[] rgba, string[] arguments, CancellationToken stop,
         bool displayPixels = false)
@@ -86,6 +90,7 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
     {
         stop.ThrowIfCancellationRequested();
         var renderer = GetProcess();
+        var processId = renderer.Id;
         var signal = requestCancellation;
         var timeout = export || nativePreview ? TimeSpan.FromMinutes(8) : TimeSpan.FromSeconds(20);
         var started = Stopwatch.GetTimestamp();
@@ -176,6 +181,7 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
                 sourceWidth = width;
                 sourceHeight = height;
             }
+            LastRender = new OpticalRenderReceipt(processId, request, newSource, displayPixels, ParameterContract, AssetContract);
             return pixels;
         }
         catch (OperationCanceledException) when (synchronizedCancellation) { throw; }
@@ -466,6 +472,7 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
         negotiatedProgress = false;
         ParameterContract = null;
         AssetContract = null;
+        LastRender = null;
         return cancellation;
     }
 

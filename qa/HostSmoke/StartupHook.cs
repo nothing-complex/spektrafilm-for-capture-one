@@ -158,13 +158,14 @@ public static partial class StartupHook
                 return;
             }
             var exportFixture = Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT");
-            if (exportFixture is "1" or "matrix")
+            if (exportFixture is "1" or "matrix" or "grain" or "clone")
             {
                 var phase = File.ReadAllText(Path.Combine(folder, "phase.txt"));
                 if (exportFixture == "matrix")
                     await TestNativeEffectExportMatrix(hookField, hosted, panel, spatial, window, phase);
                 else
-                    await TestNativeEffectExport(hookField, hosted, panel, spatial, window, phase);
+                    await TestNativeEffectExport(hookField, hosted, panel, spatial, window, phase,
+                        compareGrain: exportFixture is "grain" or "clone", compareClone: exportFixture == "clone");
                 File.WriteAllText(Path.Combine(folder, phase + ".passed"), $"PASS {checks} native effects export assertions");
                 return;
             }

@@ -11,6 +11,7 @@ param(
     [switch] $SessionIsolation,
     [switch] $ViewerLayouts,
     [ValidateRange(0,200)][int] $ViewerChurn=0,
+    [ValidateSet('1200','2048','4096','native')][string] $ViewerChurnResolution='2048',
     [ValidateRange(0,200)][int] $NativeLifetimeCycles=0,
     [switch] $ViewerNativeBaseline,
     [switch] $DurableSliderEdits,
@@ -24,6 +25,8 @@ param(
     [switch] $PanelInventory,
     [switch] $NativeEffectExport,
     [switch] $NativeEffectExportMatrix,
+    [switch] $NativeEffectGrain,
+    [switch] $NativeEffectClone,
     [switch] $OriginalAvailabilityProbe,
     [switch] $NativeDevelopmentDeadline,
     [string] $DevelopmentLeaseFixtureDirectory,
@@ -32,7 +35,11 @@ param(
     [string] $ResultsDirectory
 )
 $ErrorActionPreference='Stop'
-if ($NativeEffectExportMatrix) { $NativeEffectExport=$true }
+if ($NativeEffectClone) { $NativeEffectGrain=$true; $SkipRestart=$true }
+if ($NativeEffectGrain -and $NativeEffectExportMatrix) {
+    throw 'The native grain comparison uses one RAW in its own effects Export fixture.'
+}
+if ($NativeEffectExportMatrix -or $NativeEffectGrain) { $NativeEffectExport=$true }
 if ($NativeLifetimeCycles) {
     if (!$NativeSettingsConfig -or $UpgradeFromPackage -or $CatalogIsolation -or $ConcurrentCatalogs -or $SessionIsolation -or
         $ViewerLayouts -or $ViewerChurn -or $DurableSliderEdits -or $MetadataFixtureRoot -or $CheckOrdinaryLaunch -or
@@ -414,7 +421,7 @@ $names=@(
     'SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT',
     'SPEKTRAFILM_SHOW_TOOL','SPEKTRAFILM_HOST_PROOF_TEST','SPEKTRAFILM_HOST_CATALOG_ISOLATION',
     'SPEKTRAFILM_HOST_VIEWER_LAYOUTS','SPEKTRAFILM_HOST_DURABLE_EDITS','SPEKTRAFILM_HOST_METADATA_FIXTURE',
-    'SPEKTRAFILM_HOST_VIEWER_CHURN','SPEKTRAFILM_HOST_NATIVE_VIEWER_BASELINE','SPEKTRAFILM_HOST_OTHER_CATALOG',
+    'SPEKTRAFILM_HOST_VIEWER_CHURN','SPEKTRAFILM_HOST_VIEWER_CHURN_RESOLUTION','SPEKTRAFILM_HOST_NATIVE_VIEWER_BASELINE','SPEKTRAFILM_HOST_OTHER_CATALOG',
     'SPEKTRAFILM_HOST_NATIVE_LIFETIME',
     'SPEKTRAFILM_HOST_SESSION','SPEKTRAFILM_HOST_CALIBRATION','SPEKTRAFILM_HOST_ORIGINAL_AVAILABILITY_PROBE',
     'SPEKTRAFILM_HOST_NATIVE_DEVELOPMENT_DEADLINE','SPEKTRAFILM_HOST_DEVICE_LOSS','SPEKTRAFILM_HOST_DEVELOPMENT_LEASE'
@@ -432,7 +439,7 @@ try {
     $env:SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX=if($NativeSourceMutations){'source-mutations'}elseif($ColorMatrix){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_VIEWER_STRESS=if($ViewerStress){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_PANEL_INVENTORY=if($PanelInventory){'1'}else{$null}
-    $env:SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT=if($NativeEffectExportMatrix){'matrix'}elseif($NativeEffectExport){'1'}else{$null}
+    $env:SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT=if($NativeEffectExportMatrix){'matrix'}elseif($NativeEffectClone){'clone'}elseif($NativeEffectGrain){'grain'}elseif($NativeEffectExport){'1'}else{$null}
     $env:SPEKTRAFILM_EXPECTED_CONTROL_INVENTORY=Join-Path $root 'qa\panel-controls.json'
     $env:SPEKTRAFILM_SHOW_TOOL=if($ShowTool){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_PROOF_TEST=if($NativeSettingsConfig -and !$CatalogIsolation -and !$ViewerLayouts -and !$DurableSliderEdits -and !$MetadataFixtureRoot -and !$ViewerChurn -and !$ConcurrentCatalogs){'1'}else{$null}
@@ -441,6 +448,7 @@ try {
     $env:SPEKTRAFILM_HOST_DURABLE_EDITS=if($DurableSliderEdits){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_METADATA_FIXTURE=$MetadataFixtureRoot
     $env:SPEKTRAFILM_HOST_VIEWER_CHURN=if($ViewerChurn){[string]$ViewerChurn}else{$null}
+    $env:SPEKTRAFILM_HOST_VIEWER_CHURN_RESOLUTION=if($ViewerChurn){$ViewerChurnResolution}else{$null}
     $env:SPEKTRAFILM_HOST_NATIVE_LIFETIME=if($NativeLifetimeCycles){[string]$NativeLifetimeCycles}else{$null}
     $env:SPEKTRAFILM_HOST_NATIVE_VIEWER_BASELINE=if($ViewerNativeBaseline){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_OTHER_CATALOG=if($ConcurrentCatalogs){$fixtureCatalogs[1]}else{$null}
