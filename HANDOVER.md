@@ -6,7 +6,7 @@ Updated 2026-11-20. The critical-fix batch is implemented, tested, installed loc
 
 1. Read this file, `AGENTS.md` and `qa/AUDIT-FIX-STATUS.json` before changing code. The JSON is the authoritative task-progress ledger; its `remaining_work` and original acceptance tests matter more than a short status label.
 2. Check `git status`, current branch and PR head. Do not discard existing edits or switch the installed build merely because this documentation has a newer commit.
-3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP is `0.2.0-audit.11` from clean `d9a66f2`. Its verification used an isolated installation. The normal app stayed on `ffc4819`.
+3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP is `0.2.0-audit.12` from clean `4e42336`. Its verification used an isolated installation. The normal app stayed on `ffc4819`.
 4. Choose an unresolved task and an exact ownership boundary. Do not repeat the completed installation, crash test or old defect reproductions as if nothing had happened.
 5. Update task evidence and the delivery ledger at each completed milestone. Never mark a broad parent task complete because one mitigation shipped.
 
@@ -664,9 +664,10 @@ Evidence is under `.test-results/cooperative-vulkan-runtime-20261120`, `.test-re
 - [x] Install `0.2.0-audit.11` from clean `d9a66f2` under a private destination. All 152 package and 19 critical runtime files verified. ZIP SHA-256 `97d8700bd0aa9c724023c2700a230d52fffa2b74b939f256380813598184a04b`. Exact-package tests passed 28 GPU, 265 first-launch, 269 restart, 115 RAW and 27 native metadata assertions. The regular installed revision remains `ffc4819`. [Windows Contracts](https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44670497699)
 - [x] Prevent required asset loads through a linked ancestor in the installer. Verify both staged manifests before promoting the copy. Directory cleanup leaves junction targets alone. [Windows directory deletion behavior](https://learn.microsoft.com/en-us/dotnet/api/system.io.directory.delete?view=netframework-4.8.1)
 - [x] Pass 54 inert Windows installer contracts. Case-only collisions, Unicode paths, locked files, unavailable Desktop and real NTFS junctions preserve user files. When an external file occupies the destination after the first directory move, failed rollback retains both directories and reports both exact locations. The fixture manually restores the reported previous version and verifies its data.
-- [ ] Add automatic interrupted-upgrade recovery and retain the prior verified version through an acknowledged real launch. Retest staged manifest admission against the next exact package.
+- [x] Upgrade an actual isolated audit.11 install to audit.12. Verify both staged manifests, retained Unicode look and archived modified ICC bytes, shortcut and CheckOnly. The exact audit.12 package from clean `4e42336` has SHA-256 `7ef25e54b275250594986c6f7c4bbf150e6e9bc58d0cffc5ba2be2f6bad38d69`. It passed 28 GPU, 265 first-launch, 269 restart, 115 RAW and 27 native metadata assertions. [Windows Contracts](https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44671168038)
+- [ ] Add automatic interrupted-upgrade recovery and retain the prior verified version through an acknowledged real launch.
 
-Evidence is under `.test-results/audit11-package-verify-20261120` and `.test-results/contracts-installer-failed-rollback-20261120`.
+Evidence is under `.test-results/audit11-package-verify-20261120`, `.test-results/audit12-package-verify-20261120` and `.test-results/contracts-installer-failed-rollback-20261120`.
 
 ## Status maintenance
 

@@ -717,13 +717,15 @@
         "Installer now uses owned-runtime metadata, recursively preserves unknown files and retains rollback material; inert install fixtures are tracked.",
         "Fresh complete package installed into the real owned application directory after a verified full backup; installed CheckOnly passed and six existing user-data files remained unchanged.",
         "Required assets now validate their complete directory ancestry even for inert releases without manifests. Packaged critical and full package manifests are rechecked in the private staged copy before it can replace the current runtime; recursive temporary cleanup does not traverse junction targets.",
-        "The Windows runner passed 54 installer assertions, including case-only notes, Unicode user presets, nested content, unavailable Desktop, locked binary, real NTFS junctions and an interrupted publish with a simulated foreign file occupying the destination. The exact old runtime and user sentinels remained in the reported previous directory, and manual restoration reproduced the current runtime hash."
+        "The Windows runner passed 54 installer assertions, including case-only notes, Unicode user presets, nested content, unavailable Desktop, locked binary, real NTFS junctions and an interrupted publish with a simulated foreign file occupying the destination. The exact old runtime and user sentinels remained in the reported previous directory, and manual restoration reproduced the current runtime hash.",
+        "Real audit.11-to-audit.12 isolated upgrade validated both staged manifests, kept a nested Unicode user-look byte-identical and archived modified packaged ICC bytes before installing the verified original. The updated shortcut and launcher CheckOnly passed."
       ],
       "evidence_paths": [
         "Install-Spektrafilm.ps1",
         "tests/installer/Test-Installer.ps1",
         ".test-results/contracts-installer-junctions-20261120/installer.log",
-        ".test-results/contracts-installer-failed-rollback-20261120/installer.log"
+        ".test-results/contracts-installer-failed-rollback-20261120/installer.log",
+        ".test-results/audit12-package-verify-20261120/result.json"
       ],
       "remaining_work": [
         "Add persistent interrupted-upgrade recovery and retain the verified prior version until a real launch acknowledgment, then verify cleanup and rollback of side-by-side versions. Exercise automatic recovery separately from the tested manual restoration."
@@ -2453,7 +2455,8 @@
         "The audit.8 ZIP from clean 46894ed verified all 152 package files and 19 critical assets in the isolated install. The generated 137-option guide survived installation and altered bytes were rejected. The package passed 24 GPU, 208 first-launch, 212 restart and 115 RAW assertions.",
         "The audit.9 ZIP from clean c0505c3 verifies the same 152 package and 19 critical runtime records plus the new ICC delivery. The installed package passed 24 managed GPU, 210 initial, 214 restart and 115 RAW checks. The regular installation remains ffc4819.",
         "The clean 0.2.0-audit.10 ZIP installed in a separate fixture with verified tool resources and shortcut. 152 package entries and 19 runtime entries verified. 24 GPU, 265 first-launch, 269 restart and 115 native RAW assertions passed. Both Windows contracts runs for the package commit succeeded.",
-        "The clean audit.11 archive passed full manifest admission, generation and tamper checks, isolated install and shortcut check, 28 packaged GPU checks, 265/269 licensed host checks, 115 RAW checks and 27 exact-package native metadata checks."
+        "The clean audit.11 archive passed full manifest admission, generation and tamper checks, isolated install and shortcut check, 28 packaged GPU checks, 265/269 licensed host checks, 115 RAW checks and 27 exact-package native metadata checks.",
+        "Clean audit.12 promoted the validated staged copy during a real isolated upgrade and passed 28 packaged GPU, 265/269 host, 115 RAW and 27 metadata assertions. Both Windows CI runs for the exact source commit succeeded."
       ],
       "evidence_paths": [
         "ReleaseManifest.ps1",
@@ -2476,7 +2479,8 @@
         ".test-results/audit8-package-verify-20261120/result.json",
         ".test-results/audit9-package-verify-20261120/result.json",
         ".test-results/audit10-package-verify-20261120/result.json",
-        ".test-results/audit11-package-verify-20261120/result.json"
+        ".test-results/audit11-package-verify-20261120/result.json",
+        ".test-results/audit12-package-verify-20261120/result.json"
       ],
       "remaining_work": [],
       "original_acceptance_tests": [
@@ -3051,13 +3055,13 @@
     "original_test_catalog_hash_unchanged": true,
     "local_evidence_note": "Paths under .test-results/build/dist are ignored local artifacts and are not present in a public clone.",
     "latest_development_package": {
-      "version": "0.2.0-audit.11",
-      "archive": "dist/Spektrafilm-for-Capture-One-v0.2.0-audit.11-windows-x64.zip",
-      "sha256": "97d8700bd0aa9c724023c2700a230d52fffa2b74b939f256380813598184a04b",
+      "version": "0.2.0-audit.12",
+      "archive": "dist/Spektrafilm-for-Capture-One-v0.2.0-audit.12-windows-x64.zip",
+      "sha256": "7ef25e54b275250594986c6f7c4bbf150e6e9bc58d0cffc5ba2be2f6bad38d69",
       "source": {
-        "commit": "d9a66f2d25dc010e0222e4e8496b166e8b6b7812",
+        "commit": "4e4233615a6068267b7da5128863537f11b2165f",
         "dirty": false,
-        "treeDigest": "f0630731c8119004d14cc365fa05b2613c94b4ee4daea4fa899e9e6d18c55dd3"
+        "treeDigest": "619af56a01a562eb2dc357f62231b09b2f63756e55ed55a4d07c70a462765cd9"
       },
       "verified_package_entries": 152,
       "verified_runtime_entries": 19,
@@ -3074,9 +3078,9 @@
         "managed_gpu": 28,
         "native_metadata": 27
       },
-      "remote_windows_contracts": "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44670497699",
+      "remote_windows_contracts": "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44671168038",
       "normal_installed_revision": "ffc481988eb2e6e7ef7a1379486c4a8b2656ac81",
-      "receipt": ".test-results/audit11-package-verify-20261120/result.json"
+      "receipt": ".test-results/audit12-package-verify-20261120/result.json"
     }
   },
   "completed_milestones": [
