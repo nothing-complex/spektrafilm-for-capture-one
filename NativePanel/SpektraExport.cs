@@ -14,8 +14,9 @@ internal static class SpektraExport
     internal readonly record struct RecipeDelivery(string? Format, int TiffBits, string? CropMode)
     {
         internal string Extension => Format == "Png" ? ".png" : ".tif";
+        internal bool CanSkipRecipeOutput => Format is "Png" || Format is "Tiff" && TiffBits == 16;
         private bool CropPath => CropMode == "AsPath";
-        private bool RequiresFormatChange => Format is not (null or "Png") && (Format != "Tiff" || TiffBits != 16);
+        private bool RequiresFormatChange => Format is not null && !CanSkipRecipeOutput;
 
         private string RequestedFormat => Format switch
         {

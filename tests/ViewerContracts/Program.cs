@@ -120,20 +120,21 @@ internal static partial class Program
 
     private static void TestRecipeDelivery()
     {
-        foreach (var (requested, bits, actual, expectedTitle, expectedNote) in new[]
+        foreach (var (requested, bits, actual, expectedTitle, expectedNote, canSkipRecipeOutput) in new[]
         {
-            ("Tiff", 16, PixelFormats.Rgb48, "Save 16-bit TIFF or PNG", (string?)null),
-            ("Tiff", 8, PixelFormats.Rgb48, "Recipe requests 8-bit TIFF", "Recipe requested 8-bit TIFF. Saved 16-bit TIFF."),
-            ("Png", 0, PixelFormats.Rgba64, "Save 16-bit TIFF or PNG", null),
-            ("Png", 0, PixelFormats.Rgb48, "Save 16-bit TIFF or PNG", "Recipe requested PNG. Saved 16-bit TIFF."),
-            ("Jpeg", 0, PixelFormats.Rgb48, "Recipe requests JPEG", "Recipe requested JPEG. Saved 16-bit TIFF."),
-            ("123", 0, PixelFormats.Rgba64, "Recipe requests a different file format", "Recipe requested a different file format. Saved 16-bit PNG."),
+            ("Tiff", 16, PixelFormats.Rgb48, "Save 16-bit TIFF or PNG", (string?)null, true),
+            ("Tiff", 8, PixelFormats.Rgb48, "Recipe requests 8-bit TIFF", "Recipe requested 8-bit TIFF. Saved 16-bit TIFF.", false),
+            ("Png", 0, PixelFormats.Rgba64, "Save 16-bit TIFF or PNG", null, true),
+            ("Png", 0, PixelFormats.Rgb48, "Save 16-bit TIFF or PNG", "Recipe requested PNG. Saved 16-bit TIFF.", true),
+            ("Jpeg", 0, PixelFormats.Rgb48, "Recipe requests JPEG", "Recipe requested JPEG. Saved 16-bit TIFF.", false),
+            ("123", 0, PixelFormats.Rgba64, "Recipe requests a different file format", "Recipe requested a different file format. Saved 16-bit PNG.", false),
         })
         {
             var delivery = new SpektraExport.RecipeDelivery(requested, bits, "Respect");
             var title = delivery.SaveTitle(3000, 2000, "ProPhoto RGB");
             Check(title.StartsWith(expectedTitle, StringComparison.Ordinal) && title.Contains("3000 × 2000 · ProPhoto RGB", StringComparison.Ordinal)
                 && delivery.SavedNote(actual) == expectedNote
+                && delivery.CanSkipRecipeOutput == canSkipRecipeOutput
                 && delivery.Extension == (requested == "Png" ? ".png" : ".tif"),
                 $"{requested} {bits} recipe states the 16-bit delivery policy and actual saved format");
         }

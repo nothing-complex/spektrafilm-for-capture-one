@@ -630,7 +630,7 @@ internal sealed class SpatialPreview : IDisposable
                 var dpi = recipe is null ? ExportResolution.DefaultDpi : ExportResolution.DotsPerInch(recipe.Resolution, recipe.ResolutionUnit);
                 var suggestedName = SpektraExport.SuggestedOutputName(recipe?.SuggestedFilename, target.SourcePath, extension,
                     recipe?.SuggestedDirectory, recipe?.AddSuffixToExistingFileName == true);
-                var skipPath = recipe is { SkipExistingOutput: true, FormatId: "Tiff" or "Png",
+                var skipPath = delivery.CanSkipRecipeOutput && recipe is { SkipExistingOutput: true,
                     SuggestedFilename: { } stem, ExactDirectory: { } exactDirectory }
                     ? Path.Combine(exactDirectory, stem + extension) : null;
 

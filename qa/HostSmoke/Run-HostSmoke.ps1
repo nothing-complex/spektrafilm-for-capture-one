@@ -38,6 +38,7 @@ param(
     [switch] $NativeEffectCompression,
     [switch] $NativeEffectOutputProfiles,
     [switch] $NativeEffectFolders,
+    [switch] $NativeEffectRecipeRestart,
     [switch] $NativeEffectPanelModes,
     [switch] $NativeEffectSourceRevision,
     [switch] $NativeEffectClone,
@@ -74,7 +75,8 @@ if ($SavedLooksBackup -and (!$NativeSettingsConfig -or $UpgradeFromPackage -or $
     throw 'Moved-catalog look verification requires a single disposable catalog and a native preferences backup.'
 }
 if ($NativeEffectClone) { $NativeEffectGrain=$true; $SkipRestart=$true }
-$isolatedEffects=@($NativeEffectCompression,$NativeEffectOutputProfiles,$NativeEffectFolders,$NativeEffectPanelModes,$NativeEffectSourceRevision) | Where-Object { $_ }
+$isolatedEffects=@($NativeEffectCompression,$NativeEffectOutputProfiles,$NativeEffectFolders,$NativeEffectPanelModes,$NativeEffectSourceRevision,$NativeEffectRecipeRestart) | Where-Object { $_ }
+if ($NativeEffectRecipeRestart -and $SkipRestart) { throw 'The native recipe persistence fixture requires both launches.' }
 if ($isolatedEffects -and (!$NativeSettingsConfig -or $NativeEffectGrain -or $NativeEffectExportMatrix -or
     $UpgradeFromPackage -or @($isolatedEffects).Count -ne 1)) {
     throw 'A native recipe or workspace fixture needs its own selected recipe and a verified preferences backup.'
@@ -443,7 +445,7 @@ if ($NativeSettingsConfig) {
 }
 $nativeRecipes=$null
 $recipeHashes=@{}
-if ($NativeEffectCompression -or $NativeEffectOutputProfiles -or $NativeEffectFolders -or $NativeEffectSourceRevision) {
+if ($NativeEffectCompression -or $NativeEffectOutputProfiles -or $NativeEffectFolders -or $NativeEffectSourceRevision -or $NativeEffectRecipeRestart) {
     $nativeRecipes=Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'CaptureOne\Recipes143'
     $recipeRoot=Get-Item -LiteralPath $nativeRecipes -Force
     if (!$recipeRoot.PSIsContainer -or ($recipeRoot.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
@@ -616,7 +618,7 @@ try {
     $env:SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX=if($NativeSourceMutations){'source-mutations'}elseif($ColorMatrix){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_VIEWER_STRESS=if($ViewerStress){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_PANEL_INVENTORY=if($PanelInventory){'1'}else{$null}
-    $env:SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT=if($NativeEffectExportMatrix){'matrix'}elseif($NativeEffectClone){'clone'}elseif($NativeEffectGrain){'grain'}elseif($NativeEffectCompression){'compression'}elseif($NativeEffectOutputProfiles){'profiles'}elseif($NativeEffectFolders){'folders'}elseif($NativeEffectPanelModes){'panel-modes'}elseif($NativeEffectSourceRevision){'source-revision'}elseif($NativeEffectExport){'1'}else{$null}
+    $env:SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT=if($NativeEffectExportMatrix){'matrix'}elseif($NativeEffectClone){'clone'}elseif($NativeEffectGrain){'grain'}elseif($NativeEffectCompression){'compression'}elseif($NativeEffectOutputProfiles){'profiles'}elseif($NativeEffectFolders){'folders'}elseif($NativeEffectPanelModes){'panel-modes'}elseif($NativeEffectSourceRevision){'source-revision'}elseif($NativeEffectRecipeRestart){'recipe-restart'}elseif($NativeEffectExport){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_MOVED_LOOK_BACKUP=$SavedLooksBackup
     $env:SPEKTRAFILM_EXPECTED_CONTROL_INVENTORY=Join-Path $root 'qa\panel-controls.json'
     $env:SPEKTRAFILM_SHOW_TOOL=if($ShowTool){'1'}else{$null}
@@ -673,11 +675,10 @@ try {
                 $process.Refresh()
             }
             Get-Content -LiteralPath $result
-            if ($NativeVariantLineage -and $phase -eq 'first' -and !$process.HasExited) {
-                # Capture One owns persistence of the newly created native
-                # variants. Let it finish its normal catalog close.
+            if (($NativeVariantLineage -or $NativeEffectRecipeRestart) -and $phase -eq 'first' -and !$process.HasExited) {
+                # Capture One owns persistence of its catalog settings and variants.
                 if (!$process.CloseMainWindow() -or !$process.WaitForExit(20000) -or $process.ExitCode -ne 0) {
-                    throw 'Capture One did not finish a clean close of the disposable clone catalog.'
+                    throw 'Capture One did not finish a clean close of the disposable catalog.'
                 }
             }
         } finally {

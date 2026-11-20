@@ -186,7 +186,7 @@ public static partial class StartupHook
     private static async Task TestNativeEffectExport(FieldInfo hookField, object hosted, object panel, object spatial, object window,
         string caseName, bool compareGrain = false, bool compareClone = false, bool compareCompression = false,
         bool compareFolders = false, bool comparePanelModes = false, bool compareProfiles = false,
-        bool changeSourceRevision = false)
+        bool changeSourceRevision = false, bool compareRecipeRestart = false)
     {
         var toggle = (CheckBox)Field(panel, "enableSpektraFilm")!;
         var inputEncoding = (string)Prop(((ComboBox)Field(spatial, "inputSpace")!).SelectedItem, "Id")!;
@@ -325,6 +325,7 @@ public static partial class StartupHook
             var outputProfiles = compareProfiles ? await CompareOutputProfiles() : null;
             var printDiffusion = compareProfiles ? await ComparePrintDiffusion() : null;
             if (compareFolders) await CheckFolders();
+            if (compareRecipeRestart) await CheckRecipeRestart();
             var panelModes = comparePanelModes ? await ComparePanelModes(fullEffects) : null;
             if (compareGrain) await CheckReadOnlyDestination();
             var routesBeforeDisabled = routeCount;
@@ -508,12 +509,14 @@ public static partial class StartupHook
                 var overwrite = type.GetProperty("FileOverwriteAction", Flags)!;
                 var filename = type.GetProperty("DestinationFilename", Flags)!;
                 var format = type.GetProperty("FileType", Flags)!;
+                var bits = type.GetProperty("TiffBits", Flags)!;
                 var originalMode = mode.GetValue(selected)!;
                 var originalRoot = root.GetValue(selected);
                 var originalSubfolder = subfolder.GetValue(selected);
                 var originalAction = overwrite.GetValue(selected)!;
                 var originalFilename = filename.GetValue(selected);
                 var originalFormat = format.GetValue(selected);
+                var originalBits = bits.GetValue(selected);
                 var fixtureRoot = Directory.CreateDirectory(Path.Combine(folder, "native-recipe-location")).FullName;
                 var relative = Path.Combine("Prints", "Proofs");
                 var nested = Directory.CreateDirectory(Path.Combine(fixtureRoot, relative)).FullName;
@@ -555,12 +558,14 @@ public static partial class StartupHook
                         overwrite.SetValue(selected, originalAction);
                         filename.SetValue(selected, originalFilename);
                         format.SetValue(selected, originalFormat);
+                        bits.SetValue(selected, originalBits);
                     }
                     finally { notifications.SetValue(selected, false); }
                 }
                 Check(Equals(mode.GetValue(selected), originalMode) && Equals(root.GetValue(selected), originalRoot)
                     && Equals(subfolder.GetValue(selected), originalSubfolder) && Equals(overwrite.GetValue(selected), originalAction)
-                    && Equals(filename.GetValue(selected), originalFilename) && Equals(format.GetValue(selected), originalFormat),
+                    && Equals(filename.GetValue(selected), originalFilename) && Equals(format.GetValue(selected), originalFormat)
+                    && Equals(bits.GetValue(selected), originalBits),
                     "the live recipe location and existing-file policy are restored");
 
                 async Task CheckNumberedNames()
@@ -693,10 +698,12 @@ public static partial class StartupHook
                     subfolder.SetValue(selected, Path.GetFileName(directory));
                     filename.SetValue(selected, "Skip " + NativeNameToken("Counter"));
                     format.SetValue(selected, Enum.Parse(format.PropertyType, "Tiff"));
+                    bits.SetValue(selected, 16);
                     overwrite.SetValue(selected, Enum.Parse(overwrite.PropertyType, "Skip"));
                     var currentRecipe = host.GetMethod("ActiveRecipe", Flags)!.Invoke(null, new[] { window })!;
-                    Check(Prop(currentRecipe, "FormatId") is "Tiff" && Prop(currentRecipe, "SkipExistingOutput") is true
-                        && Equals(Prop(currentRecipe, "ExactDirectory"), directory), "the fixture captures a precise TIFF Skip recipe");
+                    Check(Prop(currentRecipe, "FormatId") is "Tiff" && Prop(currentRecipe, "TiffBits") is 16
+                        && Prop(currentRecipe, "SkipExistingOutput") is true && Equals(Prop(currentRecipe, "ExactDirectory"), directory),
+                        "the fixture captures a precise 16-bit TIFF Skip recipe");
                     var stem = (string)Prop(currentRecipe, "SuggestedFilename")!;
                     var expectedFile = stem + ".tif";
                     var protectedPath = Path.Combine(directory, expectedFile);
@@ -776,8 +783,7 @@ public static partial class StartupHook
                     subfolder.SetValue(selected, Path.GetFileName(fixture));
                     filename.SetValue(selected, "Recipe delivery");
                     overwrite.SetValue(selected, Enum.Parse(overwrite.PropertyType, "Rename"));
-                    var bits = type.GetProperty("TiffBits", Flags)!;
-                    var originalBits = bits.GetValue(selected);
+                    var currentBits = bits.GetValue(selected);
                     var compressionSetting = type.GetProperty("TiffCompression", Flags)!;
                     var originalCompression = compressionSetting.GetValue(selected);
                     try
@@ -793,10 +799,24 @@ public static partial class StartupHook
                         await Render("eight-bit-tiff-recipe-save-tiff", ".tif", true, fixtureOutputDirectory: fixture,
                             expectedCompression: TiffCompressOption.Zip);
                         VerifyAlternative("8-bit TIFF");
+
+                        overwrite.SetValue(selected, Enum.Parse(overwrite.PropertyType, "Skip"));
+                        var capture = host.GetMethod("ActiveRecipe", Flags)!.Invoke(null, new[] { window })!;
+                        Check(Prop(capture, "SkipExistingOutput") is true && Prop(capture, "TiffBits") is 8
+                            && string.Equals(Prop(capture, "ExactDirectory") as string, fixture, StringComparison.OrdinalIgnoreCase),
+                            "the native 8-bit TIFF Skip recipe resolves to an exact existing folder");
+                        var occupied = Path.Combine(fixture, "Recipe delivery.tif");
+                        byte[] existing = [8, 4, 1, 7];
+                        File.WriteAllBytes(occupied, existing);
+                        await Render("eight-bit-tiff-skip-offers-alternative", ".tif", true, fixtureOutputDirectory: fixture,
+                            expectedCompression: TiffCompressOption.Zip);
+                        VerifyAlternative("8-bit TIFF");
+                        Check(offeredFilename == Path.GetFileName(occupied) && File.ReadAllBytes(occupied).SequenceEqual(existing),
+                            "the supported 16-bit alternative remains selectable and the manually bypassed existing file is preserved");
                     }
                     finally
                     {
-                        bits.SetValue(selected, originalBits);
+                        bits.SetValue(selected, currentBits);
                         compressionSetting.SetValue(selected, originalCompression);
                     }
 
@@ -814,19 +834,116 @@ public static partial class StartupHook
                     }
                 }
 
-                static string NativeNameToken(string id)
+            }
+
+            async Task CheckRecipeRestart()
+            {
+                var selected = SelectedRecipeForTest(out var notifications);
+                var type = selected.GetType();
+                var filename = type.GetProperty("DestinationFilename", Flags)!;
+                var format = type.GetProperty("FileType", Flags)!;
+                var cropMode = type.GetProperty("CropExportMethod", Flags)!;
+                var initialName = filename.GetValue(selected);
+                var initialFormat = format.GetValue(selected);
+                var initialCropMode = cropMode.GetValue(selected);
+                var counter = counterProperty ?? throw new MissingMemberException(document.GetType().FullName, "OutputCounter");
+                var increment = document.GetType().GetProperty("OutputCounterIncrement", Flags)!;
+                var firstLaunch = caseName == "first";
+                var namingDirectory = Directory.CreateDirectory(Path.Combine(folder, "recipe-restart-outputs")).FullName;
+                object CaptureRecipe() => host.GetMethod("ActiveRecipe", Flags)!.Invoke(null, new[] { window })!;
+                long Read(PropertyInfo property) => Convert.ToInt64(property.GetValue(document));
+                void Write(PropertyInfo property, int value) => property.SetValue(document, Convert.ChangeType(value, property.PropertyType));
+                (int Width, int Height) Dimensions(object state) => ((int)Prop(state, "Width")!, (int)Prop(state, "Height")!);
+
+                notifications.SetValue(selected, true);
+                try
                 {
-                    var core = AppDomain.CurrentDomain.GetAssemblies().Single(a => a.GetName().Name == "P1.C1.ImageCoreWrapper");
-                    const string ns = "P1.C1.Common.DestinationNaming.";
-                    var tokenType = core.GetType(ns + "NameTokenType", true)!;
-                    var token = id == "Counter"
-                        ? Activator.CreateInstance(core.GetType(ns + "NameTokenCounter", true)!, 3)
-                        : Activator.CreateInstance(core.GetType(ns + "NameToken", true)!, Enum.Parse(tokenType, id));
-                    var tokens = Array.CreateInstance(core.GetType(ns + "NameTokenBase", true)!, 1);
-                    tokens.SetValue(token, 0);
-                    var nativeName = Activator.CreateInstance(core.GetType(ns + "DestinationName", true)!, new object[] { tokens })!;
-                    return (string)Prop(nativeName, "TokenNameRepresentation")!;
+                    if (firstLaunch)
+                    {
+                        Write(counter, 41);
+                        Write(increment, 3);
+                    }
+                    var before = firstLaunch ? 41 : 44;
+                    Check(Read(counter) == before && Read(increment) == 3,
+                        firstLaunch ? "the copy uses the explicitly set native naming counter and increment"
+                            : "reopening the copy loads the counter advanced by the first native export and its original increment");
+                    filename.SetValue(selected, "Restart " + NativeNameToken("Counter"));
+                    var expected = $"Restart {before:D3}.tif";
+                    await Render("counter-restart", ".tif", usePrevious: !firstLaunch,
+                        fixtureOutputDirectory: namingDirectory, fixtureOutputFileName: expected);
+                    Check(offeredFilename == expected && Read(counter) == before + 3 && Read(increment) == 3,
+                        "the actual native export accepts the expected numbered TIFF and advances the persisted counter once");
+                    if (!firstLaunch)
+                    {
+                        Check(File.Exists(Path.Combine(namingDirectory, "Restart 041.tif")),
+                            "the restart export is written beside the earlier TIFF under its own counter instead of replacing it");
+                        return;
+                    }
+
+                    var profile = panel.GetType().Assembly.GetType("HostProfile", true)!;
+                    var selection = profile.GetMethod("ReadSelection", Flags)!.Invoke(null, new[] { window })!;
+                    var variant = Prop(selection, "Variant")!;
+                    var crop = variant.GetType().GetProperty("CropRawUnconstrained", Flags)!;
+                    var originalCrop = crop.GetValue(variant)!;
+                    var dimensions = (System.Drawing.Size)Prop(Prop(variant, "CoreImage")!, "ImageDimensions")!;
+                    var fixtureCrop = Activator.CreateInstance(crop.PropertyType,
+                        new System.Drawing.PointF(dimensions.Width * .44f, dimensions.Height * .53f),
+                        new System.Drawing.SizeF(dimensions.Width * .55f, dimensions.Height * .65f))!;
+                    filename.SetValue(selected, initialName);
+                    try
+                    {
+                        crop.SetValue(variant, fixtureCrop);
+                        Check(!Equals(crop.GetValue(variant), originalCrop), "the disposable RAW has a real asymmetric native crop");
+                        var cropped = Dimensions(CaptureRecipe());
+                        cropMode.SetValue(selected, Enum.Parse(cropMode.PropertyType, "Ignore"));
+                        var full = Dimensions(CaptureRecipe());
+                        Check(cropped != full, "the actual native recipe computes different cropped and full output dimensions");
+                        var uncut = await Render("ignore-crop-reference", ".tif", true, expectedGeometry: full);
+
+                        format.SetValue(selected, Enum.Parse(format.PropertyType, "Psd"));
+                        cropMode.SetValue(selected, Enum.Parse(cropMode.PropertyType, "AsPath"));
+                        var pathRecipe = CaptureRecipe();
+                        Check(Prop(pathRecipe, "FormatId") is "Psd" && Prop(pathRecipe, "CropMode") is "AsPath"
+                            && Dimensions(pathRecipe) == full, "Capture One supplies a full-canvas PSD crop-path recipe for the cropped RAW");
+                        var png = await Render("psd-crop-path-alternative", ".png", false, expectedGeometry: full);
+                        Check(offeredTitle?.StartsWith("Recipe requests PSD · Save 16-bit TIFF or PNG · full image, crop path omitted", StringComparison.Ordinal) == true,
+                            "the native Save title discloses the format and crop-path substitution before approval");
+                        const string note = "Recipe requested PSD. Saved 16-bit PNG. Saved the full image. The recipe’s crop path was omitted.";
+                        var receipt = Call(Field(spatial, "exportJobs")!, "ReadLatest")!;
+                        Check(Equals(Prop(receipt, "DeliveryNote"), note)
+                            && ((TextBlock)Field(spatial, "exportStatus")!).Text.Contains(note, StringComparison.Ordinal),
+                            "the completed receipt records the actual PNG and the omitted crop path");
+                        var parity = Difference(uncut, png);
+                        Check(parity.Mean < 8d / 65535 && parity.Maximum < .01,
+                            "the PSD substitute preserves the same full-canvas effect pixels as the Ignore Crop reference TIFF");
+                        Check(Read(counter) == 44, "manual substitution filenames do not consume another native counter step");
+                    }
+                    finally { crop.SetValue(variant, originalCrop); }
                 }
+                finally
+                {
+                    try
+                    {
+                        format.SetValue(selected, initialFormat);
+                        filename.SetValue(selected, initialName);
+                        cropMode.SetValue(selected, initialCropMode);
+                    }
+                    finally { notifications.SetValue(selected, false); }
+                }
+            }
+
+            static string NativeNameToken(string id)
+            {
+                var core = AppDomain.CurrentDomain.GetAssemblies().Single(a => a.GetName().Name == "P1.C1.ImageCoreWrapper");
+                const string ns = "P1.C1.Common.DestinationNaming.";
+                var tokenType = core.GetType(ns + "NameTokenType", true)!;
+                var token = id == "Counter"
+                    ? Activator.CreateInstance(core.GetType(ns + "NameTokenCounter", true)!, 3)
+                    : Activator.CreateInstance(core.GetType(ns + "NameToken", true)!, Enum.Parse(tokenType, id));
+                var tokens = Array.CreateInstance(core.GetType(ns + "NameTokenBase", true)!, 1);
+                tokens.SetValue(token, 0);
+                var nativeName = Activator.CreateInstance(core.GetType(ns + "DestinationName", true)!, new object[] { tokens })!;
+                return (string)Prop(nativeName, "TokenNameRepresentation")!;
             }
 
             object SelectedRecipeForTest(out FieldInfo notifications)
@@ -1366,8 +1483,10 @@ public static partial class StartupHook
 
             async Task<BitmapSource> Render(string kind, string extension, bool usePrevious, bool closeAfterAcceptance = false,
                 TiffCompressOption? expectedCompression = null, string? expectedNativeLocation = null,
-                string? fixtureOutputDirectory = null, string? fixtureOutputFileName = null, string? expectedProfileSha = null)
+                string? fixtureOutputDirectory = null, string? fixtureOutputFileName = null, string? expectedProfileSha = null,
+                (int Width, int Height)? expectedGeometry = null)
             {
+                var (width, height) = expectedGeometry ?? (expectedWidth, expectedHeight);
                 var before = routeCount;
                 job = null;
                 offeredFilename = null;
@@ -1383,6 +1502,7 @@ public static partial class StartupHook
                 else
                 {
                     var confirmed = false;
+                    long? namingStarted = null;
                     ShowNativeDialog(() =>
                     {
                         if (Prop(bridge, "Dialog") is not Window { IsVisible: true } owner || owner.DataContext is not { } model)
@@ -1392,8 +1512,16 @@ public static partial class StartupHook
                         if (!confirmed)
                         {
                             if (!confirm.CanExecute(null)) return false;
-                            if (kind == "film-only" && suggestedStem is not null && !CheckNativeNamingSample(owner, suggestedStem))
-                                return false;
+                            if (kind == "film-only" && suggestedStem is not null)
+                            {
+                                if (ReadNativeNamingSample(owner) is not { } sample)
+                                    return false;
+                                namingStarted ??= Stopwatch.GetTimestamp();
+                                if (sample != suggestedStem && Stopwatch.GetElapsedTime(namingStarted.Value) < TimeSpan.FromSeconds(3))
+                                    return false;
+                                Check(sample == suggestedStem,
+                                    $"Spektrafilm uses the same stem as the visible Capture One Naming tool sample (expected '{suggestedStem}', saw '{sample}')");
+                            }
                             if (expectedNativeLocation is not null && !CheckNativeLocationSample(owner, expectedNativeLocation))
                                 return false;
                             confirm.Execute(null);
@@ -1422,7 +1550,7 @@ public static partial class StartupHook
                 var frame = BitmapDecoder.Create(file, BitmapCreateOptions.PreservePixelFormat | BitmapCreateOptions.IgnoreColorProfile,
                     BitmapCacheOption.OnLoad).Frames[0];
                 Check(frame.Format == (extension == ".tif" ? PixelFormats.Rgb48 : PixelFormats.Rgba64)
-                    && frame.PixelWidth == expectedWidth && frame.PixelHeight == expectedHeight && frame.ColorContexts is { Count: 1 },
+                    && frame.PixelWidth == width && frame.PixelHeight == height && frame.ColorContexts is { Count: 1 },
                     $"{kind} reopens as the expected 16-bit format at the selected recipe dimensions");
                 using var icc = frame.ColorContexts![0].OpenProfileStream();
                 Check(Convert.ToHexString(SHA256.HashData(icc)) == (expectedProfileSha ?? iccSha), $"{kind} embeds the exact selected recipe ICC");
@@ -1450,8 +1578,8 @@ public static partial class StartupHook
                 var filmMs = film.ValueKind == JsonValueKind.Number ? film.GetDouble() : 0;
                 Check(detail.GetProperty("SourceBitDepth").GetInt32() >= 16
                     && detail.GetProperty("InputEncoding").GetString() == inputEncoding
-                    && detail.GetProperty("OutputWidth").GetInt32() == expectedWidth
-                    && detail.GetProperty("OutputHeight").GetInt32() == expectedHeight
+                    && detail.GetProperty("OutputWidth").GetInt32() == width
+                    && detail.GetProperty("OutputHeight").GetInt32() == height
                     && detail.GetProperty("OutputFormat").GetString() == (extension == ".tif" ? "TIFF" : "PNG")
                     && detail.GetProperty("TiffCompression").GetString() == (extension == ".tif"
                         ? (expectedCompression ?? compression).ToString() : null)
@@ -1465,18 +1593,15 @@ public static partial class StartupHook
                 return frame;
             }
 
-            static bool CheckNativeNamingSample(Window owner, string suggestedStem)
+            static string? ReadNativeNamingSample(Window owner)
             {
                 var namingTool = FindExportTool(owner, "ExportNaming");
-                if (namingTool is null) return false;
+                if (namingTool is null) return null;
                 var content = Prop(namingTool, "ToolContent")
                     ?? throw new InvalidOperationException("The native Naming content is unavailable.");
                 var naming = Field(content, "m_viewModel")
                     ?? throw new InvalidOperationException("The native Naming sample model is unavailable.");
-                var sample = (string)Call(naming, "GetSampleText")!;
-                Check(Path.GetFileNameWithoutExtension(sample) == suggestedStem,
-                    "Spektrafilm uses the same stem as the visible Capture One Naming tool sample");
-                return true;
+                return Path.GetFileNameWithoutExtension(Call(naming, "GetSampleText") as string ?? "");
             }
 
             static bool CheckNativeLocationSample(Window owner, string expected)
