@@ -47,11 +47,11 @@ Invoke-Installer
 Assert (Test-Path -LiteralPath (Join-Path $desktop 'Spektrafilm for Capture One.lnk')) 'Shortcut is created only on fixture Desktop'
 Assert (Test-Path -LiteralPath (Join-Path $install '.film-tools-owned.json')) 'Owned-file receipt is generated'
 $custom = @('profiles\nested\my look.spektra.json','my-top-level-look.spektra.json','.venv\retained.txt',
-    '.reference-python\active.json','assets\custom icon.txt')
+    '.reference-python\active.json','assets\custom icon.txt', ('profiles\espace ' + [char]0x00E9 + '\look final.spektra.json'))
 foreach ($file in $custom) { Write-Fixture (Join-Path $install $file) "user sentinel: $file" }
 Write-Fixture (Join-Path $install 'assets\Spektrafilm.png\notes.txt') 'directory collision sentinel'
 Write-Fixture (Join-Path $payload 'assets\Spektrafilm.png') 'new bundled file'
-Write-Fixture (Join-Path $install 'CAPABILITIES.md') 'user compatibility notes'
+Write-Fixture (Join-Path $install 'capabilities.md') 'user compatibility notes'
 Write-Fixture (Join-Path $payload 'CAPABILITIES.md') 'generated capability documentation'
 [void][IO.Directory]::CreateDirectory((Join-Path $install 'profiles\empty user folder'))
 Write-Fixture (Join-Path $install 'profiles\preview\ProPhoto RGB.icc') 'modified user profile'
@@ -67,7 +67,7 @@ Assert ($collision.Count -eq 1 -and [IO.File]::ReadAllText($collision[0].FullNam
 $doc = Join-Path $install 'CAPABILITIES.md'
 $oldDoc = @(Get-ChildItem -LiteralPath (Join-Path $install 'Recovered files') -Recurse -File -Filter 'CAPABILITIES.md')
 Assert ([IO.File]::ReadAllText($doc) -eq 'generated capability documentation') 'Installs the package capability document'
-Assert ($oldDoc.Count -eq 1 -and [IO.File]::ReadAllText($oldDoc[0].FullName) -eq 'user compatibility notes') 'Retains the pre-existing user capability notes'
+Assert ($oldDoc.Count -eq 1 -and [IO.File]::ReadAllText($oldDoc[0].FullName) -eq 'user compatibility notes') 'Retains pre-existing user notes when the packaged filename differs only by case'
 $recovered = @(Get-ChildItem -LiteralPath (Join-Path $install 'Recovered files') -Recurse -File | Where-Object { $_.Name -eq 'ProPhoto RGB.icc' })
 Assert ($recovered.Count -eq 1 -and [IO.File]::ReadAllText($recovered[0].FullName) -eq 'modified user profile') 'Retains modified owned file in recovery folder'
 Invoke-Installer
@@ -99,6 +99,61 @@ foreach ($file in $custom) { Assert ([IO.File]::ReadAllText((Join-Path $install 
 $lock = [IO.File]::Open((Join-Path $install 'panel\NativePanel.dll'),[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::None)
 try { Invoke-Installer $false } finally { $lock.Dispose() }
 Assert ((Get-FileHash -LiteralPath (Join-Path $install 'stocks.json') -Algorithm SHA256).Hash -eq $before) 'Locked runtime leaves old installation intact'
+$normalDesktop=$desktop
+$desktop=Join-Path $fixture 'not a desktop directory'
+Write-Fixture $desktop 'fixture desktop sentinel'
+try { Invoke-Installer $false } finally { $desktop=$normalDesktop }
+Assert ((Get-FileHash -LiteralPath (Join-Path $install 'stocks.json') -Algorithm SHA256).Hash -eq $before) 'Unavailable Desktop leaves the old installation intact'
+Assert ([IO.File]::ReadAllText((Join-Path $fixture 'not a desktop directory')) -eq 'fixture desktop sentinel') 'Unavailable Desktop does not overwrite a regular file'
+
+$outside=Join-Path $fixture 'Junction target'
+[void][IO.Directory]::CreateDirectory($outside)
+Write-Fixture (Join-Path $outside 'untouched.txt') 'linked root sentinel'
+$nested=Join-Path $install 'profiles\linked user content'
+New-Item -ItemType Junction -Path $nested -Target $outside | Out-Null
+try { Invoke-Installer $false } finally { [IO.Directory]::Delete($nested) }
+Assert ([IO.File]::ReadAllText((Join-Path $outside 'untouched.txt')) -eq 'linked root sentinel') 'Existing install junctions do not alter their targets'
+Assert ((Get-FileHash -LiteralPath (Join-Path $install 'stocks.json') -Algorithm SHA256).Hash -eq $before) 'Nested install junction aborts before swap'
+
+$renderer=Join-Path $payload 'renderer'
+$realRenderer=Join-Path $fixture 'plain renderer'
+[IO.Directory]::Move($renderer,$realRenderer)
+try {
+    New-Item -ItemType Junction -Path $renderer -Target $realRenderer | Out-Null
+    try { Invoke-Installer $false } finally { [IO.Directory]::Delete($renderer) }
+} finally { [IO.Directory]::Move($realRenderer,$renderer) }
+$log=[IO.File]::ReadAllText((Join-Path $fixture 'installer.log'))
+Assert ($log -match 'linked path .*renderer') 'A linked required asset directory aborts even without a release manifest'
+Assert ((Get-FileHash -LiteralPath (Join-Path $install 'stocks.json') -Algorithm SHA256).Hash -eq $before) 'Linked payload leaves old install intact'
+Assert ([IO.File]::ReadAllText((Join-Path $renderer 'SpektraStillRenderer.exe')) -eq 'inert version one: renderer\SpektraStillRenderer.exe') 'Installer never modifies linked payload targets'
+
+# Create a race only in the inert installer copy. The destination becomes a file after
+# the old directory is moved, so the actual stage move and actual rollback must fail.
+$inertInstaller=Join-Path $payload 'Install-Spektrafilm.ps1'
+$unmodified=[IO.File]::ReadAllBytes($inertInstaller)
+$text=[IO.File]::ReadAllText($inertInstaller)
+$swap='        [IO.Directory]::Move($stage, $install)'
+if (!$text.Contains($swap)) { throw 'Could not find the reviewed installer move checkpoint.' }
+$interfering = 'inert external writer owns this file'
+$testInstaller=$text.Replace($swap, ('        [IO.File]::WriteAllText($install, ''inert external writer owns this file'')' + [Environment]::NewLine + $swap))
+try {
+    [IO.File]::WriteAllText($inertInstaller,$testInstaller)
+    Invoke-Installer $false
+} finally { [IO.File]::WriteAllBytes($inertInstaller,$unmodified) }
+$interruptedPrevious=@(Get-ChildItem -LiteralPath $fixture -Directory -Force | Where-Object Name -like '.film-tools-previous-*')
+$interruptedStage=@(Get-ChildItem -LiteralPath $fixture -Directory -Force | Where-Object Name -like '.film-tools-stage-*')
+Assert ($interruptedPrevious.Count -eq 1 -and $interruptedStage.Count -eq 1) 'A failed publish and rollback retain separate staged and previous installs'
+Assert ([IO.File]::ReadAllText($install) -eq $interfering) 'Rollback preserves the file racing the install directory'
+$lastLog=[IO.File]::ReadAllText((Join-Path $fixture 'installer.log'))
+Assert ($lastLog.Contains($interruptedPrevious[0].FullName) -and $lastLog.Contains($interruptedStage[0].FullName)) 'Rollback failure identifies both recoverable paths'
+Assert ((Get-FileHash -LiteralPath (Join-Path $interruptedPrevious[0].FullName 'stocks.json') -Algorithm SHA256).Hash -eq $before) 'Interrupted move retains the exact old runtime'
+foreach ($file in $custom) {
+    Assert ([IO.File]::ReadAllText((Join-Path $interruptedPrevious[0].FullName $file)) -eq "user sentinel: $file") "Failed rollback retains $file"
+}
+[IO.File]::Delete($install)
+[IO.Directory]::Move($interruptedPrevious[0].FullName,$install)
+Assert ((Get-FileHash -LiteralPath (Join-Path $install 'stocks.json') -Algorithm SHA256).Hash -eq $before) 'Restoring the reported previous directory recovers the runtime'
+
 Write-Fixture (Join-Path $payload 'runtime-manifest.required') 'Incomplete build fixture'
 Invoke-Installer $false
 Assert ((Get-FileHash -LiteralPath (Join-Path $install 'stocks.json') -Algorithm SHA256).Hash -eq $before) 'Missing required manifest rejects partial staged runtime'

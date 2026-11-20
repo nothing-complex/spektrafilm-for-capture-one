@@ -715,14 +715,18 @@
       "status": "partial",
       "implemented": [
         "Installer now uses owned-runtime metadata, recursively preserves unknown files and retains rollback material; inert install fixtures are tracked.",
-        "Fresh complete package installed into the real owned application directory after a verified full backup; installed CheckOnly passed and six existing user-data files remained unchanged."
+        "Fresh complete package installed into the real owned application directory after a verified full backup; installed CheckOnly passed and six existing user-data files remained unchanged.",
+        "Required assets now validate their complete directory ancestry even for inert releases without manifests. Packaged critical and full package manifests are rechecked in the private staged copy before it can replace the current runtime; recursive temporary cleanup does not traverse junction targets.",
+        "The Windows runner passed 54 installer assertions, including case-only notes, Unicode user presets, nested content, unavailable Desktop, locked binary, real NTFS junctions and an interrupted publish with a simulated foreign file occupying the destination. The exact old runtime and user sentinels remained in the reported previous directory, and manual restoration reproduced the current runtime hash."
       ],
       "evidence_paths": [
         "Install-Spektrafilm.ps1",
-        "tests/installer/Test-Installer.ps1"
+        "tests/installer/Test-Installer.ps1",
+        ".test-results/contracts-installer-junctions-20261120/installer.log",
+        ".test-results/contracts-installer-failed-rollback-20261120/installer.log"
       ],
       "remaining_work": [
-        "Complete the remaining lock/reparse/shortcut/interrupted-move acceptance matrix beyond the26 inert fixture assertions and observed real upgrade."
+        "Add persistent interrupted-upgrade recovery and retain the verified prior version until a real launch acknowledgment, then verify cleanup and rollback of side-by-side versions. Exercise automatic recovery separately from the tested manual restoration."
       ],
       "original_acceptance_tests": [
         "New install, same-version upgrade, legacy-name upgrade and nested/top-level user-file preservation.",
@@ -2448,7 +2452,8 @@
         "The audit.6 ZIP from clean fd7056d verified the installed 151-file package, 19 critical runtime hashes, scoped branded shortcut, CheckOnly, Windows CI and 24 GPU assertions. The exact package also passed 202 first-launch, 206 restart and 115 native RAW checks. The real saved preset matched the package's source, parameter and asset fingerprints.",
         "The audit.8 ZIP from clean 46894ed verified all 152 package files and 19 critical assets in the isolated install. The generated 137-option guide survived installation and altered bytes were rejected. The package passed 24 GPU, 208 first-launch, 212 restart and 115 RAW assertions.",
         "The audit.9 ZIP from clean c0505c3 verifies the same 152 package and 19 critical runtime records plus the new ICC delivery. The installed package passed 24 managed GPU, 210 initial, 214 restart and 115 RAW checks. The regular installation remains ffc4819.",
-        "The clean 0.2.0-audit.10 ZIP installed in a separate fixture with verified tool resources and shortcut. 152 package entries and 19 runtime entries verified. 24 GPU, 265 first-launch, 269 restart and 115 native RAW assertions passed. Both Windows contracts runs for the package commit succeeded."
+        "The clean 0.2.0-audit.10 ZIP installed in a separate fixture with verified tool resources and shortcut. 152 package entries and 19 runtime entries verified. 24 GPU, 265 first-launch, 269 restart and 115 native RAW assertions passed. Both Windows contracts runs for the package commit succeeded.",
+        "The clean audit.11 archive passed full manifest admission, generation and tamper checks, isolated install and shortcut check, 28 packaged GPU checks, 265/269 licensed host checks, 115 RAW checks and 27 exact-package native metadata checks."
       ],
       "evidence_paths": [
         "ReleaseManifest.ps1",
@@ -2470,7 +2475,8 @@
         ".test-results/audit6-package-verify-20261120/result.json",
         ".test-results/audit8-package-verify-20261120/result.json",
         ".test-results/audit9-package-verify-20261120/result.json",
-        ".test-results/audit10-package-verify-20261120/result.json"
+        ".test-results/audit10-package-verify-20261120/result.json",
+        ".test-results/audit11-package-verify-20261120/result.json"
       ],
       "remaining_work": [],
       "original_acceptance_tests": [
@@ -3045,19 +3051,19 @@
     "original_test_catalog_hash_unchanged": true,
     "local_evidence_note": "Paths under .test-results/build/dist are ignored local artifacts and are not present in a public clone.",
     "latest_development_package": {
-      "version": "0.2.0-audit.10",
-      "archive": "dist/Spektrafilm-for-Capture-One-v0.2.0-audit.10-windows-x64.zip",
-      "sha256": "496dc5465b8e3160c9e56f0e20b4d0db2544930762011901b1bd032cff9acfb5",
+      "version": "0.2.0-audit.11",
+      "archive": "dist/Spektrafilm-for-Capture-One-v0.2.0-audit.11-windows-x64.zip",
+      "sha256": "97d8700bd0aa9c724023c2700a230d52fffa2b74b939f256380813598184a04b",
       "source": {
-        "commit": "3702f35867155765cc7b3014afa776b746ba8b22",
+        "commit": "d9a66f2d25dc010e0222e4e8496b166e8b6b7812",
         "dirty": false,
-        "treeDigest": "dd5e1d93f9e33ed14a11abe583f6acd9839c4cdea3331bb9cb20e19f80afa372"
+        "treeDigest": "f0630731c8119004d14cc365fa05b2613c94b4ee4daea4fa899e9e6d18c55dd3"
       },
       "verified_package_entries": 152,
       "verified_runtime_entries": 19,
       "renderer_protocol": 2,
-      "renderer_sha256": "8382adfef06a1e0c1c5a38b07cdd3154ad9c9b26bb22537967122656d76761ba",
-      "asset_contract": "ee543d6d5cd5d76f9045aa3d0418614043406a81fa00247ef9fdb649cf80cbd9",
+      "renderer_sha256": "5be162e8ef352e2d2a34275e997e5b6eb8edc28580d1aca89176d25da156cb08",
+      "asset_contract": "60663539aa44af8b2c4e0af1b34fa562d79335f4d8e14864a11bbc8d0173b1a5",
       "generated_capabilities_sha256": "725e1a82999543343b8faa1bfef128d1b49128c7de9ee66cb754564e4885eb4f",
       "version3_native_preset_verified": true,
       "isolated_install_and_checkonly": "passed",
@@ -3065,11 +3071,12 @@
         "first_launch": 265,
         "restart": 269,
         "raw_matrix": 115,
-        "managed_gpu": 24
+        "managed_gpu": 28,
+        "native_metadata": 27
       },
-      "remote_windows_contracts": "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44667871590",
+      "remote_windows_contracts": "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44670497699",
       "normal_installed_revision": "ffc481988eb2e6e7ef7a1379486c4a8b2656ac81",
-      "receipt": ".test-results/audit10-package-verify-20261120/result.json"
+      "receipt": ".test-results/audit11-package-verify-20261120/result.json"
     }
   },
   "completed_milestones": [

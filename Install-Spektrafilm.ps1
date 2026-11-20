@@ -35,6 +35,17 @@ function Confirm-PlainItem($item) {
     }
 }
 
+function Confirm-PlainAsset($item, [string] $root) {
+    Confirm-PlainItem $item
+    if (!(Test-BelowPath $item.FullName $root)) { throw "The installation asset lies outside its root: $($item.FullName)" }
+    $directory = if ($item.PSIsContainer) { $item.Parent } else { $item.Directory }
+    while ($directory -and !(Test-SamePath $directory.FullName $root)) {
+        Confirm-PlainItem $directory
+        $directory = $directory.Parent
+    }
+    if (!$directory) { throw "Could not verify the installation asset root: $root" }
+}
+
 function Test-FileInUse([Exception] $error) {
     $cause = $error.GetBaseException()
     return ($cause.HResult -band 0xffff) -in @(32, 33)
@@ -44,6 +55,7 @@ function Confirm-UpdateFilesAvailable([string] $install) {
     foreach ($relative in @('panel\NativePanel.dll', 'renderer\SpektraStillRenderer.exe')) {
         $path = Join-Path $install $relative
         if (![IO.File]::Exists($path)) { continue }
+        Confirm-PlainAsset (Get-Item -LiteralPath $path -Force) $install
         try {
             $file = [IO.File]::Open($path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)
             $file.Dispose()
@@ -64,7 +76,8 @@ function Remove-TemporaryInstall([string] $path, [string] $parent) {
         $item.Name -notmatch '^\.film-tools-(stage|previous)-[a-f0-9]{32}$') {
         throw "Could not verify temporary installation path $path."
     }
-    Remove-Item -LiteralPath $item.FullName -Recurse -Force
+    # .NET removes nested links themselves without traversing their targets.
+    [IO.Directory]::Delete($item.FullName, $true)
 }
 
 function Read-OwnedFiles([string] $install) {
@@ -205,14 +218,18 @@ function Save-DesktopShortcut([string] $path, [string] $target, [string] $launch
 }
 
 try {
-    $source = (Get-Item -LiteralPath $PSScriptRoot).FullName.TrimEnd('\', '/')
+    $sourceRoot = Get-Item -LiteralPath $PSScriptRoot -Force
+    Confirm-PlainItem $sourceRoot
+    $source = $sourceRoot.FullName.TrimEnd('\', '/')
     if ((Test-Path -LiteralPath (Join-Path $source 'runtime-manifest.required')) -and
         !(Test-Path -LiteralPath (Join-Path $source 'build-manifest.json'))) {
         throw 'The release contains an incomplete staged runtime. Extract or rebuild the complete release.'
     }
     if ((Test-Path -LiteralPath (Join-Path $source 'build-manifest.json')) -or
         (Test-Path -LiteralPath (Join-Path $source 'package-manifest.json'))) {
-        . (Join-Path $source 'ReleaseManifest.ps1')
+        $validator = Get-Item -LiteralPath (Join-Path $source 'ReleaseManifest.ps1') -Force
+        Confirm-PlainAsset $validator $source
+        . $validator.FullName
         if (Test-Path -LiteralPath (Join-Path $source 'package-manifest.json')) { $releasePackage = Test-ReleaseManifest $source 'package-manifest.json' }
         [void](Test-ReleaseManifest $source)
     }
@@ -256,8 +273,8 @@ try {
             if ($required -contains $relative) { throw "The extracted release is missing $relative." }
             continue
         }
-        $item = Get-Item -LiteralPath $origin
-        Confirm-PlainItem $item
+        $item = Get-Item -LiteralPath $origin -Force
+        Confirm-PlainAsset $item $source
         if ($item.Length -eq 0) { throw "The extracted release contains an empty $relative." }
         $files += $relative
     }
@@ -302,7 +319,13 @@ try {
         foreach ($relative in $files) {
             $target = Join-Path $stage $relative
             [void] [IO.Directory]::CreateDirectory((Split-Path -LiteralPath $target))
-            [IO.File]::Copy((Join-Path $source $relative), $target)
+            $asset = Get-Item -LiteralPath (Join-Path $source $relative) -Force
+            Confirm-PlainAsset $asset $source
+            [IO.File]::Copy($asset.FullName, $target)
+        }
+        if ($releasePackage) { [void](Test-ReleaseManifest $stage 'package-manifest.json') }
+        if (Test-Path -LiteralPath (Join-Path $stage 'build-manifest.json') -PathType Leaf) {
+            [void](Test-ReleaseManifest $stage)
         }
         [IO.File]::WriteAllText((Join-Path $stage $markerName), $markerText)
         $receipt = [ordered]@{ schema = 1; files = @($files | ForEach-Object {
@@ -339,7 +362,7 @@ try {
             }
         } catch {
             $keepStage = $true
-            throw "Installation failed and could not be rolled back. Existing files are retained under $parent. $($installError.Exception.Message) Rollback: $($_.Exception.Message)"
+            throw "Installation failed and could not be rolled back. The previous folder is $previous. The staged folder is $stage. The destination is $install. $($installError.Exception.Message) $($_.Exception.Message)"
         }
         throw $installError
     } finally {

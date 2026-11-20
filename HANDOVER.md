@@ -6,7 +6,7 @@ Updated 2026-11-20. The critical-fix batch is implemented, tested, installed loc
 
 1. Read this file, `AGENTS.md` and `qa/AUDIT-FIX-STATUS.json` before changing code. The JSON is the authoritative task-progress ledger; its `remaining_work` and original acceptance tests matter more than a short status label.
 2. Check `git status`, current branch and PR head. Do not discard existing edits or switch the installed build merely because this documentation has a newer commit.
-3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP is `0.2.0-audit.10` from clean `3702f35`. Its verification used an isolated installation. The normal app stayed on `ffc4819`.
+3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP is `0.2.0-audit.11` from clean `d9a66f2`. Its verification used an isolated installation. The normal app stayed on `ffc4819`.
 4. Choose an unresolved task and an exact ownership boundary. Do not repeat the completed installation, crash test or old defect reproductions as if nothing had happened.
 5. Update task evidence and the delivery ledger at each completed milestone. Never mark a broad parent task complete because one mitigation shipped.
 
@@ -658,6 +658,15 @@ To repeat, run `python qa/prepare-metadata-fixture.py <closed-catalog> <RAW-samp
 - [ ] Inject physical Vulkan device loss and repeat on slower hardware. An already submitted full-frame GPU command must finish before graceful acknowledgment. The process watchdog bounds an unresponsive child. [Vulkan fence behavior](https://docs.vulkan.org/refpages/latest/refpages/source/vkWaitForFences.html)
 
 Evidence is under `.test-results/cooperative-vulkan-runtime-20261120`, `.test-results/contracts-cooperative-progress-20261120` and `.test-results/host-cooperative-renderer-20261120`. Use `qa/renderer-cancel-probe.py` to repeat the independent tiled trials.
+
+## Installer linked paths and failed rollback
+
+- [x] Install `0.2.0-audit.11` from clean `d9a66f2` under a private destination. All 152 package and 19 critical runtime files verified. ZIP SHA-256 `97d8700bd0aa9c724023c2700a230d52fffa2b74b939f256380813598184a04b`. Exact-package tests passed 28 GPU, 265 first-launch, 269 restart, 115 RAW and 27 native metadata assertions. The regular installed revision remains `ffc4819`. [Windows Contracts](https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44670497699)
+- [x] Prevent required asset loads through a linked ancestor in the installer. Verify both staged manifests before promoting the copy. Directory cleanup leaves junction targets alone. [Windows directory deletion behavior](https://learn.microsoft.com/en-us/dotnet/api/system.io.directory.delete?view=netframework-4.8.1)
+- [x] Pass 54 inert Windows installer contracts. Case-only collisions, Unicode paths, locked files, unavailable Desktop and real NTFS junctions preserve user files. When an external file occupies the destination after the first directory move, failed rollback retains both directories and reports both exact locations. The fixture manually restores the reported previous version and verifies its data.
+- [ ] Add automatic interrupted-upgrade recovery and retain the prior verified version through an acknowledged real launch. Retest staged manifest admission against the next exact package.
+
+Evidence is under `.test-results/audit11-package-verify-20261120` and `.test-results/contracts-installer-failed-rollback-20261120`.
 
 ## Status maintenance
 
