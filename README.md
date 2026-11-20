@@ -118,7 +118,7 @@ To restore a backup, open PowerShell in the Spektrafilm installation folder. Cho
 
 For a moved or copied catalog, open its new location through the Spektrafilm launcher. The launcher recovers looks when one verified source matches the catalog byte for byte. The new path gets its own saved looks. If the catalog database has changed, the shortcut offers to recover a matching backup after verifying the native catalog and saved variants. From PowerShell, use `-RecoverUpdatedCatalogLooks` to approve that verification and recovery, or `-SkipCatalogLookRecovery` to launch without discovery.
 
-When a single source matches, the launcher can carry newer edits still saved under the old path. It verifies every variant against the archived and destination catalogs, including when the archived look ZIP is empty. If Spektrafilm cannot verify a newer variant or several source paths match, choose a backup explicitly.
+When a single source matches, the launcher can carry newer edits still saved under the old path, including when the archived look ZIP is empty. Spektrafilm records a variant’s catalog and RAW IDs when saving its look. Those IDs let recovery verify a variant created after the catalog backup. If the launcher cannot verify a variant or several source paths match, choose a backup explicitly.
 
 Close Capture One, use `-SavedLooksOnly` with the existing destination and add `-AllowUpdatedCatalog` if the database has changed. To recover current local edits for the chosen source, add `-LatestLocalLooks`. The preview checks the variant identities. Add `-Apply` to recover the verified looks. The restore preserves any saved looks already at the destination.
 

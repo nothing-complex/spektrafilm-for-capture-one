@@ -494,6 +494,8 @@ internal static class SpektraFilmTool
         private VariantLook? displayedLook;
         private (Guid Variant, VariantLook Before)? historyGesture;
         private Guid? displayedVariant;
+        private Guid? displayedImageForIdentity;
+        private readonly Guid documentIdentity;
         private long? retryLookReadAt;
         private VariantLook? previousSavedLook;
         private DispatcherOperation? selectionSync;
@@ -507,6 +509,7 @@ internal static class SpektraFilmTool
         {
             this.window = window;
             this.document = document;
+            documentIdentity = document.UUID;
             nativeUndo = (document as IUndo)?.UndoManager;
             var weakPanel = new WeakReference<LookPanel>(this);
             historyChanged = (variant, error) =>
@@ -935,14 +938,15 @@ internal static class SpektraFilmTool
             if (nativeUndo is null)
                 throw new InvalidOperationException("Capture One Undo is unavailable for this catalog.");
             preset.Validate();
-            var variants = HostProfile.CaptureSelectedVariants(window, document);
+            var variants = HostProfile.CaptureSelectionSet(window, document)
+                .Select(item => (item.Variant.UUID, item.Variant.CoreImage?.UUID)).ToArray();
             if (variants.Length < 2)
                 throw new InvalidOperationException("Select two or more variants, or use Apply copied settings for one variant.");
             UpdateHistoryGesture(false);
             using var work = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
             batchWork = work;
             var committed = new List<VariantLookChange>();
-            var prepared = new List<VariantLookChange>();
+            var prepared = new List<(VariantLookChange Change, Guid? Image)>();
             var needsRefresh = false;
             string? failure = null;
             var confirmed = false;
@@ -955,7 +959,7 @@ internal static class SpektraFilmTool
                 work.Token.ThrowIfCancellationRequested();
                 batchStatus.Visibility = cancelBatch.Visibility = Visibility.Visible;
                 journal = looks.BatchHistory.Start(variants.Length);
-                foreach (var variant in variants)
+                foreach (var (variant, image) in variants)
                 {
                     await Dispatcher.Yield(DispatcherPriority.Background);
                     work.Token.ThrowIfCancellationRequested();
@@ -964,14 +968,15 @@ internal static class SpektraFilmTool
                         continue;
                     ValidateLoadedSettings(change.After.Look, change.After.Optics);
                     ResolvePresetStocks(change.After.Look);
-                    prepared.Add(change);
+                    prepared.Add((change, image));
                 }
-                foreach (var change in prepared)
+                foreach (var (change, image) in prepared)
                 {
                     await Dispatcher.Yield(DispatcherPriority.Background);
                     work.Token.ThrowIfCancellationRequested();
                     // Do not merge a batch edit into an in-progress slider gesture.
                     UpdateHistoryGesture(false);
+                    RememberVariantIdentity(change.Variant, image);
                     looks.CommitBatchChange(change.Variant, change.SavedBefore, change.After,
                         (before, after) => journal.Prepare(change.Variant, before, after));
                     committed.Add(change);
@@ -1078,8 +1083,9 @@ internal static class SpektraFilmTool
             return look;
         }
 
-        internal void SaveClonedLook(Guid variant, VariantLook look)
+        internal void SaveClonedLook(Guid variant, Guid image, VariantLook look)
         {
+            RememberVariantIdentity(variant, image);
             looks.CommitBatchChange(variant, expected: null, look);
             OnHistoryChanged(variant, null);
         }
@@ -1342,6 +1348,7 @@ internal static class SpektraFilmTool
                 status.Text = string.Empty;
                 FlushLooks();
                 displayedVariant = variant;
+                displayedImageForIdentity = ReadDisplayedImageIdentity(variant);
                 try
                 {
                     var outcome = looks.ReadOutcome(variant);
@@ -1386,6 +1393,34 @@ internal static class SpektraFilmTool
 
         private void SaveLook() => PersistLook("Spektrafilm settings");
 
+        private Guid? ReadDisplayedImageIdentity(Guid variant)
+        {
+            try
+            {
+                var selected = HostProfile.ReadSelection(window);
+                return ReferenceEquals(selected.Document, document) && selected.Variant.UUID == variant
+                    ? selected.Variant.CoreImage?.UUID : null;
+            }
+            catch (InvalidOperationException) { return null; }
+        }
+
+        private void RememberDisplayedVariantIdentity(Guid variant)
+        {
+            var image = displayedImageForIdentity;
+            displayedImageForIdentity = null;
+            RememberVariantIdentity(variant, image);
+        }
+
+        private void RememberVariantIdentity(Guid variant, Guid? image)
+        {
+            if (image is null) return;
+            try { looks.RecordVariantIdentity(variant, documentIdentity, image.Value); }
+            catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or JsonException)
+            {
+                StartupHook.Log("Could not record the saved look’s native identity: " + error.GetBaseException().Message);
+            }
+        }
+
         private void PersistLook(string entryName)
         {
             if (settingValues || !StocksReady || retryLookReadAt is not null
@@ -1395,6 +1430,7 @@ internal static class SpektraFilmTool
             var before = displayedLook;
             try
             {
+                RememberDisplayedVariantIdentity(variant);
                 looks.Queue(variant, look);
                 displayedLook = look;
                 FlushLooksFor(variant);
@@ -1531,6 +1567,7 @@ internal static class SpektraFilmTool
 
         private void RecoverSelectedLook(Guid variant, VariantLook? previous)
         {
+            RememberDisplayedVariantIdentity(variant);
             if (previous is not null)
                 looks.RestorePrevious(variant, previous);
             else

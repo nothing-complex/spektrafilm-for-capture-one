@@ -15,14 +15,14 @@ internal sealed class NativeVariantCloneHook : IDisposable
     private readonly Forms.Form window;
     private readonly ICaptureOneDocument document;
     private readonly Func<Guid, VariantLook?> captureLook;
-    private readonly Action<Guid, VariantLook> saveLook;
+    private readonly Action<Guid, Guid, VariantLook> saveLook;
     private readonly Action<string> report;
     private readonly ExportHook.CommandBinding binding;
     private bool running;
     private bool disposed;
 
     internal NativeVariantCloneHook(Forms.Form window, ICaptureOneDocument document, Func<Guid, VariantLook?> captureLook,
-        Action<Guid, VariantLook> saveLook, Action<string> report)
+        Action<Guid, Guid, VariantLook> saveLook, Action<string> report)
     {
         this.window = window;
         this.document = document;
@@ -76,7 +76,7 @@ internal sealed class NativeVariantCloneHook : IDisposable
                             incomplete = true;
                             continue;
                         }
-                        saveLook(added[0].UUID, source.Look);
+                        saveLook(added[0].UUID, source.Image.UUID, source.Look);
                         inherited++;
                     }
                     catch (Exception error)

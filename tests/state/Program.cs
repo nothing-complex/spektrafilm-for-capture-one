@@ -126,6 +126,26 @@ Check("committed look is reported as saved", store.HasCommitted(id));
 var stateFile = StateFile(root, id);
 Check("roundtrip", new VariantLookStore(root, catalog).Read(id)?.Look.Exposure == .7);
 Check("case-only catalog path", new VariantLookStore(root, catalog.ToUpperInvariant()).Read(id) is not null);
+var identityRoot = Path.Combine(scratch, "variant-identity");
+var identityStore = new VariantLookStore(Path.Combine(identityRoot, "Variant looks"), catalog);
+var identityDocument = Guid.NewGuid();
+var identityImage = Guid.NewGuid();
+var identityFile = Path.Combine(identityRoot, "Look recovery", identityStore.CatalogIdentity, $"{id:N}.identity.json");
+identityStore.RecordVariantIdentity(id, identityDocument, identityImage);
+Check("saved variant identity is independently durable", PanelFiles.ReadPreset<SavedVariantIdentity>(identityFile)
+    == new SavedVariantIdentity(1, identityDocument, id, identityImage));
+File.SetLastWriteTimeUtc(identityFile, new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+var identityStamp = File.GetLastWriteTimeUtc(identityFile);
+identityStore.RecordVariantIdentity(id, identityDocument, identityImage);
+identityStore.Queue(id, original);
+identityStore.Flush();
+Check("repeat observations and look writes reuse the verified identity without changing look bytes",
+    File.GetLastWriteTimeUtc(identityFile) == identityStamp
+    && File.ReadAllBytes(StateFile(Path.Combine(identityRoot, "Variant looks"), id)).AsSpan().SequenceEqual(File.ReadAllBytes(stateFile)));
+Throws<InvalidDataException>("variant identity cannot be reassigned to another RAW",
+    () => identityStore.RecordVariantIdentity(id, identityDocument, Guid.NewGuid()));
+Check("the conflicting native image leaves the original identity intact",
+    PanelFiles.ReadPreset<SavedVariantIdentity>(identityFile).Image == identityImage);
 Check("committed queues empty", !store.HasPending);
 File.SetLastWriteTimeUtc(stateFile, new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc));
 store.Queue(id, original);

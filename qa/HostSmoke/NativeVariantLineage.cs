@@ -18,6 +18,11 @@ public static partial class StartupHook
         var target = profile.GetMethod("CaptureTarget", Flags)!;
         void Select(Guid primary, params Guid[] members) => new FixtureSelection(panel, limit: 40).Select(primary, members);
         JsonNode? Read(Guid id) => Call(store, "Read", id) is { } look ? JsonSerializer.SerializeToNode(look, look.GetType()) : null;
+        JsonNode? Identity(Guid id)
+        {
+            var path = Path.Combine(folder, "Look recovery", (string)Prop(store, "CatalogIdentity")!, $"{id:N}.identity.json");
+            return File.Exists(path) ? JsonNode.Parse(File.ReadAllText(path)) : null;
+        }
         object Selected() => Prop(selection.Invoke(null, new[] { window })!, "Variant")!;
         Guid Current() => (Guid)Prop(target.Invoke(null, new[] { window })!, "VariantId")!;
         var core = AppDomain.CurrentDomain.GetAssemblies().Single(assembly => assembly.GetName().Name == "P1.C1.Core");
@@ -54,6 +59,9 @@ public static partial class StartupHook
                 Check(native.Contains(id) && JsonNode.DeepEquals(Read(id), entry.Value),
                     "restart retains the exact native variant and expected independent Spektrafilm look");
             }
+            foreach (var entry in expected["Identities"]!.AsObject())
+                Check(JsonNode.DeepEquals(Identity(Guid.Parse(entry.Key)), entry.Value),
+                    "restart retains the exact native document, variant and RAW identity");
             File.WriteAllText(Path.Combine(folder, phase + ".passed"), $"PASS {checks} native variant lineage assertions");
             return;
         }
@@ -125,6 +133,22 @@ public static partial class StartupHook
 
         var receipt = new JsonObject(new[] { first, second, one, firstClone, secondClone, newVariant }.Concat(ambiguous)
             .Select(id => new KeyValuePair<string, JsonNode?>(id.ToString(), Read(id))));
+        var document = Field(panel, "document")!;
+        var documentId = (Guid)document.GetType().GetInterface("P1.C1.Core.ModelEntities.ICaptureOneDocument")!
+            .GetProperty("UUID")!.GetValue(document)!;
+        var identities = new JsonObject();
+        foreach (var saved in new[] { first, second, one, firstClone, secondClone, newVariant })
+        {
+            Select(saved, saved);
+            var native = target.Invoke(null, new[] { window })!;
+            var proof = Identity(saved);
+            Check(proof is not null && proof["Version"]!.GetValue<int>() == 1
+                && proof["Document"]!.GetValue<Guid>() == documentId && proof["Variant"]!.GetValue<Guid>() == saved
+                && Equals(proof["Image"]!.GetValue<Guid>(), Prop(native, "ImageId")),
+                "the saved look records the matching live native document, variant and RAW IDs");
+            identities[saved.ToString()] = proof;
+        }
+        Check(ambiguous.All(id => Identity(id) is null), "unsaved ambiguous clones have no inferred look identities");
         var binding = Field(cloneHook!, "binding")!;
         var callbackField = (System.Reflection.FieldInfo)binding.GetType().GetField("Callbacks", Flags)!.GetValue(null)!;
         var cloneCommand = Field(binding, "command")!;
@@ -137,7 +161,7 @@ public static partial class StartupHook
             && restored.SequenceEqual(previous.Select(item => item.Equals(wrapper) ? original : item)),
             "disposing the native Clone hook restores the original callback in place");
         File.WriteAllText(output, new JsonObject { ["Sources"] = JsonSerializer.SerializeToNode(new[] { first, second }),
-            ["Looks"] = receipt }.ToJsonString());
+            ["Looks"] = receipt, ["Identities"] = identities, ["NewVariant"] = newVariant.ToString() }.ToJsonString());
         File.WriteAllText(Path.Combine(folder, phase + ".passed"), $"PASS {checks} native variant lineage assertions");
     }
 }

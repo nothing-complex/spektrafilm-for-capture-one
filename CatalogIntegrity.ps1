@@ -145,26 +145,61 @@ namespace Spektrafilm
                 throw Failure(operation, result ?? "SQLite did not report an integrity result.");
         }
 
-        public static void VerifyRelated(string backup, string destination, Guid[] variants)
+        public sealed class VariantProof
+        {
+            internal readonly Guid Variant;
+            internal readonly Guid Document;
+            internal readonly Guid Image;
+
+            public VariantProof(Guid variant, Guid document, Guid image)
+            {
+                Variant = variant;
+                Document = document;
+                Image = image;
+            }
+        }
+
+        public static void VerifyRelated(string backup, string destination, Guid[] variants, VariantProof[] proofs)
         {
             const string operation = "Capture One catalog identity verification";
             var required = new HashSet<Guid>(variants);
             if (required.Contains(Guid.Empty)) throw Failure(operation, "A saved variant identity is empty.");
-            var original = ReadIdentity(backup, required, operation);
-            var updated = ReadIdentity(destination, required, operation);
+            var live = new Dictionary<Guid, VariantProof>();
+            foreach (var proof in proofs)
+            {
+                if (!required.Contains(proof.Variant)) continue;
+                if (proof.Document == Guid.Empty || proof.Image == Guid.Empty || live.ContainsKey(proof.Variant))
+                    throw Failure(operation, "A saved native variant identity is invalid or duplicated.");
+                live.Add(proof.Variant, proof);
+            }
+            var original = ReadIdentity(backup, required, operation, live.Count == 0);
+            var updated = ReadIdentity(destination, required, operation, true);
             if (original.Document != updated.Document)
                 throw Failure(operation, "The existing catalog has a different native document identity.");
             foreach (var variant in required)
-                if (original.ImagesByVariant[variant] != updated.ImagesByVariant[variant])
-                    throw Failure(operation, "A saved variant belongs to a different native image in the existing catalog.");
+            {
+                var destinationImage = updated.ImagesByVariant[variant];
+                VariantProof added;
+                bool hasProof = live.TryGetValue(variant, out added);
+                if (hasProof && (added.Document != original.Document || added.Image != destinationImage))
+                    throw Failure(operation, "The saved native variant identity does not match the destination catalog or image.");
+                Guid archived;
+                if (original.ImagesByVariant.TryGetValue(variant, out archived))
+                {
+                    if (archived != destinationImage)
+                        throw Failure(operation, "A saved variant belongs to a different native image in the existing catalog.");
+                }
+                else if (!hasProof)
+                    throw Failure(operation, "The archived catalog does not identify a saved variant and no live identity was recorded.");
+            }
         }
 
         public static Guid DocumentId(string path)
         {
-            return ReadIdentity(path, new HashSet<Guid>(), "Capture One catalog identity verification").Document;
+            return ReadIdentity(path, new HashSet<Guid>(), "Capture One catalog identity verification", true).Document;
         }
 
-        private static Identity ReadIdentity(string path, HashSet<Guid> required, string operation)
+        private static Identity ReadIdentity(string path, HashSet<Guid> required, string operation, bool requireAll)
         {
             var identity = new Identity();
             int documentRows = 0;
@@ -195,7 +230,7 @@ namespace Spektrafilm
             ExecuteReadOnly(path, query, read, operation);
             if (documentRows != 1 || identity.Document == Guid.Empty)
                 throw Failure(operation, "The catalog does not contain one valid native document identity.");
-            if (invalidMapping || identity.ImagesByVariant.Count != required.Count)
+            if (invalidMapping || (requireAll && identity.ImagesByVariant.Count != required.Count))
                 throw Failure(operation, "The catalog does not uniquely identify each saved variant and its native image.");
             return identity;
         }
@@ -248,9 +283,12 @@ function Confirm-CatalogIntegrity([string] $path) {
     [Spektrafilm.CatalogIntegrity]::Verify($path)
 }
 
-function Confirm-RelatedCatalogs([string] $backup, [string] $destination, [Guid[]] $variants) {
+function Confirm-RelatedCatalogs([string] $backup, [string] $destination, [Guid[]] $variants, [object[]] $proofs) {
     Initialize-CatalogIntegrity
-    [Spektrafilm.CatalogIntegrity]::VerifyRelated($backup, $destination, $variants)
+    $native = foreach ($proof in $proofs) {
+        [Spektrafilm.CatalogIntegrity+VariantProof]::new($proof.Variant, $proof.Document, $proof.Image)
+    }
+    [Spektrafilm.CatalogIntegrity]::VerifyRelated($backup, $destination, $variants, [Spektrafilm.CatalogIntegrity+VariantProof[]]@($native))
 }
 
 function Get-CatalogDocumentId([string] $path) {

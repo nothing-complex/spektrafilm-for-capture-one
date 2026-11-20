@@ -288,7 +288,7 @@ $parseErrors=$null
 $launcher=[Management.Automation.Language.Parser]::ParseFile((Join-Path $root 'Start-Spektrafilm.ps1'), [ref]$tokens, [ref]$parseErrors)
 if($parseErrors.Count){throw 'Launcher syntax failed.'}
 $launcherHelpers = @('Read-SpektrafilmLaunchStatus','Wait-SpektrafilmPanel')
-if ($DiscoverSavedLooks) {
+if ($DiscoverSavedLooks -or $NativeVariantLineage) {
     . (Join-Path $root 'CatalogIntegrity.ps1')
     $launcherHelpers += @('Confirm-CatalogIsIdle','Test-CatalogLookState','New-LookBackup','Save-CatalogBackup',
         'Read-LookRecoveryManifest','Find-CatalogLookBackup','Test-CurrentBackupLookState','Restore-DiscoveredCatalogLooks','Prepare-SpektrafilmCatalog')
@@ -567,6 +567,11 @@ if($CatalogIsolation -or $ConcurrentCatalogs){
 } else {
     Copy-Item -LiteralPath $source -Destination $catalog
 }
+if ($NativeVariantLineage) {
+    $userData = $folder
+    $appName = 'Spektrafilm variant identity fixture'
+    $preVariantBackup = Save-CatalogBackup $catalog
+}
 $originalProfileHashes=@{}
 if ($NativeEffectProfileSidecars -and !$CalibrationChart) {
     $iccSource=Join-Path (Split-Path -Parent $source) 'Adjustments\ICC'
@@ -777,7 +782,7 @@ try {
                 $process.Refresh()
             }
             Get-Content -LiteralPath $result
-            if (($NativeVariantLineage -or $NativeEffectRecipeRestart) -and $phase -eq 'first' -and !$process.HasExited) {
+            if (($NativeVariantLineage -or ($NativeEffectRecipeRestart -and $phase -eq 'first')) -and !$process.HasExited) {
                 # Capture One owns persistence of its catalog settings and variants.
                 if (!$process.CloseMainWindow() -or !$process.WaitForExit(20000) -or $process.ExitCode -ne 0) {
                     throw 'Capture One did not finish a clean close of the disposable catalog.'
@@ -799,6 +804,38 @@ try {
             Clear-TestCrashMarkers $phaseStarted $phase
             Test-NativeRecipeHashes $phase
         }
+    }
+    if ($NativeVariantLineage) {
+        Confirm-CatalogIsIdle $catalog
+        $native = Get-Content -Raw -LiteralPath (Join-Path $folder 'native-variant-lineage.json') | ConvertFrom-Json
+        $variant = [guid]$native.NewVariant
+        $relocated = Join-Path $folder 'Relocated.cocatalogdb'
+        Copy-Item -LiteralPath $catalog -Destination $relocated
+        $relocatedHash = (Get-FileHash -LiteralPath $relocated).Hash
+        $unproven = $null
+        try { Confirm-RelatedCatalogs $preVariantBackup $relocated ([guid[]]@($variant)) }
+        catch { $unproven = $_.Exception.Message }
+        if ($unproven -notmatch 'does not uniquely identify') { throw 'The new variant was expected to be absent from the original SQLite backup.' }
+        $prepared = Prepare-SpektrafilmCatalog $relocated (Join-Path $runtimeSource 'Restore-SpektrafilmCatalog.ps1') -AcceptUpdated
+        $preparedManifest = Read-LookRecoveryManifest ($prepared + '.manifest.json')
+        $origin = @(Get-CatalogLookFiles $folder (Get-CatalogKey $catalog))
+        $restored = @(Get-CatalogLookFiles $folder (Get-CatalogKey $relocated))
+        foreach ($entry in @("Variant looks/$($variant.ToString('N')).json", "Look recovery/$($variant.ToString('N')).identity.json")) {
+            $before = @($origin | Where-Object Relative -CEQ $entry)
+            $after = @($restored | Where-Object Relative -CEQ $entry)
+            if ($before.Count -ne 1 -or $after.Count -ne 1 -or
+                (Get-FileHash -LiteralPath $before[0].Path).Hash -ne (Get-FileHash -LiteralPath $after[0].Path).Hash) {
+                throw "Native relocation did not keep the exact saved bytes for $entry"
+            }
+        }
+        if (!$preparedManifest -or $preparedManifest.files.Count -lt 2 -or
+            (Get-FileHash -LiteralPath $relocated).Hash -ne $relocatedHash -or (Get-FileHash -LiteralPath $catalog).Hash -ne $relocatedHash) {
+            throw 'Relocation changed the native database or did not back up the migrated look.'
+        }
+        $evidence = @{variant=$variant; oldBackup=$preVariantBackup; newBackup=$prepared; catalogSha256=$relocatedHash;
+            previouslyUnverifiable=$unproven; restoredFiles=$restored.Count}
+        [IO.File]::WriteAllText((Join-Path $folder 'native-older-backup-relocation.json'), ($evidence | ConvertTo-Json -Compress))
+        Write-Output 'PASS native relocation carried the look of a variant created after the original catalog backup.'
     }
     if($CheckOrdinaryLaunch){
         Start-Sleep -Seconds 10

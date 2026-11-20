@@ -496,6 +496,48 @@ Assert ($latestManifest.files.Count -eq 2 -and (Get-FileHash -LiteralPath $carri
 Assert (!(Test-Path -LiteralPath $oldDatabase) -and (Get-FileHash -LiteralPath $newDatabase).Hash -eq $cloneHash -and
     (Get-FileHash -LiteralPath $newerLook).Hash -eq $newerHash -and (Get-FileHash -LiteralPath $newerPending).Hash -eq $pendingHash) 'Recovery leaves the genuinely moved catalog and both source state files unchanged'
 
+$newVariantId = '33333333-3333-3333-3333-333333333333'
+$newVariantLeaf = ([Guid]$newVariantId).ToString('N')
+$createdLook = Join-Path (Split-Path -Parent $newerLook) ($newVariantLeaf + '.json')
+$createdIdentity = Join-Path (Split-Path -Parent $newerPending) ($newVariantLeaf + '.identity.json')
+[IO.File]::WriteAllText($createdLook, ($nextEdit | ConvertTo-Json -Depth 10 -Compress))
+$createdTarget = Join-Path $identityFixtures 'with-new-variant.cocatalogdb'
+[IO.File]::Copy($updated, $createdTarget)
+$createdOptions = @{BackupDatabase=$firstLaunchBackup; DestinationDatabase=$createdTarget; UserDataRoot=$userData
+    SavedLooksOnly=$true; AllowUpdatedCatalog=$true; LatestLocalLooks=$true}
+$createdKey = Get-CatalogKey $createdTarget
+$failure = $null
+try { $null = & $restore @createdOptions -Apply } catch { $failure = $_.Exception.Message }
+Assert ($failure -match 'does not uniquely identify' -and !(Test-CatalogLookState $createdKey)) 'A variant created after the backup needs a saved native identity'
+$proof = [ordered]@{Version=1;Document='22222222-2222-2222-2222-222222222222';Variant=$newVariantId;Image='44444444-4444-4444-4444-444444444444'}
+[IO.File]::WriteAllText($createdIdentity, ($proof | ConvertTo-Json -Compress))
+$failure = $null
+try { $null = & $restore @createdOptions -Apply } catch { $failure = $_.Exception.Message }
+Assert ($failure -match 'does not match the destination' -and !(Test-CatalogLookState $createdKey)) 'A recorded variant UUID cannot authorize a different destination RAW'
+$proof.Image = '55555555-5555-5555-5555-555555555555'
+$proof.Document = '99999999-9999-9999-9999-999999999999'
+[IO.File]::WriteAllText($createdIdentity, ($proof | ConvertTo-Json -Compress))
+$failure = $null
+try { $null = & $restore @createdOptions -Apply } catch { $failure = $_.Exception.Message }
+Assert ($failure -match 'does not match the destination' -and !(Test-CatalogLookState $createdKey)) 'A recorded variant identity cannot cross native document lineages'
+$proof.Document = '22222222-2222-2222-2222-222222222222'
+[IO.File]::WriteAllText($createdIdentity, ($proof | ConvertTo-Json -Compress))
+$preview = & $restore @createdOptions
+Assert (($preview -join ' ') -match '4 current local files' -and !(Test-CatalogLookState $createdKey)) 'A matching identity verifies a new variant without modifying the destination in preview'
+$null = & $restore @createdOptions -Apply
+$newVariantFiles = @(Get-CatalogLookFiles $userData $createdKey)
+$carriedCreatedLook = ($newVariantFiles | Where-Object Relative -CEQ "Variant looks/$newVariantLeaf.json").Path
+$carriedCreatedIdentity = ($newVariantFiles | Where-Object Relative -CEQ "Look recovery/$newVariantLeaf.identity.json").Path
+Assert ((Get-FileHash -LiteralPath $createdTarget).Hash -eq $updatedHash -and
+    (Get-FileHash -LiteralPath $carriedCreatedLook).Hash -eq (Get-FileHash -LiteralPath $createdLook).Hash -and
+    (Get-FileHash -LiteralPath $carriedCreatedIdentity).Hash -eq (Get-FileHash -LiteralPath $createdIdentity).Hash) 'Verified current look and identity bytes for the new variant travel together'
+$withIdentityBackup = Save-CatalogBackup $createdTarget
+$identityRestoreData = Join-Path $root 'identity-restored'
+$identityRestoreCatalog = Join-Path $identityFixtures 'identity-restored.cocatalogdb'
+$null = & $restore -BackupDatabase $withIdentityBackup -DestinationDatabase $identityRestoreCatalog -UserDataRoot $identityRestoreData -Apply
+$identityRestoreFiles = @(Get-CatalogLookFiles $identityRestoreData (Get-CatalogKey $identityRestoreCatalog))
+Assert (@($identityRestoreFiles | Where-Object Relative -CEQ "Look recovery/$newVariantLeaf.identity.json").Count -eq 1) 'A subsequent full backup and restore retains the native identity'
+
 # Pause a separate process at the real publication boundaries. The pause only
 # exists in the disposable script copy. The retry uses the unmodified entry point.
 $crashFixture = Join-Path $root 'crash'

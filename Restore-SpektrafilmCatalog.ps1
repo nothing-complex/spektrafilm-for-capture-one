@@ -37,14 +37,45 @@ function Get-VerifiedLookVariantIds([string[]] $paths) {
     $names = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
     $variants = New-Object 'System.Collections.Generic.HashSet[Guid]'
     foreach ($path in $paths) {
-        if ($path -cnotmatch '^(Variant looks/[0-9a-f]{32}(\.json|\.previous\.look)|Look recovery/[0-9a-f]{32}\.(pending|grain)\.json|Look recovery/Preserved originals/[0-9a-f]{32}-[A-Za-z0-9-]+\.json)$' -or
+        if ($path -cnotmatch '^(Variant looks/[0-9a-f]{32}(\.json|\.previous\.look)|Look recovery/[0-9a-f]{32}\.(pending|grain|identity)\.json|Look recovery/Preserved originals/[0-9a-f]{32}-[A-Za-z0-9-]+\.json)$' -or
             !$names.Add($path)) {
             throw 'The backup manifest has an invalid or duplicate state entry.'
         }
+        if ($path.EndsWith('.identity.json', [StringComparison]::Ordinal)) { continue }
         $leaf = $path.Substring($path.LastIndexOf('/') + 1)
         [void]$variants.Add([Guid]::ParseExact($leaf.Substring(0, 32), 'N'))
     }
     return [Guid[]]@($variants)
+}
+
+function Read-VariantIdentityProof([string] $relative, [IO.Stream] $stream, [long] $length) {
+    try {
+        if ($length -le 0 -or $length -gt 2048) { throw "Invalid native identity size: $relative" }
+        $reader = New-Object IO.StreamReader($stream, (New-Object Text.UTF8Encoding($false, $true)))
+        try { $identity = $reader.ReadToEnd() | ConvertFrom-Json } finally { $reader.Dispose() }
+        $variant = $document = $image = [Guid]::Empty
+        if ($identity.Version -ne 1 -or @($identity.PSObject.Properties).Count -ne 4 -or
+            ![Guid]::TryParse($identity.Variant, [ref]$variant) -or $variant -eq [Guid]::Empty -or
+            ![Guid]::TryParse($identity.Document, [ref]$document) -or $document -eq [Guid]::Empty -or
+            ![Guid]::TryParse($identity.Image, [ref]$image) -or $image -eq [Guid]::Empty -or
+            $relative -cne ('Look recovery/' + $variant.ToString('N') + '.identity.json')) {
+            throw "Invalid native variant identity: $relative"
+        }
+        return [pscustomobject]@{Variant=$variant; Document=$document; Image=$image}
+    } finally { $stream.Dispose() }
+}
+
+function Read-LocalIdentityProofs([object[]] $files, $zip) {
+    foreach ($file in $files) {
+        if (!$file.Relative.EndsWith('.identity.json', [StringComparison]::Ordinal)) { continue }
+        if ($zip) {
+            $entry = $zip.GetEntry($file.Relative)
+            Read-VariantIdentityProof $file.Relative ($entry.Open()) $entry.Length
+        } else {
+            $stream = [IO.File]::OpenRead($file.Path)
+            Read-VariantIdentityProof $file.Relative $stream $stream.Length
+        }
+    }
 }
 
 function Read-Manifest([string] $path) {
@@ -92,6 +123,9 @@ function Copy-VerifiedState($zip, $manifest, [string] $catalogKey, [hashtable] $
         try { $hash = (Get-FileHash -InputStream $stream -Algorithm SHA256).Hash }
         finally { $stream.Dispose() }
         if ($hash -ne $record.sha256) { throw "Saved-look backup entry checksum failed: $($record.path)" }
+        if ($record.path.EndsWith('.identity.json', [StringComparison]::Ordinal)) {
+            $null = Read-VariantIdentityProof $record.path ($entry.Open()) $entry.Length
+        }
 
         $parts = $record.path -split '/', 2
         $path = if ($writing) { Join-Path $staging[$parts[0]] $parts[1] }
@@ -144,8 +178,10 @@ function Copy-LatestLocalLooks([string] $backup, [string] $destination, [string]
     $files = @(Get-CatalogLookFiles $dataRoot $sourceKey)
     if (!(Test-HasRecoverableLook $files.Relative)) { throw 'No committed or pending local looks remain at the source catalog key.' }
     $variantIds = [Guid[]]@(Get-VerifiedLookVariantIds $files.Relative)
-    Confirm-RelatedCatalogs $backup $destination $variantIds
-    if ($staging.Count -eq 0) { return $files.Count }
+    if ($staging.Count -eq 0) {
+        Confirm-RelatedCatalogs $backup $destination $variantIds @(Read-LocalIdentityProofs $files)
+        return $files.Count
+    }
 
     [IO.Directory]::CreateDirectory($stagingFolder) | Out-Null
     $snapshot = Join-Path $stagingFolder ('.look-source-' + $id + '.zip')
@@ -155,7 +191,10 @@ function Copy-LatestLocalLooks([string] $backup, [string] $destination, [string]
         $fresh = Write-CatalogLookArchive $stream $sourceKey $files
         $stream.Position = 0
         $zip = New-Object IO.Compression.ZipArchive($stream, [IO.Compression.ZipArchiveMode]::Read, $true)
-        try { Copy-VerifiedState $zip $fresh $destinationKey $staging }
+        try {
+            Confirm-RelatedCatalogs $backup $destination $variantIds @(Read-LocalIdentityProofs $files $zip)
+            Copy-VerifiedState $zip $fresh $destinationKey $staging
+        }
         finally { $zip.Dispose() }
     } finally { $stream.Dispose() }
     return $files.Count

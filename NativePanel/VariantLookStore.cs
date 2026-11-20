@@ -13,6 +13,8 @@ internal sealed record GrainControls([property: JsonRequired] int Type, [propert
     [property: JsonRequired] double Granularity);
 internal sealed record VariantLook([property: JsonRequired] LookSettings Look, [property: JsonRequired] SpatialPreview.Settings Optics,
     [property: JsonRequired] bool Enabled, [property: JsonRequired] int Version = 1, GrainControls? Grain = null);
+internal sealed record SavedVariantIdentity([property: JsonRequired] int Version, [property: JsonRequired] Guid Document,
+    [property: JsonRequired] Guid Variant, [property: JsonRequired] Guid Image);
 
 internal sealed class LookReadUnavailableException(Exception inner)
     : IOException("The saved look is temporarily inaccessible. Spektrafilm will retry loading it. " + inner.Message, inner);
@@ -52,6 +54,32 @@ internal sealed class VariantLookStore
     internal bool HasPending { get { lock (session) return session.Pending.Count != 0; } }
     internal bool HasUnprotectedPending { get { lock (session) return session.Pending.Values.Any(edit => !edit.RecoveryDurable); } }
     internal bool HasCommitted(Guid variant) { lock (session) return session.KnownHash.GetValueOrDefault(variant) is not null; }
+
+    internal void RecordVariantIdentity(Guid variant, Guid document, Guid image)
+    {
+        if (variant == Guid.Empty || document == Guid.Empty || image == Guid.Empty)
+            return;
+        var identity = new SavedVariantIdentity(1, document, variant, image);
+        lock (session)
+        {
+            if (session.VerifiedIdentities.GetValueOrDefault(variant) == identity)
+                return;
+            var path = Path.Combine(recoveryDirectory, $"{variant:N}.identity.json");
+            SavedVariantIdentity? existing = null;
+            try { existing = PanelFiles.ReadPreset<SavedVariantIdentity>(path); }
+            catch (FileNotFoundException) { }
+            catch (DirectoryNotFoundException) { }
+            if (existing is not null && existing != identity)
+                throw new InvalidDataException("This variant already has a different saved catalog or image identity.");
+            if (existing is null)
+            {
+                Directory.CreateDirectory(recoveryDirectory);
+                var bytes = PanelFiles.EncodeCompactPreset(identity);
+                PanelFiles.WriteAtomically(path, stream => stream.Write(bytes), overwrite: false, discardOnProcessExit: true);
+            }
+            session.VerifiedIdentities[variant] = identity;
+        }
+    }
 
     internal LookLoadOutcome ReadOutcome(Guid variant)
     {
@@ -483,6 +511,7 @@ internal sealed class VariantLookStore
         internal readonly Dictionary<Guid, PendingEdit> Pending = new();
         internal readonly Dictionary<Guid, string?> KnownHash = new();
         internal readonly Dictionary<Guid, string?> KnownLookHash = new();
+        internal readonly Dictionary<Guid, SavedVariantIdentity> VerifiedIdentities = new();
         internal readonly Dictionary<Guid, BlockedLook> Blocked = new();
     }
     private sealed record BlockedLook(LookLoadState State, string Message, bool CanRecoverPrevious,
