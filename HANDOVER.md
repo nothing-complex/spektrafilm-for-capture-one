@@ -6,7 +6,7 @@ Updated 2026-11-20. The critical-fix batch is implemented, tested, installed loc
 
 1. Read this file, `AGENTS.md` and `qa/AUDIT-FIX-STATUS.json` before changing code. The JSON is the authoritative task-progress ledger; its `remaining_work` and original acceptance tests matter more than a short status label.
 2. Check `git status`, current branch and PR head. Do not discard existing edits or switch the installed build merely because this documentation has a newer commit.
-3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP is `0.2.0-audit.29` from clean `2d46117`. The exact package passed both native effects export commands, three recipe output profiles, updated-catalog restore, real workspace switching, interruption recovery, the full licensed host suite, physical Vulkan and a private upgrade.
+3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP is `0.2.0-audit.30` from clean `f68de28`. The exact package passes native four-RAW export, stacked camera and print diffusion, three output profiles, the full licensed host suite, physical Vulkan and a private upgrade. Audit.29 also passed the updated-catalog, workspace, and interruption campaigns.
 4. Choose an unresolved task and an exact ownership boundary. Do not repeat the completed installation, crash test or old defect reproductions as if nothing had happened.
 5. Update task evidence and the delivery ledger at each completed milestone. Never mark a broad parent task complete because one mitigation shipped.
 
@@ -990,6 +990,15 @@ The combined receipt is `.test-results/audit28-package-verify-20261120/result.js
 - [x] Pass 347 general native assertions on launch and 351 on restart. The private upgrade from audit.28 preserves fixture user files and holds its prior runtime until the licensed panel and both native Export routes are ready.
 
 The combined receipt is `.test-results/audit29-package-verify-20261120/result.json`. The licensed runs are in `.test-results/host-audit29-*-20261120`. The private upgrade receipt is `D:/Library AI testing/sf-audit29-ready-20261120/installed-upgrade-receipt.json`.
+
+## Development package audit.30
+
+- [x] Build clean `f68de282af2086578997abee84303be5a5037a02`. Verify 153 package files, 19 critical entries, regenerated capability bytes and the same worker SHA-256 as the physical comparison. ZIP SHA-256 is `0a5c47d40d376cabab0a1df07cdb61028718cef8614293db879beda096e9710c`. [Windows 2022 and 2025 checks](https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44758626678)
+- [x] Pass 215 four-RAW native effects and 129 output profile and stacked optics checks on both launches. These campaigns save 68 verified 16-bit effect and control files. Independently read 156,601,728 RGB16 codes per comparison across the RAW matrix. The maximum mean difference between the two native commands is 7.44e-7 of full scale.
+- [x] Decode the selected ICC transforms in 12 sRGB, ProPhoto RGB and linear Rec.2020 files. The highest sampled Delta E 2000 is 0.885. Adding print diffusion with camera diffusion, highlight boost and scatter changes mean RGB by 1.244%. Both native command routes preserve the same combined look to within 4.62e-7 mean full scale across 18 million codes each launch.
+- [x] Pass 348 and 352 full native assertions, including the production storage-failure close confirmation, and pass 32 managed physical Vulkan checks. The private upgrade from audit.29 holds its prior runtime until the licensed panel and native Export are ready.
+
+The exact package receipt is `.test-results/audit30-package-verify-20261120/result.json`. The licensed fixture results are in `.test-results/host-audit30-*-20261120`. The installer receipt is `D:/Library AI testing/sf-audit30-ready-20261120/installed-upgrade-receipt.json`. Audit.29 retains the separate workspace, crash recovery and recipe naming receipts.
 
 ## Accepted export dialog and storage failure
 
