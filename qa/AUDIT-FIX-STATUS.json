@@ -2383,7 +2383,8 @@
         "Verified explicit ZIP content allowlist and corresponding source link. The original package survived separate tamper probes for a shader, two tables, stocks, helper, panel and host manifest. It installed and ran CheckOnly in isolated folders; branded shortcut points to that installed copy.",
         "Packaged clean bb0c19e as audit.3 and verified 150 payload records, 19 runtime records, capability metadata, installer, shortcut and Vulkan smoke in an isolated installation.",
         "Development 0.2.0-audit.4 was built from clean b1766d0, including renderer protocol 2. The ZIP matches its SHA-256, contains all 151 payload and 19 critical runtime records, rejects a changed capability file, and passed isolated Windows PowerShell 5.1 installation and shortcut verification, actual Vulkan, 558 parameter probes and the 480-render spectral matrix. The regular installation stays at ffc4819.",
-        "The audit.5 ZIP from clean bbeae73 verified all 151 package and 19 critical runtime files, its production shortcut, actual GPU renderer, and a real version 3 preset in the licensed host. The regular install is still ffc4819."
+        "The audit.5 ZIP from clean bbeae73 verified all 151 package and 19 critical runtime files, its production shortcut, actual GPU renderer, and a real version 3 preset in the licensed host.",
+        "The audit.6 ZIP from clean fd7056d verified the installed 151-file package, 19 critical runtime hashes, scoped branded shortcut, CheckOnly, Windows CI and 24 GPU assertions. The exact package also passed 202 first-launch, 206 restart and 115 native RAW checks. The real saved preset matched the package's source, parameter and asset fingerprints. The regular install remains ffc4819."
       ],
       "evidence_paths": [
         "ReleaseManifest.ps1",
@@ -2401,7 +2402,8 @@
         ".test-results/audit4-package-verify-20261120/managed-gpu.log",
         ".test-results/audit4-package-verify-20261120/parameter-matrix.log",
         ".test-results/audit4-package-verify-20261120/spectral-matrix.log",
-        ".test-results/audit5-package-verify-20261120/result.json"
+        ".test-results/audit5-package-verify-20261120/result.json",
+        ".test-results/audit6-package-verify-20261120/result.json"
       ],
       "remaining_work": [],
       "original_acceptance_tests": [
@@ -2963,29 +2965,30 @@
     "original_test_catalog_hash_unchanged": true,
     "local_evidence_note": "Paths under .test-results/build/dist are ignored local artifacts and are not present in a public clone.",
     "latest_development_package": {
-      "version": "0.2.0-audit.5",
-      "archive": "dist/Spektrafilm-for-Capture-One-v0.2.0-audit.5-windows-x64.zip",
-      "sha256": "d3bb2c541ffb1e1f2bdf88f68fc055cccd923aa8529da983053da0da50e5cb78",
+      "version": "0.2.0-audit.6",
+      "archive": "dist/Spektrafilm-for-Capture-One-v0.2.0-audit.6-windows-x64.zip",
+      "sha256": "d981fee2685b6512465374445cd6f5bf6b38edceb5db198658dfd41613537516",
       "source": {
-        "commit": "bbeae737277a6d7baf9b933b639ae703dce10fba",
+        "commit": "fd7056d437b262c0c59371d3b179952e9d199387",
         "dirty": false,
-        "treeDigest": "b1ad8613618411e7228ba3e464684a5f1ceefb2ba52d87221da324e39dd37926"
+        "treeDigest": "de6de6b4d2f87c5b502b706c7eafeb8763fdc9c265d8760eebe608bfd32f20b0"
       },
       "verified_package_entries": 151,
       "verified_runtime_entries": 19,
       "renderer_protocol": 2,
-      "renderer_sha256": "0228f69acd84fd387b4785ad3b5a74503cfcd6100cfa1322588a3e16164298d7",
-      "asset_contract": "1bfde4ed7fad084de14a0359c51b0447c9fe7af57c0ba0b8664f723ca98da852",
+      "renderer_sha256": "8382adfef06a1e0c1c5a38b07cdd3154ad9c9b26bb22537967122656d76761ba",
+      "asset_contract": "ee543d6d5cd5d76f9045aa3d0418614043406a81fa00247ef9fdb649cf80cbd9",
       "version3_native_preset_verified": true,
       "isolated_install_and_checkonly": "passed",
       "exact_package_host_tests": {
-        "first_launch": 186,
-        "restart": 191,
-        "raw_matrix": 111
+        "first_launch": 202,
+        "restart": 206,
+        "raw_matrix": 115,
+        "managed_gpu": 24
       },
-      "remote_windows_contracts": "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44650162887",
+      "remote_windows_contracts": "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44658495640",
       "normal_installed_revision": "ffc481988eb2e6e7ef7a1379486c4a8b2656ac81",
-      "receipt": ".test-results/audit5-package-verify-20261120/result.json"
+      "receipt": ".test-results/audit6-package-verify-20261120/result.json"
     }
   },
   "completed_milestones": [

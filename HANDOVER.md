@@ -6,7 +6,7 @@ Updated 2026-11-20. The critical-fix batch is implemented, tested, installed loc
 
 1. Read this file, `AGENTS.md` and `qa/AUDIT-FIX-STATUS.json` before changing code. The JSON is the authoritative task-progress ledger; its `remaining_work` and original acceptance tests matter more than a short status label.
 2. Check `git status`, current branch and PR head. Do not discard existing edits or switch the installed build merely because this documentation has a newer commit.
-3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP identifies clean source `bbeae73`. Its verification used an isolated installation. The normal app stayed on `ffc4819`.
+3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP identifies clean source `fd7056d`. Its verification used an isolated installation. The normal app stayed on `ffc4819`.
 4. Choose an unresolved task and an exact ownership boundary. Do not repeat the completed installation, crash test or old defect reproductions as if nothing had happened.
 5. Update task evidence and the delivery ledger at each completed milestone. Never mark a broad parent task complete because one mitigation shipped.
 
@@ -561,6 +561,14 @@ Evidence is under `.test-results/host-viewer-layouts-selection-20261120`, `.test
 - [ ] Evaluate optional GPU blending for all look strengths, enlarger alpha and shared memory or texture delivery. Verify more GPUs and physical device-loss recovery.
 
 Evidence is under `.test-results/rc13-*-20261120.json`, `.test-results/gpu-packed-final-smoke-20261120.log` and `.test-results/host-gpu-packed-20261120`.
+
+## Development package audit.6
+
+- [x] Build `0.2.0-audit.6` from clean `fd7056d437b262c0c59371d3b179952e9d199387`. Verify the ZIP checksum, its 151 package and 19 critical runtime records, the test shortcut and the live `-CheckOnly` route.
+- [x] Pass 24 managed GPU checks, 202 first-launch, 206 restart and 115 native RAW checks from the isolated installed package. The saved version 3 preset carries the exact source digest, parameter contract and runtime asset fingerprint. [Windows Contracts](https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44658495640) passed at the same commit.
+- [x] Verify the regular installation is still `ffc4819`. Keep this ZIP as a local development snapshot during the wider audit.
+
+Evidence is in `.test-results/audit6-package-verify-20261120/result.json`.
 
 ## Status maintenance
 
