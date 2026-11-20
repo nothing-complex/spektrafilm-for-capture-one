@@ -294,7 +294,10 @@ internal static class StartupHook
             exportHook = new ExportHook(form, () => hosted.IsSpektraExportActive,
                 () => hosted.ExportAsync(exportHook?.Dialog),
                 detail => hosted.SetExportBridgeStatus(ExportBridgeState.Unavailable, detail),
-                hosted.WouldLoseSavedLook);
+                hosted.WouldLoseSavedLook)
+            {
+                Batch = new(hosted.ExportBatchAsync, () => hosted.BatchExportReady, hosted.NeedsBatchLook),
+            };
             hosted.SetExportBridgeStatus(ExportBridgeState.Connected);
         }
         catch (Exception error)

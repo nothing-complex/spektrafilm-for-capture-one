@@ -98,7 +98,7 @@ public static partial class StartupHook
             var spatial = Field(panel, "opticalPreview")!;
             if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_BATCH_EXPORT") == "1")
             {
-                await TestNativeBatchExport(panel, spatial, window);
+                await TestNativeBatchExport(exportHook!, panel, spatial, window);
                 return;
             }
             if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_FLOATING_WORKSPACE") == "1")

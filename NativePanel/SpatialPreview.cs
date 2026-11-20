@@ -676,6 +676,9 @@ internal sealed class SpatialPreview : IDisposable
                 Title = $"Export {sources.Count} images as 16-bit {formatLabel}" + (deliveryNote is null ? "" : " · " + deliveryNote),
                 Multiselect = false,
             };
+            if (batchRecipe.SuggestedDirectory is { } suggested && sources.All(item =>
+                StringComparer.OrdinalIgnoreCase.Equals(suggested, item.Snapshot.Recipe!.SuggestedDirectory)))
+                picker.InitialDirectory = suggested;
             var destination = chooseFolder(picker, owner);
             if (destination is null || disposed || exportActivity.BatchStopped)
             {

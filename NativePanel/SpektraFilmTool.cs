@@ -35,6 +35,9 @@ internal static class SpektraFilmTool
 {
     private const BindingFlags InstanceNonPublic = BindingFlags.Instance | BindingFlags.NonPublic;
 
+    private static string? ChooseBatchFolder(OpenFolderDialog picker, Window? owner) =>
+        (owner is { IsVisible: true } ? picker.ShowDialog(owner) : picker.ShowDialog()) == true ? picker.FolderName : null;
+
     public static HostedTool Create(System.Windows.Forms.Form window, IMessageBusProvider bus, ICaptureOneDocument document)
     {
         // The base class loads BAML from CaptureOne.dll, so use the host's empty tool.
@@ -103,6 +106,8 @@ internal static class SpektraFilmTool
         private ContentControl Holder { get; }
         internal bool IsSpektraExportActive => !disposed && panel.IsSpektraExportActive;
         internal bool WouldLoseSavedLook(Guid variant) => !disposed && panel.WouldLoseSavedLook(variant);
+        internal bool BatchExportReady => !disposed && panel.StocksReady;
+        internal bool NeedsBatchLook(Guid variant) => !disposed && panel.NeedsBatchLook(variant);
         internal void LoadControls()
         {
             panel.InitializeControls();
@@ -124,6 +129,7 @@ internal static class SpektraFilmTool
         internal void ReportLaunchHealth() => LaunchHealth.Report(
             panel.ControlsLoadPhase, panel.ExportBridgeStatus, panel.ViewerStatus);
         internal Task<bool> ExportAsync(Window? owner) => panel.ExportAsync(useRecipeSize: true, owner);
+        internal Task<int> ExportBatchAsync(Window? owner) => panel.ExportSelectedImagesWithOwnerAsync(owner, ChooseBatchFolder);
         internal bool ProtectPendingLooks() => panel.ProtectPendingLooks();
         internal void SetExportBridgeStatus(ExportBridgeState state, string? detail = null) => panel.SetExportBridgeStatus(state, detail);
         internal InspectorToolHeaderViewModel CreateDockedHeader(ILifeCycleRegistrationService registration) =>
@@ -559,9 +565,7 @@ internal static class SpektraFilmTool
             var exports = new ExportJobJournal(Path.Combine(PanelPreferences.UserDataDirectory(), "Export jobs", looks.CatalogIdentity), StartupHook.Log);
             opticalPreview = SpatialPreview.BuildForPanel(window, document, CurrentSettings, UseSelectedLook, exports);
             var exportSection = new StackPanel();
-            exportSection.Children.Add(Button("Export selected images…", async () =>
-                await ExportSelectedImagesAsync((picker, owner) =>
-                    (owner is { IsVisible: true } ? picker.ShowDialog(owner) : picker.ShowDialog()) == true ? picker.FolderName : null)));
+            exportSection.Children.Add(Button("Export selected images…", async () => await ExportSelectedImagesAsync(ChooseBatchFolder)));
             exportSection.Children.Add(opticalPreview.ExportControls);
             layout.Children.Insert(3, exportSection);
             opticalPreview.SettingsChanged += SaveLook;
@@ -1035,7 +1039,10 @@ internal static class SpektraFilmTool
 
         internal bool IsSpektraExportActive => SyncSelection() && IsSpektraFilmEnabled;
 
-        private Task<int> ExportSelectedImagesAsync(Func<OpenFolderDialog, Window?, string?> chooseFolder)
+        private Task<int> ExportSelectedImagesAsync(Func<OpenFolderDialog, Window?, string?> chooseFolder) =>
+            ExportSelectedImagesWithOwnerAsync(Window.GetWindow(this), chooseFolder);
+
+        internal Task<int> ExportSelectedImagesWithOwnerAsync(Window? owner, Func<OpenFolderDialog, Window?, string?> chooseFolder)
         {
             if (disposed || !StocksReady || defaultLook is not { } defaults)
                 return Task.FromResult(0);
@@ -1049,7 +1056,7 @@ internal static class SpektraFilmTool
                     if (saved.ReadOnly)
                         throw new InvalidDataException(saved.Detail ?? "A selected image has an unreadable Spektrafilm look.");
                     return saved.Look ?? defaults;
-                }, Window.GetWindow(this), chooseFolder);
+                }, owner, chooseFolder);
             }
             catch (Exception error)
             {
@@ -1087,6 +1094,11 @@ internal static class SpektraFilmTool
                 return false;
             var outcome = looks.ReadOutcome(variant);
             return outcome.ReadOnly || outcome.Look?.Enabled == true;
+        }
+        internal bool NeedsBatchLook(Guid variant)
+        {
+            var outcome = looks.ReadOutcome(variant);
+            return outcome.ReadOnly || outcome.Look?.Enabled != false;
         }
         internal Task<bool> ExportAsync(bool useRecipeSize, Window? owner = null) =>
             IsSpektraExportActive ? opticalPreview.ExportAsync(useRecipeSize, owner) : Task.FromResult(false);

@@ -2,19 +2,21 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Microsoft.Win32;
 
 public static partial class StartupHook
 {
-    private static async Task TestNativeBatchExport(object panel, object spatial, object window)
+    private static async Task TestNativeBatchExport(object bridge, object panel, object spatial, object window)
     {
         var select = new FixtureSelection(panel);
         Check(select.Variants.Length == 4, "batch export uses the four-RAW private catalog");
@@ -104,17 +106,138 @@ public static partial class StartupHook
             && ReadReceipts(stopFolder).Length == 1 && status.Text.Contains("2 canceled", StringComparison.Ordinal),
             "Stop completes the current image, leaves the existing file intact and starts no further job");
 
+        var nativePrevious = Directory.CreateDirectory(Path.Combine(folder, "batch-native-previous")).FullName;
+        var nativeDialog = Directory.CreateDirectory(Path.Combine(folder, "batch-native-dialog")).FullName;
+        var routes = await TestNativeEntryPoints(nativePrevious, nativeDialog);
         File.WriteAllText(Path.Combine(folder, "native-batch-export.json"), JsonSerializer.Serialize(new
         {
             order, comparison = new { comparison.Max, comparison.Mean },
             failedBatch = receipts.Select(item => new { item.Id, item.Job, item.Path, item.Stage }),
             canceledBatch = repeat.Select(item => new { item.Id, item.Job, item.Path, item.Stage }),
             stoppedBatch = ReadReceipts(stopFolder).Select(item => new { item.Id, item.Job, item.Path, item.Stage }),
+            nativeRoutes = routes,
         }));
         File.WriteAllText(Path.Combine(folder, "first.passed"), $"PASS {checks} native batch export assertions");
 
         Task<int> Start(Func<OpenFolderDialog, Window?, string?> choose) =>
             (Task<int>)Call(panel, "ExportSelectedImagesAsync", choose)!;
+
+        async Task<int> TestNativeEntryPoints(string previousFolder, string dialogFolder)
+        {
+            var routeProperty = bridge.GetType().GetProperty("Batch", Flags)!;
+            var originalRoute = routeProperty.GetValue(bridge) ?? throw new InvalidOperationException("The native batch route was not attached.");
+            var previous = Field(Field(bridge, "previous")!, "command")!;
+            var normal = Field(Field(bridge, "normal")!, "command")!;
+            string? destination = null;
+            var offers = 0;
+            Task<int>? job = null;
+            Window? offeredOwner = null;
+            Task<int> Route(Window? owner)
+            {
+                return job = (Task<int>)Call(panel, "ExportSelectedImagesWithOwnerAsync", owner,
+                    (Func<OpenFolderDialog, Window?, string?>)((picker, dialogOwner) =>
+                    {
+                        Check(ReferenceEquals(owner, dialogOwner) && picker.Title.Contains("2 images", StringComparison.Ordinal),
+                            "the native command offers one folder for its actual two-image selection");
+                        offeredOwner = dialogOwner;
+                        offers++;
+                        return destination;
+                    }))!;
+            }
+            var route = Activator.CreateInstance(originalRoute.GetType(), Flags, null,
+                new[] { (object)(Func<Window?, Task<int>>)Route, Prop(originalRoute, "Ready"), Prop(originalRoute, "NeedsLook") }, null)!;
+            routeProperty.SetValue(bridge, route);
+            try
+            {
+                // The primary has film switched off. The second image must still route through Spektrafilm.
+                select.Select(order[2], order[2], order[1]);
+                Check(!toggle.IsChecked.GetValueOrDefault() && Call(bridge, "RequiresSpektrafilm", true) is true,
+                    "a non-primary enabled look claims the batch even when the primary is disabled");
+                ExecuteMultiple(previous);
+                Check(job is not null && await job.WaitAsync(TimeSpan.FromSeconds(50)) == 0 && offeredOwner is null && offers == 1
+                    && ReadReceipts(previousFolder).Length == 0, "canceling folder approval from Previous Settings creates no output");
+                await WaitForBridge();
+
+                destination = previousFolder;
+                job = null;
+                ExecuteMultiple(previous);
+                Check(job is not null && await job.WaitAsync(TimeSpan.FromSeconds(60)) == 2 && offers == 2,
+                    "Capture One Export with Previous Settings queues both selected images once");
+                await WaitForBridge();
+                VerifyNativeJobs(previousFolder);
+
+                destination = dialogFolder;
+                job = null;
+                offeredOwner = null;
+                Window? actualOwner = null;
+                Exception? failure = null;
+                using var poll = new System.Windows.Forms.Timer { Interval = 40 };
+                var deadline = Stopwatch.StartNew();
+                poll.Tick += (_, _) =>
+                {
+                    try
+                    {
+                        if (deadline.Elapsed > TimeSpan.FromSeconds(60))
+                            throw new TimeoutException("The real multi-selection Export dialog did not complete.");
+                        if (job is { IsCompletedSuccessfully: true } task && task.Result != 2)
+                            throw new InvalidOperationException("The real native batch did not save both files. " + status.Text);
+                        if (actualOwner is not null || Prop(bridge, "Dialog") is not Window { IsVisible: true } open
+                            || open.DataContext is not { } model || Prop(model, "ExportCommand") is not ICommand confirm
+                            || !confirm.CanExecute(null)) return;
+                        actualOwner = open;
+                        confirm.Execute(null);
+                    }
+                    catch (Exception error)
+                    {
+                        failure = error;
+                        poll.Stop();
+                        (actualOwner ?? Prop(bridge, "Dialog") as Window)?.Close();
+                    }
+                };
+                poll.Start();
+                try { ExecuteMultiple(normal); }
+                finally { poll.Stop(); }
+                if (failure is not null) throw failure;
+                Check(job is not null && await job.WaitAsync(TimeSpan.FromSeconds(60)) == 2 && offers == 3
+                    && actualOwner is not null && ReferenceEquals(offeredOwner, actualOwner)
+                    && Prop(bridge, "Dialog") is null && Prop(window, "ExportDialogWindow") is null,
+                    "the actual native Export window owns its folder picker and releases confirmation after both results");
+                await WaitForBridge();
+                VerifyNativeJobs(dialogFolder);
+                select.Select(order[1], order[1]);
+                toggle.IsChecked = false;
+                select.Select(order[2], order[2], order[1]);
+                Check(Call(bridge, "RequiresSpektrafilm", true) is false,
+                    "a selection with every saved master switch off remains eligible for ordinary Capture One export");
+                return offers;
+            }
+            finally { routeProperty.SetValue(bridge, originalRoute); }
+
+            static void ExecuteMultiple(object command)
+            {
+                var execute = command.GetType().GetMethod("Execute", Flags, null, new[] { typeof(bool) }, null)
+                    ?? throw new MissingMethodException(command.GetType().FullName, "Execute(Boolean)");
+                execute.Invoke(command, new object[] { true });
+            }
+
+            async Task WaitForBridge()
+            {
+                var wait = Stopwatch.StartNew();
+                while (Prop(bridge, "Busy") is true && wait.Elapsed < TimeSpan.FromSeconds(5)) await Task.Delay(20);
+                Check(Prop(bridge, "Busy") is false, "the native route releases its in-flight batch reservation");
+            }
+
+            void VerifyNativeJobs(string folderPath)
+            {
+                var items = ReadReceipts(folderPath);
+                Check(items.Length == 2 && items.All(item => item.Stage == "Completed")
+                    && items.Select(item => item.Id).ToHashSet().SetEquals(new[] { order[1], order[2] }),
+                    "the native command journals one completed output per selected variant");
+                foreach (var item in items) _ = VerifyOutput(item.Path);
+                AssertFilmStage(items.Single(item => item.Id == order[1]).Job, expected: true);
+                AssertFilmStage(items.Single(item => item.Id == order[2]).Job, expected: false);
+            }
+        }
 
         async Task<object> WaitFor(Guid variant, string outputFolder, Task<int> running)
         {

@@ -74,6 +74,8 @@ internal sealed class ExportHook : IDisposable
     }
 
     internal Window? Dialog => dialog;
+    internal sealed record BatchExportRoute(Func<Window?, Task<int>> Start, Func<bool> Ready, Func<Guid, bool> NeedsLook);
+    internal BatchExportRoute? Batch { get; init; }
     private bool Busy => choosingDestination || activeExport is { } job && (!job.IsCompleted || dialog is not null);
 
     private bool IsApprovedDocument() =>
@@ -93,7 +95,7 @@ internal sealed class ExportHook : IDisposable
 
         // An enabled saved look can exist while the panel is still loading it.
         return wouldLoseSavedLook(primary.UUID) || editMultiple && selection.SelectedVariants is { Count: > 1 } selected
-            && selected.Any(variant => variant.UUID != primary.UUID && wouldLoseSavedLook(variant.UUID));
+            && selected.Any(variant => variant.UUID != primary.UUID && (Batch?.NeedsLook(variant.UUID) ?? wouldLoseSavedLook(variant.UUID)));
     }
 
     private void OpenDialog(Command command, bool editMultiple)
@@ -118,14 +120,19 @@ internal sealed class ExportHook : IDisposable
         }
     }
 
-    private bool UseNativeConfirmation(bool editMultiple)
+    private bool UseNativeConfirmation(bool editMultiple, Guid[]? offered)
     {
         if (disposed || !IsApprovedDocument() || Busy)
             return false;
+        if (offered is not null && !offered.SequenceEqual(HostProfile.CaptureSelectedVariants(window, document)))
+        {
+            Warn("Capture One’s selection changed. Reopen Export for the new selection.");
+            return false;
+        }
         if (!RequiresSpektrafilm(editMultiple))
             return true;
         if (CheckLookReady(editMultiple) && CheckRecipe())
-            _ = ExportAsync();
+            _ = ExportAsync(IsBatchSelection(editMultiple));
         // Spektrafilm closes the native dialog only after its accepted file is saved.
         return false;
     }
@@ -140,7 +147,7 @@ internal sealed class ExportHook : IDisposable
                 return;
             }
             if (!Busy && dialog is null && CheckConfirmationSupport() && CheckLookReady(editMultiple) && CheckRecipe())
-                _ = ExportAsync();
+                _ = ExportAsync(IsBatchSelection(editMultiple));
         }
         catch (Exception error)
         {
@@ -148,18 +155,19 @@ internal sealed class ExportHook : IDisposable
         }
     }
 
-    private bool HasSingleSelection(bool editMultiple) =>
-        document is ISelectedCollectionsProvider { PrimarySelectedCollectionSelection: { PrimaryVariant: not null } selection }
-        && (!editMultiple || selection.SelectedVariants?.Count == 1);
+    private bool IsBatchSelection(bool editMultiple) => editMultiple
+        && document is ISelectedCollectionsProvider { PrimarySelectedCollectionSelection.SelectedVariants.Count: > 1 };
 
     private bool CheckLookReady(bool editMultiple)
     {
-        if (!HasSingleSelection(editMultiple))
+        if (document is not ISelectedCollectionsProvider
+            { PrimarySelectedCollectionSelection: { PrimaryVariant: not null } selection }
+            || editMultiple && selection.SelectedVariants is not { Count: > 0 and <= VariantLookBatch.MaxVariants })
         {
-            Warn("Select one variant to export with Spektrafilm.");
+            Warn($"Select one to {VariantLookBatch.MaxVariants:N0} images to export with Spektrafilm.");
             return false;
         }
-        if (isActive()) return true;
+        if (IsBatchSelection(editMultiple) ? Batch?.Ready() == true : isActive()) return true;
         Warn("Wait for the saved Spektrafilm look to load. Open the tool to see its status.");
         return false;
     }
@@ -174,7 +182,11 @@ internal sealed class ExportHook : IDisposable
 
     private IDisposable BindConfirmation(System.Windows.Input.ICommand command, bool editMultiple)
     {
-        try { return NativeExportConfirmation.Attach(command, () => UseNativeConfirmation(editMultiple), Fail); }
+        var offered = editMultiple ? HostProfile.CaptureSelectedVariants(window, document) : null;
+        try
+        {
+            return NativeExportConfirmation.Attach(command, () => UseNativeConfirmation(editMultiple, offered), Fail);
+        }
         catch (Exception error)
         {
             confirmationError = "Capture One's Export confirmation is unavailable. Use Export with Spektrafilm in the tool panel.";
@@ -230,7 +242,7 @@ internal sealed class ExportHook : IDisposable
         }
     }
 
-    private async Task<bool> ExportAsync()
+    private async Task<bool> ExportAsync(bool multiple)
     {
         var owner = dialog;
         Task<bool>? job = null;
@@ -241,7 +253,7 @@ internal sealed class ExportHook : IDisposable
             // is returned. Once the window has closed and the task completes,
             // the next command can proceed before this continuation resumes.
             choosingDestination = true;
-            try { activeExport = job = export(); }
+            try { activeExport = job = multiple && Batch is { } batch ? StartBatch(batch, owner) : export(); }
             finally { choosingDestination = false; }
             if (!await job)
                 return false;
@@ -267,6 +279,8 @@ internal sealed class ExportHook : IDisposable
                 activeExport = null;
         }
     }
+
+    private static async Task<bool> StartBatch(BatchExportRoute batch, Window? owner) => await batch.Start(owner) > 0;
 
     private void Fail(Exception error)
     {
