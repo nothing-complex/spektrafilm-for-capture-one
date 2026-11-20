@@ -879,7 +879,8 @@
         "All source RAW checksums matched the pre-existing published sample list. The source catalog hash remained unchanged.",
         "Each captured frame carries a typed input encoding, actual ICC SHA-256, variant UUID, source extension and native adjustment revision. Draft reductions retain that description. Viewer source reuse checks the exact variant, encoding, dimensions request and native revision; export validates the copied descriptor against its captured snapshot. All 16 native frames declared the expected identity and each encoding had one distinct ICC fingerprint across cameras.",
         "The packaged runtime passed 95 licensed RAW checks. The four cameras record their actual Capture One input profile names and ICC hashes: RicohGR3-Generic, NikonZ6-ProStandard, FujiXT4-Generic and CanonEOSR-ProStandard. The native exposure, white balance and highlights tests operate on copied variants and restore exact white balance multipliers as well as adjustment values.",
-        "At the selected Linear Rec.2020 developed output, +1 EV produced median linear-luminance gains from 1.94 to 2.58 and −1 EV produced 0.316 to 0.369. Gains varied across each image’s interior midtones, verifying that these transfer-encoded-linear pixels retain Capture One’s developed-image tone behavior. White balance moves changed channel values and highlight recovery changed thousands of bright, finite pixels without changing alpha or canvas geometry."
+        "At the selected Linear Rec.2020 developed output, +1 EV produced median linear-luminance gains from 1.94 to 2.58 and −1 EV produced 0.316 to 0.369. Gains varied across each image’s interior midtones, verifying that these transfer-encoded-linear pixels retain Capture One’s developed-image tone behavior. White balance moves changed channel values and highlight recovery changed thousands of bright, finite pixels without changing alpha or canvas geometry.",
+        "The exact audit.5 binaries passed 111 native RAW colour checks. Capture One’s bitmap and TIFF destinations were developed from the same captured settings for all four camera files. All 2,004,657 RGB16 channel codes were identical. Each native TIFF embedded the exact verified 664-byte Linear Rec.2020 profile."
       ],
       "evidence_paths": [
         "NativePanel/HostImageSource.cs",
@@ -897,11 +898,14 @@
         ".test-results/host-frame-description-20261120/host-smoke.log",
         "qa/analyze-native-adjustments.py",
         ".test-results/host-native-camera-icc-20261120/host-smoke.log",
-        ".test-results/host-native-camera-icc-20261120/color-matrix/adjustment-report.json"
+        ".test-results/host-native-camera-icc-20261120/color-matrix/adjustment-report.json",
+        "qa/HostSmoke/NativeTiffProbe.cs",
+        ".test-results/host-native-tiff-exact-20261120/host-smoke.log",
+        ".test-results/host-native-tiff-exact-20261120/color-matrix/native-tiff-comparison.json"
       ],
       "remaining_work": [
         "Complete the pipeline-stage descriptor and verify its coverage for all caches, including how an externally replaced ICC profile is invalidated during an open document.",
-        "Compare a native same-stage TIFF on identical settings. A calibrated sensor chart and an earlier scene-linear host seam remain open. The declared input remains Capture One-developed RGB."
+        "Measure earlier Capture One seams using a calibrated sensor chart. Keep the declared input as Capture One-developed RGB unless an earlier stage is independently verified."
       ],
       "original_acceptance_tests": [
         "Camera profile/WB/highlight recovery and ICC source cases",
@@ -2053,7 +2057,8 @@
         "The standalone C++ worker only loads assets beside its module. An alternate Resources directory had no effect. Removing the adjacent shader caused a clear failure even with a good fallback copy. A same-length mutation was rejected before rendering and an exact restore recovered the same identity.",
         "Version 3 portable presets can carry verified source, parameter and asset identities from a staged release. Version 2 output retains its prior JSON shape in a standalone developer layout. Pure tests cover invalid provenance and recoverability.",
         "Enabling reproducible MSVC linking fixed differing clean renderer binaries. Two clean rebuilds under the same toolchain produced the identical 0228f69acd84fd387b4785ad3b5a74503cfcd6100cfa1322588a3e16164298d7 renderer SHA-256.",
-        "Pass 12,672 host-independent assertions, the real adjacent-asset Vulkan smoke and 186 new-launch plus 191 restart checks with the developer runtime."
+        "Pass 12,672 host-independent assertions, the real adjacent-asset Vulkan smoke and 186 new-launch plus 191 restart checks with the developer runtime.",
+        "The clean audit.5 ZIP contains the same renderer binary as both local reproducible builds. Its exact installed panel saved a version 3 preset carrying the same source and asset digests as the release manifest and the live Vulkan worker. Real packaged Viewer and export passed 186 initial and 191 restart checks."
       ],
       "evidence_paths": [
         "NativePanel/OpticalRenderer.cs",
@@ -2075,11 +2080,15 @@
         ".test-results/runtime-repro-link-20261120/result.json",
         ".test-results/contracts-runtime-provenance-final-20261120/summary.json",
         ".test-results/still-asset-admission-final-20261120.log",
-        ".test-results/host-runtime-provenance-dev-20261120/host-smoke.log"
+        ".test-results/host-runtime-provenance-dev-20261120/host-smoke.log",
+        ".test-results/audit5-package-verify-20261120/result.json",
+        ".test-results/audit5-package-verify-20261120/Licensed catalog/verified-look.spektra.json",
+        ".test-results/repro-alt-source-20261120/result.json",
+        ".test-results/renderer-noicf-20261120/result.json"
       ],
       "remaining_work": [
-        "Verify a clean development ZIP containing the new worker and read the real version 3 preset produced by its installed panel.",
-        "Assess reproducibility across different checkout paths or toolchain installations. Keep the published source and vendored engine provenance available with binary hashes."
+        "Native binaries from another extracted source path still had different bytes with the same MSVC and Vulkan SDK. Disabling identical-code folding did not fix it. Reproducible binary identity is currently established for repeated clean builds in the same source path.",
+        "Retain source-tree and scientific asset identities separately from binary identity. Add a cross-path reproducibility fix and verify supported compiler/SDK configurations."
       ],
       "original_acceptance_tests": [
         "Deliberately outdated shader/curve/schema asset rejects clearly",
@@ -2138,7 +2147,8 @@
       "implemented": [
         "Tracked pure/GPU/host probes establish initial correctness evidence and retain explicit skipped prerequisites.",
         "Windows worker benchmark saves per-request transport wall time, renderer stages and Vulkan allocations, working-set/commit samples, cold request versus reused-source edit percentiles, and renderer fingerprint in machine-readable JSON.",
-        "Added an opt-in native RAW quality matrix for four actual cameras and four working spaces, with raw frame and independent colour metrics written as machine-readable evidence."
+        "Added an opt-in native RAW quality matrix for four actual cameras and four working spaces, with raw frame and independent colour metrics written as machine-readable evidence.",
+        "Four real RAW cameras passed same-stage native TIFF/bitmap RGB16 parity and embedded ICC checks using the audited package. The agreed exact sample count is 2,004,657 channel codes."
       ],
       "evidence_paths": [
         "tests",
@@ -2150,7 +2160,8 @@
         ".test-results/renderer-benchmark-grain-quality-20261119.json",
         "qa/HostSmoke/ColorMatrix.cs",
         "qa/analyze-native-colour.py",
-        ".test-results/host-native-colour-matrix-20261120/color-matrix/common-srgb.json"
+        ".test-results/host-native-colour-matrix-20261120/color-matrix/common-srgb.json",
+        ".test-results/host-native-tiff-exact-20261120/color-matrix/native-tiff-comparison.json"
       ],
       "remaining_work": [
         "No complete end-to-end hardware/source-format performance and quality acceptance matrix or release budgets yet.",
@@ -2325,7 +2336,8 @@
         "Built the exact clean 8bb999e commit twice, including a fresh detached checkout. Generated curves/counts/tables and all packaged shader bytes matched. Recorded C# and native PE binary differences and the 19 source files with only checkout line-ending differences.",
         "Verified explicit ZIP content allowlist and corresponding source link. The original package survived separate tamper probes for a shader, two tables, stocks, helper, panel and host manifest. It installed and ran CheckOnly in isolated folders; branded shortcut points to that installed copy.",
         "Packaged clean bb0c19e as audit.3 and verified 150 payload records, 19 runtime records, capability metadata, installer, shortcut and Vulkan smoke in an isolated installation.",
-        "Development 0.2.0-audit.4 was built from clean b1766d0, including renderer protocol 2. The ZIP matches its SHA-256, contains all 151 payload and 19 critical runtime records, rejects a changed capability file, and passed isolated Windows PowerShell 5.1 installation and shortcut verification, actual Vulkan, 558 parameter probes and the 480-render spectral matrix. The regular installation stays at ffc4819."
+        "Development 0.2.0-audit.4 was built from clean b1766d0, including renderer protocol 2. The ZIP matches its SHA-256, contains all 151 payload and 19 critical runtime records, rejects a changed capability file, and passed isolated Windows PowerShell 5.1 installation and shortcut verification, actual Vulkan, 558 parameter probes and the 480-render spectral matrix. The regular installation stays at ffc4819.",
+        "The audit.5 ZIP from clean bbeae73 verified all 151 package and 19 critical runtime files, its production shortcut, actual GPU renderer, and a real version 3 preset in the licensed host. The regular install is still ffc4819."
       ],
       "evidence_paths": [
         "ReleaseManifest.ps1",
@@ -2342,7 +2354,8 @@
         ".test-results/audit4-package-verify-20261120/result.json",
         ".test-results/audit4-package-verify-20261120/managed-gpu.log",
         ".test-results/audit4-package-verify-20261120/parameter-matrix.log",
-        ".test-results/audit4-package-verify-20261120/spectral-matrix.log"
+        ".test-results/audit4-package-verify-20261120/spectral-matrix.log",
+        ".test-results/audit5-package-verify-20261120/result.json"
       ],
       "remaining_work": [],
       "original_acceptance_tests": [
@@ -2681,7 +2694,8 @@
         "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44623654332",
         "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44630864725",
         "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44632131352",
-        "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44647341973"
+        "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44647341973",
+        "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44650162887"
       ],
       "remaining_work": [
         "Verify a real outside-fork PR. Finish automated release gating through tagged build provenance and retain a separate exact licensed-host matrix."
@@ -2877,27 +2891,29 @@
     "original_test_catalog_hash_unchanged": true,
     "local_evidence_note": "Paths under .test-results/build/dist are ignored local artifacts and are not present in a public clone.",
     "latest_development_package": {
-      "version": "0.2.0-audit.4",
-      "archive": "dist/Spektrafilm-for-Capture-One-v0.2.0-audit.4-windows-x64.zip",
-      "sha256": "dd615403a6fd584c024b4d91d3774aadfc4c219caf4e548c3aa3a8d69bb5423b",
+      "version": "0.2.0-audit.5",
+      "archive": "dist/Spektrafilm-for-Capture-One-v0.2.0-audit.5-windows-x64.zip",
+      "sha256": "d3bb2c541ffb1e1f2bdf88f68fc055cccd923aa8529da983053da0da50e5cb78",
       "source": {
-        "commit": "b1766d0c954e59c6dfb4a72ed0ad659f94326d73",
+        "commit": "bbeae737277a6d7baf9b933b639ae703dce10fba",
         "dirty": false,
-        "treeDigest": "8c15df03bdf5ee4878ead5478f9e92d24cc6e55292b9e3d002288966deaea6f2"
+        "treeDigest": "b1ad8613618411e7228ba3e464684a5f1ceefb2ba52d87221da324e39dd37926"
       },
       "verified_package_entries": 151,
       "verified_runtime_entries": 19,
       "renderer_protocol": 2,
-      "renderer_description_sha256": "d038c5c9996ff86f9b9d37ce1146a382a733ac11247e1756a97d5ddfb669b614",
+      "renderer_sha256": "0228f69acd84fd387b4785ad3b5a74503cfcd6100cfa1322588a3e16164298d7",
+      "asset_contract": "1bfde4ed7fad084de14a0359c51b0447c9fe7af57c0ba0b8664f723ca98da852",
+      "version3_native_preset_verified": true,
       "isolated_install_and_checkonly": "passed",
       "exact_package_host_tests": {
-        "first_launch": 183,
-        "restart": 188,
-        "raw_matrix": 95
+        "first_launch": 186,
+        "restart": 191,
+        "raw_matrix": 111
       },
-      "remote_windows_contracts": "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44647341973",
+      "remote_windows_contracts": "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44650162887",
       "normal_installed_revision": "ffc481988eb2e6e7ef7a1379486c4a8b2656ac81",
-      "receipt": ".test-results/audit4-package-verify-20261120/result.json"
+      "receipt": ".test-results/audit5-package-verify-20261120/result.json"
     }
   },
   "completed_milestones": [

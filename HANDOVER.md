@@ -6,7 +6,7 @@ Updated 2026-11-20. The critical-fix batch is implemented, tested, installed loc
 
 1. Read this file, `AGENTS.md` and `qa/AUDIT-FIX-STATUS.json` before changing code. The JSON is the authoritative task-progress ledger; its `remaining_work` and original acceptance tests matter more than a short status label.
 2. Check `git status`, current branch and PR head. Do not discard existing edits or switch the installed build merely because this documentation has a newer commit.
-3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP identifies clean source `b1766d0`. Its verification used an isolated installation. The normal app stayed on `ffc4819`.
+3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP identifies clean source `bbeae73`. Its verification used an isolated installation. The normal app stayed on `ffc4819`.
 4. Choose an unresolved task and an exact ownership boundary. Do not repeat the completed installation, crash test or old defect reproductions as if nothing had happened.
 5. Update task evidence and the delivery ledger at each completed milestone. Never mark a broad parent task complete because one mitigation shipped.
 
@@ -465,7 +465,8 @@ Use `Run-HostSmoke.ps1 -PackagedRuntime <installed-or-extracted-package> -Source
 - [x] Run the four RAW cameras through the installed development package. Record the actual Capture One camera ICC names and byte hashes. A separate analysis independently verifies the working-profile transforms.
 - [x] Vary native exposure by one stop in each direction, then test white balance and highlight recovery. The 95-check suite verifies changed source revisions, unchanged canvas and alpha, and exact restoration of the native adjustment values and white balance multipliers on the copies.
 - [x] Measure the Linear Rec.2020 developed data. Median +1 EV gain was 1.94–2.58 and −1 EV gain was 0.316–0.369, with gains varying within each image. Those values describe Capture One’s native developed response.
-- [ ] Compare a same-stage native TIFF under identical settings. Calibrated sensor-chart and earlier host seams remain open.
+- [x] Compare same-stage native TIFF and bitmap destinations under identical settings. Four TIFF files reproduced all 2,004,657 RGB16 codes and the exact Linear Rec.2020 ICC bytes. The licensed matrix passed 111 assertions.
+- [ ] Calibrated sensor-chart and earlier host seams remain open.
 
 Evidence is under `.test-results/host-native-camera-icc-20261120` and `.test-results/host-native-adjustments-restored-20261120`. Run `python qa/analyze-native-adjustments.py <results>/color-matrix` to reproduce the exposure and white balance report.
 
@@ -475,9 +476,19 @@ Evidence is under `.test-results/host-native-camera-icc-20261120` and `.test-res
 - [x] Verify that an alternate resource folder cannot supply a missing native shader. Two clean MSVC rebuilds produced the same `0228f69acd84fd387b4785ad3b5a74503cfcd6100cfa1322588a3e16164298d7` renderer hash.
 - [x] Add optional verified source and renderer identities to version 3 presets and native LUT output. Retain the earlier version 2 file shape for source-only runs. Host tests exercised the real preset Save action in the source layout without changing the durable look.
 - [x] Pass 12,672 host-independent assertions, the real Vulkan smoke, and 186 first-launch plus 191 restart assertions on the disposable catalog.
-- [ ] Verify the new development ZIP and actual version 3 preset from its installed panel. Rebuild across a different checkout path or compiler before claiming that coverage.
+- [x] Verify the actual version 3 preset exported by the installed development ZIP. Its asset hash matched the real worker and its source identity matched the build manifest.
+- [ ] Resolve reproducibility across checkout paths. A fresh extracted source produced a different native binary with the same MSVC/Vulkan SDK. Disabling identical-code folding did not close the difference.
 
 Evidence is under `.test-results/contracts-runtime-provenance-final-20261120`, `.test-results/runtime-repro-link-20261120`, `.test-results/runtime-assets-real-20261120`, and `.test-results/host-runtime-provenance-dev-20261120`.
+
+## Development package with verified renderer provenance
+
+- [x] Build `0.2.0-audit.5` from clean `bbeae737277a6d7baf9b933b639ae703dce10fba`. The source digest is `b1ad8613618411e7228ba3e464684a5f1ceefb2ba52d87221da324e39dd37926`. The ZIP SHA-256 is `d3bb2c541ffb1e1f2bdf88f68fc055cccd923aa8529da983053da0da50e5cb78`.
+- [x] Verify all 151 payload and 19 runtime records, the isolated shortcut and Windows PowerShell launcher. The 20 managed GPU checks report runtime asset hash `1bfde4ed7fad084de14a0359c51b0447c9fe7af57c0ba0b8664f723ca98da852`.
+- [x] Pass 186 first-launch, 191 restart and 111 RAW colour checks in Capture One with the exact package. Its actual preset Save action writes version 3 with the same verified asset hash. [Windows Contracts](https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44650162887) passed for the packaged source.
+- [x] Confirm the regular installation still identifies `ffc4819`. The ZIP remains a local development package and the source is available in the draft PR.
+
+Evidence is under `.test-results/audit5-package-verify-20261120`. The alternate source and linker experiments are under `.test-results/repro-alt-source-20261120` and `.test-results/renderer-noicf-20261120`.
 
 ## Status maintenance
 

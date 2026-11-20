@@ -25,6 +25,7 @@ public static partial class StartupHook
         Directory.CreateDirectory(directory);
         var matrix = new List<ColorProbe>();
         var adjustments = new List<AdjustmentProbe>();
+        var tiffComparisons = new List<TiffComparison>();
         var document = Field(panel, "document")!;
         var core = AppDomain.CurrentDomain.GetAssemblies().Single(item => item.GetName().Name == "P1.C1.Core");
         var provider = core.GetType("P1.C1.Core.Interfaces.ISelectedCollectionsProvider", true)!;
@@ -84,11 +85,15 @@ public static partial class StartupHook
             }
             adjustments.Add(await ProbeNativeAdjustments(source, item, target, dimensions!.Value, capture, window,
                 Enum.Parse(colorEnum, "LinearRec2020"), coreVariant, directory));
+            var native = capture.Invoke(null, new[] { window, target, Enum.Parse(colorEnum, "LinearRec2020"), false })!;
+            tiffComparisons.Add(await Task.Run(() => CompareNativeTiff(assembly, coreVariant, item, native, source, directory)));
         }
         Check(remaining.Count == 0 && matrix.Count == 16, "all four camera RAW formats exercised with all four native working profiles");
         File.WriteAllText(Path.Combine(directory, "matrix.json"), JsonSerializer.Serialize(matrix, new JsonSerializerOptions { WriteIndented = true }));
         File.WriteAllText(Path.Combine(directory, "native-adjustments.json"),
             JsonSerializer.Serialize(adjustments, new JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllText(Path.Combine(directory, "native-tiff-comparison.json"),
+            JsonSerializer.Serialize(tiffComparisons, new JsonSerializerOptions { WriteIndented = true }));
     }
 
     private static async Task<AdjustmentProbe> ProbeNativeAdjustments(string source, object variant, object target,
