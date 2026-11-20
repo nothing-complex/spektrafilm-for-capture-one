@@ -38,7 +38,7 @@ $archive = Join-Path $dist $archiveName
 $stage = Join-Path $dist ('stage-' + [Guid]::NewGuid().ToString('N'))
 $package = Join-Path $stage 'Spektrafilm for Capture One'
 $files = @(
-    'Install Spektrafilm for Capture One.cmd', 'Install-Spektrafilm.ps1',
+    'Install Spektrafilm for Capture One.cmd', 'Install-Spektrafilm.ps1', 'InstallUpgradeState.ps1',
     'ReleaseManifest.ps1', 'CatalogIntegrity.ps1', 'Restore-SpektrafilmCatalog.ps1', 'build-manifest.json', 'runtime-manifest.required',
     'Start Spektrafilm for Capture One.cmd', 'Start-Spektrafilm.ps1',
     'Setup LUT Export.cmd', 'Setup-LutExport.ps1', 'ReferencePython.ps1', 'lut_worker.py', 'requirements-lut.txt',

@@ -4,6 +4,7 @@ param(
     [string] $CaptureOnePath='C:\Program Files\Capture One\Capture One\CaptureOne.exe',
     [string] $TestHookPath=(Join-Path $PSScriptRoot 'bin\Release\net8.0-windows\HostSmoke.dll'),
     [string] $PackagedRuntime,
+    [string] $UpgradeFromPackage,
     [Alias('ProofingSettingsConfig')][string] $NativeSettingsConfig,
     [switch] $CatalogIsolation,
     [switch] $ConcurrentCatalogs,
@@ -18,6 +19,10 @@ param(
     [string] $ResultsDirectory
 )
 $ErrorActionPreference='Stop'
+if ($UpgradeFromPackage -and (!$PackagedRuntime -or !$NativeSettingsConfig -or $CatalogIsolation -or $ConcurrentCatalogs -or
+    $ViewerLayouts -or $ViewerChurn -or $DurableSliderEdits -or $MetadataFixtureRoot -or $ColorMatrix -or $CheckOrdinaryLaunch)) {
+    throw 'The installed-upgrade fixture requires two extracted packages, a native preferences backup and a separate launch.'
+}
 if ($CatalogIsolation -and ($SkipRestart -or $CheckOrdinaryLaunch -or $ColorMatrix)) {
     throw 'The catalog isolation fixture controls all four launches.'
 }
@@ -231,6 +236,21 @@ if($CatalogIsolation -or $ConcurrentCatalogs){
 }
 if($ConcurrentCatalogs){$catalog=$fixtureCatalogs[0]}
 [IO.File]::WriteAllText((Join-Path $folder 'disposable-catalog.marker'),$sourceHash)
+if ($UpgradeFromPackage) {
+    $priorPackage=(Resolve-Path -LiteralPath $UpgradeFromPackage).ProviderPath
+    if ($priorPackage -eq $runtimeSource) { throw 'Choose two distinct extracted package roots for the upgrade.' }
+    [void](Test-ReleaseManifest $priorPackage 'package-manifest.json')
+    [void](Test-ReleaseManifest $runtimeSource 'package-manifest.json')
+    . (Join-Path $PSScriptRoot 'InstalledUpgrade.ps1')
+    try {
+        Test-NativeInstalledUpgrade $priorPackage $runtimeSource $folder $catalog $CaptureOnePath
+        if((Get-FileHash -LiteralPath $source).Hash -ne $sourceHash){throw 'Source catalog changed unexpectedly.'}
+        Write-Output "Host test passed; source catalog unchanged. Evidence: $folder"
+    } finally {
+        Restore-TestCatalogPreferences $profile $backup $fixtureCatalogs $folder
+    }
+    return
+}
 $runtime=Join-Path $folder 'runtime'
 [void][IO.Directory]::CreateDirectory($runtime)
 Copy-Item -LiteralPath (Join-Path $runtimeSource 'stocks.json') -Destination $runtime

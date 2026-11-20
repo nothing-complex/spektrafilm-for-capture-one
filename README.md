@@ -21,6 +21,8 @@ To update, close Capture One and run the new release's installer. The installer 
 
 Updates also preserve custom files inside bundled folders. If a new package conflicts with a customized file or folder, its previous contents are retained under **Recovered files** inside the installation. The installer prints that location. New packages carry build and file manifests; mismatched runtime files are rejected before installation or launch.
 
+If an update is interrupted, run the installer again. It can restore the verified prior installation and reports where it kept the interrupted copy. A completed update also keeps the prior version until a launch confirms that the Spektrafilm panel and native Export are ready. If any custom file in the prior version differs from its migrated copy, the prior folder stays available at the path printed by the installer.
+
 ## Use the panel
 
 - Turn **Enable Spektrafilm** on or off. The live look follows the selected photo and stays visible when you switch tool tabs. **Show source** temporarily displays the developed source for comparison.

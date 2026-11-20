@@ -80,16 +80,6 @@ function Remove-TemporaryInstall([string] $path, [string] $parent) {
     [IO.Directory]::Delete($item.FullName, $true)
 }
 
-function Get-UpgradeFiles([string] $install) {
-    $sha = [Security.Cryptography.SHA256]::Create()
-    try {
-        $bytes = [Text.Encoding]::UTF8.GetBytes($install.ToUpperInvariant())
-        $key = [BitConverter]::ToString($sha.ComputeHash($bytes)).Replace('-', '').Substring(0, 24).ToLowerInvariant()
-    } finally { $sha.Dispose() }
-    $base = Join-Path (Split-Path -LiteralPath $install) ('.film-tools-upgrade-' + $key)
-    return @{ Lock = $base + '.lock'; Journal = $base + '.json' }
-}
-
 function Get-UpgradeFingerprint([string] $directory, [string] $asset) {
     if (!(Test-OwnedInstall $directory)) { throw "Could not verify the owned installation at $directory." }
     $item = Get-Item -LiteralPath (Join-Path $directory $asset) -Force
@@ -104,6 +94,9 @@ function Save-UpgradeJournal([string] $journal, [string] $id, [string] $install,
         id = $id
         previousMarker = Get-UpgradeFingerprint $install $markerName
         candidateReceipt = Get-UpgradeFingerprint $stage $ownedManifestName
+    }
+    if (Test-Path -LiteralPath (Join-Path $install $ownedManifestName) -PathType Leaf) {
+        $receipt.previousOwnedReceipt = Get-UpgradeFingerprint $install $ownedManifestName
     }
     $temporary = $journal + '.' + $id
     $bytes = [Text.Encoding]::UTF8.GetBytes(($receipt | ConvertTo-Json -Compress))
@@ -122,14 +115,7 @@ function Save-UpgradeJournal([string] $journal, [string] $id, [string] $install,
 
 function Restore-InterruptedUpgrade([string] $journal, [string] $install, [string] $parent) {
     if (!(Test-Path -LiteralPath $journal)) { return }
-    $item = Get-Item -LiteralPath $journal -Force
-    Confirm-PlainItem $item
-    if ($item.PSIsContainer -or $item.Length -gt 4096) { throw "Could not read the upgrade journal at $journal." }
-    $receipt = [IO.File]::ReadAllText($journal) | ConvertFrom-Json
-    if ($receipt.schema -ne 1 -or $receipt.id -cnotmatch '^[a-f0-9]{32}$' -or
-        $receipt.previousMarker -cnotmatch '^[A-F0-9]{64}$' -or $receipt.candidateReceipt -cnotmatch '^[A-F0-9]{64}$') {
-        throw "Could not verify the upgrade journal at $journal."
-    }
+    $receipt = Read-UpgradeReceipt (Get-Item -LiteralPath $journal -Force)
     $previous = Join-Path $parent ('.film-tools-previous-' + $receipt.id)
     $stage = Join-Path $parent ('.film-tools-stage-' + $receipt.id)
     $hasPrevious = Test-Path -LiteralPath $previous
@@ -141,6 +127,7 @@ function Restore-InterruptedUpgrade([string] $journal, [string] $install, [strin
     $oldPath = if ($hasPrevious) { $previous } else { $install }
     $candidatePath = if ($hasStage) { $stage } else { $install }
     if ($oldPath -eq $candidatePath -or (Get-UpgradeFingerprint $oldPath $markerName) -cne $receipt.previousMarker -or
+        ($receipt.previousOwnedReceipt -and (Get-UpgradeFingerprint $oldPath $ownedManifestName) -cne $receipt.previousOwnedReceipt) -or
         (Get-UpgradeFingerprint $candidatePath $ownedManifestName) -cne $receipt.candidateReceipt) {
         throw "Could not verify the interrupted upgrade. Recovery files remain at $stage and $previous."
     }
@@ -308,6 +295,12 @@ try {
         if (Test-Path -LiteralPath (Join-Path $source 'package-manifest.json')) { $releasePackage = Test-ReleaseManifest $source 'package-manifest.json' }
         [void](Test-ReleaseManifest $source)
     }
+    $upgradeScript = Get-Item -LiteralPath (Join-Path $source 'InstallUpgradeState.ps1') -Force
+    Confirm-PlainAsset $upgradeScript $source
+    if ($releasePackage -and $releasePackage.files.path -inotcontains 'InstallUpgradeState.ps1') {
+        throw 'The package does not declare its installation upgrade script.'
+    }
+    . $upgradeScript.FullName
     if (!$Destination) {
         $programs = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs'
         $Destination = Join-Path $programs $appName
@@ -326,7 +319,7 @@ try {
     if (!(Test-Path -LiteralPath $desktop -PathType Container)) { throw "The Desktop folder is unavailable: $desktop" }
 
     $required = @(
-        'Start Spektrafilm for Capture One.cmd', 'Start-Spektrafilm.ps1', 'CatalogIntegrity.ps1', 'Restore-SpektrafilmCatalog.ps1', 'ReferencePython.ps1',
+        'Start Spektrafilm for Capture One.cmd', 'Start-Spektrafilm.ps1', 'CatalogIntegrity.ps1', 'Restore-SpektrafilmCatalog.ps1', 'ReferencePython.ps1', 'InstallUpgradeState.ps1',
         'capture-one-hosts.json','stocks.json', 'panel\NativePanel.dll', 'assets\Spektrafilm.ico',
         'profiles\preview\Linear Rec.2020.icc', 'profiles\preview\ProPhoto RGB.icc',
         'renderer\SpektraStillRenderer.exe', 'renderer\SpektraHanatos2025Spectra.f32', 'renderer\SpektraOutputGamutCompression.f32',
@@ -416,7 +409,7 @@ try {
             [void](Test-ReleaseManifest $stage)
         }
         [IO.File]::WriteAllText((Join-Path $stage $markerName), $markerText)
-        $receipt = [ordered]@{ schema = 1; files = @($files | ForEach-Object {
+        $receipt = [ordered]@{ schema = 1; generation = $id; files = @($files | ForEach-Object {
             [ordered]@{ path = $_.Replace('\', '/'); sha256 = (Get-FileHash -LiteralPath (Join-Path $stage $_) -Algorithm SHA256).Hash.ToLowerInvariant() }
         }) }
         [IO.File]::WriteAllText((Join-Path $stage $ownedManifestName), ($receipt | ConvertTo-Json -Depth 5))
@@ -443,7 +436,9 @@ try {
         $installed = $true
         $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
         Save-DesktopShortcut $shortcutPath $powershell (Join-Path $install 'Start-Spektrafilm.ps1') $install $upgrade
-        if ($journalSaved) { [IO.File]::Delete($upgradeFiles.Journal) }
+        if ($journalSaved) {
+            [IO.File]::Move($upgradeFiles.Journal, ($upgradeFiles.Base + '.pending-' + $id + '.json'))
+        }
     } catch {
         $installError = $_
         try {
@@ -461,8 +456,7 @@ try {
         if (!$keepStage) { Remove-TemporaryInstall $stage $parent }
     }
     if ($movedPrevious) {
-        try { Remove-TemporaryInstall $previous $parent }
-        catch { Write-Warning "An older installation remains at $previous." }
+        Write-Output "Previous installation retained at $previous until the upgraded panel and native Export are ready."
     }
     Write-Output "Installed to $install"
     Write-Output "Desktop shortcut created at $shortcutPath"

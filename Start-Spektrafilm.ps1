@@ -6,7 +6,8 @@ param(
     [switch] $WaitForPanel,
     [switch] $ShowTool,
     [ValidateRange(1, 180)][int] $PanelTimeoutSeconds = 45,
-    [switch] $Shortcut
+    [switch] $Shortcut,
+    [string] $UserDataDirectory
 )
 
 $ErrorActionPreference = 'Stop'
@@ -380,6 +381,7 @@ try {
     if (Get-Process -Name CaptureOne -ErrorAction SilentlyContinue) { throw "Close every Capture One window before starting $appName." }
     if (!$CatalogPath) { $CatalogPath = Select-ExistingFile 'Choose an existing Capture One catalog database' 'Capture One catalog database|*.cocatalogdb' }
     if (!$CatalogPath) { return }
+    if ($UserDataDirectory) { $userData = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($UserDataDirectory) }
     $database = Get-CatalogPath $CatalogPath
     $backup = Save-CatalogBackup $database
     Confirm-CatalogIsIdle $database
@@ -405,13 +407,30 @@ try {
     if ($ShowTool -or $Shortcut) { $start.EnvironmentVariables['SPEKTRAFILM_SHOW_TOOL'] = '1' }
     if ($python) { $start.EnvironmentVariables['SPEKTRAFILM_PYTHON'] = $python }
     else { [void] $start.EnvironmentVariables.Remove('SPEKTRAFILM_PYTHON') }
+    try {
+        $upgradeScript = Get-Item -LiteralPath (Join-Path $PSScriptRoot 'InstallUpgradeState.ps1') -Force
+        if ($upgradeScript.PSIsContainer -or ($upgradeScript.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            throw 'Expected a regular installation upgrade script.'
+        }
+        . $upgradeScript.FullName
+        $upgrade = Get-LaunchUpgradeCandidate $PSScriptRoot
+    } catch { Write-Warning "Could not read the pending upgrade. Previous installations are retained. $($_.Exception.Message)" }
     $process = [Diagnostics.Process]::Start($start)
     try {
         Write-Output "Started Capture One ($($process.Id)). Catalog backup: $backup"
         Write-Output "Launch status file: $launchStatus"
-        if ($WaitForPanel) {
-            $status = Wait-SpektrafilmPanel $process $launchStatus $launchId $PanelTimeoutSeconds
-            Write-Output "Spektrafilm panel ready. Native Export: $($status.Export). Viewer: $($status.Viewer)."
+        if ($WaitForPanel -or $upgrade) {
+            try {
+                $status = Wait-SpektrafilmPanel $process $launchStatus $launchId $PanelTimeoutSeconds
+                Write-Output "Spektrafilm panel ready. Native Export: $($status.Export). Viewer: $($status.Viewer)."
+            } catch {
+                if ($WaitForPanel) { throw }
+                Write-Warning "Launch is not yet confirmed. The previous installation is retained. $($_.Exception.Message)"
+            }
+            if ($upgrade -and $status) {
+                try { Complete-SpektrafilmUpgrade $PSScriptRoot $upgrade $status }
+                catch { Write-Warning "The previous installation could not be retired. $($_.Exception.Message)" }
+            }
         }
     } finally { $process.Dispose() }
 } catch {

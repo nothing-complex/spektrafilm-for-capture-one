@@ -719,7 +719,8 @@
         "Required assets now validate their complete directory ancestry even for inert releases without manifests. Packaged critical and full package manifests are rechecked in the private staged copy before it can replace the current runtime; recursive temporary cleanup does not traverse junction targets.",
         "The Windows runner passed 54 installer assertions, including case-only notes, Unicode user presets, nested content, unavailable Desktop, locked binary, real NTFS junctions and an interrupted publish with a simulated foreign file occupying the destination. The exact old runtime and user sentinels remained in the reported previous directory, and manual restoration reproduced the current runtime hash.",
         "Real audit.11-to-audit.12 isolated upgrade validated both staged manifests, kept a nested Unicode user-look byte-identical and archived modified packaged ICC bytes before installing the verified original. The updated shortcut and launcher CheckOnly passed.",
-        "Upgrades now acquire a destination lock and synchronously publish an identity-scoped recovery journal before moving either directory. Installer reruns restore the verified previous install and retain the abandoned candidate, including files written to it after interruption. The full Windows/Vulkan run passed 94 installer assertions, with actual installer child death on both sides of publication and tests for mismatched candidate receipt, concurrent lock and unrelated destination content."
+        "Upgrades now acquire a destination lock and synchronously publish an identity-scoped recovery journal before moving either directory. Installer reruns restore the verified previous install and retain the abandoned candidate, including files written to it after interruption. The full Windows/Vulkan run passed 94 installer assertions, with actual installer child death on both sides of publication and tests for mismatched candidate receipt, concurrent lock and unrelated destination content.",
+        "Published upgrades keep the prior runtime beside the active install with a generation-specific launch receipt. Cleanup requires an authenticated Ready response with native Export connected, the same current generation and verified copies of all custom previous files. Inert Windows tests exercised 101 assertions, including partial and stale status, custom changes introduced after publication and repeated acknowledgment after the missing copy was restored."
       ],
       "evidence_paths": [
         "Install-Spektrafilm.ps1",
@@ -728,10 +729,13 @@
         ".test-results/contracts-installer-failed-rollback-20261120/installer.log",
         ".test-results/audit12-package-verify-20261120/result.json",
         ".test-results/contracts-install-hard-exit-final-20261120/installer.log",
-        ".test-results/contracts-install-hard-exit-final-20261120/summary.json"
+        ".test-results/contracts-install-hard-exit-final-20261120/summary.json",
+        "InstallUpgradeState.ps1",
+        ".test-results/contracts-installed-ready-final-20261120/installer.log",
+        "qa/HostSmoke/InstalledUpgrade.ps1"
       ],
       "remaining_work": [
-        "Retain the verified prior version after successful publication until a real launch acknowledgment, then verify cleanup and recovery of side-by-side versions. Interrupted publication already has automatic rollback and positive hard-kill fixtures."
+        "Verify the new side-by-side retention, real launcher acknowledgment and cleanup using two exact packages and a licensed catalog. Verify externally stored and legacy nested presets across it."
       ],
       "original_acceptance_tests": [
         "New install, same-version upgrade, legacy-name upgrade and nested/top-level user-file preservation.",

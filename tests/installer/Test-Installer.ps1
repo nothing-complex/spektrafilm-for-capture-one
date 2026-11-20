@@ -11,6 +11,8 @@ $desktop = Join-Path $fixture 'desktop'
 [void][IO.Directory]::CreateDirectory($desktop)
 $shellExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $checks = New-Object 'System.Collections.Generic.List[string]'
+. (Join-Path $repo 'InstallUpgradeState.ps1')
+$connected = [pscustomobject]@{ Phase='Ready'; Export='Connected'; Viewer='Disabled' }
 function Assert([bool] $condition, [string] $name) {
     if (!$condition) { throw "FAIL: $name" }
     $checks.Add($name)
@@ -19,7 +21,7 @@ function Write-Fixture([string] $path, [string] $contents) {
     [void][IO.Directory]::CreateDirectory((Split-Path -Parent $path))
     [IO.File]::WriteAllText($path, $contents)
 }
-function Invoke-Installer([bool] $expectSuccess = $true) {
+function Invoke-Installer([bool] $expectSuccess = $true, [bool] $confirm = $true) {
     $start=New-Object Diagnostics.ProcessStartInfo
     $start.FileName=$shellExe
     $start.Arguments='-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + (Join-Path $payload 'Install-Spektrafilm.ps1') + '" -Destination "' + $install + '" -DesktopDirectory "' + $desktop + '"'
@@ -33,8 +35,12 @@ function Invoke-Installer([bool] $expectSuccess = $true) {
         [IO.File]::AppendAllText((Join-Path $fixture 'installer.log'),$stdout.GetAwaiter().GetResult()+$stderr.GetAwaiter().GetResult())
     } finally { $process.Dispose() }
     Assert (($code -eq 0) -eq $expectSuccess) "Installer exit $code matches expected success=$expectSuccess"
+    if ($expectSuccess -and $confirm -and ($candidate = Get-LaunchUpgradeCandidate $install)) {
+        Complete-SpektrafilmUpgrade $install $candidate $connected | Out-Null
+    }
 }
 Copy-Item -LiteralPath (Join-Path $repo 'Install-Spektrafilm.ps1') -Destination $payload
+Copy-Item -LiteralPath (Join-Path $repo 'InstallUpgradeState.ps1') -Destination $payload
 $files = @('Start Spektrafilm for Capture One.cmd','Start-Spektrafilm.ps1','CatalogIntegrity.ps1','Restore-SpektrafilmCatalog.ps1','ReferencePython.ps1','capture-one-hosts.json','stocks.json','panel\NativePanel.dll','assets\Spektrafilm.ico',
     'profiles\preview\Linear Rec.2020.icc','profiles\preview\ProPhoto RGB.icc',
     'renderer\SpektraStillRenderer.exe','renderer\SpektraHanatos2025Spectra.f32','renderer\SpektraOutputGamutCompression.f32',
@@ -179,7 +185,8 @@ foreach ($checkpoint in @('        [IO.Directory]::Move($stage, $install)', '   
         [IO.File]::WriteAllText($inertInstaller,$modifiedScript)
         Invoke-Installer $false
     } finally { [IO.File]::WriteAllBytes($inertInstaller,$unmodified) }
-    $journal = @(Get-ChildItem -LiteralPath $fixture -File -Force -Filter '.film-tools-upgrade-*.json')
+    $journal = @(Get-ChildItem -LiteralPath $fixture -File -Force -Filter '.film-tools-upgrade-*.json' |
+        Where-Object Name -cmatch '^\.film-tools-upgrade-[0-9a-f]{24}\.json$')
     Assert ($journal.Count -eq 1) "Terminating installer leaves one durable upgrade journal (published=$candidatePublished)"
     $receipt = [IO.File]::ReadAllText($journal[0].FullName) | ConvertFrom-Json
     $checkpointPrevious = Join-Path $fixture ('.film-tools-previous-' + $receipt.id)
@@ -202,6 +209,34 @@ foreach ($checkpoint in @('        [IO.Directory]::Move($stage, $install)', '   
         Assert ([IO.File]::ReadAllText((Join-Path $install $file)) -eq "user sentinel: $file") "Hard-exit recovery preserves $file"
     }
 }
+
+$preserved = Join-Path $install 'profiles\nested\keep-until-native-ready.txt'
+Write-Fixture $preserved 'verified previous generation contents'
+Write-Fixture (Join-Path $payload 'stocks.json') 'awaiting a real launch acknowledgment'
+Invoke-Installer $true $false
+$awaiting = Get-LaunchUpgradeCandidate $install
+Assert ($awaiting.Item.Name -like '*.pending-*.json') 'Successful shortcut and publication leave a pending launch confirmation'
+$previous = Join-Path $fixture ('.film-tools-previous-' + $awaiting.Receipt.id)
+$previousCopy = Join-Path $previous 'profiles\nested\keep-until-native-ready.txt'
+Assert ([IO.File]::ReadAllText($previousCopy) -eq 'verified previous generation contents') 'Verified previous version and user files remain beside the upgraded generation'
+$unready = @(
+    @{Phase='Starting';Export='Checking';Viewer='Unchecked'},
+    @{Phase='Ready';Export='Unavailable';Viewer='Disabled'},
+    @{Phase='Ready';Export='Connected';Viewer='ProcessingError'}
+)
+foreach ($status in $unready) { Complete-SpektrafilmUpgrade $install $awaiting ([pscustomobject]$status) }
+$stale = @{} + $awaiting
+$stale.Hash = ('A' * 64)
+Complete-SpektrafilmUpgrade $install $stale $connected
+Assert ([IO.File]::Exists($awaiting.Item.FullName) -and [IO.File]::Exists($previousCopy)) 'Unready, partial and stale-generation launches cannot retire the prior version'
+Write-Fixture $previousCopy 'user modified the previous copy while awaiting launch'
+Complete-SpektrafilmUpgrade $install $awaiting $connected -WarningAction SilentlyContinue
+$ready = Get-LaunchUpgradeCandidate $install
+Assert ($ready.Item.Name -like '*.ready-*.json' -and [IO.Directory]::Exists($previous)) 'A valid launch persists acknowledgment but retains a previous copy with unmirrored custom contents'
+Write-Fixture $preserved 'user modified the previous copy while awaiting launch'
+Complete-SpektrafilmUpgrade $install $ready $connected | Out-Null
+Assert (!(Get-LaunchUpgradeCandidate $install) -and ![IO.Directory]::Exists($previous)) 'Confirmed cleanup retires an exact previous generation after all custom contents exist in the current install'
+Assert ([IO.File]::ReadAllText($preserved) -eq 'user modified the previous copy while awaiting launch') 'Cleanup leaves the exact user file in the current tree'
 
 $before = (Get-FileHash -LiteralPath $newStock -Algorithm SHA256).Hash
 
