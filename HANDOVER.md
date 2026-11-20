@@ -6,7 +6,7 @@ Updated 2026-11-20. The critical-fix batch is implemented, tested, installed loc
 
 1. Read this file, `AGENTS.md` and `qa/AUDIT-FIX-STATUS.json` before changing code. The JSON is the authoritative task-progress ledger; its `remaining_work` and original acceptance tests matter more than a short status label.
 2. Check `git status`, current branch and PR head. Do not discard existing edits or switch the installed build merely because this documentation has a newer commit.
-3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP is `0.2.0-audit.23` from clean `042bdc0`. The extracted package passed the native effects, grain and TIFF compression campaigns, the full licensed host suite, physical Vulkan checks and a private upgrade.
+3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP is `0.2.0-audit.24` from clean `e01a286`. The exact package passed all five native effects and recipe campaigns, the full licensed host suite, the numeric inventory, physical Vulkan and a private upgrade.
 4. Choose an unresolved task and an exact ownership boundary. Do not repeat the completed installation, crash test or old defect reproductions as if nothing had happened.
 5. Update task evidence and the delivery ledger at each completed milestone. Never mark a broad parent task complete because one mitigation shipped.
 
@@ -926,6 +926,16 @@ The combined receipt is `.test-results/audit22-package-verify-20261120/result.js
 - [x] Rehearse the private upgrade from audit.22 to audit.23. The previous runtime remained available until Capture One 16.4.6.2414 reported Ready with native Export Connected. The installed test fixture retained its external preset and custom file.
 
 The combined receipt is `.test-results/audit23-package-verify-20261120/result.json`. Individual runs are in `.test-results/host-audit23-native-effects-20261120`, `.test-results/host-audit23-native-grain-20261120`, `.test-results/host-audit23-tiff-compression-20261120` and `.test-results/host-audit23-native-full-20261120`. The upgrade receipt is at `D:/Library AI testing/sf-audit23-ready-20261120/installed-upgrade-receipt.json`.
+
+## Development package audit.24
+
+- [x] Build clean `e01a286f8b1055bff922e71708e34c35f756193d` and verify 153 package entries, 19 critical runtime entries and regenerated capability bytes. ZIP SHA-256 is `7f51503ceb8b8aaf8b14f48270dd2c79907a1bd7c46c90d3788fcbda2c89d7a4`. [Windows 2022 and 2025 checks](https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44731662242)
+- [x] Across launch and restart, pass 207 four-RAW effects checks, 114 grain checks, 112 TIFF compression checks, 87 recipe folder checks and 96 workspace checks. The five campaigns produce 118 accepted 16-bit effect and control files. The actual native commands preserve film and optics with the tab hidden or tool floating and use the approved nested recipe folders and exact RGB ICC.
+- [x] Independently decode the four-camera TIFF and PNG pairs, including strength-zero, film-only and full optics. OpenCV measures eight cases with 156,601,728 uint16 RGB codes per comparison. The highest mean difference between native commands is 7.45e-7 of full scale. All eight processed TIFFs contain more than 256 distinct codes in every channel.
+- [x] Pass 344 general assertions on launch and 348 on restart, 20 numeric inventory assertions, and 32 managed physical Vulkan checks. The actual 112 numeric controls match the worker and the 197-control inventory remains the same.
+- [x] Privately upgrade audit.23 to audit.24 and preserve the test fixture's custom files and outside preset. The previous runtime remains available until the licensed host reports Ready with native Export Connected.
+
+The combined receipt is `.test-results/audit24-package-verify-20261120/result.json`. The independent pixel evidence is `.test-results/audit24-package-verify-20261120/independent-rgb16.json`. Individual runs use the `.test-results/host-audit24-*-20261120` folders. The upgrade receipt is at `D:/Library AI testing/sf-audit24-ready-20261120/installed-upgrade-receipt.json`.
 
 ## Accepted export dialog and storage failure
 
