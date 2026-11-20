@@ -2327,13 +2327,22 @@
       "id": "VE-12",
       "title": "Extend viewer attachment model to comparison and multiple images",
       "priority": "P2",
-      "status": "pending",
-      "implemented": [],
-      "evidence_paths": [],
+      "status": "partial",
+      "implemented": [
+        "In native one-, two- and four-image layouts, bind one film preview to the unique visible view of the selected document and variant. Recheck the live native viewed list and current document in every paint.",
+        "Each paint delegate captures its actual attachment. A callback retained by a retired painter cannot draw a newer attachment's bitmap. Ambiguous views and Before/After remain guarded.",
+        "Passed 22 actual layout assertions with selection changes inside multi-image layouts and one-to-four view transitions. WPF paint tree checks confirmed the selected film drawing and absence of recorded film bitmaps in the other views. The full licensed suite passed 202 first and 206 restart assertions."
+      ],
+      "evidence_paths": [
+        "NativePanel/ViewerPreview.cs",
+        "qa/HostSmoke/ViewerLayouts.cs",
+        ".test-results/host-viewer-layouts-selection-20261120",
+        ".test-results/host-viewer-reattachment-regression-20261120",
+        ".test-results/contracts-viewer-reattachment-20261120"
+      ],
       "remaining_work": [
-        "Add an attachment registry keyed by document, variant and view instance; distinguish selected variant from each viewed variant.",
-        "Discover layout/view replacements via events where available; refresh viewed list reference instead of assuming it is permanent.",
-        "Prioritize active view and visible previews under shared memory/GPU budget; do not render all gallery items at native size.",
+        "Expand beyond the sole selected attachment only after a shared memory/GPU budget and per-view identity registry are verified.",
+        "Test virtualization, replacement, fullscreen and secondary display on the native host. Confirm layout change event ownership.",
         "Define Before/After semantics explicitly: native pre-adjustments, Capture One-developed source before film, or original raw baseline are distinct.",
         "Implement comparison and multi-view as separate capability-gated increments; preserve safe suspension until each mode is tested."
       ],
@@ -2901,8 +2910,8 @@
   "counts": {
     "total": 70,
     "implemented": 21,
-    "partial": 47,
-    "pending": 2
+    "partial": 48,
+    "pending": 1
   },
   "last_reconciled": "2026-11-20",
   "handover": "HANDOVER.md",

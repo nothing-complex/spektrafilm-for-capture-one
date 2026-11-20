@@ -34,11 +34,12 @@ internal sealed class ViewerPreview : IDisposable
 
     internal ViewerPreview(object window) => this.window = window;
     internal string? UnavailableReason { get; private set; }
-    internal bool HasPainted => UnavailableReason is null && attachment is { HasDrawn: true };
+    internal bool HasPainted => UnavailableReason is null && attachment is { HasDrawn: true } current
+        && ReferenceEquals(current.PaintedBitmap, current.Bitmap);
     internal event Action? StatusChanged;
     internal event Action<ViewerPixel?>? PixelChanged;
 
-    internal double? ProjectedLongEdge(Guid variant) => attachment is { HasDrawn: true, PaintUnavailable: null } current
+    internal double? ProjectedLongEdge(Guid variant) => UnavailableReason is null && attachment is { HasDrawn: true, PaintUnavailable: null } current
         && current.VariantId == variant ? current.ProjectedLongEdge : null;
 
     internal bool Show(Guid variantId, BitmapSource bitmap)
@@ -53,7 +54,7 @@ internal sealed class ViewerPreview : IDisposable
                 return Unavailable("Show the main Viewer to see the live preview.");
 
             if (attachment is { } current && current.Grid == grid && current.VariantId == variantId
-                && grid.IsAncestorOf(current.View))
+                && current.View.Variant?.UUID == variantId && grid.IsAncestorOf(current.View))
             {
                 var reason = Availability(current) ?? current.PaintUnavailable;
                 var changed = UnavailableReason != reason;
@@ -66,39 +67,34 @@ internal sealed class ViewerPreview : IDisposable
                 return UnavailableReason is null;
             }
 
-            if (HostProfile.SelectedVariant(window).Id != variantId)
+            var manager = HostDocumentAccess.Current();
+            if (manager?.ActiveDocument() is not { } document || !IsSelected(document, variantId))
                 return Unavailable("The selected image changed.");
 
-            var item = FindVisibleItem(grid);
-            var view = item is null ? null : Field(item, "Viewer") as VariantViewWpf;
-            if (item is null || view is null)
-            {
-                const string reason = "Show one image in the main Viewer.";
-                if (UnavailableReason != reason)
-                    StartupHook.Log($"Viewer image control unavailable under {DescribeVisuals(grid)}");
-                return Unavailable(reason);
-            }
-
-            var gridModel = Field(grid, "m_viewModel");
-            if (gridModel is null || Get(gridModel, "ViewedVariants") is not IReadOnlyList<GridViewItemData> viewedVariants)
+            if (Field(grid, "m_viewModel") is not { } gridModel)
                 return Unavailable("Capture One did not expose its Viewer image list.");
 
+            if (FindVisibleItems(grid, document, variantId) is not [{ Item: var item, View: var view }])
+            {
+                const string reason = "Waiting for the selected image to reach a unique view in the main Viewer.";
+                if (UnavailableReason != reason)
+                    StartupHook.Log($"Selected Viewer image control unavailable under {DescribeVisuals(grid)}");
+                return Unavailable(reason);
+            }
             var painter = view.WpfViewer;
             if (painter is null)
                 return Unavailable("Capture One did not expose the selected image’s Viewer renderer.");
 
             Detach();
-            var activeDocument = BindActiveDocument();
-            var document = activeDocument();
-            if (document is null || !IsSelected(document, variantId))
-                return Unavailable("The selected image changed.");
-            var attached = new Attachment(variantId, document, activeDocument, grid, item, view, viewedVariants, painter)
+            var readGridDocument = BindGetter<ICaptureOneDocument?>(gridModel, "Document");
+            var readViewedVariants = BindGetter<IReadOnlyList<GridViewItemData>>(gridModel, "ViewedVariants");
+            var attached = new Attachment(this, variantId, document, grid, item, view, readGridDocument, readViewedVariants, painter)
             {
                 Bitmap = bitmap,
                 PaintUnavailable = WaitingForGeometry,
             };
             attachment = attached;
-            painter.Paint += Paint;
+            painter.Paint += attached.OnPaint;
             painter.AddHandler(UIElement.MouseMoveEvent, new MouseEventHandler(OnPointerMoved), handledEventsToo: true);
             painter.MouseLeave += OnPointerLeft;
             view.Unloaded += OnViewUnloaded;
@@ -152,7 +148,7 @@ internal sealed class ViewerPreview : IDisposable
             return;
 
         previous.View.Unloaded -= OnViewUnloaded;
-        previous.Painter.Paint -= Paint;
+        previous.Painter.Paint -= previous.OnPaint;
         previous.Painter.RemoveHandler(UIElement.MouseMoveEvent, new MouseEventHandler(OnPointerMoved));
         previous.Painter.MouseLeave -= OnPointerLeft;
         if (inspectionEnabled) PixelChanged?.Invoke(null);
@@ -210,10 +206,9 @@ internal sealed class ViewerPreview : IDisposable
         return sampleBytes[3] == 0 ? null : new ViewerPixel(image, pixel.X, pixel.Y, sampleBytes[2], sampleBytes[1], sampleBytes[0]);
     }
 
-    private void Paint(PaintEventArgs args)
+    private void Paint(Attachment current, PaintEventArgs args)
     {
-        var current = attachment;
-        if (current is null)
+        if (!ReferenceEquals(attachment, current))
             return;
 
         try
@@ -291,25 +286,15 @@ internal sealed class ViewerPreview : IDisposable
         }
     }
 
-    private static Func<ICaptureOneDocument?> BindActiveDocument()
-    {
-        var program = typeof(P1.C1.Components.InspectorTools.InspectorToolWpf).Assembly
-            .GetType("P1.C1.Program", throwOnError: true)!;
-        var manager = program.GetProperty("DocumentManager", BindingFlags.Public | BindingFlags.Static)?.GetValue(null)
-            ?? throw new InvalidOperationException("Capture One’s document manager is unavailable.");
-        var getter = manager.GetType().GetProperty("ActiveDocument", Instance)?.GetMethod
-            ?? throw new MissingMemberException(manager.GetType().FullName, "ActiveDocument");
-        return getter.CreateDelegate<Func<ICaptureOneDocument?>>(manager);
-    }
-
     private static bool IsSelected(ICaptureOneDocument document, Guid variantId) =>
         document is ISelectedCollectionsProvider { PrimarySelectedCollection: ISimpleCollection selection }
         && selection.PrimaryVariant is ICoreVariant variant && variant.UUID == variantId;
 
     private static string? Availability(Attachment current)
     {
-        var documentPath = current.Document.Path;
-        if (!ReferenceEquals(current.Document, current.ActiveDocument()) || !ApprovedCatalog.IsApproved(documentPath, documentPath))
+        var manager = HostDocumentAccess.Current();
+        if (manager is null || !ReferenceEquals(current.Document, manager.ActiveDocument())
+            || !ApprovedCatalog.IsApproved(manager.ActivePath(), current.Document.Path))
             return InactiveDocument;
         if (!IsSelected(current.Document, current.VariantId))
             return "The selected image changed.";
@@ -328,30 +313,46 @@ internal sealed class ViewerPreview : IDisposable
             return "Exit the slideshow to resume live preview.";
         if (view.BlackWhiteMode)
             return "Exit the Viewer’s black-and-white mode to resume live preview.";
-        if (current.ViewedVariants.Count != 1)
-            return "Show one image in the main Viewer.";
-        if (view.Variant?.UUID != current.VariantId || current.ViewedVariants[0].Variant?.UUID != current.VariantId)
+        if (view.Variant?.UUID != current.VariantId || !ReferenceEquals(view.Document, current.Document)
+            || !ReferenceEquals(current.ReadGridDocument(), current.Document))
             return "Waiting for the selected image to reach the Viewer.";
+        var viewedVariants = current.ReadViewedVariants();
+        var matchingViews = 0;
+        for (var index = 0; index < viewedVariants.Count; index++)
+        {
+            var item = viewedVariants[index];
+            if (item.Variant?.UUID == current.VariantId && ReferenceEquals(item.Document, current.Document))
+                matchingViews++;
+        }
+        if (matchingViews != 1)
+            return "Waiting for the selected image to reach a unique view in the main Viewer.";
         if (view.ViewerModel is not { IsDrawable: true } model)
             return "Waiting for the selected image to become drawable.";
         return model.ViewMode == ViewMode.Default ? null : "Exit the Viewer’s current viewing mode to resume live preview.";
     }
 
-    private static CompareCapableVariantGridItem? FindVisibleItem(DependencyObject element)
+    private static List<(CompareCapableVariantGridItem Item, VariantViewWpf View)> FindVisibleItems(
+        DependencyObject grid, ICaptureOneDocument document, Guid variant)
     {
-        if (element is UIElement { IsVisible: false })
-            return null;
-        if (element is CompareCapableVariantGridItem item)
-            return item;
+        var matches = new List<(CompareCapableVariantGridItem, VariantViewWpf)>(1);
+        Visit(grid);
+        return matches;
 
-        var count = VisualTreeHelper.GetChildrenCount(element);
-        for (var i = 0; i < count; i++)
+        void Visit(DependencyObject element)
         {
-            var view = FindVisibleItem(VisualTreeHelper.GetChild(element, i));
-            if (view is not null)
-                return view;
+            if (matches.Count > 1 || element is UIElement { IsVisible: false })
+                return;
+            if (element is CompareCapableVariantGridItem item)
+            {
+                if (Field(item, "Viewer") is VariantViewWpf { IsVisible: true } view
+                    && view.Variant?.UUID == variant && ReferenceEquals(view.Document, document))
+                    matches.Add((item, view));
+                return;
+            }
+            var count = VisualTreeHelper.GetChildrenCount(element);
+            for (var index = 0; index < count; index++)
+                Visit(VisualTreeHelper.GetChild(element, index));
         }
-        return null;
     }
 
     private static string DescribeVisuals(DependencyObject root)
@@ -404,6 +405,10 @@ internal sealed class ViewerPreview : IDisposable
         Find(instance.GetType(), name, static (type, key) => type.GetProperty(key, Instance | BindingFlags.DeclaredOnly))
             .GetValue(instance);
 
+    private static Func<T> BindGetter<T>(object instance, string name) =>
+        Find(instance.GetType(), name, static (type, key) => type.GetProperty(key, Instance | BindingFlags.DeclaredOnly))
+            .GetMethod!.CreateDelegate<Func<T>>(instance);
+
     private static object? Field(object instance, string name) =>
         Find(instance.GetType(), name, static (type, key) => type.GetField(key, Instance | BindingFlags.DeclaredOnly))
             .GetValue(instance);
@@ -424,10 +429,11 @@ internal sealed class ViewerPreview : IDisposable
     }
 
     private sealed record Attachment(
-        Guid VariantId, ICaptureOneDocument Document, Func<ICaptureOneDocument?> ActiveDocument,
+        ViewerPreview Owner, Guid VariantId, ICaptureOneDocument Document,
         FrameworkElement Grid, CompareCapableVariantGridItem Item, VariantViewWpf View,
-        IReadOnlyList<GridViewItemData> ViewedVariants, WPFViewer Painter)
+        Func<ICaptureOneDocument?> ReadGridDocument, Func<IReadOnlyList<GridViewItemData>> ReadViewedVariants, WPFViewer Painter)
     {
+        internal void OnPaint(PaintEventArgs args) => Owner.Paint(this, args);
         internal required BitmapSource Bitmap { get; set; }
         internal string? PaintUnavailable { get; set; }
         internal bool HasDrawn { get; set; }

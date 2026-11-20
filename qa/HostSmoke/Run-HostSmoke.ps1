@@ -6,6 +6,7 @@ param(
     [string] $PackagedRuntime,
     [Alias('ProofingSettingsConfig')][string] $NativeSettingsConfig,
     [switch] $CatalogIsolation,
+    [switch] $ViewerLayouts,
     [switch] $SkipRestart,
     [switch] $CheckOrdinaryLaunch,
     [switch] $ShowTool,
@@ -15,6 +16,9 @@ param(
 $ErrorActionPreference='Stop'
 if ($CatalogIsolation -and ($SkipRestart -or $CheckOrdinaryLaunch -or $ColorMatrix)) {
     throw 'The catalog isolation fixture controls all four launches.'
+}
+if ($ViewerLayouts -and (!$NativeSettingsConfig -or $CatalogIsolation -or $ColorMatrix -or $CheckOrdinaryLaunch)) {
+    throw 'The Viewer layouts fixture requires a verified preferences backup and runs as a separate launch.'
 }
 $root=(Resolve-Path (Join-Path $PSScriptRoot '..\..')).ProviderPath
 $tokens=$null
@@ -163,9 +167,10 @@ $testHook=$TestHookPath
 if(!(Test-Path -LiteralPath $testHook)){throw 'Build qa/HostSmoke and NativePanel first.'}
 Copy-Item -LiteralPath $testHook -Destination $runtime
 $testHook=Join-Path $runtime 'HostSmoke.dll'
-$names=@('DOTNET_STARTUP_HOOKS','SPEKTRAFILM_ROOT','SPEKTRAFILM_CATALOG','SPEKTRAFILM_DATA_ROOT','SPEKTRAFILM_PANEL_LOG','SPEKTRAFILM_HOST_SMOKE','SPEKTRAFILM_LAUNCH_ID','SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX','SPEKTRAFILM_SHOW_TOOL','SPEKTRAFILM_HOST_PROOF_TEST','SPEKTRAFILM_HOST_CATALOG_ISOLATION')
+$names=@('DOTNET_STARTUP_HOOKS','SPEKTRAFILM_ROOT','SPEKTRAFILM_CATALOG','SPEKTRAFILM_DATA_ROOT','SPEKTRAFILM_PANEL_LOG','SPEKTRAFILM_HOST_SMOKE','SPEKTRAFILM_LAUNCH_ID','SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX','SPEKTRAFILM_SHOW_TOOL','SPEKTRAFILM_HOST_PROOF_TEST','SPEKTRAFILM_HOST_CATALOG_ISOLATION','SPEKTRAFILM_HOST_VIEWER_LAYOUTS')
 $prior=@{}
 foreach($name in $names){$prior[$name]=[Environment]::GetEnvironmentVariable($name,'Process')}
+$testError=$null
 try {
     $env:DOTNET_STARTUP_HOOKS=(Join-Path $runtime 'NativePanel.dll')+';'+$testHook
     $env:SPEKTRAFILM_ROOT=$runtime
@@ -175,10 +180,11 @@ try {
     $env:SPEKTRAFILM_HOST_SMOKE=$folder
     $env:SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX=if($ColorMatrix){'1'}else{$null}
     $env:SPEKTRAFILM_SHOW_TOOL=if($ShowTool){'1'}else{$null}
-    $env:SPEKTRAFILM_HOST_PROOF_TEST=if($NativeSettingsConfig -and !$CatalogIsolation){'1'}else{$null}
+    $env:SPEKTRAFILM_HOST_PROOF_TEST=if($NativeSettingsConfig -and !$CatalogIsolation -and !$ViewerLayouts){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_CATALOG_ISOLATION=if($CatalogIsolation){'1'}else{$null}
-    $phases=if($CatalogIsolation){@('A-first','B-first','A-restart','B-restart')}elseif($SkipRestart){@('first')}else{@('first','restart')}
-    if (!$SkipRestart -and !$CatalogIsolation) { [IO.File]::WriteAllText((Join-Path $folder 'verify-grain-restart.marker'), 'test only') }
+    $env:SPEKTRAFILM_HOST_VIEWER_LAYOUTS=if($ViewerLayouts){'1'}else{$null}
+    $phases=if($CatalogIsolation){@('A-first','B-first','A-restart','B-restart')}elseif($SkipRestart -or $ViewerLayouts){@('first')}else{@('first','restart')}
+    if (!$SkipRestart -and !$CatalogIsolation -and !$ViewerLayouts) { [IO.File]::WriteAllText((Join-Path $folder 'verify-grain-restart.marker'), 'test only') }
     foreach($phase in $phases){
         [IO.File]::WriteAllText((Join-Path $folder 'phase.txt'),$phase)
         if($phase -ne $phases[0]){Start-Sleep -Seconds 10}
@@ -245,9 +251,18 @@ try {
         }
     }
     if((Get-FileHash -LiteralPath $source).Hash -ne $sourceHash){throw 'Source catalog changed unexpectedly.'}
-    if ($NativeSettingsConfig) { Restore-TestCatalogPreferences $profile $backup $fixtureCatalogs $folder }
-    Write-Output "Host test passed; source catalog unchanged. Evidence: $folder"
+} catch {
+    $testError=$_
+    throw
 } finally {
-    foreach($name in $names){[Environment]::SetEnvironmentVariable($name,$prior[$name],'Process')}
-    Write-Output "Host evidence directory: $folder"
+    try {
+        if ($NativeSettingsConfig) { Restore-TestCatalogPreferences $profile $backup $fixtureCatalogs $folder }
+    } catch {
+        if ($null -eq $testError) { throw }
+        Write-Warning "The host test and its recent catalog cleanup both failed. Preferences backup retained. $($_.Exception.Message)"
+    } finally {
+        foreach($name in $names){[Environment]::SetEnvironmentVariable($name,$prior[$name],'Process')}
+        Write-Output "Host evidence directory: $folder"
+    }
 }
+Write-Output "Host test passed; source catalog unchanged. Evidence: $folder"

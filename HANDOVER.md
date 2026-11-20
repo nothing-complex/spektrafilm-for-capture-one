@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 21 bounded primary fixes implemented, 47 partial items and 2 pending items. It includes feasibility investigations and enhancements.
+Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 21 bounded primary fixes implemented, 48 partial items and 1 pending item. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -542,6 +542,14 @@ Evidence is in `.test-results/physical-blur-support-reference-20261120.json`.
 - [ ] Verify concurrently open windows, focus switching, actual native sessions, tethered files and document teardown.
 
 Evidence is under `.test-results/host-catalog-isolation-painted-20261120`.
+
+## Native Viewer layouts
+
+- [x] Paint the Spektrafilm preview on the unique visible view of the selected image while the native Viewer shows one, two or four images. Re-read the live native list and reject stale callbacks from earlier view attachments.
+- [x] Inspect the actual drawing tree as the selection changes in two- and four-image layouts and after returning to one image. Pass 22 focused layout checks, 202 first-launch and 206 restart checks, and 12,678 host-independent contracts. Symlink and junction creation were skipped in the sandbox.
+- [ ] Verify actual Before/After halves, external viewers, fullscreen, virtualization and DPI before permitting additional simultaneous film previews.
+
+Evidence is under `.test-results/host-viewer-layouts-selection-20261120`, `.test-results/host-viewer-reattachment-regression-20261120` and `.test-results/contracts-viewer-reattachment-20261120`.
 
 ## Status maintenance
 
