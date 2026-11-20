@@ -689,9 +689,10 @@ Evidence is under `.test-results/host-adaptive-watchdog-accessibility-20261120`.
 - [x] Use 100 settled visits and 30 rapid intermediate switches across DNG, NEF, RAF and CR3, 2048 px high-depth native development and strengths 0%, 50% and 100%. Every settled frame painted the selected variant. Event to settled paint measured p50 395.68 ms and p95 865.12 ms, with maximum 1658.03 ms. WPF edit through durable save with live Viewer enabled measured p50 6.01 ms, p95 7.02 ms and p99 7.34 ms.
 - [x] Peak host-private memory was 7.93 GB, including Capture One allocations. Peak worker-private memory was 700.86 MB and peak managed use was 958.64 MB. Explicit drain exited the worker. All 100 sampled source objects were collectible and managed use afterward was 160.01 MB.
 - [x] Repeat the full Windows contracts and licensed proofing, layout, export, cancellation and restart regression after the identity fix. Both licensed phases passed with 282 and 286 assertions.
-- [ ] Add an equivalent native-only memory baseline, per-stage timings across more sizes and adapters, and controlled multi-context memory contention.
+- [x] Run the same 100 settled and 30 interleaved selections without loading the plugin. The native-visible layer measured p50 17.30 ms and p95 50.64 ms. Capture One private memory peaked at 5.03 GB and managed memory at 0.168 GB. In the paired film run, settled 2048 px paint measured p50 359.52 ms and p95 771.35 ms. Capture One peaked at 7.95 GB, managed at 0.928 GB and the renderer separately at 0.701 GB. All sampled source objects were collectible after drain. The two timing endpoints use different work and the memory peaks are sampled independently.
+- [ ] Add per-stage timings across more sizes and adapters and controlled multi-context memory contention.
 
-Repeat with `qa/HostSmoke/Run-HostSmoke.ps1 -ViewerChurn 100` using the disposable four-RAW catalog and `-NativeSettingsConfig`. Evidence is under `.test-results/host-viewer-100-visits-current-paint-20261120`.
+Repeat with `qa/HostSmoke/Run-HostSmoke.ps1 -ViewerChurn 100` using the disposable four-RAW catalog and `-NativeSettingsConfig`. Add `-ViewerNativeBaseline` for the no-plugin run. Evidence is under `.test-results/host-viewer-100-visits-current-paint-20261120`, `.test-results/host-native-only-viewer-baseline-20261120` and `.test-results/host-viewer-paired-live-20261120`.
 
 ## Tagged Windows package validation
 

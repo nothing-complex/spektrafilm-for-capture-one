@@ -125,49 +125,65 @@ public static partial class StartupHook
 
     private sealed class FixtureSelection
     {
-        private readonly object panel;
+        private readonly object? panel;
+        private readonly object selection;
         private readonly object target;
         private readonly MethodInfo selectOnly;
         private readonly MethodInfo selectPrimary;
+        private readonly PropertyInfo primaryVariant;
         private readonly PropertyInfo uuid;
+        private readonly PropertyInfo coreImage;
+        private readonly PropertyInfo sourcePath;
         private readonly Dictionary<Guid, object> variants;
         internal Guid[] Variants { get; }
 
-        internal FixtureSelection(object panel)
+        internal FixtureSelection(object panel) : this(Field(panel, "document")!, panel) { }
+
+        internal FixtureSelection(object document, object? panel)
         {
             this.panel = panel;
-            var document = Field(panel, "document")!;
             var core = AppDomain.CurrentDomain.GetAssemblies().Single(assembly => assembly.GetName().Name == "P1.C1.Core");
             var provider = core.GetType("P1.C1.Core.Interfaces.ISelectedCollectionsProvider", true)!;
             var collection = provider.GetProperty("PrimarySelectedCollection")!.GetValue(document)!;
-            var selection = provider.GetProperty("PrimarySelectedCollectionSelection")!.GetValue(document)!;
-            target = core.GetType("P1.C1.Core.Selection.ISelection", true)!.GetProperty("SelectedVariants")!.GetValue(selection)!;
+            selection = provider.GetProperty("PrimarySelectedCollectionSelection")!.GetValue(document)!;
+            var selectionType = core.GetType("P1.C1.Core.Selection.ISelection", true)!;
+            primaryVariant = selectionType.GetProperty("PrimaryVariant")!;
+            target = selectionType.GetProperty("SelectedVariants")!.GetValue(selection)!;
             var type = core.GetType("P1.C1.Core.Selection.IVariantSelection", true)!;
             selectOnly = type.GetMethod("SelectOnly")!;
             selectPrimary = type.GetMethod("SelectAndSetAsPrimary")!;
-            uuid = core.GetType("P1.C1.Core.ICoreVariant", true)!.GetProperty("UUID")!;
+            var variantType = core.GetType("P1.C1.Core.ICoreVariant", true)!;
+            uuid = variantType.GetProperty("UUID")!;
+            coreImage = variantType.GetProperty("CoreImage")!;
+            sourcePath = coreImage.PropertyType.GetProperty("FullpathFilename") ??
+                coreImage.PropertyType.GetInterfaces().Select(type => type.GetProperty("FullpathFilename")).First(info => info is not null)!;
             var available = (IEnumerable)core.GetType("P1.C1.Core.ModelEntities.ISimpleCollection", true)!
                 .GetMethod("GetAllFilteredAndVisibleVariants")!.Invoke(collection, null)!;
-            var initial = (Guid)Field(panel, "displayedVariant")!;
+            var initial = Selected();
             variants = available.Cast<object>().Select(item => (Id: Identity(item), Item: item))
                 .OrderByDescending(item => item.Id == initial).Take(4).ToDictionary(item => item.Id, item => item.Item);
             Variants = variants.Keys.ToArray();
         }
 
         internal Guid Identity(object variant) => (Guid)uuid.GetValue(variant)!;
+        internal string Format(Guid variant) =>
+            Path.GetExtension((string)sourcePath.GetValue(coreImage.GetValue(variants[variant])!)!).TrimStart('.').ToUpperInvariant();
+
+        private Guid? Selected() => panel is not null ? (Guid?)Field(panel, "displayedVariant")
+            : primaryVariant.GetValue(selection) is { } current ? Identity(current) : null;
 
         internal void Select(Guid primary, params Guid[] members)
         {
             var items = Array.CreateInstance(selectOnly.GetParameters()[0].ParameterType.GetElementType()!, members.Length);
             for (var index = 0; index < members.Length; index++) items.SetValue(variants[members[index]], index);
             selectOnly.Invoke(target, new object[] { items });
-            Call(panel, "SyncSelection");
-            if (!Equals(Field(panel, "displayedVariant"), primary))
+            if (panel is not null) Call(panel, "SyncSelection");
+            if (Selected() != primary)
             {
                 selectPrimary.Invoke(target, new[] { variants[primary], (object)true });
-                Call(panel, "SyncSelection");
+                if (panel is not null) Call(panel, "SyncSelection");
             }
-            if (!Equals(Field(panel, "displayedVariant"), primary))
+            if (Selected() != primary)
                 throw new InvalidOperationException("Capture One did not select the expected fixture variant.");
         }
     }

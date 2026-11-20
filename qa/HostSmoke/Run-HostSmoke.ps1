@@ -11,6 +11,7 @@ param(
     [switch] $SessionIsolation,
     [switch] $ViewerLayouts,
     [ValidateRange(0,200)][int] $ViewerChurn=0,
+    [switch] $ViewerNativeBaseline,
     [switch] $DurableSliderEdits,
     [string] $MetadataFixtureRoot,
     [switch] $SkipRestart,
@@ -47,6 +48,9 @@ if ($ViewerChurn) {
         throw 'The Viewer churn probe requires a dedicated launch and a verified native settings backup.'
     }
     $SkipRestart=$true
+}
+if ($ViewerNativeBaseline -and !$ViewerChurn) {
+    throw 'The native Viewer baseline uses the same navigation sequence as -ViewerChurn.'
 }
 if ($MetadataFixtureRoot) {
     if (!$NativeSettingsConfig -or $CatalogIsolation -or $ViewerLayouts -or $DurableSliderEdits -or $ColorMatrix -or $CheckOrdinaryLaunch) {
@@ -282,12 +286,12 @@ $testHook=$TestHookPath
 if(!(Test-Path -LiteralPath $testHook)){throw 'Build qa/HostSmoke and NativePanel first.'}
 Copy-Item -LiteralPath $testHook -Destination $runtime
 $testHook=Join-Path $runtime 'HostSmoke.dll'
-$names=@('DOTNET_STARTUP_HOOKS','SPEKTRAFILM_ROOT','SPEKTRAFILM_CATALOG','SPEKTRAFILM_DATA_ROOT','SPEKTRAFILM_PANEL_LOG','SPEKTRAFILM_HOST_SMOKE','SPEKTRAFILM_LAUNCH_ID','SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX','SPEKTRAFILM_SHOW_TOOL','SPEKTRAFILM_HOST_PROOF_TEST','SPEKTRAFILM_HOST_CATALOG_ISOLATION','SPEKTRAFILM_HOST_VIEWER_LAYOUTS','SPEKTRAFILM_HOST_DURABLE_EDITS','SPEKTRAFILM_HOST_METADATA_FIXTURE','SPEKTRAFILM_HOST_VIEWER_CHURN','SPEKTRAFILM_HOST_OTHER_CATALOG','SPEKTRAFILM_HOST_SESSION')
+$names=@('DOTNET_STARTUP_HOOKS','SPEKTRAFILM_ROOT','SPEKTRAFILM_CATALOG','SPEKTRAFILM_DATA_ROOT','SPEKTRAFILM_PANEL_LOG','SPEKTRAFILM_HOST_SMOKE','SPEKTRAFILM_LAUNCH_ID','SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX','SPEKTRAFILM_SHOW_TOOL','SPEKTRAFILM_HOST_PROOF_TEST','SPEKTRAFILM_HOST_CATALOG_ISOLATION','SPEKTRAFILM_HOST_VIEWER_LAYOUTS','SPEKTRAFILM_HOST_DURABLE_EDITS','SPEKTRAFILM_HOST_METADATA_FIXTURE','SPEKTRAFILM_HOST_VIEWER_CHURN','SPEKTRAFILM_HOST_NATIVE_VIEWER_BASELINE','SPEKTRAFILM_HOST_OTHER_CATALOG','SPEKTRAFILM_HOST_SESSION')
 $prior=@{}
 foreach($name in $names){$prior[$name]=[Environment]::GetEnvironmentVariable($name,'Process')}
 $testError=$null
 try {
-    $env:DOTNET_STARTUP_HOOKS=(Join-Path $runtime 'NativePanel.dll')+';'+$testHook
+    $env:DOTNET_STARTUP_HOOKS=if($ViewerNativeBaseline){$testHook}else{(Join-Path $runtime 'NativePanel.dll')+';'+$testHook}
     $env:SPEKTRAFILM_ROOT=$runtime
     $env:SPEKTRAFILM_CATALOG=$catalog
     $env:SPEKTRAFILM_DATA_ROOT=$folder
@@ -301,6 +305,7 @@ try {
     $env:SPEKTRAFILM_HOST_DURABLE_EDITS=if($DurableSliderEdits){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_METADATA_FIXTURE=$MetadataFixtureRoot
     $env:SPEKTRAFILM_HOST_VIEWER_CHURN=if($ViewerChurn){[string]$ViewerChurn}else{$null}
+    $env:SPEKTRAFILM_HOST_NATIVE_VIEWER_BASELINE=if($ViewerNativeBaseline){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_OTHER_CATALOG=if($ConcurrentCatalogs){$fixtureCatalogs[1]}else{$null}
     $env:SPEKTRAFILM_HOST_SESSION=$sessionDatabase
     $phases=if($CatalogIsolation){@('A-first','B-first','A-restart','B-restart')}elseif($SkipRestart -or $ViewerLayouts){@('first')}else{@('first','restart')}
@@ -318,8 +323,10 @@ try {
         [IO.File]::WriteAllText((Join-Path $folder ($phase+'.pid')),[string]$process.Id)
         try {
             $status=Join-Path (Join-Path $folder 'Launch status') ($env:SPEKTRAFILM_LAUNCH_ID+'.json')
-            $ready=Wait-SpektrafilmPanel $process $status $env:SPEKTRAFILM_LAUNCH_ID 90
-            $ready | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $folder ($phase+'.ready.json'))
+            if (!$ViewerNativeBaseline) {
+                $ready=Wait-SpektrafilmPanel $process $status $env:SPEKTRAFILM_LAUNCH_ID 90
+                $ready | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $folder ($phase+'.ready.json'))
+            }
             $deadline=[DateTime]::UtcNow.AddMinutes($(if($ViewerChurn){10}else{4}))
             $result=Join-Path $folder ($phase+'.passed')
             $failure=Join-Path $folder 'failed.txt'

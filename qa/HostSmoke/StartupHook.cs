@@ -57,6 +57,13 @@ public static partial class StartupHook
     {
         try
         {
+            if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_NATIVE_VIEWER_BASELINE") == "1")
+            {
+                var count = int.Parse(Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_VIEWER_CHURN")!);
+                if (!await TryRunNativeViewerBaseline(count) && DateTime.UtcNow > deadline)
+                    throw new TimeoutException("Capture One did not open the copied catalog with its native Viewer.");
+                return;
+            }
             var panelAssembly = AppDomain.CurrentDomain.GetAssemblies().FirstOrDefault(a => a.GetName().Name == "NativePanel");
             var hook = panelAssembly?.GetType("StartupHook");
             var hosted = hook?.GetField("hostedTool", Flags)?.GetValue(null);

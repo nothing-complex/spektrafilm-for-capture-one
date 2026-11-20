@@ -45,7 +45,7 @@ public static partial class StartupHook
                 var grid = Grid();
                 var model = Field(grid, "m_viewModel")!;
                 var list = ((IEnumerable)Prop(model, "ViewedVariants")!).Cast<object>().ToArray();
-                var inspected = ViewNodes(grid).ToArray();
+                var inspected = NativeViewerNodes(grid, selection).ToArray();
                 lastSeen = $"list {list.Length}, visible {inspected.Length}, requested {expected}, " +
                     $"selected {Field(panel, "displayedVariant")}, state {Prop(viewer, "UnavailableReason")}";
                 if (list.Length == count && inspected.Length == count && Field(spatial, "frameCurrent") is true
@@ -68,21 +68,6 @@ public static partial class StartupHook
                 await Task.Delay(100);
             } while (Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(35));
             throw new InvalidOperationException($"Native Viewer did not settle for {count} images and primary slot {primary + 1}: {lastSeen}");
-        }
-
-        IEnumerable<(Guid Id, Visual Painter)> ViewNodes(DependencyObject node)
-        {
-            if (node is UIElement { IsVisible: false }) yield break;
-            if (node.GetType().Name == "CompareCapableVariantGridItem")
-            {
-                var view = Field(node, "Viewer");
-                if (view is UIElement { IsVisible: true } && Prop(view, "Variant") is { } variant &&
-                    Prop(view, "WpfViewer") is Visual painter)
-                    yield return (selection.Identity(variant), painter);
-                yield break;
-            }
-            for (var index = 0; index < VisualTreeHelper.GetChildrenCount(node); index++)
-                foreach (var view in ViewNodes(VisualTreeHelper.GetChild(node, index))) yield return view;
         }
 
         async Task TestNativeComparison()

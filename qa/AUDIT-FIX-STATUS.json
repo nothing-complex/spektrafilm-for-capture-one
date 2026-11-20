@@ -1718,7 +1718,8 @@
       "implemented": [
         "The existing shared managed RAM model gates native development, worker transport and encoding by Windows physical and commit headroom. The Vulkan stage uses separate measured adapter headroom.",
         "The existing Auto Viewer choice uses native projection and the same managed headroom. Viewer refresh retains one active source plus the bounded draft and display caches, and waits for workers to exit before accepting competing output work.",
-        "Measure 100 settled Capture One visits on DNG, NEF, RAF and CR3 at 2048 px and strength 0%, 50% and 100%. The same-process peak was 7,934,210,048 host private bytes, 700,862,464 worker private bytes and 958,644,384 managed bytes. After explicit drain, the process exited, all 100 sampled source objects became collectible and managed use measured 160,011,408 bytes. Host private bytes include Capture One’s own caches."
+        "Measure 100 settled Capture One visits on DNG, NEF, RAF and CR3 at 2048 px and strength 0%, 50% and 100%. The same-process peak was 7,934,210,048 host private bytes, 700,862,464 worker private bytes and 958,644,384 managed bytes. After explicit drain, the process exited, all 100 sampled source objects became collectible and managed use measured 160,011,408 bytes. Host private bytes include Capture One’s own caches.",
+        "Paired 100-visit no-plugin and film runs with the same RAW and 30 interleaved selection sequence measured 5,028,196,352 and 7,954,604,032 host private bytes respectively. Managed peaks were 168,062,504 and 928,270,840 bytes. The film worker independently peaked at 700,903,424 bytes. All sampled film sources were collectible after the worker drained."
       ],
       "evidence_paths": [
         "NativePanel/RenderMemoryBudget.cs",
@@ -1726,10 +1727,12 @@
         "NativePanel/SpatialPreview.cs",
         ".test-results/contracts-grain-backup-policy-20261119/ViewerContracts.log",
         ".test-results/host-auto-viewport-quality-20261120/host-smoke.log",
-        ".test-results/host-viewer-100-visits-current-paint-20261120/viewer-churn.json"
+        ".test-results/host-viewer-100-visits-current-paint-20261120/viewer-churn.json",
+        ".test-results/host-native-only-viewer-baseline-20261120/viewer-native-baseline.json",
+        ".test-results/host-viewer-paired-live-20261120/viewer-churn.json"
       ],
       "remaining_work": [
-        "Measure a comparable native-only baseline and 24/45/61 MP at all strength values. Separate process-private memory attributable to Capture One from managed film buffers, and finalize enforced cache budgets and lifetime ownership across overlapping contexts."
+        "Measure 24/45/61 MP at all strength values and finalize enforced cache budgets and lifetime ownership across overlapping contexts. The paired 2048 px workload has a true no-plugin baseline."
       ],
       "original_acceptance_tests": [
         "Allocation traces for 24/45/61MP at strength 0,0.5,1 and repeated switches; bound retained memory after GC/worker idle.",
@@ -1756,7 +1759,8 @@
         "Worker diagnostics distinguish automatic exposure work and reuse. A repeatable 100-request scene records each hit, stage time and private memory usage.",
         "A deterministic 600-second on-disk log benchmark verified the diagnostic enqueue path independently of Capture One. Across 148,608 messages per logger, writable and locked destinations did not block producers. P99 was 0.0036 ms for two enqueues with a 0.4652 ms maximum.",
         "The opt-in protocol reports strictly ordered real worker stages tied to a monotonic request ID. Actual GPU and bounded malformed-reply tests validate the order, and the parent ignores publication from a canceled request.",
-        "In a licensed 100-visit run, event to settled native paint measured p50 395.68 ms, p95 865.12 ms and max 1658.03 ms at 2048 px. A live Viewer was active, and three strength settings and four RAW formats are keyed in the per-visit machine-readable receipt."
+        "In a licensed 100-visit run, event to settled native paint measured p50 395.68 ms, p95 865.12 ms and max 1658.03 ms at 2048 px. A live Viewer was active, and three strength settings and four RAW formats are keyed in the per-visit machine-readable receipt.",
+        "A paired 100-visit licensed baseline ran Capture One without loading the plugin. It verified the selected native image layer for each visit and recorded p50 17.30 ms and p95 50.64 ms. The separate live film run measured p50 359.52 ms and p95 771.35 ms to settled 2048 px paint. The receipts distinguish the timing endpoints and contain all individual visits."
       ],
       "evidence_paths": [
         "ofx-still-renderer/main.cpp",
@@ -1772,7 +1776,9 @@
         ".test-results/metering-100-edits-20261120.json",
         ".test-results/panel-log-ten-minute-20261120/measurement.json",
         ".test-results/cooperative-vulkan-runtime-20261120/tile-cancel.json",
-        ".test-results/host-viewer-100-visits-current-paint-20261120/viewer-churn.json"
+        ".test-results/host-viewer-100-visits-current-paint-20261120/viewer-churn.json",
+        ".test-results/host-native-only-viewer-baseline-20261120/viewer-native-baseline.json",
+        ".test-results/host-viewer-paired-live-20261120/viewer-churn.json"
       ],
       "remaining_work": [
         "No structured end-to-end event model, shared request identity, p50/p95 benchmark matrix or UI latency budget yet.",
@@ -2282,7 +2288,7 @@
         "Windows worker benchmark saves per-request transport wall time, renderer stages and Vulkan allocations, working-set/commit samples, cold request versus reused-source edit percentiles, and renderer fingerprint in machine-readable JSON.",
         "Added an opt-in native RAW quality matrix for four actual cameras and four working spaces, with raw frame and independent colour metrics written as machine-readable evidence.",
         "Four real RAW cameras passed same-stage native TIFF/bitmap RGB16 parity and embedded ICC checks using the audited package. The agreed exact sample count is 2,004,657 channel codes.",
-        "The licensed 2048 px navigation matrix now records 100 visits, four RAW formats, three strengths, 30 interleaved selections, verified exact frame ownership, per-visit timing and memory snapshots. Native capture and hardware baselines beyond this RTX 3090 remain open."
+        "The licensed 2048 px navigation matrix now records 100 visits, four RAW formats, three strengths, 30 interleaved selections, verified exact frame ownership, per-visit timing and memory snapshots. The same selection schedule with no plugin loaded supplies a native Viewer and memory baseline on this RTX 3090."
       ],
       "evidence_paths": [
         "tests",
@@ -2296,7 +2302,9 @@
         "qa/analyze-native-colour.py",
         ".test-results/host-native-colour-matrix-20261120/color-matrix/common-srgb.json",
         ".test-results/host-native-tiff-exact-20261120/color-matrix/native-tiff-comparison.json",
-        ".test-results/host-viewer-100-visits-current-paint-20261120/viewer-churn.json"
+        ".test-results/host-viewer-100-visits-current-paint-20261120/viewer-churn.json",
+        ".test-results/host-native-only-viewer-baseline-20261120/viewer-native-baseline.json",
+        ".test-results/host-viewer-paired-live-20261120/viewer-churn.json"
       ],
       "remaining_work": [
         "No complete end-to-end hardware/source-format performance and quality acceptance matrix or release budgets yet.",
