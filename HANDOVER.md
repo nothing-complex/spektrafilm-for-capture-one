@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 18 bounded primary fixes implemented, 41 partial items and 11 pending items. It includes feasibility investigations and enhancements.
+Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 19 bounded primary fixes implemented, 40 partial items and 11 pending items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -414,6 +414,15 @@ Run `Run-HostSmoke.ps1 -ColorMatrix -SkipRestart` with the four-camera test cata
 - [ ] Verify external profile replacement, calibrated native exposure/white balance/highlights and same-stage TIFF parity.
 
 Evidence is under `.test-results/host-frame-description-matrix-20261120` and `.test-results/host-frame-description-20261120`.
+
+## Versioned renderer requests
+
+- [x] Negotiate protocol 2 between the panel and worker. Verify exact layouts, dimensions, input-reuse geometry, response IDs and bounded payload lengths. Distinguish recoverable request errors from framing errors that close the worker.
+- [x] Pass 12,587 host-independent assertions, including 134 renderer checks, 198 state assertions and injected cancellation during both upload and reply. The checked-in smoke also exercises mismatched layouts, repeated IDs, fatal frame lengths and legacy tools. Nineteen managed GPU checks passed.
+- [x] Pass 177 new-launch and 182 restart checks in the licensed host, plus 59 native RAW colour checks across CR3, RAF, NEF and DNG. Both source catalogs retained their initial checksums.
+- [ ] Add a separate cooperative worker cancellation and progress channel. Protocol 2 currently terminates a canceled worker and waits for exit before replacing it.
+
+Evidence is under `.test-results/contracts-numbered-renderer-final-20261120`, `.test-results/numbered-renderer-runtime-20261120`, `.test-results/host-numbered-renderer-final-20261120` and `.test-results/host-numbered-renderer-raw-20261120`.
 
 ## Status maintenance
 

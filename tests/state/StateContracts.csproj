@@ -14,6 +14,7 @@
     <Compile Include="../../NativePanel/LookSettings.cs" Link="LookSettings.cs" />
     <Compile Include="../../NativePanel/LookPreset.cs" Link="LookPreset.cs" />
     <Compile Include="../../NativePanel/RendererParameters.cs" Link="RendererParameters.cs" />
+    <Compile Include="../../NativePanel/RendererProtocol.cs" Link="RendererProtocol.cs" />
     <Compile Include="../../NativePanel/NativeAdjustmentTransaction.cs" Link="NativeAdjustmentTransaction.cs" />
     <Compile Include="../../NativePanel/GrainReceiptStore.cs" Link="GrainReceiptStore.cs" />
   </ItemGroup>

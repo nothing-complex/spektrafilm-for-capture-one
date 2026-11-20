@@ -759,11 +759,14 @@
       "id": "RC-10",
       "title": "Reset worker on protocol corruption and version request contract",
       "priority": "P2",
-      "status": "partial",
+      "status": "implemented",
       "implemented": [
         "Malformed frames/capabilities reset worker and source cache; bounded HELLO negotiation, immutable-shape validation, serialized requests and cancellation recovery pass fake-worker tests.",
         "After worker shutdown, interpret pipe EOF as cancellation when that request was explicitly canceled. Server 2025 found this race with the fixture that requires verified process exit.",
-        "Validate advertised maxSide, maxPixels and packed display capability before writing a frame header or payload. A valid lower limit refuses an oversized request and retains the aligned stream for a supported request."
+        "Validate advertised maxSide, maxPixels and packed display capability before writing a frame header or payload. A valid lower limit refuses an oversized request and retains the aligned stream for a supported request.",
+        "Protocol 2 binds each frame, reuse and diagnostic to a positive, increasing 64-bit request number. It negotiates bounded headers, float RGBA32F, packed BGRA8 and mode-specific limits. Reuse carries and verifies exact source dimensions.",
+        "A synchronized semantic error preserves the worker and retires its managed source key. A fatal, mismatched, malformed, truncated or explicitly canceled reply retires the process and cached source. Controlled tests cancel after the worker reads the first upload byte and after a partial response has been written.",
+        "The panel, compiled parameter description and staged runtime manifest require matching protocol 2. Legacy protocol 1 remains available for standalone tooling. Native Viewer, high-depth export, restart and all sixteen four-camera colour routes passed with protocol 2."
       ],
       "evidence_paths": [
         "NativePanel/OpticalRenderer.cs",
@@ -773,11 +776,16 @@
         "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44622033511",
         "NativePanel/OpticalRenderer.cs",
         ".test-results/contracts-large-export-final-20261119/summary.json",
-        ".test-results/gpu-large-export-contract-20261119.log"
+        ".test-results/gpu-large-export-contract-20261119.log",
+        "NativePanel/RendererProtocol.cs",
+        "tests/renderer/README.md",
+        ".test-results/contracts-numbered-renderer-final-20261120/summary.json",
+        ".test-results/numbered-renderer-runtime-20261120/vulkan-smoke.log",
+        ".test-results/numbered-renderer-runtime-20261120/gpu-client.log",
+        ".test-results/host-numbered-renderer-final-20261120/host-smoke.log",
+        ".test-results/host-numbered-renderer-raw-20261120/host-smoke.log"
       ],
-      "remaining_work": [
-        "Request IDs and fully versioned per-frame layout metadata remain absent; transport is safe only with enforced one-in-flight serialization."
-      ],
+      "remaining_work": [],
       "original_acceptance_tests": [
         "Fake-worker bad code/size/oversized error/short body/version mismatch",
         "Next good request restarts cleanly",
@@ -1188,13 +1196,15 @@
       "status": "partial",
       "implemented": [
         "Cancellation now safely aborts the child and resets its stream/cache; fake-worker mid-request and queued cancellation pass.",
-        "Renderer cancellation now waits for verified child termination. Async disposal covers idle shutdown and active abort without starting a replacement while an earlier child is shutting down."
+        "Renderer cancellation now waits for verified child termination. Async disposal covers idle shutdown and active abort without starting a replacement while an earlier child is shutting down.",
+        "Protocol 2 assigns monotonic request IDs and validates every frame and metrics response. Fake-worker tests confirm process termination and clean recovery on cancellation inside upload and reply body, including a canceled queued request while the active request finishes."
       ],
       "evidence_paths": [
         "NativePanel/OpticalRenderer.cs",
         "tests/renderer/Program.cs",
         "tests/renderer/Program.cs",
-        ".test-results/contracts-renderer-drain-20261119/summary.json"
+        ".test-results/contracts-renderer-drain-20261119/summary.json",
+        ".test-results/contracts-numbered-renderer-final-20261120/RendererContracts.log"
       ],
       "remaining_work": [
         "Cooperative pass/tile cancellation, request IDs, progress channel and bounded warm restart policy are still absent."
@@ -2660,7 +2670,8 @@
       "status": "partial",
       "implemented": [
         "README and UI now disclose export, precision, state, host and LUT constraints and tracked testing paths.",
-        "Document the packaged compiled renderer option description and the executable parameter and calibration matrices. Build and package verification require the described capabilities as a fingerprinted runtime asset."
+        "Document the packaged compiled renderer option description and the executable parameter and calibration matrices. Build and package verification require the described capabilities as a fingerprinted runtime asset.",
+        "The compiled parameter description, host parser, build manifest validation and negotiated capabilities now agree on renderer protocol 2. An old compiled description is rejected in the state contract test."
       ],
       "evidence_paths": [
         "README.md",
@@ -2668,7 +2679,8 @@
         "NativePanel/SpektraFilmTool.cs",
         "Build-Windows.ps1",
         "tests/renderer/README.md",
-        ".test-results/contracts-compilercaps-20261120/summary.json"
+        ".test-results/contracts-compilercaps-20261120/summary.json",
+        ".test-results/contracts-numbered-renderer-final-20261120/StateContracts.log"
       ],
       "remaining_work": [
         "Generate capability/feature tables from schemas/manifests and verify documentation/release artifacts automatically; no16.7 support claim."
@@ -2751,8 +2763,8 @@
   ],
   "counts": {
     "total": 70,
-    "implemented": 18,
-    "partial": 41,
+    "implemented": 19,
+    "partial": 40,
     "pending": 11
   },
   "last_reconciled": "2026-11-20",

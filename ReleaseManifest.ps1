@@ -107,7 +107,7 @@ function Test-ReleaseManifest([string] $Root, [string] $Name = 'build-manifest.j
         if ($actual.bytes -ne $expected.bytes -or $actual.sha256 -ne $expected.sha256) { throw "Release file does not match its build: $($expected.path). Extract or rebuild the complete release." }
     }
     if ($Name -eq 'build-manifest.json') {
-        if ($manifest.kind -ne 'build' -or $manifest.rendererProtocol -ne 1 -or $manifest.parameterContract -notmatch '^[a-fA-F0-9]{64}$') {
+        if ($manifest.kind -ne 'build' -or $manifest.rendererProtocol -ne 2 -or $manifest.parameterContract -notmatch '^[a-fA-F0-9]{64}$') {
             throw 'The renderer build contract is missing or incompatible.'
         }
         foreach ($required in Get-ReleaseRuntimeFiles) {
@@ -128,7 +128,7 @@ function Write-ReleaseBuildManifest([string] $Root, $SourceIdentity, [string] $C
     if (!$verified) { throw "Capture One $version does not match a verified host profile. A licensed host matrix is required before staging it." }
     $manifest = [ordered]@{
         schemaVersion=1; kind='build'; createdUtc=[DateTime]::UtcNow.ToString('o'); source=$SourceIdentity
-        rendererProtocol=1
+        rendererProtocol=2
         parameterContract=(Get-FileHash -LiteralPath (Join-Path $Root 'upstream-ofx/src/SpektraParameters.h') -Algorithm SHA256).Hash.ToLowerInvariant()
         host=[ordered]@{ version=$version; architecture=$verified.Architecture; capabilities=$verified.Capabilities; files=$hostRecords }
         tools=[ordered]@{ dotnet=(& dotnet --version); cmake=((& cmake --version | Select-Object -First 1)); python=(& $PythonPath --version); vulkanSdk=$VulkanSdkPath }

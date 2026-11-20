@@ -14,7 +14,8 @@ internal sealed class RendererParameters
     private RendererParameters(Manifest manifest)
     {
         this.manifest = manifest;
-        if (manifest.SchemaVersion != 1 || manifest.Contract is not { Length: 64 } || !manifest.Contract.All(Uri.IsHexDigit)
+        if (manifest.SchemaVersion != 1 || manifest.Protocol != RendererProtocol.Version
+            || manifest.Contract is not { Length: 64 } || !manifest.Contract.All(Uri.IsHexDigit)
             || manifest.Parameters is not { Length: > 0 and <= 256 } || manifest.Scientific?.Films is not { Length: > 0 and <= 128 })
             throw new InvalidDataException("Unsupported Spektrafilm renderer parameter description.");
         parameters = new(StringComparer.Ordinal);
@@ -61,6 +62,7 @@ internal sealed class RendererParameters
         || manifest.Scientific.AcademyPrinterDensity;
 
     private sealed record Manifest([property: JsonPropertyName("schemaVersion"), JsonRequired] int SchemaVersion,
+        [property: JsonPropertyName("rendererProtocol"), JsonRequired] int Protocol,
         [property: JsonPropertyName("parameterContract"), JsonRequired] string Contract,
         [property: JsonPropertyName("parameters"), JsonRequired] Parameter[] Parameters,
         [property: JsonPropertyName("scientific"), JsonRequired] Scientific Scientific);

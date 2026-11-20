@@ -18,7 +18,7 @@ foreach($relative in Get-ReleaseRuntimeFiles) {
     [void][IO.Directory]::CreateDirectory((Split-Path -Parent $file))
     [IO.File]::WriteAllText($file,"inert $relative")
 }
-$manifest=[ordered]@{schemaVersion=1;kind='build';rendererProtocol=1;parameterContract=('a'*64);files=@(Get-ReleaseRuntimeFiles|ForEach-Object {Get-ReleaseFileRecord $root $_})}
+$manifest=[ordered]@{schemaVersion=1;kind='build';rendererProtocol=2;parameterContract=('a'*64);files=@(Get-ReleaseRuntimeFiles|ForEach-Object {Get-ReleaseFileRecord $root $_})}
 $path=Join-Path $root 'build-manifest.json'
 function Save-Manifest { [IO.File]::WriteAllText($path,($manifest|ConvertTo-Json -Depth 5)) }
 Save-Manifest
@@ -34,9 +34,9 @@ $originalDescription=[IO.File]::ReadAllText($description)
 [IO.File]::WriteAllText($description,'different renderer description')
 Assert-Rejected {Test-ReleaseManifest $root} 'Changed compiled parameter description'
 [IO.File]::WriteAllText($description,$originalDescription)
-$manifest.rendererProtocol=2; Save-Manifest
+$manifest.rendererProtocol=1; Save-Manifest
 Assert-Rejected {Test-ReleaseManifest $root} 'Protocol mismatch'
-$manifest.rendererProtocol=1
+$manifest.rendererProtocol=2
 $files=$manifest.files
 $manifest.files=@($files | Where-Object path -ne 'renderer/parameter-capabilities.json'); Save-Manifest
 Assert-Rejected {Test-ReleaseManifest $root} 'Missing compiled parameter description'

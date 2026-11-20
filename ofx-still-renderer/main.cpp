@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -24,6 +25,8 @@
 namespace {
 
 using namespace spektrafilm;
+
+constexpr int kProtocolVersion = 2;
 
 struct NumericOption {
     std::string_view name;
@@ -433,7 +436,8 @@ void describeParameters() {
     auto &out = std::cout;
     out.imbue(std::locale::classic());
     out << std::boolalpha << std::setprecision(std::numeric_limits<float>::max_digits10)
-        << "{\"schemaVersion\":1,\"parameterContract\":\"" << SPEKTRA_PARAMETER_CONTRACT
+        << "{\"schemaVersion\":1,\"rendererProtocol\":" << kProtocolVersion
+        << ",\"parameterContract\":\"" << SPEKTRA_PARAMETER_CONTRACT
         << "\",\"parameters\":[";
     for (const auto &option : kNumericOptions)
         out << "{\"key\":" << std::quoted(option.name) << ",\"kind\":\"number\",\"minimum\":" << option.min
@@ -551,7 +555,6 @@ constexpr int kNativeFullFramePixels = 32000000;
 
 // Protocol version is independent of package version. Old one-shot/stream clients
 // still work; the managed host negotiates before submitting any frame bytes.
-constexpr int kProtocolVersion = 1;
 #ifndef SPEKTRA_PARAMETER_CONTRACT
 #error "The renderer build must identify its parameter contract."
 #endif
@@ -700,13 +703,16 @@ bool readCommand(std::string &line) {
     }
 }
 
-void writeReplyHeader(uint32_t status, uint32_t length) {
-    std::array<char, 8> header{};
+void writeReplyHeader(uint32_t status, uint32_t length, std::optional<uint64_t> request = std::nullopt) {
+    std::array<char, 16> header{};
     for (std::size_t byte = 0; byte < 4; ++byte) {
         header[byte] = static_cast<char>((status >> (byte * 8)) & 0xff);
         header[byte + 4] = static_cast<char>((length >> (byte * 8)) & 0xff);
     }
-    std::cout.write(header.data(), header.size());
+    if (request)
+        for (std::size_t byte = 0; byte < 8; ++byte)
+            header[byte + 8] = static_cast<char>((*request >> (byte * 8)) & 0xff);
+    std::cout.write(header.data(), request ? header.size() : 8);
 }
 
 void flushReply() {
@@ -715,8 +721,8 @@ void flushReply() {
         throw std::runtime_error("Could not send the rendered frame to Capture One.");
 }
 
-void writeReply(uint32_t status, const char *data, uint32_t length) {
-    writeReplyHeader(status, length);
+void writeReply(uint32_t status, const char *data, uint32_t length, std::optional<uint64_t> request = std::nullopt) {
+    writeReplyHeader(status, length, request);
     if (length != 0) std::cout.write(data, length);
     flushReply();
 }
@@ -738,9 +744,9 @@ __m128i displayPixel(const float *rendered, const float *source) {
     return _mm_or_si128(_mm_andnot_si128(alphaMask, bgra), _mm_and_si128(alphaMask, alpha));
 }
 
-void writePackedPreview(const InputFrame &input, const std::vector<float> &rendered) {
+void writePackedPreview(const InputFrame &input, const std::vector<float> &rendered, std::optional<uint64_t> request) {
     alignas(16) std::array<char, 64 * 1024> buffer;
-    writeReplyHeader(0, static_cast<uint32_t>(rendered.size()));
+    writeReplyHeader(0, static_cast<uint32_t>(rendered.size()), request);
     for (std::size_t start = 0; start < rendered.size(); start += buffer.size()) {
         const auto count = std::min(buffer.size(), rendered.size() - start);
         const auto vectorizedCount = count - count % 16;
@@ -764,24 +770,28 @@ void writePackedPreview(const InputFrame &input, const std::vector<float> &rende
     flushReply();
 }
 
-void writeError(std::string_view message) {
+void writeError(std::string_view message, std::optional<uint64_t> request = std::nullopt, bool fatal = false) {
     if (message.size() > 4096) message = message.substr(0, 4096);
-    writeReply(1, message.data(), static_cast<uint32_t>(message.size()));
+    writeReply(fatal && request ? 2 : 1, message.data(), static_cast<uint32_t>(message.size()), request);
 }
 
-void writeCapabilities(const FrameLimit &limit) {
+void writeCapabilities(const FrameLimit &limit, int protocol) {
     std::ostringstream json;
-    json << "{\"protocol\":" << kProtocolVersion
+    json << "{\"protocol\":" << protocol
          << ",\"floatChannels\":4,\"floatBits\":32,\"littleEndian\":true,\"parameterContract\":\""
          << SPEKTRA_PARAMETER_CONTRACT
          << "\",\"maxSide\":" << limit.maxSide << ",\"maxPixels\":" << limit.maxPixels
          << ",\"packedDisplay\":" << (&limit == &kNativePreviewLimit ? "true" : "false")
-         << ",\"metricsSchema\":1}";
+         << ",\"metricsSchema\":1";
+    if (protocol == kProtocolVersion)
+        json << ",\"requestHeaderBytes\":16,\"floatLayout\":\"rgba32f\",\"packedLayout\":\"bgra8\"";
+    json << '}';
     const auto text = json.str();
     writeReply(0, text.data(), static_cast<uint32_t>(text.size()));
 }
 
-void writeMetrics(const Renderer *renderer, uint64_t renderSequence, const InputFrame &input, const FrameMemoryPlan &memory) {
+void writeMetrics(const Renderer *renderer, uint64_t renderSequence, const InputFrame &input, const FrameMemoryPlan &memory,
+                  std::optional<uint64_t> request) {
     const RendererDiagnostics empty{};
     const auto &d = renderer ? renderer->lastDiagnostics() : empty;
     std::ostringstream json;
@@ -808,7 +818,7 @@ void writeMetrics(const Renderer *renderer, uint64_t renderSequence, const Input
          << ",\"dynamicGpuBudget\":" << (memory.dynamicBudget ? "true" : "false")
          << ",\"budgetSelectedTiling\":" << (memory.selectedTiling ? "true" : "false") << '}';
     const auto text = json.str();
-    writeReply(0, text.data(), static_cast<uint32_t>(text.size()));
+    writeReply(0, text.data(), static_cast<uint32_t>(text.size()), request);
 }
 
 void configureLargeFrame(RenderParams &params, FrameSize size, bool nativePreview) {
@@ -831,48 +841,64 @@ void processStream(const FrameLimit &limit) {
     const bool nativePreview = &limit == &kNativePreviewLimit;
     uint64_t nextRevision = 0;
     uint64_t renderSequence = 0;
+    uint64_t lastRequest = 0;
+    bool versioned = false;
+    std::optional<uint64_t> request;
     FrameMemoryPlan memory{};
     std::string line;
     try {
-        while (readCommand(line)) {
+        while (true) {
+            request = versioned ? std::optional<uint64_t>(0) : std::nullopt;
+            if (!readCommand(line)) break;
             std::istringstream command(line);
             std::string verb;
             command >> verb;
-            if (verb == "HELLO") {
+            if (versioned) {
+                std::string identifier;
+                if (verb != "REQUEST" || !(command >> identifier >> verb))
+                    throw std::invalid_argument("Expected a numbered renderer request.");
+                uint64_t number = 0;
+                const auto end = identifier.data() + identifier.size();
+                const auto parsed = std::from_chars(identifier.data(), end, number);
+                if (parsed.ec != std::errc{} || parsed.ptr != end || number <= lastRequest)
+                    throw std::invalid_argument("Invalid or repeated renderer request number.");
+                request = lastRequest = number;
+            } else if (verb == "HELLO") {
                 std::string version, extra;
-                if (!(command >> version) || version != "1" || (command >> extra)) {
-                    writeError("The renderer requires HELLO 1. Install a matching panel and renderer.");
+                if (!(command >> version) || (version != "1" && version != "2") || (command >> extra)) {
+                    writeError("The renderer supports HELLO 1 and HELLO 2. Install a matching panel and renderer.");
                     continue;
                 }
-                writeCapabilities(limit);
+                versioned = version == "2";
+                writeCapabilities(limit, versioned ? kProtocolVersion : 1);
                 continue;
             }
             if (verb == "METRICS") {
                 std::string extra;
-                if (command >> extra) writeError("METRICS does not take arguments.");
-                else writeMetrics(renderer.get(), renderSequence, input, memory);
+                if (command >> extra) writeError("METRICS does not take arguments.", request);
+                else writeMetrics(renderer.get(), renderSequence, input, memory, request);
                 continue;
             }
             if (verb == "QUIT") {
                 std::string extra;
                 if (command >> extra) {
-                    writeError("QUIT does not take arguments.");
+                    writeError("QUIT does not take arguments.", request);
                     continue;
                 }
-                writeReply(0, nullptr, 0);
+                writeReply(0, nullptr, 0, request);
                 return;
             }
 
             const bool packedPreview = nativePreview && (verb == "FRAME8" || verb == "REUSE8");
             const bool replacesInput = verb == "FRAME" || (packedPreview && verb == "FRAME8");
             FrameSize size{};
-            if (replacesInput) {
+            if (!replacesInput && verb != "REUSE" && !packedPreview)
+                throw std::invalid_argument("Expected a FRAME, REUSE, or QUIT renderer command.");
+            if (replacesInput || versioned) {
                 std::string width, height;
                 command >> width >> height;
                 // An invalid frame length makes locating the next header impossible.
                 size = readFrameSize(width, height, limit);
-            } else if (verb != "REUSE" && !packedPreview) {
-                throw std::invalid_argument("Expected a FRAME, REUSE, or QUIT renderer command.");
             }
 
             std::vector<std::string> args;
@@ -881,6 +907,8 @@ void processStream(const FrameLimit &limit) {
             try {
                 if (!replacesInput && input.pixels.empty())
                     throw std::invalid_argument("Send a FRAME before requesting REUSE.");
+                if (!replacesInput && versioned && (size.width != input.size.width || size.height != input.size.height))
+                    throw std::invalid_argument("REUSE dimensions do not match the accepted source.");
                 params = readParameters(args);
                 if (packedPreview && params.outputColorSpace != ColorSpace::Srgb)
                     throw std::invalid_argument("Packed Viewer pixels require sRGB output.");
@@ -888,7 +916,7 @@ void processStream(const FrameLimit &limit) {
                     configureLargeFrame(params, replacesInput ? size : input.size, nativePreview);
             } catch (const std::exception &error) {
                 if (replacesInput) skipFrame(size);
-                writeError(error.what());
+                writeError(error.what(), request);
                 continue;
             }
 
@@ -896,7 +924,7 @@ void processStream(const FrameLimit &limit) {
             if (replacesInput) {
                 replacement = readFrame(size);
                 if (!hasFinitePixels(replacement)) {
-                    writeError("Invalid input pixel.");
+                    writeError("Invalid input pixel.", request);
                     continue;
                 }
                 if (nativePreview) replacement.revision = ++nextRevision;
@@ -909,20 +937,20 @@ void processStream(const FrameLimit &limit) {
                     ++renderSequence;
                 } catch (const std::exception &error) {
                     renderer.reset();
-                    writeError(error.what());
+                    writeError(error.what(), request);
                     continue;
                 }
                 if (replacesInput) input = std::move(replacement);
                 if (nativePreview) renderedArguments = std::move(args);
             }
             if (packedPreview) {
-                writePackedPreview(input, output);
+                writePackedPreview(input, output, request);
             } else {
-                writeReply(0, reinterpret_cast<const char *>(output.data()), static_cast<uint32_t>(byteCount(output.size())));
+                writeReply(0, reinterpret_cast<const char *>(output.data()), static_cast<uint32_t>(byteCount(output.size())), request);
             }
         }
     } catch (const std::exception &error) {
-        if (std::cout) writeError(error.what());
+        if (std::cout) writeError(error.what(), request, true);
         throw;
     }
 }

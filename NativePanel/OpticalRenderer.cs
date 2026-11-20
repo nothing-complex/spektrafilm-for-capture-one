@@ -9,6 +9,8 @@ using System.Threading.Tasks;
 
 internal sealed class OpticalRenderer(bool export = false, bool nativePreview = false) : IDisposable, IAsyncDisposable
 {
+    private static readonly UTF8Encoding StrictUtf8 = new(false, true);
+    private static readonly byte[] Hello = Encoding.ASCII.GetBytes(FormattableString.Invariant($"HELLO {RendererProtocol.Version}\n"));
     private Process? process;
     private WeakReference<byte[]>? source;
     private readonly SemaphoreSlim requests = new(1, 1);
@@ -20,6 +22,7 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
     private int negotiatedMaxEdge, negotiatedMaxPixels;
     private bool negotiatedPackedDisplay;
     private int sourceWidth, sourceHeight;
+    private ulong requestSequence;
     internal string? ParameterContract { get; private set; }
 
     internal async Task<byte[]> RenderAsync(int width, int height, byte[] rgba, string[] arguments, CancellationToken stop,
@@ -77,9 +80,9 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
         var newSource = sourceWidth != width || sourceHeight != height
             || source is null || !source.TryGetTarget(out var previous) || !ReferenceEquals(previous, rgba);
         var verb = newSource ? (displayPixels ? "FRAME8" : "FRAME") : (displayPixels ? "REUSE8" : "REUSE");
-        var command = newSource ? FormattableString.Invariant($"{verb} {width} {height}") : verb;
+        var request = checked(++requestSequence);
+        var command = FormattableString.Invariant($"REQUEST {request} {verb} {width} {height}");
         var header = Encoding.ASCII.GetBytes(command + " " + string.Join(' ', arguments) + "\n");
-        var reply = new byte[8];
         try
         {
             if (!negotiated)
@@ -92,15 +95,16 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
             if (newSource)
                 await input.WriteAsync(rgba, token).ConfigureAwait(false);
             await input.FlushAsync(token).ConfigureAwait(false);
-            await output.ReadExactlyAsync(reply, token).ConfigureAwait(false);
-            var code = BinaryPrimitives.ReadInt32LittleEndian(reply);
-            var size = BinaryPrimitives.ReadInt32LittleEndian(reply.AsSpan(4));
-            if (code == 1 && size is >= 1 and <= 4096)
+            var (code, size) = await ReadReplyAsync(output, request, token).ConfigureAwait(false);
+            if (code is 1 or 2 && size is >= 1 and <= 4096)
             {
                 var error = new byte[size];
                 await output.ReadExactlyAsync(error, token).ConfigureAwait(false);
+                var message = StrictUtf8.GetString(error);
+                if (code == 2)
+                    throw new InvalidDataException("The optical renderer lost request synchronization: " + message);
                 source = null;
-                throw new InvalidOperationException(Encoding.UTF8.GetString(error));
+                throw new InvalidOperationException(message);
             }
             if (code != 0 || size != (displayPixels ? rgba.Length / sizeof(float) : rgba.Length))
                 throw new InvalidDataException("The optical renderer returned an invalid frame.");
@@ -122,7 +126,7 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
             throw new TimeoutException($"Spektrafilm did not finish the {target} in time.");
         }
         catch (Exception error) when (error is IOException or InvalidDataException or JsonException
-            or OperationCanceledException or ObjectDisposedException)
+            or OperationCanceledException or ObjectDisposedException or DecoderFallbackException)
         {
             await StopAsync(abort: true).ConfigureAwait(false);
             // Disposing a worker can close its pipe before Windows completes
@@ -132,9 +136,18 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
         }
     }
 
+    private static async Task<(int Code, int Size)> ReadReplyAsync(Stream output, ulong request, CancellationToken token)
+    {
+        var header = new byte[RendererProtocol.ReplyHeaderBytes];
+        await output.ReadExactlyAsync(header, token).ConfigureAwait(false);
+        if (BinaryPrimitives.ReadUInt64LittleEndian(header.AsSpan(8)) != request)
+            throw new InvalidDataException("The optical renderer response did not match the active request.");
+        return (BinaryPrimitives.ReadInt32LittleEndian(header), BinaryPrimitives.ReadInt32LittleEndian(header.AsSpan(4)));
+    }
+
     private async Task NegotiateAsync(Process child, CancellationToken token)
     {
-        await child.StandardInput.BaseStream.WriteAsync("HELLO 1\n"u8.ToArray(), token).ConfigureAwait(false);
+        await child.StandardInput.BaseStream.WriteAsync(Hello, token).ConfigureAwait(false);
         await child.StandardInput.BaseStream.FlushAsync(token).ConfigureAwait(false);
         var header = new byte[8];
         await child.StandardOutput.BaseStream.ReadExactlyAsync(header, token).ConfigureAwait(false);
@@ -147,7 +160,10 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
         using var document = JsonDocument.Parse(bytes);
         var value = document.RootElement;
         if (value.ValueKind != JsonValueKind.Object
-            || !value.TryGetProperty("protocol", out var protocol) || protocol.ValueKind != JsonValueKind.Number || !protocol.TryGetInt32(out var version) || version != 1
+            || !value.TryGetProperty("protocol", out var protocol) || protocol.ValueKind != JsonValueKind.Number || !protocol.TryGetInt32(out var version) || version != RendererProtocol.Version
+            || !value.TryGetProperty("requestHeaderBytes", out var headerBytes) || headerBytes.ValueKind != JsonValueKind.Number || !headerBytes.TryGetInt32(out var envelope) || envelope != RendererProtocol.ReplyHeaderBytes
+            || !value.TryGetProperty("floatLayout", out var floatLayout) || floatLayout.ValueKind != JsonValueKind.String || floatLayout.GetString() != "rgba32f"
+            || !value.TryGetProperty("packedLayout", out var packedLayout) || packedLayout.ValueKind != JsonValueKind.String || packedLayout.GetString() != "bgra8"
             || !value.TryGetProperty("floatChannels", out var channels) || channels.ValueKind != JsonValueKind.Number || !channels.TryGetInt32(out var count) || count != 4
             || !value.TryGetProperty("floatBits", out var bits) || bits.ValueKind != JsonValueKind.Number || !bits.TryGetInt32(out var precision) || precision != 32
             || !value.TryGetProperty("littleEndian", out var byteOrder) || byteOrder.ValueKind != JsonValueKind.True
@@ -184,7 +200,7 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
         using var manifest = JsonDocument.Parse(file);
         var value = manifest.RootElement;
         if (value.ValueKind != JsonValueKind.Object
-            || !value.TryGetProperty("rendererProtocol", out var protocol) || protocol.ValueKind != JsonValueKind.Number || !protocol.TryGetInt32(out var version) || version != 1
+            || !value.TryGetProperty("rendererProtocol", out var protocol) || protocol.ValueKind != JsonValueKind.Number || !protocol.TryGetInt32(out var version) || version != RendererProtocol.Version
             || !value.TryGetProperty("parameterContract", out var parameter) || parameter.ValueKind != JsonValueKind.String
             || !string.Equals(parameter.GetString(), contract, StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("The renderer and release manifest do not match. Reinstall the complete release.");
@@ -203,12 +219,12 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
             var token = deadline.Token;
             try
             {
-                await child.StandardInput.BaseStream.WriteAsync("METRICS\n"u8.ToArray(), token).ConfigureAwait(false);
+                var request = checked(++requestSequence);
+                var command = FormattableString.Invariant($"REQUEST {request} METRICS\n");
+                await child.StandardInput.BaseStream.WriteAsync(Encoding.ASCII.GetBytes(command), token).ConfigureAwait(false);
                 await child.StandardInput.BaseStream.FlushAsync(token).ConfigureAwait(false);
-                var header = new byte[8];
-                await child.StandardOutput.BaseStream.ReadExactlyAsync(header, token).ConfigureAwait(false);
-                var length = BinaryPrimitives.ReadInt32LittleEndian(header.AsSpan(4));
-                if (BinaryPrimitives.ReadInt32LittleEndian(header) != 0 || length is < 2 or > 65536)
+                var (code, length) = await ReadReplyAsync(child.StandardOutput.BaseStream, request, token).ConfigureAwait(false);
+                if (code != 0 || length is < 2 or > 65536)
                     throw new InvalidDataException("The renderer returned invalid diagnostics.");
                 var bytes = new byte[length];
                 await child.StandardOutput.BaseStream.ReadExactlyAsync(bytes, token).ConfigureAwait(false);

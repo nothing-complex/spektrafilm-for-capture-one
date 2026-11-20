@@ -282,9 +282,9 @@ var fixtureOptions = new object[]
     new { key = "film-gamma", kind = "number", minimum = 0.100000001, maximum = 2d, @default = 1d },
     new { key = "grain-seed", kind = "integer", minimum = 0, maximum = int.MaxValue, @default = 1 },
 };
-void WriteRendererFixture(bool academyPrinterDensity, object[] parameters) => PanelFiles.WriteCompactPreset(rendererManifestPath, new
+void WriteRendererFixture(bool academyPrinterDensity, object[] parameters, int protocol = 2) => PanelFiles.WriteCompactPreset(rendererManifestPath, new
 {
-    schemaVersion = 1, parameterContract = new string('a', 64), parameters,
+    schemaVersion = 1, rendererProtocol = protocol, parameterContract = new string('a', 64), parameters,
     scientific = new { academyPrinterDensity, films = new[] { new { id = "kodak_portra_400", hanatos2025 = true, hanatos2026 = true } } },
 });
 WriteRendererFixture(false, fixtureOptions);
@@ -301,6 +301,8 @@ Throws<InvalidDataException>("manifest rejects an out-of-range int", () => capab
 Throws<InvalidDataException>("manifest rejects unknown keys", () => capabilities.VerifyArguments(new[] { "--unknown", "0" }));
 WriteRendererFixture(false, new object[] { modeOption, modeOption });
 Throws<InvalidDataException>("manifest refuses duplicate renderer parameters", () => RendererParameters.Read(scratch));
+WriteRendererFixture(false, fixtureOptions, protocol: 1);
+Throws<InvalidDataException>("compiled parameter description must match the panel protocol", () => RendererParameters.Read(scratch));
 WriteRendererFixture(true, fixtureOptions);
 Check("compiled APD data enables the declared mode", RendererParameters.Read(scratch).SupportsChoice("mode", "process_negative"));
 

@@ -141,6 +141,52 @@ def check_stream(exe, frame, base):
     print("Stream validated persistent rendering, bounded input, error recovery, QUIT, and EOF")
 
 
+def check_numbered_stream(exe, frame, base):
+    def numbered(commands, exit_code=0):
+        result = subprocess.run([str(exe), "--native-preview-stream"], input=b"HELLO 2\n" + commands,
+                                capture_output=True, timeout=20)
+        assert result.returncode == exit_code, result.stderr
+        status, length = struct.unpack_from("<II", result.stdout)
+        capabilities = json.loads(result.stdout[8:8 + length])
+        assert status == 0 and capabilities["protocol"] == 2
+        assert capabilities["requestHeaderBytes"] == 16 and capabilities["floatLayout"] == "rgba32f"
+        assert capabilities["packedDisplay"] and capabilities["packedLayout"] == "bgra8"
+        replies = []
+        offset = 8 + length
+        while offset < len(result.stdout):
+            status, length, request = struct.unpack_from("<IIQ", result.stdout, offset)
+            offset += 16
+            assert length <= len(result.stdout) - offset
+            replies.append((request, status, result.stdout[offset:offset + length]))
+            offset += length
+        return replies
+
+    small = frame[np.arange(12)[:, None] % frame.shape[0], np.arange(13) % frame.shape[1]]
+    upload = b"REQUEST 7 " + frame_request(small, base)
+    same_frame = f"REQUEST 10 REUSE 13 12 {base}\n".encode("ascii")
+    replies = numbered(upload + b"REQUEST 8 REUSE 12 13\n" + same_frame
+                       + f"REQUEST 11 REUSE8 13 12 {base}\n".encode("ascii")
+                       + b"REQUEST 12 METRICS\nREQUEST 13 QUIT\n")
+    assert [(request, status) for request, status, _ in replies] == [(7, 0), (8, 1), (10, 0), (11, 0), (12, 0), (13, 0)]
+    assert b"dimensions do not match" in replies[1][2] and replies[0][2] == replies[2][2]
+    assert len(replies[0][2]) == small.nbytes and len(replies[3][2]) == small.nbytes // 4
+    metrics = json.loads(replies[4][2])
+    assert metrics["renderSequence"] == 1 and (metrics["width"], metrics["height"]) == (13, 12)
+    assert replies[5][2] == b""
+    for command, request, error in (
+        (b"REQUEST 7 METRICS\n", 0, b"repeated renderer request"),
+        (b"METRICS\n", 0, b"Expected a numbered"),
+        (b"REQUEST 18446744073709551616 METRICS\n", 0, b"Invalid or repeated"),
+        (b"REQUEST 8 FRAME 1 1\nshort", 8, b"wrong byte length"),
+        (b"REQUEST 8 FRAME 16385 1\n", 8, b"Invalid integer"),
+        (b"REQUEST 8 " + b" " * 16384 + b"\n", 0, b"exceeds 16 KB"),
+    ):
+        frames = numbered(upload + command, exit_code=1)
+        assert len(frames) == 2 and frames[0] == replies[0]
+        assert frames[1][:2] == (request, 2) and error in frames[1][2], frames[1]
+    print("Protocol 2 validated request identity, exact reuse layout, packed output and fatal framing errors")
+
+
 def check_export_stream(exe, frame, base):
     small_request = frame_request(frame[::8, ::8].copy(), base)
     assert run_stream(exe, small_request, mode="--export-stream") == run_stream(exe, small_request)
@@ -377,6 +423,7 @@ def main():
     frame = source_frame(args.image)
     base = "--stock kodak_portra_400 --paper kodak_portra_endura --input-color srgb"
     check_stream(args.exe, frame, base)
+    check_numbered_stream(args.exe, frame, base)
     check_export_stream(args.exe, frame, base)
     check_output_transfers(args.exe, frame, base)
     check_tiled_parity(args.exe, base)

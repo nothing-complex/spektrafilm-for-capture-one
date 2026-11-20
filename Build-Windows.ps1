@@ -74,7 +74,8 @@ $description = & $executable --describe
 if ($LASTEXITCODE -ne 0 -or @($description).Count -ne 1) { throw 'The renderer did not return its compiled parameter description.' }
 $parameterManifest = $description | ConvertFrom-Json
 $parameterHash = (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot 'upstream-ofx\src\SpektraParameters.h') -Algorithm SHA256).Hash
-if ($parameterManifest.schemaVersion -ne 1 -or $parameterManifest.parameterContract -notmatch '^[0-9a-fA-F]{64}$' -or
+if ($parameterManifest.schemaVersion -ne 1 -or $parameterManifest.rendererProtocol -ne 2 -or
+    $parameterManifest.parameterContract -notmatch '^[0-9a-fA-F]{64}$' -or
     $parameterManifest.parameterContract -ne $parameterHash -or
     @($parameterManifest.parameters).Count -lt 1 -or @($parameterManifest.parameters).Count -gt 256) {
     throw 'The renderer returned an unsupported parameter description.'

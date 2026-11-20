@@ -20,7 +20,9 @@ internal static class Program
         var previous = Environment.GetEnvironmentVariable("SPEKTRAFILM_ROOT");
         try
         {
-            foreach (var malformed in new[] { "status", "length", "truncated", "error-size", "bad-json", "old-version", "bad-json-type", "bad-contract", "bad-precision", "bad-endian", "bad-limits" })
+            foreach (var malformed in new[] { "status", "fatal", "wrong-request", "length", "truncated", "truncated-header", "error-size",
+                "bad-error-text", "bad-json", "old-version", "bad-json-type", "bad-contract", "bad-precision", "bad-endian", "bad-limits",
+                "bad-reply-layout", "bad-float-layout", "bad-packed-layout" })
             {
                 var root = Setup(scratch, malformed);
                 using var renderer = new OpticalRenderer(nativePreview: true);
@@ -42,10 +44,32 @@ internal static class Program
                 var trace = File.ReadAllLines(Path.Combine(root, "renderer", "trace.txt"));
                 Check(trace.Count(l => l.Contains("HELLO")) == 1, "one negotiation per worker");
                 Check(trace.Count(l => l.Contains("FRAME ")) == 2, "layout change replaces input");
-                Check(trace.Count(l => l.EndsWith(":REUSE")) == 1, "immutable frame reused");
+                Check(trace.Count(l => l.Contains(" REUSE 2 1")) == 1, "immutable frame reused with exact dimensions");
                 var diagnostics = await renderer.ReadDiagnosticsAsync(default);
                 Check(diagnostics?.GetProperty("schema").GetInt32() == 1, "versioned diagnostics");
                 Check(renderer.ParameterContract == Contract, "negotiated contract");
+                var requestIds = File.ReadLines(Path.Combine(root, "renderer", "trace.txt"))
+                    .Where(l => l.Contains(":REQUEST ")).Select(l => ulong.Parse(l.Split(' ')[1])).ToArray();
+                Check(requestIds.SequenceEqual(new ulong[] { 1, 2, 3, 4 }), "render, reuse and metrics share a monotonic sequence");
+            }
+            {
+                var root = Setup(scratch, "valid");
+                await using var renderer = new OpticalRenderer(nativePreview: true);
+                var pixels = Pixels(1);
+                string PathInRenderer(string name) => Path.Combine(root, "renderer", name);
+                await renderer.RenderAsync(1, 1, pixels, [], default);
+                File.WriteAllText(PathInRenderer("scenario.txt"), "wrong-request");
+                await Throws<InvalidDataException>(() => renderer.RenderAsync(1, 1, pixels, [], default));
+                File.WriteAllText(PathInRenderer("scenario.txt"), "valid");
+                await renderer.RenderAsync(1, 1, pixels, [], default);
+                File.WriteAllText(PathInRenderer("scenario.txt"), "wrong-metrics-request");
+                await Throws<InvalidDataException>(() => renderer.ReadDiagnosticsAsync(default));
+                File.WriteAllText(PathInRenderer("scenario.txt"), "valid");
+                await renderer.RenderAsync(1, 1, pixels, [], default);
+                var trace = File.ReadAllLines(PathInRenderer("trace.txt"));
+                Check(trace.Count(l => l.Contains(" FRAME ")) == 3 && trace.Count(l => l.Contains(" REUSE ")) == 1,
+                    "corrupt frame and diagnostic envelopes discard all remembered source data");
+                Check(trace.Count(l => l.Contains(":HELLO 2")) == 3, "corrupt replies restart and negotiate a new worker");
             }
             {
                 var root = Setup(scratch, "limited-dimensions");
@@ -74,17 +98,20 @@ internal static class Program
                 Check(trace.Count(l => l.Contains("HELLO")) == 1, "valid error keeps synchronized worker");
                 Check(trace.Count(l => l.Contains("FRAME ")) == 2, "valid error invalidates remembered source");
             }
+            foreach (var scenario in new[] { "hang", "hang-upload", "hang-reply" })
             {
-                var root = Setup(scratch, "hang");
+                var root = Setup(scratch, scenario);
                 using var renderer = new OpticalRenderer(nativePreview: true);
                 using var cancel = new CancellationTokenSource();
-                var render = renderer.RenderAsync(1, 1, Pixels(1), [], cancel.Token);
+                var edge = scenario == "hang-upload" ? 512 : 1;
+                var frame = new byte[edge * edge * 16];
+                var render = renderer.RenderAsync(edge, edge, frame, [], cancel.Token);
                 await WaitForRequest(root, render);
                 cancel.Cancel();
                 await Throws<OperationCanceledException>(() => render.WaitAsync(TimeSpan.FromSeconds(10)));
                 File.WriteAllText(Path.Combine(root, "renderer", "scenario.txt"), "valid");
                 await renderer.RenderAsync(1, 1, Pixels(1), [], default);
-                Check(File.ReadAllLines(Path.Combine(root, "renderer", "trace.txt")).Count(l => l.Contains("HELLO")) == 2, "cancel restarts and renegotiates");
+                Check(File.ReadAllLines(Path.Combine(root, "renderer", "trace.txt")).Count(l => l.Contains("HELLO")) == 2, $"cancel restarts and renegotiates after {scenario}");
             }
             {
                 var root = Setup(scratch, "valid");
@@ -152,13 +179,15 @@ internal static class Program
                 }
                 finally { for (var i = 0; i < names.Length; i++) Environment.SetEnvironmentVariable(names[i], old[i]); }
             }
-            foreach (var manifest in new[] { "[]", "{\"rendererProtocol\":\"1\"}", "{\"rendererProtocol\":1,\"parameterContract\":\"wrong\"}" })
+            foreach (var manifest in new[] { "[]", "{\"rendererProtocol\":\"2\"}", "{\"rendererProtocol\":2,\"parameterContract\":\"wrong\"}",
+                JsonSerializer.Serialize(new { rendererProtocol = 1, parameterContract = Contract }) })
             {
                 var root = Setup(scratch, "valid");
                 File.WriteAllText(Path.Combine(root, "build-manifest.json"), manifest);
                 using var renderer = new OpticalRenderer();
                 await Throws<InvalidDataException>(() => renderer.RenderAsync(1, 1, Pixels(1), [], default));
-                File.WriteAllText(Path.Combine(root, "build-manifest.json"), JsonSerializer.Serialize(new { rendererProtocol = 1, parameterContract = Contract }));
+                File.WriteAllText(Path.Combine(root, "build-manifest.json"),
+                    JsonSerializer.Serialize(new { rendererProtocol = RendererProtocol.Version, parameterContract = Contract }));
                 await renderer.RenderAsync(1, 1, Pixels(1), [], default);
                 Check(true, "manifest mismatch recoverable after corrected runtime set");
             }
@@ -430,9 +459,12 @@ internal static class Program
                 var json = scenario switch
                 {
                     "bad-json" => "broken-json",
-                    "bad-json-type" => "{\"protocol\":\"1\"}",
-                    _ => JsonSerializer.Serialize(new { protocol = scenario == "old-version" ? 0 : 1, floatChannels = 4,
+                    "bad-json-type" => "{\"protocol\":\"2\"}",
+                    _ => JsonSerializer.Serialize(new { protocol = scenario == "old-version" ? 1 : 2, floatChannels = 4,
                         floatBits = scenario == "bad-precision" ? 16 : 32, littleEndian = scenario != "bad-endian",
+                        requestHeaderBytes = scenario == "bad-reply-layout" ? 8 : 16,
+                        floatLayout = scenario == "bad-float-layout" ? "bgra32f" : "rgba32f",
+                        packedLayout = scenario == "bad-packed-layout" ? "rgba8" : "bgra8",
                         maxSide = scenario == "limited-dimensions" ? 1 : 16384,
                         maxPixels = scenario switch { "bad-limits" => 0, "limited-dimensions" => 1, _ => 100_000_000 },
                         packedDisplay = scenario != "no-packed",
@@ -440,11 +472,32 @@ internal static class Program
                 };
                 Reply(output, 0, Encoding.UTF8.GetBytes(json)); continue;
             }
-            if (tokens[0] == "METRICS") { Reply(output, 0, "{\"schema\":1}"u8.ToArray()); continue; }
-            if (tokens[0].StartsWith("FRAME"))
+            if (tokens[0] != "REQUEST") return;
+            var request = ulong.Parse(tokens[1], CultureInfo.InvariantCulture);
+            var verb = tokens[2];
+            if (verb == "METRICS")
             {
-                pixels = new byte[int.Parse(tokens[1]) * int.Parse(tokens[2]) * 16];
+                Reply(output, 0, "{\"schema\":1}"u8.ToArray(), request: scenario == "wrong-metrics-request" ? request + 1 : request);
+                continue;
+            }
+            if (scenario == "hang-upload")
+            {
+                _ = input.ReadByte();
+                File.WriteAllText("request-received", "");
+                Thread.Sleep(10000);
+                return;
+            }
+            if (verb.StartsWith("FRAME"))
+            {
+                pixels = new byte[int.Parse(tokens[3]) * int.Parse(tokens[4]) * 16];
                 input.ReadExactly(pixels);
+            }
+            if (scenario == "hang-reply")
+            {
+                Reply(output, 0, pixels[..4], pixels.Length, request);
+                File.WriteAllText("request-received", "");
+                Thread.Sleep(10000);
+                return;
             }
             if (scenario is "hang" or "gated") File.WriteAllText("request-received", "");
             if (scenario == "hang") { Thread.Sleep(10000); continue; }
@@ -455,12 +508,19 @@ internal static class Program
                     Thread.Sleep(10);
                 if (!File.Exists("release-response")) return;
             }
-            if (scenario == "status") Reply(output, 99, pixels);
-            else if (scenario == "length") Reply(output, 0, new byte[pixels.Length + 1]);
-            else if (scenario == "error-size") Reply(output, 1, new byte[65536]);
-            else if (scenario == "truncated") { Reply(output, 0, [], pixels.Length); return; }
-            else if (scenario == "valid-error") Reply(output, 1, "Invalid stock"u8.ToArray());
-            else Reply(output, 0, pixels);
+            switch (scenario)
+            {
+                case "status": Reply(output, 99, pixels, request: request); break;
+                case "fatal": Reply(output, 2, "Invalid envelope"u8.ToArray(), request: request); break;
+                case "wrong-request": Reply(output, 0, pixels, request: request + 1); break;
+                case "length": Reply(output, 0, new byte[pixels.Length + 1], request: request); break;
+                case "error-size": Reply(output, 1, new byte[65536], request: request); break;
+                case "bad-error-text": Reply(output, 1, [0xff], request: request); break;
+                case "truncated": Reply(output, 0, [], pixels.Length, request); return;
+                case "truncated-header": Reply(output, 0, [], pixels.Length); return;
+                case "valid-error": Reply(output, 1, "Invalid stock"u8.ToArray(), request: request); break;
+                default: Reply(output, 0, pixels, request: request); break;
+            }
         }
     }
     private static string? ReadLine(Stream input)
@@ -473,10 +533,12 @@ internal static class Program
         }
         return null;
     }
-    private static void Reply(Stream output, int status, byte[] bytes, int? length = null)
+    private static void Reply(Stream output, int status, byte[] bytes, int? length = null, ulong? request = null)
     {
-        var header = new byte[8]; BinaryPrimitives.WriteInt32LittleEndian(header, status);
+        var header = new byte[request.HasValue ? 16 : 8];
+        BinaryPrimitives.WriteInt32LittleEndian(header, status);
         BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(4), length ?? bytes.Length);
+        if (request is { } number) BinaryPrimitives.WriteUInt64LittleEndian(header.AsSpan(8), number);
         output.Write(header); output.Write(bytes); output.Flush();
     }
 }
