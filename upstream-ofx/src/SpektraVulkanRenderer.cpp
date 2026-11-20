@@ -1220,7 +1220,10 @@ constexpr uint32_t kVulkanSpatialEffectRadiusPx = 256u;
 constexpr uint32_t kDefaultVulkanTileWidth = 512u;
 constexpr uint32_t kDefaultVulkanTileHeight = 256u;
 
-uint32_t estimateVulkanTileOverlap(const RenderParams &params) {
+float filmPixelSizeForLongEdge(const RenderParams &params, uint32_t longEdge);
+uint32_t scannerPostSupport(const RenderParams &params, float pixelSizeUm, bool glare, bool mtf, bool unsharp);
+
+uint32_t estimateVulkanTileOverlap(const RenderParams &params, uint32_t longEdge) {
   uint32_t overlap = 0u;
   const bool finalOutput = params.renderOutput == RenderOutputMode::FinalPreview;
   const bool rcmOutput = finalOutput && params.outputRole == OutputRole::Rcm;
@@ -1268,13 +1271,15 @@ uint32_t estimateVulkanTileOverlap(const RenderParams &params) {
       params.printDiffusionSpatialScale > 0.0f) {
     overlap += kVulkanSpatialEffectRadiusPx;
   }
-  if (finalPostProcessPath &&
-      !rcmOutput &&
-      params.scannerEnabled &&
-      ((params.glarePercent > 0.0f && params.glareBlur > 0.0f) ||
-       params.scannerMtf50LpMm > 0.0f ||
-       (params.scannerUnsharpRadiusUm > 0.0f && params.scannerUnsharpAmount > 0.0f))) {
-    overlap += kVulkanSpatialEffectRadiusPx;
+  if (finalPostProcessPath && !rcmOutput && params.scannerEnabled &&
+      envFlagEnabledOrDefault("SPEKTRAFILM_VULKAN_SCANNER_POST_PASS", true) &&
+      envFlagEnabledOrDefault("SPEKTRAFILM_VULKAN_PRINT_SCAN_PASS", true)) {
+    overlap += scannerPostSupport(
+      params, filmPixelSizeForLongEdge(params, longEdge),
+      (finalPrintSimulation || finalProcessNegative) && params.glarePercent > 0.0f && params.glareBlur > 0.0f,
+      params.scannerMtf50LpMm > 0.0f,
+      params.scannerUnsharpRadiusUm > 0.0f && params.scannerUnsharpAmount > 0.0f
+    );
   }
   return overlap;
 }
@@ -2107,6 +2112,11 @@ float resolvedEnlargerScale(const RenderParams &params) {
   return std::clamp(params.enlargerScale, 1.0f, 32.0f);
 }
 
+float filmPixelSizeForLongEdge(const RenderParams &params, uint32_t longEdge) {
+  return filmFormatLongEdgeMm(params.filmFormat) * 1000.0f /
+    static_cast<float>(longEdge) / resolvedEnlargerScale(params);
+}
+
 float filmPushPullGamma(float stops) {
   const float clampedStops = std::clamp(stops, -2.0f, 2.0f);
   constexpr float kNormalEcn2Seconds = 180.0f;
@@ -2137,6 +2147,21 @@ float scannerSigmaUmFromMtf50(float mtf50LpMm) {
   }
   constexpr float kPi = 3.14159265358979323846f;
   return 1000.0f * std::sqrt(std::log(2.0f) / (2.0f * kPi * kPi)) / mtf50LpMm;
+}
+
+uint32_t scannerPostSupport(const RenderParams &params, float pixelSizeUm, bool glare, bool mtf, bool unsharp) {
+  // Match the separable support used by SpektraScannerPost.comp. Serial passes
+  // need the sum of their radii so a tile never samples the artificial boundary.
+  auto kernelRadius = [](float sigma) -> uint32_t {
+    if (!(sigma > 1.0e-4f)) {
+      return 0u;
+    }
+    return static_cast<uint32_t>(std::min(std::ceil(3.0f * sigma), static_cast<float>(kVulkanSpatialEffectRadiusPx)));
+  };
+  const float pixelSize = std::max(pixelSizeUm, 1.0e-6f);
+  return (glare ? kernelRadius(params.glareBlur) : 0u) +
+    (mtf ? kernelRadius(scannerSigmaUmFromMtf50(params.scannerMtf50LpMm) / pixelSize) : 0u) +
+    (unsharp ? kernelRadius(params.scannerUnsharpRadiusUm / pixelSize) : 0u);
 }
 
 float sampleTransferLut(float value, int32_t colorSpace, const float *luts) {
@@ -4916,9 +4941,7 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
   const VkDeviceSize halationBoostChunkByteCount = static_cast<VkDeviceSize>(
     std::max<uint64_t>(halationBoostMaxChunkCount, 1u) * 4u * sizeof(float)
   );
-  const float filmPixelSizeUm = filmFormatLongEdgeMm(params.filmFormat) * 1000.0f /
-    static_cast<float>(std::max(coordinateWidth, coordinateHeight)) /
-    resolvedEnlargerScale(params);
+  const float filmPixelSizeUm = filmPixelSizeForLongEdge(params, std::max(coordinateWidth, coordinateHeight));
   const bool finalOutput = params.renderOutput == RenderOutputMode::FinalPreview;
   const bool rcmOutput = finalOutput && params.outputRole == OutputRole::Rcm;
   const bool finalPrintSimulation =
@@ -5116,8 +5139,9 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
   const uint32_t grainRadius =
     (productionGrainPath || grainSynthesisPath) ? kVulkanGrainSpatialRadiusPx : 0u;
   const uint32_t printDiffusionRadius = printDiffusionPath ? kVulkanSpatialEffectRadiusPx : 0u;
-  const uint32_t scannerPostRadius =
-    (printGlareBlurPath || scannerBlurPath || scannerUnsharpPath) ? kVulkanSpatialEffectRadiusPx : 0u;
+  const uint32_t scannerPostRadius = scannerPostSupport(
+    params, filmPixelSizeUm, printGlareBlurPath, scannerBlurPath, scannerUnsharpPath
+  );
   const bool activeRectShrinkEnabled = activeTileContext.enabled;
   const bool frameParamsEnabled = printScanPassEnabled || halationPassEnabled || scannerPostPath || grainPath;
   const bool preExposureRawPath = cameraDiffusionPath || halationPassEnabled;
@@ -7643,7 +7667,7 @@ bool VulkanRenderer::Impl::renderTiledBootstrap(
     static_cast<uint32_t>(fullHeight),
     envTileDimension("SPEKTRAFILM_VULKAN_TILE_HEIGHT", kDefaultVulkanTileHeight)
   );
-  const uint32_t overlap = estimateVulkanTileOverlap(params);
+  const uint32_t overlap = estimateVulkanTileOverlap(params, static_cast<uint32_t>(std::max(fullWidth, fullHeight)));
   auto growTileForOverlap = [&](uint32_t current, uint32_t fullDimension) {
     if (overlap <= current) {
       return current;

@@ -532,9 +532,10 @@ Evidence is under `.test-results/host-recipe-proofing-final-20261120`.
 - [x] Quantify capped scanner, DIR and grain kernels against the uncapped finite kernels in 48 cases. Confirm scanner response in 12 real Vulkan renders across 8 mm, 35 mm and IMAX film at four resolutions.
 - [x] Reproduce the resolution drift. Standard 8 scanner unsharp at 100 µm measured 99.53 µm at 1,200 px and 41.81 µm at 16,384 px. The capped DIR longest lobe has the largest analytical tail loss.
 - [x] Validate a CPU prototype for centered impulses. Sixteen capped cases with globally aligned tent reduction, reduced Gaussian convolution and interpolation preserve mass and centroid within numerical noise. Worst sigma error is 0.316% and normalized L1 error is 0.00184.
+- [x] Reproduce scanner seams and alpha drift with a 4097 × 33 Standard 8 chart and stacked glare, MTF and unsharp. Old full versus tiled RGB differed by 0.03222 with 274,479 codes outside the 2e-6 tolerance. MTF changed alpha by up to 0.60313. Use the sum of actual finite scanner supports in both the tiled planner and inner dispatch and preserve alpha during MTF passes. Actual Vulkan output now has zero full-versus-tiled difference and exact source alpha. All Windows contracts and Vulkan smoke passed.
 - [ ] Validate an appearance-versioned larger-support filter and tile margins. Compare energy, resolution, boundaries, full/tiled parity and performance before enabling it.
 
-Evidence is in `.test-results/physical-blur-support-reference-20261120.json` and `.test-results/physical-blur-tent-verified-20261120.json`. Repeat the prototype with `qa/blur-support.py --prototype-tent`.
+Evidence is in `.test-results/physical-blur-support-reference-20261120.json`, `.test-results/physical-blur-tent-verified-20261120.json`, `.test-results/scanner-composed-halo-baseline-20261120/old.json` and `.test-results/contracts-scanner-composed-halo-20261120/renderer-smoke.log`. Repeat the prototype with `qa/blur-support.py --prototype-tent`.
 
 ## Catalog identity and look isolation
 

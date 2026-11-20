@@ -409,8 +409,17 @@ def check_tiled_parity(exe, base):
     height, width = 769, 1027
     y, x = np.mgrid[0:1:height * 1j, 0:1:width * 1j].astype(np.float32)
     checker = (np.floor(x * 7) + np.floor(y * 9)) % 2
-    frame = np.stack((.1 + .7 * x, .07 + .8 * y, .1 + .5 * checker, .15 + .85 * x), axis=-1)
-    frame[240:285, 475:530, :3] = 1.5  # Highlight crosses both default tile boundaries.
+    chart = np.stack((.1 + .7 * x, .07 + .8 * y, .1 + .5 * checker, .15 + .85 * x), axis=-1)
+    chart[240:285, 475:530, :3] = 1.5  # Highlight crosses both default tile boundaries.
+    # A long, thin image makes both physical scanner kernels wide without
+    # requiring a full-size image. The hard RGB and alpha edges cross tiles.
+    y, x = np.mgrid[:33, :4097]
+    scanner_chart = np.stack((
+        np.where((x % 511) < 230, .18, .87),
+        np.where(((x + 112) % 727) < 340, .12, .83),
+        np.where(((x + y * 2) % 321) < 115, .07, .70),
+        np.where((x % 329) < 198, .1, 1.0),
+    ), axis=-1).astype(np.float32)
     cases = {
         "color": "--grain-model off",
         "8 mm halation/scatter": "--grain-model off --film-format 8 --halation-amount 1 --scatter-amount 0.5",
@@ -419,11 +428,15 @@ def check_tiled_parity(exe, base):
                            "--print-diffusion-strength 1.5",
         "70 mm DIR": "--grain-model off --film-format 70 --dir-amount 1.5 --dir-diffusion 80 --dir-tail-weight 0.3",
         "metering/grain/scanner": "--grain-model production --film-format 35 --auto-exposure true --scanner-enabled true",
+        "stacked scanner kernels": "--grain-model off --film-format 8 --scanner-enabled true --scanner-mtf 1 "
+                                   "--scanner-unsharp-radius 100 --scanner-unsharp-amount 2 --scanner-glare .08 "
+                                   "--scanner-glare-roughness 1 --scanner-glare-blur 32",
         "enlarger": "--grain-model off --enlarger-scale 1.3 --enlarger-x 3 --enlarger-y -2",
     }
     clean = {key: value for key, value in os.environ.items()
              if not key.upper().startswith("SPEKTRAFILM_") and key.upper() != "DOTNET_STARTUP_HOOKS"}
     for label, options in cases.items():
+        frame = scanner_chart if label == "stacked scanner kernels" else chart
         pictures = []
         for mode in ("legacy", "tiled"):
             environment = {**clean, "SPEKTRAFILM_VULKAN_TILE_MODE": mode}
@@ -435,6 +448,8 @@ def check_tiled_parity(exe, base):
             assert np.isfinite(picture).all(), label
             alpha = reference_crop(frame, 1.3, .03, -.02)[..., 3] if label == "enlarger" else frame[..., 3]
             np.testing.assert_allclose(picture[..., 3], alpha, rtol=0, atol=4e-7, err_msg=f"Alpha: {label}")
+            if label == "stacked scanner kernels":
+                np.testing.assert_array_equal(picture[..., 3], alpha)
             metrics = json.loads(replies[1][1])
             assert metrics["tiled"] == (mode == "tiled"), (label, mode, metrics)
             if mode == "tiled":

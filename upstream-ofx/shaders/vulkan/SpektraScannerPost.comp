@@ -572,11 +572,15 @@ void main() {
     return;
   }
   if (params.operation == kOpScannerBlurX) {
-    storeTempPixel(index, gaussianSampleX(gid, max(f(kFrameScannerBlurSigmaPx), 0.0)));
+    vec4 blurred = gaussianSampleX(gid, max(f(kFrameScannerBlurSigmaPx), 0.0));
+    blurred.a = loadSourcePixel(index).a;
+    storeTempPixel(index, blurred);
     return;
   }
   if (params.operation == kOpScannerBlurY) {
-    storeTempPixel(index, gaussianSampleY(gid, max(f(kFrameScannerBlurSigmaPx), 0.0)));
+    vec4 blurred = gaussianSampleY(gid, max(f(kFrameScannerBlurSigmaPx), 0.0));
+    blurred.a = loadSourcePixel(index).a;
+    storeTempPixel(index, blurred);
     return;
   }
   if (params.operation == kOpUnsharpBlurX) {

@@ -6,6 +6,8 @@ The public source subset in `upstream-ofx` comes from Aedan Diez’s spektrafilm
 
 The still-image bridge can also install an optional cancellation probe on the Vulkan renderer. The tiled path checks it between tiles and between halation-milestone tiles, after the previous GPU work is safe to leave. A submitted GPU operation remains owned by its worker until it completes or the Windows parent shuts down that worker.
 
+On 2026-11-20, the Capture One fork changed scanner tiling to account for the combined finite support of glare, MTF blur and unsharp masking. The scanner MTF shader preserves the alpha channel while filtering RGB. The existing full-frame RGB kernel and its width cap remain in use.
+
 The corresponding source includes those modified files, the public stock and spectral data, shaders, and the tools that generate the C++ curves and runtime lookup tables. The subset omits upstream OFX distribution branding and PDF documentation, research output, and obsolete archived source. To rebuild Spektrafilm for Capture One, run `Build-Windows.ps1`, which compiles the `SpektraVulkanCopyHarness` target. The upstream OFX packaging targets require the upstream release assets.
 
 ## Python reference

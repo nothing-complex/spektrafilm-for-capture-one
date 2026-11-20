@@ -1180,17 +1180,21 @@
       "implemented": [
         "Added a compiled-parameter-aware baseline probe. It measures discrete capped-kernel mass, second moment and normalized L1 error in 48 cases across Standard 8, Standard 35 and IMAX 70, plus 12 genuine Vulkan scanner impulse responses with unchanged alpha.",
         "At 16,384 px on Standard 8, a 100 µm scanner unsharp sigma measured 41.81 µm with the current 256 px cap. The same setting measured 99.53 µm at 1,200 px. The ideal finite 3-sigma kernel predicts 98.66 µm at 16,384 px.",
-        "A CPU centered-impulse prototype tests globally aligned tent reduction, reduced Gaussian convolution and linear reconstruction at four subpixel phases where the production cap clips. All 16 cases preserve mass and centroid within numerical noise, with at most 0.316% sigma error and 0.00184 normalized L1 error."
+        "A CPU centered-impulse prototype tests globally aligned tent reduction, reduced Gaussian convolution and linear reconstruction at four subpixel phases where the production cap clips. All 16 cases preserve mass and centroid within numerical noise, with at most 0.316% sigma error and 0.00184 normalized L1 error.",
+        "A real 4097 by 33 Standard 8 Vulkan test combined glare, MTF blur and unsharp. The old capped planner underestimated the serial support, yielding a 0.03222 maximum RGB error across tiled boundaries, and MTF changed source alpha by up to 0.60313. The tile planner and scheduler now share the sum of actual finite scanner support. The MTF passes preserve alpha. All RGB samples match between full and tiled renders and alpha matches the input exactly. Full Windows contracts and Vulkan smoke passed."
       ],
       "evidence_paths": [
         "qa/blur-support.py",
         ".test-results/physical-blur-support-reference-20261120.json",
-        ".test-results/physical-blur-tent-verified-20261120.json"
+        ".test-results/physical-blur-tent-verified-20261120.json",
+        "ofx-still-renderer/smoke.py",
+        ".test-results/scanner-composed-halo-baseline-20261120/old.json",
+        ".test-results/contracts-scanner-composed-halo-20261120/renderer-smoke.log"
       ],
       "remaining_work": [
         "Extend the direct impulse/energy experiments to DIR, grain and other blur backends. The initial reports for those capped kernels are analytical.",
         "Add a Vulkan version of the phase-aligned reduction as an explicit appearance version, starting with scanner unsharp. Preserve old looks and validate boundary behavior and actual performance.",
-        "Recompute tile overlap from actual chosen support",
+        "Recompute the tile overlap for the planned multiscale implementation and remaining physical blur paths. The current scanner support is computed from each active finite pass.",
         "Version appearance changes and coordinate upstream"
       ],
       "original_acceptance_tests": [
