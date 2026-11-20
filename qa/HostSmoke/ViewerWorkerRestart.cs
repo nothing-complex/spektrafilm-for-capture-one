@@ -82,6 +82,7 @@ public static partial class StartupHook
             var testEdit = priorExposure < 7.5 ? priorExposure + .23 : priorExposure - .23;
             var burstStarted = Stopwatch.GetTimestamp();
             var warmWorker = Field(spatial, "renderer")!;
+            var warmPid = Worker()!.Id;
             async Task<JsonElement> Metrics(object renderer)
             {
                 var metrics = await (Task<JsonElement?>)Call(renderer, "ReadDiagnosticsAsync", CancellationToken.None)!;
@@ -117,16 +118,21 @@ public static partial class StartupHook
                 Check(exposureIndex >= 0 && double.Parse(arguments[exposureIndex + 1], CultureInfo.InvariantCulture) == latest
                     && Equals(saved, latest) && ReferenceEquals(Field(spatial, "source"), before),
                     "the burst settles the final durable slider value on the same immutable 16-bit source");
+                await WaitFor(() => Field(spatial, "pending") is null && Field(spatial, "pendingDraft") is null
+                    && Field(spatial, "queued") is false, "The final frame painted but obsolete work did not drain.");
                 var afterWorker = Field(spatial, "renderer")!;
+                var afterPid = Worker()!.Id;
                 var afterSequence = await Sequence(afterWorker);
-                var renders = ReferenceEquals(afterWorker, warmWorker) ? afterSequence - initialSequence : afterSequence;
+                var renders = afterPid == warmPid ? afterSequence - initialSequence : afterSequence;
                 await Task.Delay(300);
-                Check(renders is >= 1 and <= 3 && await Sequence(afterWorker) == afterSequence
-                    && Field(spatial, "pending") is null && Field(spatial, "pendingDraft") is null && Field(spatial, "queued") is false,
-                    "the slider burst completes at most three final renders and leaves no obsolete work behind");
+                var quietSequence = await Sequence(afterWorker);
                 File.AppendAllText(Path.Combine(folder, "host-smoke.log"),
                     $"100 native slider edits settled in {Stopwatch.GetElapsedTime(burstStarted).TotalMilliseconds:F1} ms, " +
-                    $"including the quiet check, with {renders} completed final render(s) on the surviving worker.{Environment.NewLine}");
+                    $"with {renders} completed final render(s). Worker sequence {warmPid}:{initialSequence} to {afterPid}:{afterSequence}, " +
+                    $"then {quietSequence} after the quiet check.{Environment.NewLine}");
+                Check(renders is >= 1 and <= 3 && quietSequence == afterSequence && Worker()?.Id == afterPid
+                    && Field(spatial, "pending") is null && Field(spatial, "pendingDraft") is null && Field(spatial, "queued") is false,
+                    "the slider burst completes at most three final renders and leaves no obsolete work behind");
             }
             finally { drag.SelectedItem = previousDragSize; }
             await WaitFor(Settled, "The Viewer did not settle after restoring the drag preference.");

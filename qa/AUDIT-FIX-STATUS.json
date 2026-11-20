@@ -1763,7 +1763,8 @@
         "Keep a previously transformed Viewer frame through identity only for the same immutable input and at most 192 MiB. Returning to the identical 4096 by 2731 enlargement skips a 117.64 ms CPU pass and changes one paired hashed response from 277.07 to 152.81 ms. The 4096 by 3073 frame exceeds the inactive cap and releases the transform. All six full payload hashes match audit.21. Twelve fresh-versus-cached transitions pass on each physical adapter.",
         "The licensed 4096 px Viewer passes 47 stress assertions. It retains the same native RGB16 source through the identity round trip and skips CPU resampling when returning to the same enlargement. Its scoped worker interruption recovers the saved geometry, rebuilds the transform and repaints in a fresh worker. Native Export remains connected.",
         "Give the GPU a second resident allocation only for the explicitly paired immutable original and cached enlargement, below the 192 MiB inactive limit and when the live adapter budget can admit it. The paired 4096 px Viewer alternating test reduced four packed source transfers from 178,978,816 bytes each to zero. The median of those four hashed replies was 114.88 ms before and 97.04 ms after. All eight payloads match, with distinct replacement pixels and cache invalidation.",
-        "Both physical GPUs pass fresh-frame parity and the 160 MiB synthetic pressure test. Under pressure, the single-source GPU path reuploads with exact warm CPU-cache pixels. Vulkan synchronization validation reports no errors on a source-swapping fixture. The licensed NVIDIA Viewer records the complete transformed pair with no full-frame upload and passes 48 stress checks on both first launch and restart, including actual renderer termination and rebuilding the durable effect."
+        "Both physical GPUs pass fresh-frame parity and the 160 MiB synthetic pressure test. Under pressure, the single-source GPU path reuploads with exact warm CPU-cache pixels. Vulkan synchronization validation reports no errors on a source-swapping fixture. The licensed NVIDIA Viewer records the complete transformed pair with no full-frame upload and passes 48 stress checks on both first launch and restart, including actual renderer termination and rebuilding the durable effect.",
+        "Run the licensed 48-check stress matrix on both first launch and restart with the panel's Vulkan worker explicitly pinned to Intel. The loader records Intel graphics. The fixture counts its completed request sequence by actual process ID so a timed-out cancellation that replaces the child cannot look like a negative or extra number of final renders. The two 100-edit bursts each finish with one final render in the replacement worker. The later deliberate interruption rebuilds the committed transformed source and repaints."
       ],
       "evidence_paths": [
         "qa/renderer-benchmark.py",
@@ -1778,10 +1779,14 @@
         ".test-results/enlarger-resident-pair-20261120/gpu-pair.json",
         ".test-results/enlarger-resident-pair-20261120/nvidia-pressure.log",
         ".test-results/enlarger-resident-pair-20261120/intel-pressure.log",
-        ".test-results/host-enlarger-resident-pair-20261120/host-smoke.log"
+        ".test-results/host-enlarger-resident-pair-20261120/host-smoke.log",
+        ".test-results/host-enlarger-intel-pair-process-count-20261120/host-smoke.log",
+        ".test-results/host-enlarger-intel-pair-process-count-20261120/vulkan-adapter.txt",
+        ".test-results/enlarger-resident-pair-20261120/contracts-nvidia/summary.json",
+        ".test-results/enlarger-resident-pair-20261120/intel-full.log"
       ],
       "remaining_work": [
-        "Extend the licensed transformed-cache interruption test to a second GPU. Track external memory pressure and concurrent process admission in RC-11 and VE-08."
+        "Track external memory pressure and concurrent process admission in RC-11 and VE-08."
       ],
       "original_acceptance_tests": [
         "Existing reference_crop plus odd dimensions/outside-alpha/scale1/32x",
