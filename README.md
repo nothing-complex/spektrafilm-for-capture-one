@@ -58,6 +58,8 @@ Choose a 33- or 65-point LUT from **Presets and LUT export**. The LUT uses the s
 
 The bundled renderer describes its supported settings in `renderer/parameter-capabilities.json`. The panel checks that description before loading its controls. Hanatos 2026 is offered when the renderer includes the calibrated film data. The Windows still workflow exposes Print Simulation and Scan Film, including scan inversion.
 
+Each new Windows ZIP includes a generated `CAPABILITIES.md` with its verified Capture One hosts, worker settings, value ranges and defaults. The package manifest records the document's checksum.
+
 ### Optional Python reference runtime
 
 The Capture One panel and its LUT exporter use the bundled Vulkan renderer. For the separate scientific Python worker, install Windows x64 CPython 3.13 and run **Setup LUT Export.cmd**. Setup checks the exact wheel hashes, verifies dependencies and renders a test stock before selecting the new environment. A failed setup keeps the previous environment available.

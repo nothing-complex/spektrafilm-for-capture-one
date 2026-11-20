@@ -128,6 +128,7 @@ public static partial class StartupHook
             await TestViewportQuality(spatial, variant);
             await TestSpectralReconstruction(panel, spatial, store, variant);
             TestPanelAccessibility(panel, spatial, exposure);
+            await TestNativeSliderInput(hook, panel, store, variant, exposure);
             TestStockFavorites(panel, store, variant, restart);
             await TestViewerHistogram(hook, spatial, restart);
             if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_PROOF_TEST") == "1")

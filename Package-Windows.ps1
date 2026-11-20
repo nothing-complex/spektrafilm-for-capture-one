@@ -65,10 +65,12 @@ try {
         "Corresponding source and build instructions"
         $sourceUrl
     ) | Set-Content -LiteralPath (Join-Path $package 'SOURCE.txt') -Encoding ascii
+    $capabilities = New-ReleaseCapabilityMarkdown $package $build.parameterContract
+    [IO.File]::WriteAllText((Join-Path $package 'CAPABILITIES.md'), $capabilities, [Text.UTF8Encoding]::new($false))
     $packageManifest = [ordered]@{
         schemaVersion=1; kind='package'; version=$Version; development=[bool]$Development
         source=$sourceIdentity; rendererProtocol=$build.rendererProtocol; parameterContract=$build.parameterContract
-        files=@(($files + 'SOURCE.txt') | Sort-Object -Unique | ForEach-Object { Get-ReleaseFileRecord $package $_ })
+        files=@(($files + 'SOURCE.txt' + 'CAPABILITIES.md') | Sort-Object -Unique | ForEach-Object { Get-ReleaseFileRecord $package $_ })
     }
     [IO.File]::WriteAllText((Join-Path $package 'package-manifest.json'),($packageManifest | ConvertTo-Json -Depth 8),(New-Object Text.UTF8Encoding($false)))
     [void](Test-ReleaseManifest $package 'package-manifest.json')

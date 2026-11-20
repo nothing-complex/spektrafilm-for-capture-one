@@ -43,6 +43,75 @@ function Find-CaptureOneHost($Profiles, [string] $Version, [string] $Architectur
         Select-Object -First 1
 }
 
+function New-ReleaseCapabilityMarkdown([string] $Root, [string] $ParameterContract) {
+    $hosts = @(Get-CaptureOneHostProfiles $Root)
+    $relative = 'renderer/parameter-capabilities.json'
+    if ((Get-ReleaseFileRecord $Root $relative).bytes -gt 256KB) { throw 'Renderer capability description is too large.' }
+    $renderer = [IO.File]::ReadAllText((Join-Path $Root $relative)) | ConvertFrom-Json
+    if ($renderer.schemaVersion -ne 1 -or $renderer.rendererProtocol -ne 2 -or
+        $renderer.parameterContract -notmatch '^[a-fA-F0-9]{64}$' -or $renderer.parameterContract -ine $ParameterContract -or
+        @($renderer.parameters).Count -lt 1 -or @($renderer.parameters).Count -gt 256) {
+        throw 'Renderer capability documentation requires the exact compiled parameter contract.'
+    }
+    $lines = [Collections.Generic.List[string]]::new()
+    $lines.AddRange([string[]]@(
+        '# Spektrafilm for Capture One capabilities',
+        '',
+        'Generated for this package from the verified Capture One host manifest and the compiled Vulkan renderer.',
+        '',
+        '## Capture One hosts',
+        '',
+        '| Capture One version | Platform | Verified integration capabilities |',
+        '| --- | --- | --- |'
+    ))
+    foreach ($hostProfile in $hosts) {
+        if (@($hostProfile.Capabilities | Where-Object { $_ -cnotmatch '^[a-z0-9-]+$' }).Count) {
+            throw 'Capture One capability labels must be plain manifest identifiers.'
+        }
+        $lines.Add(('| {0} | Windows {1} | {2} |' -f $hostProfile.FileVersion, $hostProfile.Architecture, ($hostProfile.Capabilities -join ', ')))
+    }
+    $lines.AddRange([string[]]@(
+        '',
+        '## Vulkan worker options',
+        '',
+        'These are worker options and worker defaults. The Capture One panel applies its own defaults and offers controls that fit the still-image workflow. See the README for input, export and Viewer behavior.',
+        '',
+        ('Parameter contract `{0}` on worker protocol {1}.' -f $renderer.parameterContract, $renderer.rendererProtocol),
+        '',
+        '| Option | Type | Default | Range or choices |',
+        '| --- | --- | --- | --- |'
+    ))
+    $format = [Globalization.CultureInfo]::InvariantCulture
+    $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($parameter in $renderer.parameters) {
+        $key = $parameter.key
+        if ($key -cnotmatch '^[a-z0-9-]+$' -or !$seen.Add($key)) { throw 'Invalid or duplicate renderer option name.' }
+        $default = [Convert]::ToString($parameter.default, $format)
+        switch -CaseSensitive ($parameter.kind) {
+            { $_ -in 'number','integer' } {
+                if ($parameter.minimum -isnot [ValueType] -or $parameter.maximum -isnot [ValueType] -or
+                    $parameter.default -isnot [ValueType] -or $parameter.default -lt $parameter.minimum -or
+                    $parameter.default -gt $parameter.maximum) { throw "Invalid number contract for $key." }
+                $range = '{0} to {1}' -f [Convert]::ToString($parameter.minimum, $format), [Convert]::ToString($parameter.maximum, $format)
+            }
+            'boolean' {
+                if ($parameter.default -isnot [bool]) { throw "Invalid boolean contract for $key." }
+                $default = $default.ToLowerInvariant()
+                $range = 'true, false'
+            }
+            'choice' {
+                if ($default -cnotin $parameter.choices -or @($parameter.choices | Where-Object { $_ -cnotmatch '^[a-z0-9._-]+$' }).Count) {
+                    throw "Invalid choice contract for $key."
+                }
+                $range = $parameter.choices -join ', '
+            }
+            default { throw "Unknown renderer option type for $key." }
+        }
+        $lines.Add(('| `--{0}` | {1} | {2} | {3} |' -f $key, $parameter.kind, $default, $range))
+    }
+    return ($lines -join "`n") + "`n"
+}
+
 function Get-WindowsExecutableArchitecture([string] $Path) {
     $reader = New-Object IO.BinaryReader([IO.File]::OpenRead($Path))
     try {

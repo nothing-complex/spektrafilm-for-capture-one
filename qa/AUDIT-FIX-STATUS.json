@@ -2627,7 +2627,8 @@
         "190 initial and 195 restart checks passed. The licensed fixture verifies the actual WPF automation properties and observes programmatic press/release transitions on the rendered Viewer.",
         "Native stock picker context menus add and remove favourites by stable film or paper ID without changing the selected look. Favourites display first and are restored on restart.",
         "Recent presets use the existing approved save and apply paths. Up to six deduplicated existing files are displayed in recent order. Preference state lives separately from creative looks. A future format is preserved without rewriting it.",
-        "Pass 12,678 host-independent checks and 193 new-launch plus 197 restart assertions. The real stock selection and durable look were unchanged by adding a favourite, and the restart placed it first. The actual preset Save route updated the recent file list."
+        "Pass 12,678 host-independent checks and 193 new-launch plus 197 restart assertions. The real stock selection and durable look were unchanged by adding a favourite, and the restart placed it first. The actual preset Save route updated the recent file list.",
+        "The real native label and track each restored and durably saved the film exposure default through WPF double-click routing. The live numeric editor committed Danish 1,4 and U.S. English -0.8 through Enter and the fixture restored the prior look. All 207 host assertions passed."
       ],
       "evidence_paths": [
         "NativePanel/NativeSlider.cs",
@@ -2636,10 +2637,12 @@
         ".test-results/host-native-controls-20261120/host-smoke.log",
         "NativePanel/PanelChoices.cs",
         ".test-results/contracts-stock-favorites-20261120/summary.json",
-        ".test-results/host-stock-favorites-20261120/host-smoke.log"
+        ".test-results/host-stock-favorites-20261120/host-smoke.log",
+        "qa/HostSmoke/NativeSliderInput.cs",
+        ".test-results/host-native-slider-keyboard-20261120/host-smoke.log"
       ],
       "remaining_work": [
-        "Compare actual keyboard, mouse, numeric entry, locale and screen-reader behavior with native Capture One. Physical DPI and focus travel remain open."
+        "Test cancel/invalid/limit input, focus traversal, physical DPI and a screen reader. The current default reset and decimal entry tests route synthetic events through native WPF controls."
       ],
       "original_acceptance_tests": [
         "Keyboard and pointer edit/reset/cancel sequences produce identical persisted values and one intended undo gesture.",
@@ -2829,7 +2832,8 @@
       "implemented": [
         "README and UI now disclose export, precision, state, host and LUT constraints and tracked testing paths.",
         "Document the packaged compiled renderer option description and the executable parameter and calibration matrices. Build and package verification require the described capabilities as a fingerprinted runtime asset.",
-        "The compiled parameter description, host parser, build manifest validation and negotiated capabilities now agree on renderer protocol 2. An old compiled description is rejected in the state contract test."
+        "The compiled parameter description, host parser, build manifest validation and negotiated capabilities now agree on renderer protocol 2. An old compiled description is rejected in the state contract test.",
+        "The packaging script generates and hashes CAPABILITIES.md from the verified host list and renderer parameter contract. The generator produced 137 entries from the current runtime and passed invariant locale, mismatched revision and malformed-choice regressions."
       ],
       "evidence_paths": [
         "README.md",
@@ -2838,10 +2842,14 @@
         "Build-Windows.ps1",
         "tests/renderer/README.md",
         ".test-results/contracts-compilercaps-20261120/summary.json",
-        ".test-results/contracts-numbered-renderer-final-20261120/StateContracts.log"
+        ".test-results/contracts-numbered-renderer-final-20261120/StateContracts.log",
+        "ReleaseManifest.ps1",
+        "Package-Windows.ps1",
+        "tests/installer/Test-Manifest.ps1",
+        ".test-results/audit-capabilities-generated-20261120.md"
       ],
       "remaining_work": [
-        "Generate capability/feature tables from schemas/manifests and verify documentation/release artifacts automatically; no16.7 support claim."
+        "Verify a complete new package contains the generated table and rejects tampering. Add generated mapping from every visible panel control to its declared capability and exercise published release links when a release exists."
       ],
       "original_acceptance_tests": [
         "Every visible enabled control has declared capability and a non-error execution test or is visibly unavailable.",

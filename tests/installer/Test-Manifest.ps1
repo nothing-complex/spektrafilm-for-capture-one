@@ -63,6 +63,37 @@ $count++
 $profilePath = Join-Path $root 'capture-one-hosts.json'
 [IO.File]::WriteAllText($profilePath, (@{SchemaVersion=1;Hosts=@($known,$known)} | ConvertTo-Json -Depth 5))
 Assert-Rejected {Get-CaptureOneHostProfiles $root} 'Duplicate verified host profile'
+Copy-Item -LiteralPath (Join-Path $repo 'capture-one-hosts.json') -Destination $profilePath -Force
+$docDescription = @{
+    schemaVersion=1;rendererProtocol=2;parameterContract=('a'*64);parameters=@(
+        @{key='exposure';kind='number';minimum=-1.5;maximum=1.5;default=0.2},
+        @{key='enabled';kind='boolean';default=$true},
+        @{key='input';kind='choice';default='srgb';choices=@('srgb','adobe_rgb')}
+    )
+}
+function Save-DocDescription { [IO.File]::WriteAllText($description,($docDescription|ConvertTo-Json -Depth 5)) }
+Save-DocDescription
+$oldCulture = [Threading.Thread]::CurrentThread.CurrentCulture
+try {
+    [Threading.Thread]::CurrentThread.CurrentCulture = [Globalization.CultureInfo]::GetCultureInfo('da-DK')
+    $markdown = New-ReleaseCapabilityMarkdown $root ('a'*64)
+    if ($markdown -notmatch '\| 16\.4\.6\.2414 \| Windows x64 \|' -or $markdown.Contains('16.7') -or
+        !$markdown.Contains('| `--exposure` | number | 0.2 | -1.5 to 1.5 |') -or
+        !$markdown.Contains('| `--enabled` | boolean | true | true, false |') -or
+        !$markdown.Contains('| `--input` | choice | srgb | srgb, adobe_rgb |')) {
+        throw 'FAIL: generated capability documentation differs from verified manifests'
+    }
+    $count++
+} finally {
+    [Threading.Thread]::CurrentThread.CurrentCulture = $oldCulture
+}
+Assert-Rejected {New-ReleaseCapabilityMarkdown $root ('b'*64)} 'Wrong documentation parameter fingerprint'
+$docDescription.parameters[2].choices=@('other')
+Save-DocDescription
+Assert-Rejected {New-ReleaseCapabilityMarkdown $root ('a'*64)} 'Documented default missing from choices'
+$docDescription.parameters[2].choices=@('srgb','unsupported|cell')
+Save-DocDescription
+Assert-Rejected {New-ReleaseCapabilityMarkdown $root ('a'*64)} 'Invalid Markdown option contents'
 $peFixture = Join-Path $root 'synthetic-pe.exe'
 $pe = New-Object byte[] 128
 $pe[0] = 0x4d

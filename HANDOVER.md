@@ -505,9 +505,10 @@ Evidence is under `.test-results/metering-cache-smoke-20261120.log` and `.test-r
 - [x] Pass 190 new-launch and 195 restart checks with the native controls in the disposable catalog.
 - [x] Save stock favourites by stable ID and show them first after restart. Keep the existing selected stock and durable look. The recent preset menu lists up to six saved or applied presets. Verify future preference formats remain untouched.
 - [x] Pass 12,678 host-independent and 193 new-launch plus 197 restart checks with the favourites and recent preset routes.
-- [ ] Verify actual keyboard/pointer gestures, locale-aware numeric entry, screen-reader navigation and physical DPI.
+- [x] Route native label and slider double-clicks and commit decimal numeric input in Danish and U.S. English through the real WPF editor. Verify the saved values, reset and restoration in a 207-assertion licensed test.
+- [ ] Verify cancel and invalid input, screen-reader navigation, focus travel and physical DPI.
 
-Evidence is under `.test-results/host-native-controls-20261120`, `.test-results/contracts-stock-favorites-20261120` and `.test-results/host-stock-favorites-20261120`.
+Evidence is under `.test-results/host-native-controls-20261120`, `.test-results/contracts-stock-favorites-20261120`, `.test-results/host-stock-favorites-20261120` and `.test-results/host-native-slider-keyboard-20261120`.
 
 ## Workspace selection and tool placement
 
@@ -578,6 +579,14 @@ Evidence is in `.test-results/audit6-package-verify-20261120/result.json`.
 - [ ] Verify physical disk-full and OS crash boundaries. Evaluate journaling and compaction against this baseline while preserving per-movement acknowledgement.
 
 Evidence is under `.test-results/host-10000-restart-20261120`.
+
+## Package capability documentation
+
+- [x] Generate the supported Capture One host and compiled Vulkan option tables from the exact packaged manifests. Include the Markdown report and its checksum in new Windows ZIPs.
+- [x] Generate 137 current renderer options and pass 20 PowerShell 5.1 manifest checks. The documentation cases verify locale-independent numeric output and rejection of mismatched or malformed descriptors.
+- [ ] Verify the generated table in a complete new package, and map every visible panel control to its applicable worker or host contract.
+
+Evidence is in `.test-results/audit-capabilities-generated-20261120.md`.
 
 ## Status maintenance
 
