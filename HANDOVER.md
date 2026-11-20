@@ -6,7 +6,7 @@ Updated 2026-11-20. The critical-fix batch is implemented, tested, installed loc
 
 1. Read this file, `AGENTS.md` and `qa/AUDIT-FIX-STATUS.json` before changing code. The JSON is the authoritative task-progress ledger; its `remaining_work` and original acceptance tests matter more than a short status label.
 2. Check `git status`, current branch and PR head. Do not discard existing edits or switch the installed build merely because this documentation has a newer commit.
-3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP is `0.2.0-audit.26` from clean `5720dea`. The exact package passed the native effects and recipe campaigns, interruption recovery, moved catalog restore, the full licensed host suite, the numeric inventory, physical Vulkan and a private upgrade.
+3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP is `0.2.0-audit.27` from clean `291bd7a`. The exact package passed native effects and recipe campaigns, real workspace switching and passive restoration, interruption recovery, moved catalog restore, the full licensed host suite, physical Vulkan and a private upgrade.
 4. Choose an unresolved task and an exact ownership boundary. Do not repeat the completed installation, crash test or old defect reproductions as if nothing had happened.
 5. Update task evidence and the delivery ledger at each completed milestone. Never mark a broad parent task complete because one mitigation shipped.
 
@@ -956,6 +956,17 @@ The combined receipt is `.test-results/audit25-package-verify-20261120/result.js
 - [x] Pass 344 general assertions on launch and 348 on restart, 19 moved catalog assertions per launch, 20 numeric inventory assertions and 32 managed physical Vulkan checks. Privately upgrade audit.25 to audit.26 and preserve the fixture's custom file and outside preset until the licensed host reports Ready with native Export Connected.
 
 The combined receipt is `.test-results/audit26-package-verify-20261120/result.json`. The independent decoder receipt is `.test-results/audit26-package-verify-20261120/independent-rgb16.json`. Individual runs use `.test-results/host-audit26-*-20261120`. The upgrade receipt is at `D:/Library AI testing/sf-audit26-ready-20261120/installed-upgrade-receipt.json`.
+
+## Development package audit.27
+
+- [x] Build clean `291bd7a3cb8f9094b39ff7b8e315b6a3d8139df3` and verify 153 package entries, 19 critical runtime entries and regenerated capability bytes. ZIP SHA-256 is `b05f66c05bdd5ab098ed392b5a1f7855e4b7047672bfd314b56695720b8a8990`. [Windows 2022 and 2025 checks](https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44745627970)
+- [x] Pass 213 four-RAW effects checks, 114 native and optical grain checks, 112 TIFF compression checks, 87 recipe folder checks and 104 hidden/floating tool checks in each launch. The five campaigns produce 118 accepted 16-bit effect and control files. The additional 68-check real workspace switch writes five verified files using both native commands with the floating tool restored.
+- [x] Independently decode eight DNG, CR3, RAF and NEF cases. Compare film, diffusion, additional halation and scatter, and the two native commands across 156,601,728 uint16 codes per comparison. The maximum mean difference between native commands is 7.53e-7 of full scale.
+- [x] Pass 22 and 19 checks for passive floating restore, then 717 checks across 100 native tool lifecycle cycles with no retired windows, controls or tools retained. Both original workspace files match their verified backups after the real switch fixture.
+- [x] After 1,061,123 confirmed encoder bytes, stop the disposable process and verify the saved look, previous output and unrelated temporary file after restart. Both interruption phases pass 17 and 22 checks. No owned staging file remains and explicit 24 MP retry succeeds.
+- [x] Pass 344 general assertions on launch and 348 on restart, 19 moved catalog assertions per launch, 20 numeric inventory assertions and 32 managed physical Vulkan checks. Privately upgrade audit.26 to audit.27 while keeping fixture user files and the previous runtime through native Export readiness.
+
+The combined receipt is `.test-results/audit27-package-verify-20261120/result.json`. Its independent decoder receipt is `.test-results/audit27-package-verify-20261120/independent-rgb16.json`. Individual runs use `.test-results/host-audit27-*-20261120`. The upgrade receipt is at `D:/Library AI testing/sf-audit27-ready-20261120/installed-upgrade-receipt.json`.
 
 ## Accepted export dialog and storage failure
 
