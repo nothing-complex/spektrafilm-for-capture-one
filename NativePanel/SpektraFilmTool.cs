@@ -502,6 +502,7 @@ internal static class SpektraFilmTool
         private LookOptions? options;
         private VariantLook? defaultLook;
         private bool controlsLoadFailed;
+        private bool copyingSupportDetails;
         private bool settingValues;
         private bool disposed;
 
@@ -1116,17 +1117,32 @@ internal static class SpektraFilmTool
         internal ViewerHealth ViewerStatus => opticalPreview.Health;
         internal bool HasPendingLookWrites => looks.HasPending;
 
-        internal void CopySupportDetails()
+        internal async void CopySupportDetails()
         {
+            if (disposed || copyingSupportDetails)
+                return;
+            copyingSupportDetails = true;
             try
             {
-                Clipboard.SetText(BuildSupportDetails());
-                status.Text = "Support details copied.";
+                var details = BuildSupportDetails();
+                var result = await SupportClipboardRetry.CopyAsync(() => WindowsSupportClipboard.WriteText(details),
+                    WindowsSupportClipboard.GetClipboardSequenceNumber, lifetime.Token);
+                if (!disposed)
+                    status.Text = result switch
+                    {
+                        SupportCopyResult.Copied => "Support details copied.",
+                        SupportCopyResult.Changed => "The clipboard changed. Use Copy support details again.",
+                        _ => "The clipboard is busy. Use Copy support details again.",
+                    };
             }
-            catch (System.Runtime.InteropServices.ExternalException)
+            catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+            catch (Exception error) when (error is InvalidOperationException or IOException or UnauthorizedAccessException)
             {
-                status.Text = "The clipboard is busy. Use Copy support details again.";
+                if (!disposed)
+                    status.Text = "Support details could not be copied. Use Copy support details again.";
+                StartupHook.Log("support.copy-failed.v1", new { ErrorKind = error.GetBaseException().GetType().Name });
             }
+            finally { copyingSupportDetails = false; }
         }
 
         private string BuildSupportDetails()

@@ -69,7 +69,7 @@ public static partial class StartupHook
             Check(saveWarning.IsVisible && route.IsVisible && route.Text.Contains("includes Spektrafilm", StringComparison.Ordinal)
                 && Prop(panel, "ExportBridgeStatus")?.ToString() == "Connected",
                 "Viewer failure and look protection remain visible separately from the connected export command");
-            TestSupportClipboard(hosted, panel);
+            await TestSupportClipboard(hosted, panel);
         }
         finally { File.Move(unavailable, worker); }
 
@@ -126,8 +126,14 @@ public static partial class StartupHook
         }
     }
 
-    private static void TestSupportClipboard(object hosted, object panel)
+    private static async Task TestSupportClipboard(object hosted, object panel)
     {
+        var type = hosted.GetType().GetNestedType("PanelActionMenu", Flags)!;
+        var menu = Activator.CreateInstance(type, Flags, null,
+            new object[] { (Func<string>)(() => "Float Tool"), (Action)(() => { }), panel }, null)!;
+        var command = (ICommand)Prop(((IEnumerable)Call(menu, "Generate")!).Cast<object>().Last(), "Command")!;
+        await TestBusySupportClipboard(panel, command);
+
         var sequence = GetClipboardSequenceNumber();
         var formats = Clipboard.GetDataObject()?.GetFormats(autoConvert: false) ?? [];
         if (formats.Any(format =>
@@ -139,16 +145,13 @@ public static partial class StartupHook
             return;
         }
         var originalText = formats.Length > 0 ? Clipboard.GetText() : null;
-        var type = hosted.GetType().GetNestedType("PanelActionMenu", Flags)!;
-        var menu = Activator.CreateInstance(type, Flags, null,
-            new object[] { (Func<string>)(() => "Float Tool"), (Action)(() => { }), panel }, null)!;
-        var command = (ICommand)Prop(((IEnumerable)Call(menu, "Generate")!).Cast<object>().Last(), "Command")!;
         var copied = 0u;
         var ownsCopy = false;
         try
         {
             Check(sequence == GetClipboardSequenceNumber(), "clipboard ownership remained stable before exercising the native menu command");
             command.Execute(null);
+            await WaitForSupportCopy(panel);
             copied = GetClipboardSequenceNumber();
             var text = Clipboard.GetText();
             ownsCopy = copied != sequence && GetClipboardSequenceNumber() == copied
@@ -175,6 +178,54 @@ public static partial class StartupHook
         }
     }
 
+    private static async Task TestBusySupportClipboard(object panel, ICommand command)
+    {
+        using var release = new ManualResetEventSlim();
+        var opened = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var hold = Task.Run(() =>
+        {
+            var success = OpenClipboard(IntPtr.Zero);
+            opened.SetResult(success);
+            if (!success) return;
+            try { release.Wait(TimeSpan.FromSeconds(3)); }
+            finally { CloseClipboard(); }
+        });
+        try
+        {
+            Check(await opened.Task.WaitAsync(TimeSpan.FromSeconds(2)), "the fixture took a read-only Windows clipboard lock");
+            var sequence = GetClipboardSequenceNumber();
+            command.Execute(null);
+            Check(Field(panel, "copyingSupportDetails") is true, "a busy clipboard yields to the Capture One UI during retry");
+            await WaitForSupportCopy(panel);
+            var status = (TextBlock)Field(panel, "status")!;
+            Check(status.Text.Contains("clipboard is busy", StringComparison.OrdinalIgnoreCase)
+                && sequence == GetClipboardSequenceNumber(),
+                "the native support menu reports a busy clipboard without overwriting its contents");
+        }
+        finally
+        {
+            release.Set();
+            await hold;
+        }
+    }
+
+    private static async Task WaitForSupportCopy(object panel)
+    {
+        var started = Stopwatch.GetTimestamp();
+        while (Field(panel, "copyingSupportDetails") is true)
+        {
+            if (Stopwatch.GetElapsedTime(started) > TimeSpan.FromSeconds(2))
+                throw new TimeoutException("The support clipboard operation did not finish.");
+            await Task.Delay(20);
+        }
+    }
+
     [DllImport("user32.dll")]
     private static extern uint GetClipboardSequenceNumber();
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool OpenClipboard(IntPtr owner);
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CloseClipboard();
 }

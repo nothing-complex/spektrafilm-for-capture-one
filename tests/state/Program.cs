@@ -799,6 +799,46 @@ catch (AggregateException error)
 }
 await NativeHostShapeContracts.RunAsync(Check);
 await PanelLogContracts.RunAsync(scratch, Check);
+uint clipboardSequence = 1;
+int clipboardWrites = 0;
+var copiedReport = await SupportClipboardRetry.CopyAsync(() =>
+{
+    if (++clipboardWrites == 1) throw new System.Runtime.InteropServices.ExternalException("Clipboard unavailable.");
+}, () => clipboardSequence, CancellationToken.None);
+Check("support clipboard recovers a transient busy owner", copiedReport == SupportCopyResult.Copied && clipboardWrites == 2);
+clipboardWrites = 0;
+var replacedReport = await SupportClipboardRetry.CopyAsync(() =>
+{
+    clipboardWrites++;
+    clipboardSequence++;
+    throw new System.Runtime.InteropServices.ExternalException("Clipboard unavailable.");
+}, () => clipboardSequence, CancellationToken.None);
+Check("support clipboard preserves a newer copy by another application", replacedReport == SupportCopyResult.Changed && clipboardWrites == 1);
+clipboardWrites = 0;
+var busyReport = await SupportClipboardRetry.CopyAsync(() =>
+{
+    clipboardWrites++;
+    throw new System.Runtime.InteropServices.ExternalException("Clipboard unavailable.");
+}, () => clipboardSequence, CancellationToken.None);
+Check("support clipboard gives up after three attempts", busyReport == SupportCopyResult.Busy && clipboardWrites == 3);
+using (var closeClipboard = new CancellationTokenSource())
+{
+    clipboardWrites = 0;
+    try
+    {
+        await SupportClipboardRetry.CopyAsync(() =>
+        {
+            clipboardWrites++;
+            closeClipboard.Cancel();
+            throw new System.Runtime.InteropServices.ExternalException("Clipboard unavailable.");
+        }, () => clipboardSequence, closeClipboard.Token);
+        throw new InvalidOperationException("A closed support tool retried its clipboard operation.");
+    }
+    catch (OperationCanceledException)
+    {
+        Check("closing the support tool cancels clipboard retries", clipboardWrites == 1);
+    }
+}
 Console.WriteLine($"PASS: {assertions} state/recovery assertions, including separate-process recovery. Fixtures: {scratch}");
 return 0;
 
