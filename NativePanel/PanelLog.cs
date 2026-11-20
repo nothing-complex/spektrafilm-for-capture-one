@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
@@ -30,11 +31,11 @@ internal sealed class PanelLog
 
     internal int Dropped => Volatile.Read(ref dropped);
 
-    internal void Write(string message)
+    internal void Write(string message, object? details = null)
     {
         if (message.Length > MessageLimit)
             message = message[..MessageLimit] + "…";
-        entries.Writer.TryWrite(new(DateTime.UtcNow, message));
+        entries.Writer.TryWrite(new(DateTime.UtcNow, message, details));
     }
 
     internal Task Complete()
@@ -47,15 +48,21 @@ internal sealed class PanelLog
     {
         await foreach (var entry in entries.Reader.ReadAllAsync().ConfigureAwait(false))
         {
-            var line = JsonSerializer.Serialize(entry) + "\n";
             try
             {
+                var line = JsonSerializer.Serialize(entry) + "\n";
+                var bytes = Utf8.GetByteCount(line);
+                if (bytes > FileLimit)
+                {
+                    Interlocked.Increment(ref dropped);
+                    continue;
+                }
                 var file = new FileInfo(path);
-                if (file.Exists && file.Length + Utf8.GetByteCount(line) > FileLimit)
+                if (file.Exists && file.Length + bytes > FileLimit)
                     File.Move(path, path + ".previous", overwrite: true);
                 await File.AppendAllTextAsync(path, line, Utf8).ConfigureAwait(false);
             }
-            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or NotSupportedException or ArgumentException)
             {
                 // Diagnostic storage must not hold up an edit or an export.
                 Interlocked.Increment(ref dropped);
@@ -63,5 +70,6 @@ internal sealed class PanelLog
         }
     }
 
-    private sealed record Entry(DateTime Utc, string Message);
+    private sealed record Entry(DateTime Utc, string Message,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] object? Details);
 }

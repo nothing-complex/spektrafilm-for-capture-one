@@ -425,9 +425,11 @@ internal static class StartupHook
         Log(text);
     }
 
-    internal static void Log(string text)
+    internal static void Log(string text) => Log(text, null);
+
+    internal static void Log(string text, object? details)
     {
-        try { PanelLogger.Value?.Write(text); }
+        try { PanelLogger.Value?.Write(text, details); }
         catch (Exception error) when (error is ArgumentException or IOException or UnauthorizedAccessException) { }
     }
 

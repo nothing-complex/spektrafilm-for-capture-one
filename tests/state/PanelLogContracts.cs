@@ -78,6 +78,16 @@ internal static class PanelLogContracts
             check("diagnostics escape embedded newlines and retain the latest complete entry",
                 latest.RootElement.GetProperty("Message").GetString() == "ending value\nwithout a second record");
 
+        var structured = Path.Combine(root, "structured-diagnostic.log");
+        var events = new PanelLog(structured);
+        events.Write("invalid sample", new { Milliseconds = double.NaN });
+        events.Write("oversized sample", new { Block = new string('x', (int)PanelLog.FileLimit) });
+        events.Write("export.performance.v1", new { Milliseconds = 12.5 });
+        await events.Complete().WaitAsync(TimeSpan.FromSeconds(15));
+        using (var sample = JsonDocument.Parse(File.ReadLines(structured).Single()))
+            check("invalid and oversized structured details are dropped while later events retain typed data",
+                events.Dropped == 2 && sample.RootElement.GetProperty("Details").GetProperty("Milliseconds").GetDouble() == 12.5);
+
         var busy = Path.Combine(root, "busy-diagnostic.log");
         using (var locked = new FileStream(busy, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
         {

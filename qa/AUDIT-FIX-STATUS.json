@@ -995,7 +995,8 @@
         "HELLO and METRICS expose bounded protocol/float/contract data and Vulkan timings, uploads and allocations; synthetic GPU/LUT and no-GPU suites exist.",
         "Windows worker benchmark saves per-request transport wall time, renderer stages and Vulkan allocations, working-set/commit samples, cold request versus reused-source edit percentiles, and renderer fingerprint in machine-readable JSON.",
         "Actual Vulkan parity compares full and multi-tile pixels across color, 8 mm halation/scatter, 35 mm diffusion, 70 mm DIR, metering/grain/scanner, and enlarger. Worst code difference was 1.79e-7 on this GPU, with independently checked alpha.",
-        "The exact audit.14 worker passed the full standalone Vulkan smoke suite on isolated physical Intel integrated graphics, including packed/scalar parity, float stability, all seven multi-tile cases and the 128 MiB pressure fixture. Intel tile parity worst difference was 1.20e-7."
+        "The exact audit.14 worker passed the full standalone Vulkan smoke suite on isolated physical Intel integrated graphics, including packed/scalar parity, float stability, all seven multi-tile cases and the 128 MiB pressure fixture. Intel tile parity worst difference was 1.20e-7.",
+        "Correlated native export timings identify the exact accepted job, processing encoding, pixel depth, geometry, format and end-to-end stage durations. Actual file-level timings now distinguish native development, film and transport, blend, ICC and verified commit."
       ],
       "evidence_paths": [
         "ofx-still-renderer/main.cpp",
@@ -1007,11 +1008,13 @@
         ".test-results/renderer-benchmark-grain-quality-20261119.json",
         "ofx-still-renderer/smoke.py",
         ".test-results/gpu-tiled-parity-20261119.log",
-        ".test-results/swiftshader-differential-20261120/intel-full-smoke.log"
+        ".test-results/swiftshader-differential-20261120/intel-full-smoke.log",
+        ".test-results/host-tile-centre-native-export-20261120/first-native-effect-export.json",
+        ".test-results/matrix-tile-centres-20261120/nvidia.json"
       ],
       "remaining_work": [
-        "Add frame/build/settings identity to diagnostics, structured whole-pipeline telemetry, quality oracles, tiled parity and hardware p50/p95/memory budgets.",
-        "Expand across multiple memory sizes and vendors and measure end-to-end actual display, RAW development, and codec stages."
+        "Add frame/build/settings identity to Viewer and worker diagnostics and correlate their stages. Set wider quality and hardware p50/p95/memory budgets.",
+        "Expand across multiple memory sizes and vendors and measure additional end-to-end actual display, RAW development, and codec workloads."
       ],
       "original_acceptance_tests": [
         "FRAME8/REUSE8 native parity and source replacement",
@@ -1499,7 +1502,8 @@
         "Recipe metadata flags now gate the explicit supported metadata subset captured before Save. Both native command paths produce a verified 16-bit image and normalized orientation under the TIFF/PNG policy.",
         "Capture the recipe's local RGB ICC profile before showing Save and color-convert the SDR film result through a genuine 16-bit RGBA64 transform. TIFF drops alpha without changing any converted RGB code; PNG retains alpha. Reopen the encoded file and verify the exact profile digest before atomically publishing it.",
         "The licensed Adobe RGB recipe produced the exact embedded profile in 210 first-launch and 214 restart checks. ProPhoto and Linear Rec.2020 TIFF/PNG fixtures retained the actual converted RGB, alpha where applicable, DPI and ICC. Across three profiles, an independent ICC matrix/TRC reference had p95 Delta E 2000 of 0.031–0.159 and maximum 0.803. The normal direct export remains sRGB.",
-        "The real Capture One Export command, its visible native confirmation, and Export with Previous Settings write the selected variant through the current film pipeline. Each of four licensed runs reopened 3000 by 2000 RGB48 TIFF and RGBA64 PNG with the exact Adobe RGB recipe profile. Across 41,238 sampled 16-bit RGB codes per run, the film look changed the RGB codes by a mean 11.66% of full scale and camera diffusion changed them a further 4.76%. The two native routes agreed within about one millionth of full-scale RGB on average. Each command accepted exactly one job. Switch-off delegated to the ordinary native Export dialog."
+        "The real Capture One Export command, its visible native confirmation, and Export with Previous Settings write the selected variant through the current film pipeline. Each of four licensed runs reopened 3000 by 2000 RGB48 TIFF and RGBA64 PNG with the exact Adobe RGB recipe profile. Across 41,238 sampled 16-bit RGB codes per run, the film look changed the RGB codes by a mean 11.66% of full scale and camera diffusion changed them a further 4.76%. The two native routes agreed within about one millionth of full-scale RGB on average. Each command accepted exactly one job. Switch-off delegated to the ordinary native Export dialog.",
+        "Native TIFF delivery now retains the selected TIFF recipe’s lossless compression: Uncompressed, LZW or ZIP. After encoding, the file’s actual TIFF tag is verified alongside 16-bit pixels, ICC and orientation. The Windows tests round-tripped every sample using all three schemes. The licensed active ZIP recipe exported the film look and diffusion again."
       ],
       "evidence_paths": [
         "NativePanel/SpektraFilmTool.cs",
@@ -1514,10 +1518,12 @@
         ".test-results/wic-icc16-probe-20261120/independent-colour-science.json",
         "qa/HostSmoke/NativeEffectExport.cs",
         ".test-results/host-native-effect-export-final-20261120/first-native-effect-export.json",
-        ".test-results/host-source-native-effect-export-20261120/restart-native-effect-export.json"
+        ".test-results/host-source-native-effect-export-20261120/restart-native-effect-export.json",
+        ".test-results/host-recipe-compression-native-export-20261120/first-native-effect-export.json",
+        ".test-results/contracts-structured-export-compression-20261120/ViewerContracts.log"
       ],
       "remaining_work": [
-        "Compare selected RGB recipe output against additional native profile references. Native format/quality and naming rules beyond the explicit 16-bit TIFF/PNG save policy remain open."
+        "Compare selected RGB recipe output against additional native profile references. Exercise Uncompressed and LZW selections in the native dialog as well as their verified high-depth encoders. Native naming, tiling and other format and quality settings beyond the explicit 16-bit TIFF/PNG save policy remain open."
       ],
       "original_acceptance_tests": [
         "Table-driven JPEG, PNG, TIFF 8/16-bit, unknown-format, custom ICC, image-folder/custom-folder/subfolder/token/suffix and duplicate-name cases.",
@@ -1598,7 +1604,8 @@
         "Persistent export-bridge and save/recovery messages make several failures visible without being overwritten by viewer status.",
         "Native docked and floated menus expose Copy support details and offer Retry look save while pending. The copied report uses an allow-list of build/runtime identities, typed Export/Viewer states, look durability and dropped-log count. Real missing-delegate, restored bridge, master-off and locked-look fixtures verify the reported route without including native error paths.",
         "Local panel diagnostics now enqueue bounded JSON records on a background writer with one capped previous generation. Nine contracts cover rotation, newline escaping, concurrent producers, a locked destination and eventual recovery. Final licensed runs passed 240 and 244 assertions.",
-        "A 600-second contention test submitted 148,608 records to each of two local async loggers. The writable logger dropped none and retained two files under 1 MiB each. The locked logger dropped all records and recovered cleanly on exit. The pair of enqueue calls took p99 0.0036 ms and at most 0.4652 ms."
+        "A 600-second contention test submitted 148,608 records to each of two local async loggers. The writable logger dropped none and retained two files under 1 MiB each. The locked logger dropped all records and recovered cleanly on exit. The pair of enqueue calls took p99 0.0036 ms and at most 0.4652 ms.",
+        "Structured event data is optional and serialized by the existing bounded background pump. One event identifies accepted export timing without source or destination paths. Invalid or oversize details are discarded without ending the pump. Portable tests confirm valid structured events still arrive after both errors."
       ],
       "evidence_paths": [
         "NativePanel/SpektraFilmTool.cs",
@@ -1608,10 +1615,11 @@
         "tests/state/PanelLogContracts.cs",
         ".test-results/state-final-isolated-20261120",
         ".test-results/host-protected-look-formats-20261120/host-smoke.log",
-        ".test-results/panel-log-ten-minute-20261120/measurement.json"
+        ".test-results/panel-log-ten-minute-20261120/measurement.json",
+        ".test-results/contracts-structured-export-compression-20261120/StateContracts.log"
       ],
       "remaining_work": [
-        "Add per-capability native fault scenarios, exercise the user clipboard flow and add structured per-stage event identifiers. Ten-minute native interaction telemetry is tracked separately under VE-17."
+        "Add per-capability native fault scenarios, exercise the user clipboard flow and extend structured event IDs beyond accepted export timings. Ten-minute native interaction telemetry is tracked under VE-17."
       ],
       "original_acceptance_tests": [
         "fault injection by capability, user can identify degraded feature without opening logs, export visibly reports whether it will contain Spektrafilm, persisted-save error remains prominent."
@@ -1832,7 +1840,8 @@
         "The opt-in protocol reports strictly ordered real worker stages tied to a monotonic request ID. Actual GPU and bounded malformed-reply tests validate the order, and the parent ignores publication from a canceled request.",
         "In a licensed 100-visit run, event to settled native paint measured p50 395.68 ms, p95 865.12 ms and max 1658.03 ms at 2048 px. A live Viewer was active, and three strength settings and four RAW formats are keyed in the per-visit machine-readable receipt.",
         "A paired 100-visit licensed baseline ran Capture One without loading the plugin. It verified the selected native image layer for each visit and recorded p50 17.30 ms and p95 50.64 ms. The separate live film run measured p50 359.52 ms and p95 771.35 ms to settled 2048 px paint. The receipts distinguish the timing endpoints and contain all individual visits.",
-        "The exact audit.15 worker completed all 16 renderer/transport cases and 80 requests at 24, 45, 61 and 100 MP on RTX 3090. Both colour-only and optical cases used packed Viewer and float image export. At 100 MP, warm p95 was 428 ms or 5.30 s in the Viewer and 2.20 s or 8.51 s for float export, from four warm requests per case. The optical export used 6.33 GiB peak worker commit and 3.09 GiB transient cache. Its 800 tiled results returned 9.38 GB of GPU readback for the 1.60 GB float reply, identifying tile overlap transfer as the main measured candidate for improvement. These timings exclude Capture One development, ICC conversion and file encoding."
+        "The exact audit.15 worker completed all 16 renderer/transport cases and 80 requests at 24, 45, 61 and 100 MP on RTX 3090. Both colour-only and optical cases used packed Viewer and float image export. At 100 MP, warm p95 was 428 ms or 5.30 s in the Viewer and 2.20 s or 8.51 s for float export, from four warm requests per case. The optical export used 6.33 GiB peak worker commit and 3.09 GiB transient cache. Its 800 tiled results returned 9.38 GB of GPU readback for the 1.60 GB float reply, identifying tile overlap transfer as the main measured candidate for improvement. These timings exclude Capture One development, ICC conversion and file encoding.",
+        "The structured export.performance.v1 event uses the accepted journal job ID and records elapsed Viewer drain, native RGB16 development, Vulkan work and transport, crop and blend, ICC conversion, and encode/verify/commit without logging paths in the event. Two licensed launches timed eight 3000 by 2000 DNG exports. Effect TIFF took 1.40–1.42 seconds after job acceptance. The matching PNG took 1.68–1.71 seconds. The file stage dominated at 568–569 ms for TIFF and 888–936 ms for PNG."
       ],
       "evidence_paths": [
         "ofx-still-renderer/main.cpp",
@@ -1852,10 +1861,12 @@
         ".test-results/host-native-only-viewer-baseline-20261120/viewer-native-baseline.json",
         ".test-results/host-viewer-paired-live-20261120/viewer-churn.json",
         ".test-results/matrix-24-45-61-100mp-20261120/nvidia.json",
-        ".test-results/matrix-24-45-61-100mp-20261120/adapter.txt"
+        ".test-results/matrix-24-45-61-100mp-20261120/adapter.txt",
+        ".test-results/host-tile-centre-native-export-20261120/first-native-effect-export.json",
+        ".test-results/host-tile-centre-native-export-20261120/restart-native-effect-export.json"
       ],
       "remaining_work": [
-        "No structured end-to-end event model, shared request identity, p50/p95 benchmark matrix or UI latency budget yet.",
+        "Correlate Viewer generations across development, render and paint, and run full interaction p50/p95 and memory budgets. Accepted export work has structured stage timing.",
         "Expand across multiple memory sizes and vendors and measure end-to-end actual display, RAW development, and codec stages."
       ],
       "original_acceptance_tests": [
@@ -2375,7 +2386,8 @@
         "Four real RAW cameras passed same-stage native TIFF/bitmap RGB16 parity and embedded ICC checks using the audited package. The agreed exact sample count is 2,004,657 channel codes.",
         "The licensed 2048 px navigation matrix now records 100 visits, four RAW formats, three strengths, 30 interleaved selections, verified exact frame ownership, per-visit timing and memory snapshots. The same selection schedule with no plugin loaded supplies a native Viewer and memory baseline on this RTX 3090.",
         "The exact audit.14 worker passed the full standalone Vulkan smoke suite on isolated physical Intel integrated graphics, including packed/scalar parity, float stability, all seven multi-tile cases and the 128 MiB pressure fixture. Intel tile parity worst difference was 1.20e-7.",
-        "The exact audit.15 worker completed all 16 renderer/transport cases and 80 requests at 24, 45, 61 and 100 MP on RTX 3090. Both colour-only and optical cases used packed Viewer and float image export. At 100 MP, warm p95 was 428 ms or 5.30 s in the Viewer and 2.20 s or 8.51 s for float export, from four warm requests per case. The optical export used 6.33 GiB peak worker commit and 3.09 GiB transient cache. Its 800 tiled results returned 9.38 GB of GPU readback for the 1.60 GB float reply, identifying tile overlap transfer as the main measured candidate for improvement. These timings exclude Capture One development, ICC conversion and file encoding."
+        "The exact audit.15 worker completed all 16 renderer/transport cases and 80 requests at 24, 45, 61 and 100 MP on RTX 3090. Both colour-only and optical cases used packed Viewer and float image export. At 100 MP, warm p95 was 428 ms or 5.30 s in the Viewer and 2.20 s or 8.51 s for float export, from four warm requests per case. The optical export used 6.33 GiB peak worker commit and 3.09 GiB transient cache. Its 800 tiled results returned 9.38 GB of GPU readback for the 1.60 GB float reply, identifying tile overlap transfer as the main measured candidate for improvement. These timings exclude Capture One development, ICC conversion and file encoding.",
+        "The optimized worker passed the paired 24–100 MP matrix. Four full 100 MP optics frame hashes matched across binaries. Production exports also recorded eight job-correlated native-to-file measurements across two licensed launches of a DNG with the active 6 MP TIFF recipe, optionally delivered as PNG."
       ],
       "evidence_paths": [
         "tests",
@@ -2394,10 +2406,13 @@
         ".test-results/host-viewer-paired-live-20261120/viewer-churn.json",
         ".test-results/swiftshader-differential-20261120/intel-full-smoke.log",
         ".test-results/matrix-24-45-61-100mp-20261120/nvidia.json",
-        ".test-results/matrix-24-45-61-100mp-20261120/adapter.txt"
+        ".test-results/matrix-24-45-61-100mp-20261120/adapter.txt",
+        ".test-results/matrix-tile-centres-20261120/nvidia.json",
+        ".test-results/tile-centre-100mp-parity-20261120/after.json",
+        ".test-results/host-tile-centre-native-export-20261120/first-native-effect-export.json"
       ],
       "remaining_work": [
-        "No complete end-to-end hardware/source-format performance and quality acceptance matrix or release budgets yet.",
+        "Complete the end-to-end hardware/source-format acceptance matrix and choose release budgets. Actual native-to-file telemetry now covers one DNG fixture at 6 MP.",
         "Expand across multiple memory sizes and vendors and measure end-to-end actual display, RAW development, and codec stages."
       ],
       "original_acceptance_tests": [

@@ -64,6 +64,7 @@ internal static partial class Program
         TestDraft();
         TestDevelopedFrameDescription();
         TestExport(folder);
+        TestTiffCompression(folder);
         TestExportProfiles(folder);
         TestExportMetadata(folder);
         TestExportResolution();
@@ -890,6 +891,33 @@ internal static partial class Program
             Check(existing.SequenceEqual(File.ReadAllBytes(path)),"Rejected write changed destination");
             Check(Math.Abs(decoded.DpiX - 150) < 0.03 && Math.Abs(decoded.DpiY - 200) < 0.03, "Encoder changed supplied non-square resolution");
             Console.WriteLine($"Export {suffix}: {decoded.Format}, exact samples, ICC, resolution and canceled/rejected writes passed.");
+        }
+    }
+
+    private static void TestTiffCompression(string folder)
+    {
+        const int width = 127, height = 23, stride = width * 6;
+        var source = new ushort[width * height * 3];
+        for (var i = 0; i < source.Length; i++)
+            source[i] = (ushort)((i * 121 + (i % 7)) & ushort.MaxValue);
+        var image = BitmapSource.Create(width, height, 123, 150, PixelFormats.Rgb48, null, source, stride);
+        var original = Path.Combine(folder, "compression-fixture.raw");
+        File.WriteAllBytes(original, new byte[] { 42 });
+        foreach (var (compression, tag) in new[] { (TiffCompressOption.None, (ushort)1), (TiffCompressOption.Lzw, (ushort)5),
+                     (TiffCompressOption.Zip, (ushort)8) })
+        {
+            var path = Path.Combine(folder, "compression-" + compression + ".tif");
+            SpektraExport.SaveApproved(OutputPathGuard.Approve(path, original), image, CancellationToken.None, tiffCompression: compression);
+            using var file = File.OpenRead(path);
+            var decoded = BitmapDecoder.Create(file, BitmapCreateOptions.PreservePixelFormat | BitmapCreateOptions.IgnoreColorProfile,
+                BitmapCacheOption.OnLoad).Frames[0];
+            Check(Equals((decoded.Metadata as BitmapMetadata)?.GetQuery("/ifd/{ushort=259}"), tag),
+                $"TIFF stores the exact {compression} lossless compression");
+            var samples = new ushort[source.Length];
+            decoded.CopyPixels(samples, stride, 0);
+            Check(decoded.Format == PixelFormats.Rgb48 && samples.SequenceEqual(source)
+                && decoded.ColorContexts is { Count: 1 } profiles && ExportColorProfile.Srgb.Matches(profiles[0]),
+                $"TIFF {compression} round-trips every 16-bit code and embeds the exact ICC");
         }
     }
 

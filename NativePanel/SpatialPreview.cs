@@ -737,13 +737,18 @@ internal sealed class SpatialPreview : IDisposable
                 var approved = OutputPathGuard.Approve(destination, target.SourcePath);
                 var outputFormat = SpektraExport.PixelFormatFor(approved.Path);
                 receipt = exportJobs.Accept(work.VariantId, approved.Path);
+                var jobId = receipt.JobId;
+                var started = Stopwatch.GetTimestamp();
                 cancelExport.Visibility = Visibility.Visible;
                 Advance(ExportStage.WaitingForViewer, "Waiting for Viewer rendering to finish…");
                 await DrainPreviewWorkersAsync(work.Token);
+                var viewerDrainMs = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
                 Advance(ExportStage.DevelopingSource, "Developing export pixels in Capture One…");
                 var result = await Task.Run(async () =>
                 {
+                    var developStarted = Stopwatch.GetTimestamp();
                     var rendered = snapshot.RenderExport(null, work.Token, useRecipeSize);
+                    var developMs = Stopwatch.GetElapsedTime(developStarted).TotalMilliseconds;
                     var source = rendered.Image;
                     if (source.BitDepth < 16 || source.Description is not { } description
                         || description.Source != snapshot.SourceIdentity
@@ -752,6 +757,7 @@ internal sealed class SpatialPreview : IDisposable
                         throw new InvalidDataException("Capture One did not produce the captured high-bit-depth input for this export.");
                     StartupHook.Log($"Capture One developed {target.SourceFormat} export input at {source.Width} × {source.Height}, {source.BitDepth}-bit {input.Space}.");
                     byte[]? pixels = null;
+                    double? renderMs = null;
                     if (look.Strength > 0)
                     {
                         Advance(ExportStage.RenderingFilm, "Rendering the Spektrafilm look…");
@@ -776,7 +782,9 @@ internal sealed class SpatialPreview : IDisposable
                                     });
                             },
                         };
+                        var renderStarted = Stopwatch.GetTimestamp();
                         pixels = await exporter.RenderAsync(source.Width, source.Height, source.FloatBytes, args, work.Token).ConfigureAwait(false);
+                        renderMs = Stopwatch.GetElapsedTime(renderStarted).TotalMilliseconds;
                     }
                     work.Token.ThrowIfCancellationRequested();
                     Advance(ExportStage.Encoding, "Writing the 16-bit export…", rendered.Crop.Width, rendered.Crop.Height);
@@ -784,9 +792,34 @@ internal sealed class SpatialPreview : IDisposable
                             ? RenderAllocation.ProfileImageEncoding : RenderAllocation.ImageEncoding,
                         (long)rendered.Crop.Width * rendered.Crop.Height, "Free memory or choose a smaller Export Recipe.");
                     var deliveryFormat = deliveryProfile.RequiresConversion ? PixelFormats.Rgba64 : outputFormat;
+                    var encodingStarted = Stopwatch.GetTimestamp();
                     var image = DecodeExport(source, pixels, look.Strength, input.Space, encoding, deliveryFormat, rendered.Crop, work.Token, dpi);
+                    var blendAndCropMs = Stopwatch.GetElapsedTime(encodingStarted).TotalMilliseconds;
+                    var iccStarted = Stopwatch.GetTimestamp();
                     var output = deliveryProfile.ConvertSrgb(image, outputFormat);
-                    SpektraExport.SaveApproved(approved, output, work.Token, recipe?.Metadata, deliveryProfile);
+                    var iccMs = Stopwatch.GetElapsedTime(iccStarted).TotalMilliseconds;
+                    var writeStarted = Stopwatch.GetTimestamp();
+                    SpektraExport.SaveApproved(approved, output, work.Token, recipe?.Metadata, deliveryProfile,
+                        recipe?.TiffCompression ?? TiffCompressOption.Zip);
+                    StartupHook.Log("export.performance.v1", new
+                    {
+                        JobId = jobId,
+                        SourceFormat = target.SourceFormat,
+                        SourceBitDepth = source.BitDepth,
+                        InputEncoding = input.Id,
+                        FilmEncoding = encoding,
+                        OutputFormat = outputFormat == PixelFormats.Rgba64 ? "PNG" : "TIFF",
+                        TiffCompression = outputFormat == PixelFormats.Rgb48 ? (recipe?.TiffCompression ?? TiffCompressOption.Zip).ToString() : null,
+                        OutputWidth = output.PixelWidth,
+                        OutputHeight = output.PixelHeight,
+                        ViewerDrainMs = viewerDrainMs,
+                        NativeDevelopmentMs = developMs,
+                        FilmRenderAndTransportMs = renderMs,
+                        BlendAndCropMs = blendAndCropMs,
+                        IccConversionMs = iccMs,
+                        EncodeVerifyAndCommitMs = Stopwatch.GetElapsedTime(writeStarted).TotalMilliseconds,
+                        TotalMs = Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+                    });
                     return (output.PixelWidth, output.PixelHeight);
                 }, work.Token);
                 Advance(ExportStage.Completed, $"Saved 16-bit Spektrafilm export · {result.PixelWidth} × {result.PixelHeight}",

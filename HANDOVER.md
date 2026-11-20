@@ -797,6 +797,14 @@ Evidence is under `.test-results/host-grain-atomic-history-20261120`. The curren
 
 Evidence and TIFF/PNG examples are under `.test-results/host-native-effect-export-final-20261120` and `.test-results/host-source-native-effect-export-20261120`. Native Export support remains tied to the verified Capture One build and one selected photo with one enabled recipe.
 
+## Native export stage timings and lossless TIFF recipe settings
+
+- [x] Record accepted-job timing for Viewer drain, high-depth Capture One development, effect render and transport, crop and blend, delivery ICC conversion, and verified file commit. The structured `export.performance.v1` event shares the durable receipt ID and carries dimensions, format and input encoding. It omits source and destination paths. The bounded background log drops invalid and oversized events without stalling later entries.
+- [x] Two native launches timed all four 3000 by 2000 DNG exports per launch. The effect TIFF finished in 1.40–1.42 s after acceptance, with 487–498 ms in worker render and transport and 568–569 ms to encode, reopen and commit. The equivalent PNG finished in 1.68–1.71 s, with 888–936 ms in the file stage. These eight jobs used one RAW, one active profile and the local RTX 3090 workstation.
+- [x] Read the selected TIFF recipe's Uncompressed, LZW or ZIP option. Reopen the TIFF and check its actual compression tag, high-depth format, exact profile and normalized orientation before committing the file. The host-independent test round-tripped all three lossless schemes and every 16-bit sample. The licensed Export command and previous settings regression exercised the active ZIP recipe with the film look and camera diffusion. [Capture One TIFF settings](https://support.captureone.com/hc/en-us/articles/360002646678-Specifying-file-format-in-the-Process-Recipe-tool)
+
+Evidence is under `.test-results/host-tile-centre-native-export-20261120`, `.test-results/host-tile-centre-full-20261120`, `.test-results/host-recipe-compression-native-export-20261120` and `.test-results/contracts-structured-export-compression-20261120`.
+
 ## Disconnected original recovery
 
 - [x] Move only a private calibrated RAW copy and observe the native original availability change. The previous source kept its processed Viewer layer visible across the offline interval.

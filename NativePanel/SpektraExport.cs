@@ -30,11 +30,11 @@ internal static class SpektraExport
     }
 
     internal static void SaveApproved(OutputPathGuard.ApprovedDestination destination, BitmapSource image, CancellationToken stop,
-        ExportMetadata? metadata = null, ExportColorProfile? outputProfile = null) =>
-        SaveImage(destination.Path, image, stop, destination, metadata, outputProfile);
+        ExportMetadata? metadata = null, ExportColorProfile? outputProfile = null, TiffCompressOption tiffCompression = TiffCompressOption.Zip) =>
+        SaveImage(destination.Path, image, stop, destination, metadata, outputProfile, tiffCompression);
 
     private static void SaveImage(string path, BitmapSource image, CancellationToken stop, OutputPathGuard.ApprovedDestination? destination,
-        ExportMetadata? metadata = null, ExportColorProfile? outputProfile = null)
+        ExportMetadata? metadata = null, ExportColorProfile? outputProfile = null, TiffCompressOption tiffCompression = TiffCompressOption.Zip)
     {
         stop.ThrowIfCancellationRequested();
         var format = PixelFormatFor(path);
@@ -44,7 +44,7 @@ internal static class SpektraExport
         var png = format == PixelFormats.Rgba64;
         BitmapEncoder encoder = png
             ? new PngBitmapEncoder()
-            : new TiffBitmapEncoder { Compression = TiffCompressOption.Zip };
+            : new TiffBitmapEncoder { Compression = tiffCompression };
         outputProfile ??= ExportColorProfile.Srgb;
         var profile = new ReadOnlyCollection<ColorContext>(new[] { outputProfile.Context });
         var xmp = metadata is null ? null : Encoding.UTF8.GetBytes(metadata.CreateXmp(image.PixelWidth, image.PixelHeight));
@@ -73,6 +73,8 @@ internal static class SpektraExport
             var stored = frame.Metadata as BitmapMetadata;
             if (!png && stored?.GetQuery("/ifd/{ushort=274}") is not (ushort)1)
                 throw new InvalidDataException("The TIFF encoder did not preserve the normalized orientation.");
+            if (!png && !TiffCompressionMatches(stored?.GetQuery("/ifd/{ushort=259}"), tiffCompression))
+                throw new InvalidDataException("The TIFF encoder did not preserve the selected compression.");
             // Windows codec builds expose the same XMP through different query paths.
             // Verify the stored UTF-8 packet and container encoding directly.
             if (xmp is not null && !(png ? PngXmp.Contains(stream, xmp) : EncodedXmp.TiffContains(stream, xmp)))
@@ -83,4 +85,13 @@ internal static class SpektraExport
         else
             destination.Write(Encode, stop);
     }
+
+    private static bool TiffCompressionMatches(object? tag, TiffCompressOption expected) =>
+        tag is ushort code && expected switch
+        {
+            TiffCompressOption.None => code == 1,
+            TiffCompressOption.Lzw => code == 5,
+            TiffCompressOption.Zip => code is 8 or 32946,
+            _ => false,
+        };
 }

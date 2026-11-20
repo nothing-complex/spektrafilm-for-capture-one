@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -41,6 +42,7 @@ public static partial class StartupHook
         var iccSha = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(iccPath)));
         var expectedWidth = (int)Prop(recipe, "Width")!;
         var expectedHeight = (int)Prop(recipe, "Height")!;
+        var compression = (TiffCompressOption)Prop(recipe, "TiffCompression")!;
         var originalNormal = Field(current, "normal")!;
         var originalPrevious = Field(current, "previous")!;
         var normalCommand = Field(originalNormal, "command")!;
@@ -56,6 +58,7 @@ public static partial class StartupHook
             "detaching the production Export bridge restored each original command exactly once");
         object? bridge = null;
         var routeCount = 0;
+        var timings = new List<JsonElement>();
         var destination = string.Empty;
         Task<bool>? job = null;
         Task<bool> Route()
@@ -124,8 +127,9 @@ public static partial class StartupHook
                 "repeated detach restores the original native callback arrays without duplicate commands");
             File.WriteAllText(Path.Combine(folder, phase + "-native-effect-export.json"), JsonSerializer.Serialize(new
             {
-                width = expectedWidth, height = expectedHeight, iccSha256 = iccSha, filmDifference, opticsDifference, commandDifference,
-                nativeExportCallbacks = routeCount, masterOffDelegated = clicked,
+                width = expectedWidth, height = expectedHeight, iccSha256 = iccSha, tiffCompression = compression.ToString(),
+                filmDifference, opticsDifference, commandDifference,
+                nativeExportCallbacks = routeCount, masterOffDelegated = clicked, timings,
             }, new JsonSerializerOptions { WriteIndented = true }));
 
             async Task<BitmapSource> Render(string kind, string extension, bool usePrevious)
@@ -157,7 +161,59 @@ public static partial class StartupHook
                     $"{kind} reopens as the expected 16-bit format at the selected recipe dimensions");
                 using var icc = frame.ColorContexts![0].OpenProfileStream();
                 Check(Convert.ToHexString(SHA256.HashData(icc)) == iccSha, $"{kind} embeds the exact selected recipe ICC");
+                if (extension == ".tif")
+                {
+                    var compressionTag = (frame.Metadata as BitmapMetadata)?.GetQuery("/ifd/{ushort=259}");
+                    var matches = (compression, compressionTag) switch
+                    {
+                        (TiffCompressOption.None, (ushort)1) or (TiffCompressOption.Lzw, (ushort)5)
+                            or (TiffCompressOption.Zip, (ushort)8 or (ushort)32946) => true,
+                        _ => false,
+                    };
+                    Check(matches, $"{kind} uses the selected Capture One TIFF compression {compression}");
+                }
+                var receipt = Call(Field(spatial, "exportJobs")!, "ReadLatest")!;
+                Check(Equals(Prop(receipt, "Destination"), destination) && Prop(receipt, "Stage")?.ToString() == "Completed",
+                    $"{kind} finished its own export receipt");
+                var detail = await WaitForTiming((Guid)Prop(receipt, "JobId")!);
+                var film = detail.GetProperty("FilmRenderAndTransportMs");
+                var expectedFilm = kind != "no-film-reference";
+                var stages = new[] { "ViewerDrainMs", "NativeDevelopmentMs", "BlendAndCropMs", "IccConversionMs", "EncodeVerifyAndCommitMs" }
+                    .Select(key => detail.GetProperty(key).GetDouble()).ToArray();
+                var filmMs = film.ValueKind == JsonValueKind.Number ? film.GetDouble() : 0;
+                Check(detail.GetProperty("SourceBitDepth").GetInt32() >= 16
+                    && detail.GetProperty("OutputWidth").GetInt32() == expectedWidth
+                    && detail.GetProperty("OutputHeight").GetInt32() == expectedHeight
+                    && detail.GetProperty("OutputFormat").GetString() == (extension == ".tif" ? "TIFF" : "PNG")
+                    && stages.All(value => double.IsFinite(value) && value >= 0)
+                    && detail.GetProperty("TotalMs").GetDouble() >= stages.Sum() + filmMs
+                    && (expectedFilm ? filmMs > 0 : film.ValueKind == JsonValueKind.Null)
+                    && !detail.TryGetProperty("Destination", out _) && !detail.TryGetProperty("SourcePath", out _),
+                    $"{kind} logs the native-to-file stages for its job with high-depth geometry and without paths");
+                timings.Add(detail);
                 return frame;
+            }
+
+            async Task<JsonElement> WaitForTiming(Guid jobId)
+            {
+                var log = Path.Combine(folder, "panel.log");
+                var start = Stopwatch.GetTimestamp();
+                while (Stopwatch.GetElapsedTime(start) < TimeSpan.FromSeconds(3))
+                {
+                    foreach (var line in File.ReadAllLines(log).Where(line => line.Contains("export.performance.v1", StringComparison.Ordinal)))
+                    {
+                        try
+                        {
+                            using var document = JsonDocument.Parse(line);
+                            if (document.RootElement.TryGetProperty("Details", out var details)
+                                && details.GetProperty("JobId").GetGuid() == jobId)
+                                return details.Clone();
+                        }
+                        catch (JsonException) { /* The background pump may still be appending this line. */ }
+                    }
+                    await Task.Delay(30);
+                }
+                throw new TimeoutException("The export's structured timing event did not reach the panel log.");
             }
 
             void ShowNativeDialog(Func<bool> interact)

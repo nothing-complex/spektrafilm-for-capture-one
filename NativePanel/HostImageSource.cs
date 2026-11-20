@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows.Media.Imaging;
 using ImgCore;
 using P1.C1;
 using P1.C1.Common.ColorProfiles;
@@ -41,7 +42,7 @@ internal static class HostImageSource
     internal sealed record RecipeInfo(string Name, string FormatId, string ColorProfileName, string ColorProfilePath,
         string CropMode, string RootFolderMode, string CustomRootFolder, string Subfolder, string Filename,
         string Suffix, int TiffBits, int JpegQuality, int Width, int Height, double Scale, bool IgnoreCrop,
-        double Resolution, string ResolutionUnit, ExportMetadata Metadata);
+        double Resolution, string ResolutionUnit, ExportMetadata Metadata, TiffCompressOption TiffCompression);
 
     internal static (Guid VariantId, NativeImageRevision AdjustmentKey, bool OriginalAvailable) GetSelectedSourceState(object window)
     {
@@ -107,10 +108,17 @@ internal static class HostImageSource
             recipe, ApplicationSettings.Default.PreviewSizeInPx, ignoreCrop);
         var variant = selection.Variant;
         var metadata = ReadRecipeMetadata(variant, recipe);
+        var compression = recipe.FileType == FileFormat.Tiff ? recipe.TiffCompression switch
+        {
+            TiffCompressionMethod.None => TiffCompressOption.None,
+            TiffCompressionMethod.LZW => TiffCompressOption.Lzw,
+            TiffCompressionMethod.Zip => TiffCompressOption.Zip,
+            _ => throw new InvalidOperationException("Choose uncompressed, LZW or ZIP in Capture One’s TIFF recipe."),
+        } : TiffCompressOption.Zip;
         return new RecipeInfo(recipe.Name, recipe.FileType.ToString(), recipe.ColorProfileName, recipe.ColorProfilePath,
             recipe.CropExportMethod.ToString(), recipe.DestinationRootFolder.ToString(), recipe.DestinationCustomRootFolder,
             recipe.DestinationSubFolder, recipe.DestinationFilename, recipe.DestinationSubName, recipe.TiffBits, recipe.JpegQuality,
-            scale.ScaledPixelWidth, scale.ScaledPixelHeight, scale.Scale, ignoreCrop, recipe.Resolution, recipe.ResolutionUnit.ToString(), metadata);
+            scale.ScaledPixelWidth, scale.ScaledPixelHeight, scale.Scale, ignoreCrop, recipe.Resolution, recipe.ResolutionUnit.ToString(), metadata, compression);
     }
 
     private static ExportMetadata ReadRecipeMetadata(ICoreVariant variant, IDestinationProcessingSettings recipe)
