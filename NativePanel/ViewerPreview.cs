@@ -47,7 +47,12 @@ internal sealed class ViewerPreview : IDisposable
     internal void TrackFirstPaint(BitmapSource bitmap, ViewerFrameTiming timing)
     {
         if (!ReferenceEquals(attachment?.PaintedBitmap, bitmap))
+        {
+            if (firstPaint is { } pending && ReferenceEquals(pending.Bitmap, bitmap))
+                return;
+            DiscardUnpaintedFrame();
             firstPaint = (bitmap, timing);
+        }
     }
 
     internal bool Show(Guid variantId, BitmapSource bitmap)
@@ -55,7 +60,7 @@ internal sealed class ViewerPreview : IDisposable
         if (disposed)
             return false;
         if (firstPaint is { } pending && !ReferenceEquals(pending.Bitmap, bitmap))
-            firstPaint = null;
+            DiscardUnpaintedFrame();
 
         try
         {
@@ -124,14 +129,14 @@ internal sealed class ViewerPreview : IDisposable
 
     internal void Suspend(string reason = InactiveDocument)
     {
-        firstPaint = null;
+        DiscardUnpaintedFrame();
         Detach();
         SetStatus(reason);
     }
 
     internal void Clear()
     {
-        firstPaint = null;
+        DiscardUnpaintedFrame();
         Detach();
         SetStatus(null);
     }
@@ -174,6 +179,14 @@ internal sealed class ViewerPreview : IDisposable
         }
     }
 
+    private void DiscardUnpaintedFrame()
+    {
+        if (firstPaint is not { } pending) return;
+        firstPaint = null;
+        var timing = pending.Timing;
+        ViewerFrameTiming.LogUnpublished(timing.Stage, timing.SettingsGeneration, timing.Started, "Unpainted");
+    }
+
     private void OnViewUnloaded(object sender, RoutedEventArgs args)
     {
         if (ReferenceEquals(attachment?.View, sender))
@@ -183,7 +196,7 @@ internal sealed class ViewerPreview : IDisposable
     public void Dispose()
     {
         disposed = true;
-        firstPaint = null;
+        DiscardUnpaintedFrame();
         Detach();
         statusNotification?.Abort();
         statusNotification = null;
@@ -465,16 +478,26 @@ internal sealed class ViewerPreview : IDisposable
 
 internal readonly record struct ViewerPixel(BitmapSource Frame, int X, int Y, byte Red, byte Green, byte Blue);
 
+internal enum ViewerFrameStage { Settled, Initial, Drag }
+
 internal readonly record struct ViewerFrameTiming(long Started, long Ready, int SettingsGeneration, string Quality, bool AutoQuality,
     int SourceBitDepth, string SourceFormat, string HostVersion, string HostAssemblySha256, string InputEncoding, string FilmEncoding,
-    bool FilmApplied, double? NativeDevelopmentMs, double? FilmRenderAndTransportMs, double? CreateDisplayBitmapMs, OpticalRenderReceipt? Render)
+    bool FilmApplied, double? NativeDevelopmentMs, double? FilmRenderAndTransportMs, double? CreateDisplayBitmapMs, OpticalRenderReceipt? Render,
+    ViewerFrameStage Stage = ViewerFrameStage.Settled)
 {
+    internal static void LogUnpublished(ViewerFrameStage stage, int generation, long started, string outcome) =>
+        StartupHook.Log("viewer.unpublished.v1", new
+        {
+            Stage = stage.ToString(), SettingsGeneration = generation, Outcome = outcome,
+            DurationMs = Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+        });
+
     internal void Log(int width, int height)
     {
         var painted = Stopwatch.GetTimestamp();
         StartupHook.Log("viewer.performance.v1", new
         {
-            FrameId = Guid.NewGuid(), SettingsGeneration, Quality, AutoQuality, SourceBitDepth, SourceFormat, HostVersion, HostAssemblySha256,
+            FrameId = Guid.NewGuid(), Stage = Stage.ToString(), SettingsGeneration, Quality, AutoQuality, SourceBitDepth, SourceFormat, HostVersion, HostAssemblySha256,
             InputEncoding, FilmEncoding, FilmApplied, Width = width, Height = height, NativeDevelopmentMs, FilmRenderAndTransportMs,
             CreateDisplayBitmapMs, ReadyToPaintMs = Stopwatch.GetElapsedTime(Ready, painted).TotalMilliseconds,
             RequestToPaintMs = Stopwatch.GetElapsedTime(Started, painted).TotalMilliseconds,

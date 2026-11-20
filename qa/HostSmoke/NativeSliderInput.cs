@@ -2,6 +2,8 @@ using System;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -106,6 +108,39 @@ public static partial class StartupHook
                     Confirm(-8, $"native editor rejects malformed value {invalid}");
                 }
                 Check(File.ReadAllBytes(path).SequenceEqual(before), "invalid numeric text never writes a saved look");
+
+                await RouteKey("0", Key.Enter);
+                await RouteKey("0", Key.Up);
+                Confirm(.1, "the native numeric editor increments film exposure by one tick");
+                await RouteKey("0.1", Key.Down);
+                Confirm(0, "the native numeric editor decrements film exposure by one tick");
+
+                var defaults = FindButton((DependencyObject)panel, "Defaults")
+                    ?? throw new InvalidOperationException("The visible panel has no Defaults command.");
+                Check(editor.Focus() && editor.IsKeyboardFocused, "the numeric editor receives keyboard focus before editing");
+                editor.SetCurrentValue(TextBox.TextProperty, "0.6");
+                Check(defaults.Focus(), "keyboard focus can move directly from the editor to the Defaults button");
+                await defaults.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+                Confirm(.6, "leaving the numeric editor commits the pending film exposure");
+
+                object Snapshot() => Call(panel, "CaptureLook")!;
+                bool Same(object left, object right) => JsonNode.DeepEquals(JsonSerializer.SerializeToNode(left, left.GetType()),
+                    JsonSerializer.SerializeToNode(right, right.GetType()));
+                var previous = Snapshot();
+                defaults.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Confirm(0, "clicking Defaults resets the durable exposure through the real button");
+                var reset = Snapshot();
+                var undo = Field(panel, "nativeUndo")!;
+                var model = AppDomain.CurrentDomain.GetAssemblies().Single(item => item.GetName().Name == "P1.C1.ModelEntities");
+                var contract = model.GetType("P1.C1.ModelEntities.UndoInterfaces.IUndoManager", true)!;
+                var revert = contract.GetMethod("Undo", new[] { typeof(bool) })!;
+                Check(contract.GetProperty("TryGetUndoActionName")!.GetValue(undo) is "Spektrafilm defaults",
+                    "the Defaults button registered one named native undo action");
+                revert.Invoke(undo, new object[] { true });
+                Check(Same(Snapshot(), previous), "Undo restores the look captured before Defaults");
+                contract.GetMethod("Redo")!.Invoke(undo, null);
+                Check(Same(Snapshot(), reset), "Redo restores the complete native Defaults result");
+                revert.Invoke(undo, new object[] { false });
             }
             finally { culture.SetValue(input, previousCulture); }
         }
@@ -122,6 +157,14 @@ public static partial class StartupHook
         if (root is TextBox editor) return editor;
         for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
             if (FindEditor(VisualTreeHelper.GetChild(root, index)) is { } child) return child;
+        return null;
+    }
+
+    private static Button? FindButton(DependencyObject root, string content)
+    {
+        if (root is Button button && Equals(button.Content, content)) return button;
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+            if (FindButton(VisualTreeHelper.GetChild(root, index), content) is { } child) return child;
         return null;
     }
 }

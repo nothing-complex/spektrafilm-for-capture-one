@@ -115,6 +115,12 @@ public static partial class StartupHook
                 await MeasureViewerChurn(panel, spatial, store, visits);
                 return;
             }
+            if (int.TryParse(Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_VIEWER_TELEMETRY_SECONDS"), out var duration)
+                && duration is >= 20 and <= 600)
+            {
+                await MeasureViewerTelemetry(hook, panel, spatial, duration);
+                return;
+            }
             if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_VIEWER_LAYOUTS") == "1")
             {
                 await TestViewerLayouts(panel, spatial, window);
@@ -158,6 +164,12 @@ public static partial class StartupHook
                 return;
             }
             var exportFixture = Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT");
+            if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_EXPORT_INTERRUPTION") is { } interruption
+                && interruption is "DevelopingSource" or "RenderingFilm" or "Encoding")
+            {
+                await TestNativeExportInterruption(panel, spatial, interruption);
+                return;
+            }
             if (exportFixture is "1" or "matrix" or "grain" or "clone")
             {
                 var phase = File.ReadAllText(Path.Combine(folder, "phase.txt"));

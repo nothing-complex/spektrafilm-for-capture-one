@@ -278,6 +278,7 @@ public static partial class StartupHook
                 {
                     using var entry = JsonDocument.Parse(line);
                     var detail = entry.RootElement.GetProperty("Details");
+                    if (detail.TryGetProperty("Stage", out var stage) && stage.GetString() != "Settled") continue;
                     var generation = detail.GetProperty("SettingsGeneration").GetInt32();
                     if (generations.Contains(generation)) seen[generation] = detail.Clone();
                 }

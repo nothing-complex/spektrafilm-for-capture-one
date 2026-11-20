@@ -867,8 +867,8 @@ internal sealed class SpatialPreview : IDisposable
             ReportStagingCleanup(error);
             StartupHook.Log("Spektrafilm export failed: " + error);
             var message = error.GetBaseException().Message;
-            Advance(ExportStage.Failed, message, error: message);
-            if (disposed) return false;
+            Advance(ExportStage.Failed, $"Spektrafilm export failed. {message}", error: message);
+            if (disposed || receipt is not null) return false;
             if (owner is { IsVisible: true })
                 MessageBox.Show(owner, message, "Could not export with Spektrafilm", MessageBoxButton.OK, MessageBoxImage.Error);
             else
@@ -1112,6 +1112,7 @@ internal sealed class SpatialPreview : IDisposable
         var started = Stopwatch.GetTimestamp();
         double? nativeDevelopmentMs = null, filmRenderMs = null, bitmapMs = null;
         OpticalRenderReceipt? renderReceipt = null;
+        var offered = false;
         using var job = new CancellationTokenSource();
         pending = job;
         try
@@ -1140,12 +1141,13 @@ internal sealed class SpatialPreview : IDisposable
                         StartupHook.Log("Spektrafilm initial source: " + error.GetBaseException().Message);
                     }
                 }
+                var initialSourceMs = initial is not null ? Stopwatch.GetElapsedTime(initialStarted).TotalMilliseconds : 0;
                 var development = Task.Run(() => nativeSize
                     ? snapshot.RenderNativePreview(job.Token)
                     : snapshot.RenderScaledPreview(longEdge, job.Token), job.Token);
                 var developed = initial is not null
                     ? await RenderCoordination.PreferFinalAsync(development, token => TryShowInitialPreviewAsync(initial,
-                        initialStarted, snapshot.AdjustmentKey, selectedVariant, selectedSpace, encoding, look, dragEdge, settingsVersion, token), job.Token)
+                        started, initialSourceMs, snapshot.AdjustmentKey, selectedVariant, selectedSpace, encoding, look, dragEdge, settingsVersion, token), job.Token)
                     : await development;
                 job.Token.ThrowIfCancellationRequested();
                 if (!HostImageSource.IsCurrentAvailableSource(window, selectedVariant, snapshot.AdjustmentKey))
@@ -1245,6 +1247,7 @@ internal sealed class SpatialPreview : IDisposable
                 publishedSource.Source.HostAssemblySha256, selectedSpace.Id, encoding.Id, strength > 0,
                 nativeDevelopmentMs, filmRenderMs, bitmapMs, renderReceipt));
             ShowFrame(selectedVariant, output);
+            offered = true;
         }
         catch (OperationCanceledException)
         {
@@ -1274,6 +1277,8 @@ internal sealed class SpatialPreview : IDisposable
         catch (Exception) when (settingsVersion != inputRevision) { }
         finally
         {
+            if (!offered)
+                TraceUnpublishedViewerWork(ViewerFrameStage.Settled, settingsVersion, started, job.IsCancellationRequested);
             pending = null;
             if (!enabled)
                 ReleaseRenderer();
@@ -1298,7 +1303,7 @@ internal sealed class SpatialPreview : IDisposable
         lastDraftRevision = -1;
     }
 
-    private async Task TryShowInitialPreviewAsync(HostImageSource.Frame frame, long started,
+    private async Task TryShowInitialPreviewAsync(HostImageSource.Frame frame, long started, double nativeDevelopmentMs,
         NativeImageRevision revision, Guid variant, InputChoice inputColor, Choice encoding, LookSettings look,
         int dragEdge, int version, CancellationToken token)
     {
@@ -1306,15 +1311,21 @@ internal sealed class SpatialPreview : IDisposable
             return;
         using var work = CancellationTokenSource.CreateLinkedTokenSource(token);
         var stop = work.Token;
+        var offered = false;
         pendingDraft = work;
         try
         {
             var args = RendererOptions(look, inputColor.Id, encoding.Id, draft: true);
-            draftRenderer ??= new OpticalRenderer(nativePreview: true);
+            var worker = draftRenderer ??= new OpticalRenderer(nativePreview: true);
             var packed = look.Strength == 1 && encoding.Id == "srgb";
-            var pixels = await draftRenderer.RenderAsync(frame.Width, frame.Height, frame.FloatBytes, args, stop, packed);
+            var filmStarted = Stopwatch.GetTimestamp();
+            var pixels = await worker.RenderAsync(frame.Width, frame.Height, frame.FloatBytes, args, stop, packed);
+            var filmMs = Stopwatch.GetElapsedTime(filmStarted).TotalMilliseconds;
+            var receipt = worker.LastRender;
+            var bitmapStarted = Stopwatch.GetTimestamp();
             var display = await Task.Run(() => packed ? CreateDisplayBitmap(frame, pixels)
                 : DecodeResult(frame, pixels, look.Strength, inputColor.Space, encoding.Id, stop), stop);
+            var bitmapMs = Stopwatch.GetElapsedTime(bitmapStarted).TotalMilliseconds;
             stop.ThrowIfCancellationRequested();
             if (version != inputRevision || DragLongEdge != dragEdge || OutputRenderActive
                 || !HostImageSource.IsCurrentAvailableSource(window, variant, revision))
@@ -1322,8 +1333,10 @@ internal sealed class SpatialPreview : IDisposable
             viewerFrame = display;
             frameCurrent = false;
             previewDetail = "Loading Viewer preview";
+            TrackBriefPaint(display, frame, ViewerFrameStage.Initial, started, version, Math.Min(dragEdge, InitialPreviewLongEdge), inputColor, encoding,
+                look.Strength, nativeDevelopmentMs, filmMs, bitmapMs, receipt);
             ShowFrame(variant, display);
-            StartupHook.Log($"Initial Viewer preview {frame.Width} × {frame.Height} in {Stopwatch.GetElapsedTime(started).TotalMilliseconds:F0} ms.");
+            offered = true;
         }
         catch (OperationCanceledException) when (!token.IsCancellationRequested && stop.IsCancellationRequested) { }
         catch (Exception error) when (!token.IsCancellationRequested)
@@ -1332,6 +1345,7 @@ internal sealed class SpatialPreview : IDisposable
         }
         finally
         {
+            if (!offered) TraceUnpublishedViewerWork(ViewerFrameStage.Initial, version, started, stop.IsCancellationRequested);
             pendingDraft = null;
             if (stop.IsCancellationRequested)
                 ReleaseDraftRenderer();
@@ -1346,6 +1360,10 @@ internal sealed class SpatialPreview : IDisposable
             lastDraftRevision = inputRevision;
         var args = look.Strength > 0 ? RendererOptions(look, inputColor.Id, encoding.Id, draft: true) : Array.Empty<string>();
         var started = Stopwatch.GetTimestamp();
+        var version = inputRevision;
+        double? filmMs = null;
+        OpticalRenderReceipt? receipt = null;
+        var offered = false;
         using var job = new CancellationTokenSource();
         pendingDraft = job;
         try
@@ -1360,9 +1378,12 @@ internal sealed class SpatialPreview : IDisposable
             byte[]? packed = null;
             if (look.Strength > 0 && (draftPixels is null || !args.SequenceEqual(draftArguments!)))
             {
-                draftRenderer ??= new OpticalRenderer(nativePreview: true);
+                var worker = draftRenderer ??= new OpticalRenderer(nativePreview: true);
                 var pack = !warmup && look.Strength == 1 && encoding.Id == "srgb";
-                var rendered = await draftRenderer.RenderAsync(frame.Width, frame.Height, frame.FloatBytes, args, job.Token, pack);
+                var filmStarted = Stopwatch.GetTimestamp();
+                var rendered = await worker.RenderAsync(frame.Width, frame.Height, frame.FloatBytes, args, job.Token, pack);
+                filmMs = Stopwatch.GetElapsedTime(filmStarted).TotalMilliseconds;
+                receipt = worker.LastRender;
                 job.Token.ThrowIfCancellationRequested();
                 packed = pack ? rendered : null;
                 draftPixels = pack ? null : rendered;
@@ -1371,9 +1392,11 @@ internal sealed class SpatialPreview : IDisposable
             if (warmup)
                 return;
             var pixels = draftPixels;
+            var bitmapStarted = Stopwatch.GetTimestamp();
             var output = await Task.Run(() => packed is null
                 ? DecodeResult(frame, pixels, look.Strength, inputColor.Space, encoding.Id, job.Token)
                 : CreateDisplayBitmap(frame, packed), job.Token);
+            var bitmapMs = Stopwatch.GetElapsedTime(bitmapStarted).TotalMilliseconds;
             job.Token.ThrowIfCancellationRequested();
             if (!WantsDragPreview || OutputRenderActive || activeVariant != selectedVariant || !ReferenceEquals(source, input)
                 || !ReferenceEquals(inputSpace.SelectedItem, inputColor) || !ReferenceEquals(outputSpace.SelectedItem, encoding)
@@ -1384,8 +1407,10 @@ internal sealed class SpatialPreview : IDisposable
             viewerFrame = output;
             frameCurrent = false;
             previewDetail = "Drag preview";
+            TrackBriefPaint(output, frame, ViewerFrameStage.Drag, started, version, dragEdge, inputColor, encoding,
+                look.Strength, null, filmMs, bitmapMs, receipt);
             ShowFrame(selectedVariant, output);
-            StartupHook.Log($"Drag preview frame {frame.Width} × {frame.Height} in {Stopwatch.GetElapsedTime(started).TotalMilliseconds:F0} ms.");
+            offered = true;
         }
         catch (OperationCanceledException) { }
         catch (InvalidOperationException) when (!WantsDragPreview || selectionUnavailable) { }
@@ -1395,11 +1420,27 @@ internal sealed class SpatialPreview : IDisposable
         }
         finally
         {
+            if (!offered && !warmup) TraceUnpublishedViewerWork(ViewerFrameStage.Drag, version, started, job.IsCancellationRequested);
             pendingDraft = null;
             if (job.IsCancellationRequested)
                 ReleaseDraftRenderer();
         }
     }
+
+    private void TrackBriefPaint(BitmapSource image, HostImageSource.Frame source, ViewerFrameStage stage, long started,
+        int version, int requestedEdge, InputChoice input, Choice encoding, double strength,
+        double? nativeMs, double? filmMs, double bitmapMs, OpticalRenderReceipt? receipt)
+    {
+        if (source.Description is not { } description) return;
+        var identity = description.Source;
+        viewer.TrackFirstPaint(image, new ViewerFrameTiming(started, Stopwatch.GetTimestamp(), version,
+            requestedEdge.ToString(CultureInfo.InvariantCulture), false, source.BitDepth, identity.SourceFormat, identity.HostVersion,
+            identity.HostAssemblySha256, input.Id, encoding.Id, strength > 0, nativeMs, filmMs, bitmapMs, receipt, stage));
+    }
+
+    private void TraceUnpublishedViewerWork(ViewerFrameStage stage, int version, long started, bool canceled) =>
+        ViewerFrameTiming.LogUnpublished(stage, version, started,
+            canceled ? "Canceled" : version != inputRevision ? "Superseded" : "Unavailable");
 
     private void ReleaseDraftRenderer()
     {

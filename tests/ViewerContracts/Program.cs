@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.Diagnostics;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
@@ -141,6 +142,42 @@ internal static partial class Program
         var unavailable = new ExportJobJournal(Path.Combine(firstPath, "journal"), messages.Add);
         Check(unavailable.Accept(variant, firstPath).Stage == ExportStage.Accepted && messages.Count == 2,
             "an unavailable progress directory does not block a separately authorized export");
+
+        var sharedDirectory = Path.Combine(folder, "Contended export jobs");
+        var errors = new ConcurrentQueue<string>();
+        var writer = new ExportJobJournal(sharedDirectory, errors.Enqueue);
+        using var stop = new CancellationTokenSource();
+        using var reading = new CountdownEvent(4);
+        var readers = Enumerable.Range(0, reading.InitialCount).Select(_ => Task.Run(() =>
+        {
+            var reader = new ExportJobJournal(sharedDirectory, errors.Enqueue);
+            reading.Signal();
+            while (!stop.IsCancellationRequested)
+            {
+                reader.ReadLatest();
+                Thread.Yield();
+            }
+        })).ToArray();
+        try
+        {
+            if (!reading.Wait(TimeSpan.FromSeconds(10)))
+                throw new InvalidOperationException("The concurrent export journal readers did not start.");
+            for (var index = 0; index < 24; index++)
+            {
+                var receipt = writer.Accept(variant, firstPath);
+                foreach (var stage in new[] { ExportStage.DevelopingSource, ExportStage.RenderingFilm, ExportStage.Encoding, ExportStage.Completed })
+                {
+                    receipt = writer.Report(receipt, stage);
+                    Check(writer.ReadLatest() == receipt, $"concurrent readers preserve durable export stage {stage}");
+                }
+            }
+        }
+        finally
+        {
+            stop.Cancel();
+            Task.WaitAll(readers);
+        }
+        Check(errors.IsEmpty, "another in-process journal reader never blocks replacing a Windows receipt: " + string.Join(", ", errors));
     }
 
     private static void TestViewerHistogram()

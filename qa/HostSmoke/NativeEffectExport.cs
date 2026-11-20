@@ -147,6 +147,7 @@ public static partial class StartupHook
                 "native Export TIFF and Export with Previous Settings PNG retain the same processed RGB16 image");
 
             var grain = compareGrain ? await CompareGrain(fullEffects) : null;
+            if (compareGrain) await CheckReadOnlyDestination();
             toggle.IsChecked = false;
             bool clicked = false;
             ShowNativeDialog(() =>
@@ -157,7 +158,7 @@ public static partial class StartupHook
                 native.Close();
                 return true;
             });
-            Check(clicked && routeCount == (compareGrain ? 10 : 5) && Prop(bridge, "Dialog") is null,
+            Check(clicked && routeCount == (compareGrain ? 11 : 5) && Prop(bridge, "Dialog") is null,
                 "the master switch delegates to the ordinary Capture One Export dialog without a Spektrafilm job");
             ((IDisposable)bridge).Dispose();
             ((IDisposable)bridge).Dispose();
@@ -169,6 +170,35 @@ public static partial class StartupHook
                 filmDifference, opticsDifference, halationScatterDifference, commandDifference, grain,
                 nativeExportCallbacks = routeCount, masterOffDelegated = clicked, timings,
             }, new JsonSerializerOptions { WriteIndented = true }));
+
+            async Task CheckReadOnlyDestination()
+            {
+                var before = routeCount;
+                destination = Path.Combine(folder, caseName + "-read-only-destination.tif");
+                File.Copy(Path.Combine(folder, caseName + "-film-only.tif"), destination);
+                var originalAttributes = File.GetAttributes(destination);
+                var originalBytes = File.ReadAllBytes(destination);
+                File.SetAttributes(destination, originalAttributes | FileAttributes.ReadOnly);
+                try
+                {
+                    job = null;
+                    ExecuteNativeExportCommand(previous);
+                    Check(routeCount == before + 1 && job is not null && !await job.WaitAsync(TimeSpan.FromSeconds(45)),
+                        "a native previous-settings export to a read-only file reports failure without a modal dialog");
+                    var failed = Call(Field(spatial, "exportJobs")!, "ReadLatest")!;
+                    var status = (TextBlock)Field(spatial, "exportStatus")!;
+                    Check(Prop(failed, "Stage")?.ToString() == "Failed" && Equals(Prop(failed, "Destination"), destination)
+                        && Prop(failed, "Error") is string { Length: > 0 } explanation
+                        && status.Text.StartsWith("Spektrafilm export failed.", StringComparison.Ordinal)
+                        && status.Text.Contains(explanation, StringComparison.Ordinal)
+                        && Field(spatial, "exportWork") is null,
+                        "the accepted native job leaves its exported-file failure in the panel and durable receipt");
+                    Check(File.ReadAllBytes(destination).AsSpan().SequenceEqual(originalBytes)
+                        && !Directory.EnumerateFiles(folder, ".spektra-*.tmp").Any(),
+                        "permission failure leaves previous 16-bit TIFF bytes intact and removes the staged file");
+                }
+                finally { File.SetAttributes(destination, originalAttributes); }
+            }
 
             async Task<object> CompareGrain(BitmapSource reference)
             {
@@ -207,7 +237,7 @@ public static partial class StartupHook
                     opticalGrain.SelectedItem = opticalGrain.ItemsSource.Cast<object>().Single(item => Prop(item, "Id") is "production");
                     amount.GetType().GetProperty("Value", Flags)!.SetValue(amount, 1.65d);
                     Check(applied.Equals(ReadGrain()), "opting into Spektrafilm optical grain leaves effective Capture One grain unchanged");
-                    var combined = await Render("both-native-and-optical-grain", ".tif", false);
+                    var combined = await Render("both-native-and-optical-grain", ".tif", false, closeAfterAcceptance: true);
                     var previous = await Render("both-grains-previous", ".png", true);
                     var opticalOverNative = Difference(native, combined);
                     var commandDifference = Difference(combined, previous);
@@ -291,7 +321,7 @@ public static partial class StartupHook
                 }
             }
 
-            async Task<BitmapSource> Render(string kind, string extension, bool usePrevious)
+            async Task<BitmapSource> Render(string kind, string extension, bool usePrevious, bool closeAfterAcceptance = false)
             {
                 var before = routeCount;
                 job = null;
@@ -307,9 +337,20 @@ public static partial class StartupHook
                             ?? throw new InvalidOperationException("The native Export window does not expose its confirmation command.");
                         if (!confirm.CanExecute(null)) return false;
                         confirm.Execute(null);
+                        if (closeAfterAcceptance)
+                        {
+                            var accepted = Call(Field(spatial, "exportJobs")!, "ReadLatest");
+                            Check(job is { IsCompleted: false } && Field(spatial, "exportWork") is not null
+                                && accepted is not null && Equals(Prop(accepted, "Destination"), destination)
+                                && Prop(accepted, "Finished") is false,
+                                "the native dialog has an accepted immutable output before the window closes");
+                            owner.Close();
+                        }
                         return true;
                     });
                 }
+                if (closeAfterAcceptance)
+                    Check(Prop(bridge, "Dialog") is null, "closing the actual export dialog releases its native confirmation binding");
                 Check(routeCount == before + 1 && job is not null && await job.WaitAsync(TimeSpan.FromSeconds(45)),
                     $"{kind} took exactly one accepted job through Capture One's native command");
                 using var file = File.OpenRead(destination);

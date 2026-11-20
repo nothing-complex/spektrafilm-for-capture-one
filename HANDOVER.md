@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The 70-item integration audit tracks 33 bounded primary fixes implemented and 37 partial items. It includes feasibility investigations and enhancements.
+Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The 70-item integration audit tracks 35 bounded primary fixes implemented and 35 partial items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -899,6 +899,27 @@ The combined receipt is `.test-results/audit19-package-verify-20261120/result.js
 - [x] Upgrade a private audit.19 installation to audit.20. CheckOnly retained the prior installation until the exact new licensed process reported the panel Ready and Export Connected. The installed capability report and retained custom and external preset hashes passed verification. The regular installation identifies `ffc4819`.
 
 The combined receipt is `.test-results/audit20-package-verify-20261120/result.json`. The exact host output and regressions are under `.test-results/host-audit20-native-effects-repeat-20261120`, `.test-results/host-audit20-native-grain-20261120`, `.test-results/host-audit20-native-full-20261120`, and `.test-results/host-audit20-native-viewer-20261120`. The private upgrade receipt is at `D:/Library AI testing/sf-audit20-ready-20261120/installed-upgrade-receipt.json`.
+
+## Accepted export dialog and storage failure
+
+- [x] On first launch and restart, close the actual native Export confirmation after a TIFF with native and optical grain is accepted. The binding is released immediately and the job completes at its approved path with the same 16-bit pixels and recipe ICC.
+- [x] Through the actual Export with Previous Settings command, attempt to replace a read-only fixture TIFF. Windows rejects the replacement, the panel reports the failure without a second dialog, and its persistent receipt records Failed for the exact approved path. The previous bytes and the original RAW remain intact. The approved stage file is cleaned up.
+- [x] Both launches pass 104 assertions, and the Windows contracts pass. Evidence is in `.test-results/host-export-nonmodal-close-20261120` and `.test-results/contracts-export-failure-viewer-20261120`. These results are from current source and extend the packaged audit.20 coverage.
+- [x] Use `-NativeExportInterruption DevelopingSource`, `RenderingFilm` or `Encoding` on the single private 24 MP DNG. All three runs stopped only their own disposable process and passed 21 assertions after restart. The prior output and the exact exposure and strength persisted. A new explicitly approved TIFF at a different path reopened in RGB48 with its profile.
+- [x] A first film-stage attempt recovered its preferences but missed the durable progress event because reading a Windows receipt blocked atomic replacement. Serialize journal readers and replacement across the in-process tool instances, then pass the licensed film-stage retry. The encoding interruption leaves an 8.03 MB private staging file as expected after a hard process stop. Explicit retry preserves the previous destination. Verified paths include `.test-results/host-export-hard-stop-DevelopingSource-repeat-20261120`, `.test-results/host-export-hard-stop-RenderingFilm-journal-fixed-20261120` and `.test-results/host-export-hard-stop-Encoding-repeat-20261120`.
+- [x] Exercise four concurrent in-process readers through independent journal instances while publishing 96 stage updates with another instance. All updates reopen exactly, with no lost or malformed receipts. Windows Viewer and export contracts pass 12,378 assertions and every other local suite passes.
+
+## Native keyboard and default history
+
+- [x] Use the actual Capture One numeric control and its routed keyboard events to increment and decrement exposure. Move real keyboard focus from the editor to Defaults and verify the typed number has reached disk.
+- [x] Click the actual Defaults action. The host registers one named native undo action. Native Undo restores the complete before-state and native Redo the complete default state. The full suite passed 336 first-launch and 340 restart assertions. Evidence is in `.test-results/host-native-slider-defaults-20261120`.
+
+## Ten-minute licensed Viewer telemetry
+
+- [x] Run `qa/HostSmoke/Run-HostSmoke.ps1 -ViewerTelemetrySeconds 600` with the private four-RAW fixture and exact preferences backup. The licensed workload passed 19 checks in 601.12 s. It navigated 455 times, saved 3,640 slider edits and interrupted 57 active final renders. DNG, NEF, RAF and CR3 settle at 4096 px after 1200 px provisional work.
+- [x] Record first visible draw p50/p95 of 340/403 ms and settled draw from selection of 681/773 ms. The p50/p95 durable edit times were 5.29/22.39 ms. The eight edits during exclusive log-file locking completed with p95 25.35 ms. Sampled peak host private memory was 8.61 GiB.
+- [x] Keep at most two one-MiB diagnostic files even through rotation. The retained files contain 210 initial, 1,472 drag, 447 settled and 26 canceled settled events. These event counts cover the retained log generations. Navigation, edit and cancellation totals cover the full run. Settled film and transport p95 was 78.84 ms on a resident source versus 244.30 ms on a request that uploaded the source.
+- [x] Keep the source geometry, settings hash and generation for each visit, plus the tested panel, hook and renderer hashes and workstation adapter/driver inventory. The receipt is `.test-results/host-viewer-telemetry-ten-minute-20261120/viewer-telemetry.json` and the source and driver identity is in the adjacent `source-provenance.json`.
 
 ## Disconnected original recovery
 

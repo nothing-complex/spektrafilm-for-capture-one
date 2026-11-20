@@ -1004,7 +1004,8 @@
         "Correlated native export timings identify the exact accepted job, processing encoding, pixel depth, geometry, format and end-to-end stage durations. Actual file-level timings now distinguish native development, film and transport, blend, ICC and verified commit.",
         "The exact audit.17 package timed two accepted full-size 24 MP DNG exports at 3.60 and 4.08 s over separate licensed launches. Native RGB16 development took 209–265 ms, film render and transport 1.08–1.41 s, and encoding, verification and commit about 2.12 s both times. Dialog interaction is excluded.",
         "Khronos synchronization validation exposed a real 31-slot pipeline on a 30-slot SwiftShader device. The renderer now uses 30 slots and checks both required limits before selecting a device. Four full SwiftShader reply hashes matched with validation active and no errors. The Profiles layer tested both automatic and explicit admission at 29 and 30 slots. NVIDIA and Intel passed the new warm optical scratch lifetime test and full smoke. NVIDIA passed 480 spectral cases.",
-        "Each settled Viewer drawing now emits one structured timing record with its local settings generation, exact source geometry and host fingerprint, and the actual renderer process/request and parameter/assets contract when used. The 100-frame 2048 px and 40-frame 4096 px licensed runs verified each record against the selected RGB16 source. Same-variant edits distinguish packed and float reuse and an existing-float blend with no native work or GPU call."
+        "Each settled Viewer drawing now emits one structured timing record with its local settings generation, exact source geometry and host fingerprint, and the actual renderer process/request and parameter/assets contract when used. The 100-frame 2048 px and 40-frame 4096 px licensed runs verified each record against the selected RGB16 source. Same-variant edits distinguish packed and float reuse and an existing-float blend with no native work or GPU call.",
+        "The licensed 601-second workload measures initial, drag and settled native draws separately from canceled or unpublished work. Across 455 four-RAW navigation and slider bursts it recorded 3,640 durable edits and 57 deliberately superseded active final renders. The last two bounded log generations provide per-stage and upload/resident timings and retain actual Vulkan worker and high-depth source provenance."
       ],
       "evidence_paths": [
         "ofx-still-renderer/main.cpp",
@@ -1024,10 +1025,11 @@
         ".test-results/portable-vulkan-bindings-20261120/receipt.json",
         ".test-results/optical-scratch-final-20261120/intel-full.log",
         ".test-results/host-viewer-stage-timings-20261120/viewer-stage-summary.json",
-        ".test-results/host-viewer-stage-4096-and-warm-20261120/viewer-stage-summary.json"
+        ".test-results/host-viewer-stage-4096-and-warm-20261120/viewer-stage-summary.json",
+        ".test-results/host-viewer-telemetry-ten-minute-20261120/viewer-telemetry.json"
       ],
       "remaining_work": [
-        "Correlate canceled and preliminary Viewer generations as well as verified settled draws. Set wider quality and hardware p50/p95/memory budgets.",
+        "Set wider quality and hardware p50/p95/memory budgets and finish effect-specific numerical reference tests.",
         "Expand across multiple memory sizes and vendors and measure additional end-to-end actual display, RAW development, and codec workloads."
       ],
       "original_acceptance_tests": [
@@ -1912,7 +1914,7 @@
       "id": "VE-17",
       "title": "Add structured stage telemetry and repeatable latency benchmarks",
       "priority": "P2",
-      "status": "partial",
+      "status": "implemented",
       "implemented": [
         "Versioned worker metrics and reproducible synthetic/host test entry points supply initial telemetry.",
         "Repeated full-host 24 MP export baseline was 4204 ms on first process and 4033 ms after restart, including a small TIFF decode. Viewer worker quiescence is timed separately. The test machine used an RTX 3090.",
@@ -1928,7 +1930,8 @@
         "The structured export.performance.v1 event uses the accepted journal job ID and records elapsed Viewer drain, native RGB16 development, Vulkan work and transport, crop and blend, ICC conversion, and encode/verify/commit without logging paths in the event. Two licensed launches timed eight 3000 by 2000 DNG exports. Effect TIFF took 1.40–1.42 seconds after job acceptance. The matching PNG took 1.68–1.71 seconds. The file stage dominated at 568–569 ms for TIFF and 888–936 ms for PNG.",
         "The four-camera effect export matrix records 32 job-correlated v2 timing events and 159 licensed checks per launch. TIFF with film and diffusion took 1.27–1.68 s after acceptance and equivalent PNG took 1.55–2.26 s. The v2 ICC setup time is distinct from the file stage where WIC may lazily transform pixels. The v1 field named IccConversionMs measured setup.",
         "The exact audit.17 package timed two accepted full-size 24 MP DNG exports at 3.60 and 4.08 s over separate licensed launches. Native RGB16 development took 209–265 ms, film render and transport 1.08–1.41 s, and encoding, verification and commit about 2.12 s both times. Dialog interaction is excluded.",
-        "Correlate settled native drawing with the settings generation, exact host identity, high-depth source and worker request in a pathless event. One hundred 2048 px and 40 4096 px draws were validated against their actual fixture selections. A 4096 px exposure edit reused GPU source at 56 ms to draw, a float transition reused it at 208 ms, and an existing-float strength blend drew after 43 ms without native development or Vulkan."
+        "Correlate settled native drawing with the settings generation, exact host identity, high-depth source and worker request in a pathless event. One hundred 2048 px and 40 4096 px draws were validated against their actual fixture selections. A 4096 px exposure edit reused GPU source at 56 ms to draw, a float transition reused it at 208 ms, and an existing-float strength blend drew after 43 ms without native development or Vulkan.",
+        "Pass 19 checks over 601.12 seconds of actual licensed rapid interaction with 455 four-RAW visits, 3,640 durable edits and 57 active final cancellations. Input-to-first-draw p50/p95 was 340/403 ms and selection-to-settled at 4096 px was 681/773 ms. Eight edits completed during exclusive log locking. Each retained log generation stayed below one MiB and the trace distinguishes initial, drag, settled and unpublished work. The machine-readable evidence records source geometry, per-visit look hash and generation, exact panel and worker hashes, driver inventory, sampled host memory and upload versus source-resident timings."
       ],
       "evidence_paths": [
         "ofx-still-renderer/main.cpp",
@@ -1955,11 +1958,13 @@
         ".test-results/audit17-package-verify-20261120/native-export-24mp.json",
         ".test-results/host-viewer-stage-timings-20261120/viewer-stage-summary.json",
         ".test-results/host-viewer-stage-4096-and-warm-20261120/viewer-stage-summary.json",
-        ".test-results/host-viewer-stage-4096-and-warm-20261120/viewer-warm-stage-timings.json"
+        ".test-results/host-viewer-stage-4096-and-warm-20261120/viewer-warm-stage-timings.json",
+        "qa/HostSmoke/ViewerTelemetry.cs",
+        ".test-results/host-viewer-telemetry-ten-minute-20261120/viewer-telemetry.json",
+        ".test-results/host-viewer-telemetry-ten-minute-20261120/source-provenance.json"
       ],
       "remaining_work": [
-        "Correlate discarded render generations and first-visible brief previews with settled paint. Run the full licensed rapid-edit workload for ten minutes and record cold/warm driver, settings and memory provenance. The background logger has a separate ten-minute bounded test.",
-        "Expand across multiple memory sizes and vendors and measure end-to-end actual display, RAW development, and codec stages."
+        "Track wider hardware budgets and per-effect numerical coverage under RC-16 and RQ-09. The ten-minute licensed repeatability baseline applies to the measured host and settings. Additional vendor, memory and display setups require their own measurements."
       ],
       "original_acceptance_tests": [
         "Telemetry remains bounded during 10-minute rapid interaction and cannot block UI on disk or full diagnostics queue.",
@@ -2179,12 +2184,13 @@
       "id": "HS-05",
       "title": "Film edits are outside Capture One's undo/redo history",
       "priority": "P2",
-      "status": "partial",
+      "status": "implemented",
       "implemented": [
         "Proved named extension registration and Do/Undo/Redo on the exact supported host. Production uses the same native undo manager with captured UUID, baseline, next state and weak UI notification.",
         "Consecutive slider motions are saved before the drag ends. Each finished gesture registers one native undo entry. Actual native grain and film changes were undone and redone in order; cross-selection restoration wrote only the originally edited variant.",
         "Atomically compare the expected saved look before undo or redo. Newer external edits remain untouched. Undo updates the live controls and is durable across restart.",
-        "Full preset load and redo now use one named native Undo entry. Defaults reset is also recorded with its own named entry."
+        "Full preset load and redo now use one named native Undo entry. Defaults reset is also recorded with its own named entry.",
+        "First launch and restart passed 336 and 340 full host assertions. The real numeric editor accepts one-tick Up and Down and durably commits when focus leaves. The actual Defaults button authors one named Capture One history entry and native Undo and Redo restore the complete before and after look."
       ],
       "evidence_paths": [
         "NativePanel/NativeLookUndoAction.cs",
@@ -2192,10 +2198,12 @@
         "NativePanel/SpektraFilmTool.cs",
         ".test-results/host-undo-raw-metadata-20261119/host-smoke.log",
         ".test-results/contracts-native-undo-metadata-20261119/summary.json",
-        ".test-results/host-full-presets-20261119/host-smoke.log"
+        ".test-results/host-full-presets-20261119/host-smoke.log",
+        "qa/HostSmoke/NativeSliderInput.cs",
+        ".test-results/host-native-slider-defaults-20261120/host-smoke.log"
       ],
       "remaining_work": [
-        "Test actual pointer and keyboard numeric input, double-click, focus loss or canceled drag, Redo after defaults reset and multiple-selection pastes.",
+        "Extend physical pointer-capture cancellation and multiple-selection paste coverage. The supported licensed adapter already has native pointer double-click, keyboard and focus-loss, mixed history, individual variant and restart evidence.",
         "Recheck host capabilities and native Undo lifetime through detach/reattach on other verified host builds."
       ],
       "original_acceptance_tests": [
@@ -2971,7 +2979,8 @@
         "Recent presets use the existing approved save and apply paths. Up to six deduplicated existing files are displayed in recent order. Preference state lives separately from creative looks. A future format is preserved without rewriting it.",
         "Pass 12,678 host-independent checks and 193 new-launch plus 197 restart assertions. The real stock selection and durable look were unchanged by adding a favourite, and the restart placed it first. The actual preset Save route updated the recent file list.",
         "The real native label and track each restored and durably saved the film exposure default through WPF double-click routing. The live numeric editor committed Danish 1,4 and U.S. English -0.8 through Enter and the fixture restored the prior look. All 207 host assertions passed.",
-        "The real visible native numeric control exposes an editable Windows UI Automation Value pattern and carries accessible full label/reset instructions. Licensed editor accepted both ±8 EV limits, canceled an uncommitted 2.4 EV with Escape and rejected NaN, Infinity and malformed text without changing the committed bytes. First and restart passed 282/286 checks."
+        "The real visible native numeric control exposes an editable Windows UI Automation Value pattern and carries accessible full label/reset instructions. Licensed editor accepted both ±8 EV limits, canceled an uncommitted 2.4 EV with Escape and rejected NaN, Infinity and malformed text without changing the committed bytes. First and restart passed 282/286 checks.",
+        "The real numeric editor routes Up and Down at the 0.1 EV increment. Keyboard focus moves to the actual Defaults button and commits the pending number. Its Defaults action persists and restores the complete look through Capture One's native Undo and Redo. The first and restart general checks total 336 and 340."
       ],
       "evidence_paths": [
         "NativePanel/NativeSlider.cs",
@@ -2983,10 +2992,11 @@
         ".test-results/host-stock-favorites-20261120/host-smoke.log",
         "qa/HostSmoke/NativeSliderInput.cs",
         ".test-results/host-native-slider-keyboard-20261120/host-smoke.log",
-        ".test-results/host-adaptive-watchdog-accessibility-20261120/host-smoke.log"
+        ".test-results/host-adaptive-watchdog-accessibility-20261120/host-smoke.log",
+        ".test-results/host-native-slider-defaults-20261120/host-smoke.log"
       ],
       "remaining_work": [
-        "Exercise wheel, arrows, fine increments, keyboard focus traversal, narrow/different DPI hardware and a screen-reader session. Extend canonical per-control manifest annotations under HS-11."
+        "Exercise the mouse wheel, modifier-based fine adjustments, full keyboard focus order, narrow/different DPI hardware and a screen-reader session. Extend canonical per-control manifest annotations under HS-11."
       ],
       "original_acceptance_tests": [
         "Keyboard and pointer edit/reset/cancel sequences produce identical persisted values and one intended undo gesture.",
@@ -3252,7 +3262,10 @@
         "The licensed host observed actual film and encoding stages during a 6000 × 4000 RGB48 export. The completed receipt matched the exact path and dimensions. Detach canceled an accepted export without replacing its previous file, and restart reloaded the canceled state.",
         "The native Export label now follows the real GPU stages during rendering. Updates are guarded by the same accepted job and cannot overwrite final delivery or cancellation status.",
         "Cancellation is checked during actual WIC staging writes. The 24 MP portable TIFF and PNG encodes returned in 2.56–2.86 ms and 0.76–0.96 ms in four trials each, versus earlier 1.81 and 2.62 seconds. The licensed WPF Cancel export action stopped actual TIFF writes in 5.16–5.60 ms on both launches. It preserved the exact previous destination, removed the staging file and recorded Canceled. The complete licensed suite passed 321 and 325 assertions.",
-        "Real Windows ACL denial at staging creation and denial during rename over a read-only file preserved the previously exported and original bytes. A denied staging cleanup no longer replaces the original cancellation or write error. The licensed physical form close canceled a job accepted before native bitmap return and left its earlier destination byte-identical."
+        "Real Windows ACL denial at staging creation and denial during rename over a read-only file preserved the previously exported and original bytes. A denied staging cleanup no longer replaces the original cancellation or write error. The licensed physical form close canceled a job accepted before native bitmap return and left its earlier destination byte-identical.",
+        "On both licensed launches, closing the actual native Export dialog after acceptance released its confirmation binding and the combined native/optical grain TIFF still completed at the accepted path. The actual Export with Previous Settings command could not replace a read-only TIFF. It completed with nonmodal panel status and a Failed job receipt, preserved the earlier 16-bit bytes and removed its staging file. The full native effects/grain fixture passed 104 assertions per launch.",
+        "Abruptly stop the disposable licensed process while native development, the film stage or active WIC writes are in progress. All three fresh launches retain the exact unfinished job and accepted destination, previous exported bytes and committed look. A distinct explicit retry reopens as a new 24 MP RGB48 film TIFF with embedded ICC. An early film-stage test exposed the open-reader versus Windows receipt replacement race. A process-wide journal lock now coordinates all in-process receipt readers and writers, and the native film-stage retest passed.",
+        "Publish 96 durable stage updates while four independent in-process journal readers repeatedly query the same directory. All stage receipts reopen exactly and no read or replacement fails. The complete Windows Viewer and export contract suite passes 12,378 assertions."
       ],
       "evidence_paths": [
         "NativePanel/SpatialPreview.cs",
@@ -3269,11 +3282,18 @@
         ".test-results/host-interruptible-encoder-full-20261120/restart-encoder-cancellation.json",
         "NativePanel/PanelFiles.cs",
         "tests/ViewerContracts/ExportStorageFailures.cs",
-        ".test-results/host-native-form-close-export-20261120/host-smoke.log"
+        ".test-results/host-native-form-close-export-20261120/host-smoke.log",
+        "qa/HostSmoke/NativeEffectExport.cs",
+        ".test-results/host-export-nonmodal-close-20261120/host-smoke.log",
+        "qa/HostSmoke/NativeExportInterruption.cs",
+        ".test-results/host-export-hard-stop-DevelopingSource-repeat-20261120/export-interruption-restart.json",
+        ".test-results/host-export-hard-stop-RenderingFilm-journal-fixed-20261120/export-interruption-restart.json",
+        ".test-results/host-export-hard-stop-Encoding-repeat-20261120/export-interruption-restart.json",
+        ".test-results/contracts-concurrent-export-journal-20261120/summary.json"
       ],
       "remaining_work": [
         "Add resumable authorized descriptors and an explicit batch queue with per-image isolation. Current receipts preserve progress and outcome for a single accepted export.",
-        "Run hard interruption and actual disk-full probes for native, GPU and encoding stages. Initial access-denial contracts verify WIC staging creation and final rename. Verify the native front end for denied access and move lingering modal errors to nonmodal completion where the host supports it."
+        "Test genuine disk-full and OS/power interruption. A process killed while encoding can leave a temporary file in the approved folder. Add safe ownership-aware recovery for that file and a host-level failure notification for a native Export dialog that stays open or a hidden Spektrafilm panel. Preflight errors are still modal so they reach the active command before acceptance."
       ],
       "original_acceptance_tests": [
         "Close dialog during each stage: documented continuation/cancellation and no dangling native command.",
@@ -3333,8 +3353,8 @@
   ],
   "counts": {
     "total": 70,
-    "implemented": 33,
-    "partial": 37,
+    "implemented": 35,
+    "partial": 35,
     "pending": 0
   },
   "last_reconciled": "2026-11-20",

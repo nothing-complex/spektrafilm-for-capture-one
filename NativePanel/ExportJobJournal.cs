@@ -18,7 +18,18 @@ internal sealed record ExportReceipt([property: JsonRequired] int Version, [prop
 
 internal sealed class ExportJobJournal(string directory, Action<string> log)
 {
+    // Windows cannot replace an open destination even when the reader shares
+    // deletion. The Viewer, diagnostics and a newly attached tool can read
+    // through different journal instances while a worker advances a receipt.
+    private static readonly object FileGate = new();
+
     internal ExportReceipt? ReadLatest()
+    {
+        lock (FileGate)
+            return ReadLatestUnderLock();
+    }
+
+    private ExportReceipt? ReadLatestUnderLock()
     {
         try
         {
@@ -72,8 +83,11 @@ internal sealed class ExportJobJournal(string directory, Action<string> log)
     {
         try
         {
-            Directory.CreateDirectory(directory);
-            PanelFiles.WriteCompactPreset(Path.Combine(directory, Name(receipt)), receipt);
+            lock (FileGate)
+            {
+                Directory.CreateDirectory(directory);
+                PanelFiles.WriteCompactPreset(Path.Combine(directory, Name(receipt)), receipt);
+            }
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException)
         {

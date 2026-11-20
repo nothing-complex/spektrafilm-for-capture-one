@@ -12,6 +12,7 @@ param(
     [switch] $ViewerLayouts,
     [ValidateRange(0,200)][int] $ViewerChurn=0,
     [ValidateSet('1200','2048','4096','native')][string] $ViewerChurnResolution='2048',
+    [ValidateRange(0,600)][int] $ViewerTelemetrySeconds=0,
     [ValidateRange(0,200)][int] $NativeLifetimeCycles=0,
     [switch] $ViewerNativeBaseline,
     [switch] $DurableSliderEdits,
@@ -27,6 +28,7 @@ param(
     [switch] $NativeEffectExportMatrix,
     [switch] $NativeEffectGrain,
     [switch] $NativeEffectClone,
+    [ValidateSet('DevelopingSource','RenderingFilm','Encoding')][string] $NativeExportInterruption,
     [switch] $OriginalAvailabilityProbe,
     [switch] $NativeDevelopmentDeadline,
     [string] $DevelopmentLeaseFixtureDirectory,
@@ -40,6 +42,23 @@ if ($NativeEffectGrain -and $NativeEffectExportMatrix) {
     throw 'The native grain comparison uses one RAW in its own effects Export fixture.'
 }
 if ($NativeEffectExportMatrix -or $NativeEffectGrain) { $NativeEffectExport=$true }
+if ($NativeExportInterruption -and (!$NativeSettingsConfig -or $SkipRestart -or $NativeEffectExport -or $ColorMatrix -or
+    $CatalogIsolation -or $ConcurrentCatalogs -or $SessionIsolation -or $ViewerLayouts -or $ViewerChurn -or
+    $ViewerTelemetrySeconds -or $NativeLifetimeCycles -or $DurableSliderEdits -or $MetadataFixtureRoot -or
+    $ViewerStress -or $PanelInventory -or $CheckOrdinaryLaunch -or $CalibrationChart -or $UpgradeFromPackage -or
+    $NativeDevelopmentDeadline -or $DevelopmentLeaseFixtureDirectory -or $DeviceLossFixtureDirectory)) {
+    throw 'The abrupt export interruption fixture requires its own disposable first launch, restart and native preferences backup.'
+}
+if ($ViewerTelemetrySeconds) {
+    if ($ViewerTelemetrySeconds -lt 20 -or !$NativeSettingsConfig -or $UpgradeFromPackage -or $CatalogIsolation -or
+        $ConcurrentCatalogs -or $SessionIsolation -or $ViewerLayouts -or $ViewerChurn -or $DurableSliderEdits -or
+        $MetadataFixtureRoot -or $CheckOrdinaryLaunch -or $ColorMatrix -or $NativeSourceMutations -or $ViewerStress -or
+        $PanelInventory -or $NativeEffectExport -or $OriginalAvailabilityProbe -or $NativeDevelopmentDeadline -or
+        $DevelopmentLeaseFixtureDirectory -or $DeviceLossFixtureDirectory -or $CalibrationChart) {
+        throw 'The Viewer telemetry fixture requires a separate disposable launch of at least 20 seconds and a native preferences backup.'
+    }
+    $SkipRestart=$true
+}
 if ($NativeLifetimeCycles) {
     if (!$NativeSettingsConfig -or $UpgradeFromPackage -or $CatalogIsolation -or $ConcurrentCatalogs -or $SessionIsolation -or
         $ViewerLayouts -or $ViewerChurn -or $DurableSliderEdits -or $MetadataFixtureRoot -or $CheckOrdinaryLaunch -or
@@ -421,7 +440,8 @@ $names=@(
     'SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT',
     'SPEKTRAFILM_SHOW_TOOL','SPEKTRAFILM_HOST_PROOF_TEST','SPEKTRAFILM_HOST_CATALOG_ISOLATION',
     'SPEKTRAFILM_HOST_VIEWER_LAYOUTS','SPEKTRAFILM_HOST_DURABLE_EDITS','SPEKTRAFILM_HOST_METADATA_FIXTURE',
-    'SPEKTRAFILM_HOST_VIEWER_CHURN','SPEKTRAFILM_HOST_VIEWER_CHURN_RESOLUTION','SPEKTRAFILM_HOST_NATIVE_VIEWER_BASELINE','SPEKTRAFILM_HOST_OTHER_CATALOG',
+    'SPEKTRAFILM_HOST_VIEWER_CHURN','SPEKTRAFILM_HOST_VIEWER_CHURN_RESOLUTION','SPEKTRAFILM_HOST_VIEWER_TELEMETRY_SECONDS','SPEKTRAFILM_HOST_EXPORT_INTERRUPTION',
+    'SPEKTRAFILM_HOST_NATIVE_VIEWER_BASELINE','SPEKTRAFILM_HOST_OTHER_CATALOG',
     'SPEKTRAFILM_HOST_NATIVE_LIFETIME',
     'SPEKTRAFILM_HOST_SESSION','SPEKTRAFILM_HOST_CALIBRATION','SPEKTRAFILM_HOST_ORIGINAL_AVAILABILITY_PROBE',
     'SPEKTRAFILM_HOST_NATIVE_DEVELOPMENT_DEADLINE','SPEKTRAFILM_HOST_DEVICE_LOSS','SPEKTRAFILM_HOST_DEVELOPMENT_LEASE'
@@ -449,6 +469,8 @@ try {
     $env:SPEKTRAFILM_HOST_METADATA_FIXTURE=$MetadataFixtureRoot
     $env:SPEKTRAFILM_HOST_VIEWER_CHURN=if($ViewerChurn){[string]$ViewerChurn}else{$null}
     $env:SPEKTRAFILM_HOST_VIEWER_CHURN_RESOLUTION=if($ViewerChurn){$ViewerChurnResolution}else{$null}
+    $env:SPEKTRAFILM_HOST_VIEWER_TELEMETRY_SECONDS=if($ViewerTelemetrySeconds){[string]$ViewerTelemetrySeconds}else{$null}
+    $env:SPEKTRAFILM_HOST_EXPORT_INTERRUPTION=$NativeExportInterruption
     $env:SPEKTRAFILM_HOST_NATIVE_LIFETIME=if($NativeLifetimeCycles){[string]$NativeLifetimeCycles}else{$null}
     $env:SPEKTRAFILM_HOST_NATIVE_VIEWER_BASELINE=if($ViewerNativeBaseline){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_OTHER_CATALOG=if($ConcurrentCatalogs){$fixtureCatalogs[1]}else{$null}
@@ -477,12 +499,12 @@ try {
                 $ready=Wait-SpektrafilmPanel $process $status $env:SPEKTRAFILM_LAUNCH_ID 90
                 $ready | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $folder ($phase+'.ready.json'))
             }
-            $deadline=[DateTime]::UtcNow.AddMinutes($(if($ViewerChurn -or $NativeLifetimeCycles){10}elseif($NativeDevelopmentDeadline){6}else{4}))
+            $deadline=[DateTime]::UtcNow.AddMinutes($(if($ViewerTelemetrySeconds){$ViewerTelemetrySeconds / 60 + 4}elseif($ViewerChurn -or $NativeLifetimeCycles){10}elseif($NativeDevelopmentDeadline){6}else{4}))
             $result=Join-Path $folder ($phase+'.passed')
             $failure=Join-Path $folder 'failed.txt'
             while(!(Test-Path -LiteralPath $result)){
                 if(Test-Path -LiteralPath $failure){throw ([IO.File]::ReadAllText($failure))}
-                if($process.HasExited){throw "Test Capture One exited early: $($process.ExitCode)"}
+                if($process.HasExited -and !(Test-Path -LiteralPath $result)){throw "Test Capture One exited early: $($process.ExitCode)"}
                 if([DateTime]::UtcNow -gt $deadline){throw "Timed out. Inspect $folder"}
                 Start-Sleep -Milliseconds 500
                 $process.Refresh()
@@ -493,6 +515,14 @@ try {
             # No pre-existing Capture One process can reach this branch.
             if(!$process.HasExited){Stop-Process -Id $process.Id; $process.WaitForExit()}
             $process.Dispose()
+            if($NativeExportInterruption -and $phase -eq 'first'){
+                # The fixture terminates itself. The process handle can signal while
+                # enumeration still reports the terminating host briefly.
+                $settle=[DateTime]::UtcNow.AddSeconds(8)
+                while ([DateTime]::UtcNow -lt $settle -and (Get-Process CaptureOne -ErrorAction SilentlyContinue)){
+                    Start-Sleep -Milliseconds 100
+                }
+            }
             Clear-TestCrashMarkers $phaseStarted $phase
         }
     }
