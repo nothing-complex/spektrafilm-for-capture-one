@@ -1668,7 +1668,9 @@
         "Save suggests the existing native recipe root or resolved child directory. The licensed run agrees with Capture One's real Location tool for Recipe Name token resolution, preserves a nested literal path and leaves a missing directory uncreated. Both launches pass 87 checks and commit six RGB48 effects TIFFs to the exact approved fixture folders. All nine backed-up recipe files independently verify after each launch.",
         "Both native Export routes preserve the film look and composed optics with the tool tab hidden or the real tool floating. Eight RGB48 TIFFs retain the selected recipe ICC and match the docked reference within 1.05e-6 mean full-scale RGB. Each licensed launch passes 96 checks.",
         "Read the typed Existing Files setting and honor the Add Suffix hint in the resolved existing recipe folder. On both launches, the real native commands offer suffixes 2 and 4 after checking occupied files and directories, preserve earlier entries and deliver the composed 16-bit look with the selected ICC. Both launches pass 105 assertions and verify all nine recipe files. The independent decoder measures less than 7.35e-7 mean full-scale difference across 18 million channel codes per pair.",
-        "Both real native commands export the composed 16-bit look through selected sRGB, ProPhoto RGB and linear Rec.2020 recipes, embedding each exact ICC. Both launches pass 108 assertions and preserve all nine original recipe files. An independent matrix and tone-curve decode samples 122,694 pixels per comparison in D50 Lab and measures highest p95 Delta E 2000 of 0.364 and maximum 0.885 across twelve outputs."
+        "Both real native commands export the composed 16-bit look through selected sRGB, ProPhoto RGB and linear Rec.2020 recipes, embedding each exact ICC. Both launches pass 108 assertions and preserve all nine original recipe files. An independent matrix and tone-curve decode samples 122,694 pixels per comparison in D50 Lab and measures highest p95 Delta E 2000 of 0.364 and maximum 0.885 across twelve outputs.",
+        "Resolve the recipe’s native naming token and advance its Output Counter only after publishing the accepted suggested filename. Canceling, choosing a different filename and failing publication leave the counter alone. An intervening counter or naming change preserves the approved output without advancing the newer sequence.",
+        "The licensed fixture uses a native three-digit token, starting at 41 with increment 3. Both native commands reopen the exact effect-processed RGB16 TIFF and ICC, and advance to 44 then 47. A save of the captured name after the native counter changes to 90 preserves the saved TIFF and the new counter. Tested native recipe suffixes separately with a literal stem. The 142-check targeted run verifies all nine native recipe files and the unchanged source catalog. The 16.4 and signed 16.7 reference builds agree across 566 emitted host references."
       ],
       "evidence_paths": [
         "NativePanel/SpektraFilmTool.cs",
@@ -1699,10 +1701,14 @@
         ".test-results/host-native-recipe-suffix-effects-20261120/independent-rgb16.json",
         ".test-results/host-native-suffix-raw-matrix-20261120/host-smoke.log",
         ".test-results/host-native-output-profiles-20261120/independent-icc-matrix-trc.json",
-        ".test-results/host-native-output-profiles-20261120/host-smoke.log"
+        ".test-results/host-native-output-profiles-20261120/host-smoke.log",
+        ".test-results/native-counter-viewer-contracts-20261120.log",
+        ".test-results/host67-contracts/reference-drift-native-counter.json",
+        ".test-results/host-native-output-counter-completed-20261120"
       ],
       "remaining_work": [
-        "Directory creation and the full location token matrix, native counter advancement, automatic Skip/Overwrite behavior, tiling and other format and quality settings beyond the explicit 16-bit TIFF/PNG save policy remain open."
+        "Directory creation and the full location token matrix, automatic Skip/Overwrite behavior, tiling and other format and quality settings beyond the explicit 16-bit TIFF/PNG save policy remain open.",
+        "The counter update follows file publication. Verify persisted native counter continuity across a restart with a dedicated catalog fixture that deliberately keeps its changed counter."
       ],
       "original_acceptance_tests": [
         "Table-driven JPEG, PNG, TIFF 8/16-bit, unknown-format, custom ICC, image-folder/custom-folder/subfolder/token/suffix and duplicate-name cases.",

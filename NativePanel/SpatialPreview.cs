@@ -613,6 +613,8 @@ internal sealed class SpatialPreview : IDisposable
             var deliveryProfile = ExportColorProfile.ForRecipe(recipe?.ColorProfileName, recipe?.ColorProfilePath);
             var extension = SpektraExport.ExtensionFor(recipe?.FormatId);
             var dpi = recipe is null ? ExportResolution.DefaultDpi : ExportResolution.DotsPerInch(recipe.Resolution, recipe.ResolutionUnit);
+            var suggestedName = SpektraExport.SuggestedOutputName(recipe?.SuggestedFilename, target.SourcePath, extension,
+                recipe?.SuggestedDirectory, recipe?.AddSuffixToExistingFileName == true);
 
             var picker = new SaveFileDialog
             {
@@ -621,8 +623,7 @@ internal sealed class SpatialPreview : IDisposable
                     : $"Save {recipe.Width} × {recipe.Height} 16-bit TIFF or PNG · {deliveryProfile.Label}",
                 Filter = SpektraExport.FileFilter,
                 FilterIndex = extension == ".png" ? 2 : 1,
-                FileName = SpektraExport.SuggestedOutputName(recipe?.SuggestedFilename, target.SourcePath, extension,
-                    recipe?.SuggestedDirectory, recipe?.AddSuffixToExistingFileName == true),
+                FileName = suggestedName,
                 DefaultExt = extension,
                 AddExtension = true,
                 OverwritePrompt = true,
@@ -734,7 +735,11 @@ internal sealed class SpatialPreview : IDisposable
                     });
                     return (output.PixelWidth, output.PixelHeight);
                 }, work.Token);
-                Advance(ExportStage.Completed, $"Saved 16-bit Spektrafilm export · {result.PixelWidth} × {result.PixelHeight}",
+                var counterStatus = !disposed && recipe?.Naming?.AdvanceCounter is { } advance
+                    && StringComparer.OrdinalIgnoreCase.Equals(Path.GetFileNameWithoutExtension(suggestedName),
+                        Path.GetFileNameWithoutExtension(approved.Path))
+                    ? AdvanceNativeExportCounter(advance, jobId) : "";
+                Advance(ExportStage.Completed, $"Saved 16-bit Spektrafilm export · {result.PixelWidth} × {result.PixelHeight}{counterStatus}",
                     result.PixelWidth, result.PixelHeight);
                 StartupHook.Log($"Spektrafilm 16-bit export saved at {result.PixelWidth}x{result.PixelHeight}: {approved.Path}");
                 return true;
@@ -798,6 +803,25 @@ internal sealed class SpatialPreview : IDisposable
                 {
                     if (!disposed && ReferenceEquals(exportWork, current)) exportStatus.Text = message;
                 });
+        }
+    }
+
+    private static string AdvanceNativeExportCounter(Func<bool> advance, Guid jobId)
+    {
+        try
+        {
+            if (advance())
+            {
+                StartupHook.Log("export.naming-counter.v1", new { JobId = jobId, Outcome = "Advanced" });
+                return "";
+            }
+            StartupHook.Log("export.naming-counter.v1", new { JobId = jobId, Outcome = "Changed" });
+            return " · Capture One’s naming changed during export.";
+        }
+        catch (Exception error)
+        {
+            StartupHook.Log("export.naming-counter.v1", new { JobId = jobId, Outcome = "Unavailable", Error = error.GetBaseException().Message });
+            return " · Capture One’s output counter could not be updated.";
         }
     }
 

@@ -20,8 +20,8 @@ internal static class SpektraExport
     internal static string SuggestedOutputName(string? recipeName, string sourcePath, string extension,
         string? directory = null, bool addSuffix = false)
     {
-        var name = recipeName?.TrimEnd('.', ' ');
-        if (string.IsNullOrWhiteSpace(name) || name.Length > 200 || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+        var name = ValidRecipeStem(recipeName);
+        if (name is null)
             return Path.GetFileNameWithoutExtension(sourcePath) + "-Spektrafilm";
         var suggested = name + extension;
         if (!addSuffix || directory is null || !Path.IsPathFullyQualified(directory))
@@ -29,6 +29,13 @@ internal static class SpektraExport
         for (var suffix = 1; Occupied(Path.Combine(directory, suggested)); suffix++)
             suggested = name + " " + suffix.ToString(CultureInfo.InvariantCulture) + extension;
         return suggested;
+    }
+
+    internal static string? ValidRecipeStem(string? recipeName)
+    {
+        var name = recipeName?.TrimEnd('.', ' ');
+        return string.IsNullOrWhiteSpace(name) || name.Length > 200 || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0
+            ? null : name;
     }
 
     private static bool Occupied(string path) => File.Exists(path) || Directory.Exists(path);

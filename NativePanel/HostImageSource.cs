@@ -10,6 +10,7 @@ using System.Windows.Media.Imaging;
 using ImgCore;
 using P1.C1;
 using P1.C1.Common.ColorProfiles;
+using P1.C1.Common.DestinationNaming;
 using P1.C1.Components.IcScheduler;
 using P1.C1.Core;
 using P1.C1.Core.DestinationProcessing;
@@ -54,11 +55,15 @@ internal static class HostImageSource
     internal sealed record ExportFrame(Frame Image, Rectangle Crop);
     internal sealed class DevelopmentDeadlineException(string message) : TimeoutException(message);
     internal sealed class ExportSourceChangedException(string message) : InvalidOperationException(message);
+    internal sealed record RecipeNaming(string Stem, Func<bool>? AdvanceCounter);
     internal sealed record RecipeInfo(string Name, string FormatId, string ColorProfileName, string ColorProfilePath,
         string CropMode, string RootFolderMode, string CustomRootFolder, string Subfolder, string Filename,
         string Suffix, int TiffBits, int JpegQuality, int Width, int Height, double Scale, bool IgnoreCrop,
         double Resolution, string ResolutionUnit, ExportMetadata Metadata, TiffCompressOption TiffCompression,
-        string? SuggestedFilename, string? SuggestedDirectory, bool AddSuffixToExistingFileName);
+        RecipeNaming? Naming, string? SuggestedDirectory, bool AddSuffixToExistingFileName)
+    {
+        internal string? SuggestedFilename => Naming?.Stem;
+    }
 
     internal static (Guid VariantId, NativeImageRevision AdjustmentKey, bool OriginalAvailable) GetSelectedSourceState(object window)
     {
@@ -149,7 +154,7 @@ internal static class HostImageSource
             recipe.CropExportMethod.ToString(), recipe.DestinationRootFolder.ToString(), recipe.DestinationCustomRootFolder,
             recipe.DestinationSubFolder, recipe.DestinationFilename, recipe.DestinationSubName, recipe.TiffBits, recipe.JpegQuality,
             scale.ScaledPixelWidth, scale.ScaledPixelHeight, scale.Scale, ignoreCrop, recipe.Resolution, recipe.ResolutionUnit.ToString(),
-            metadata, compression, ReadSuggestedFilename(selection, recipe), ReadSuggestedDirectory(selection, recipe),
+            metadata, compression, ReadRecipeNaming(selection, recipe), ReadSuggestedDirectory(selection, recipe),
             recipe.FileOverwriteAction == ProcessedFileOverwriteAction.Rename);
     }
 
@@ -183,21 +188,34 @@ internal static class HostImageSource
         return SpektraExport.ExistingRecipeDirectory(root, subfolder);
     }
 
-    private static string? ReadSuggestedFilename(HostProfile.Selection selection, IDestinationProcessingSettings recipe)
+    private static RecipeNaming? ReadRecipeNaming(HostProfile.Selection selection, IDestinationProcessingSettings recipe)
     {
-        if (string.IsNullOrWhiteSpace(recipe.DestinationFilename)
+        var format = recipe.DestinationFilename;
+        if (string.IsNullOrWhiteSpace(format)
             || ((ISelectedCollectionsProvider)selection.Document).PrimarySelectedCollection is not ISimpleCollection collection)
             return null;
         try
         {
             if (GetExportNamingManager?.Invoke(selection.Manager, new object[] { selection.Document }) is not INamingManager naming)
                 return null;
-            // Use Capture One's own naming preview without advancing or reserving its counter.
-            var counter = naming.CreateNamingCounterToken(NamingCounterType.Output, argIncrementCounter: false);
             var variant = selection.Variant;
-            var name = naming.RetrieveName(counter, variant.CoreImage, variant, recipe, collection.Name,
-                null, 0, null, null, DateTime.Now, null, recipe.DestinationFilename);
-            return string.IsNullOrWhiteSpace(name) ? null : name;
+            var collectionName = collection.Name;
+            var now = DateTime.Now;
+            string Resolve(bool increment) => naming.RetrieveName(
+                naming.CreateNamingCounterToken(NamingCounterType.Output, argIncrementCounter: increment),
+                variant.CoreImage, variant, recipe, collectionName, null, 0, null, null, now, null, format);
+            var name = Resolve(increment: false);
+            var stem = SpektraExport.ValidRecipeStem(name);
+            if (stem is null)
+                return null;
+            // The native token advances lazily when it is used by name resolution.
+            // Refresh the preview before consuming it to avoid advancing a stale suggestion.
+            Func<bool>? advanceCounter = new DestinationName(format, null).HasCounter
+                ? () => StringComparer.Ordinal.Equals(format, recipe.DestinationFilename)
+                    && StringComparer.Ordinal.Equals(name, Resolve(increment: false))
+                    && StringComparer.Ordinal.Equals(name, Resolve(increment: true))
+                : null;
+            return new RecipeNaming(stem, advanceCounter);
         }
         catch (Exception error) when (error is TargetInvocationException or InvalidOperationException or ArgumentException)
         {

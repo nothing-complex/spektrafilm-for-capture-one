@@ -239,6 +239,7 @@ public static partial class StartupHook
         string? offeredFilename = null;
         string? offeredDirectory = null;
         Action? beforeDestinationApproval = null;
+        var cancelDestination = false;
         Task<bool> Route()
         {
             routeCount++;
@@ -249,7 +250,7 @@ public static partial class StartupHook
                     offeredFilename = picker.FileName;
                     offeredDirectory = picker.InitialDirectory;
                     beforeDestinationApproval?.Invoke();
-                    return destination;
+                    return cancelDestination ? null : destination;
                 }))!;
             return job;
         }
@@ -320,6 +321,7 @@ public static partial class StartupHook
             if (compareFolders) await CheckFolders();
             var panelModes = comparePanelModes ? await ComparePanelModes(fullEffects) : null;
             if (compareGrain) await CheckReadOnlyDestination();
+            var routesBeforeDisabled = routeCount;
             toggle.IsChecked = false;
             bool clicked = false;
             ShowNativeDialog(() =>
@@ -330,9 +332,7 @@ public static partial class StartupHook
                 native.Close();
                 return true;
             });
-            var expectedRoutes = 5 + (compareGrain ? 8 : 0) + (compareCompression ? 8 : 0)
-                + (compareFolders ? 5 : 0) + (comparePanelModes ? 6 : 0) + (compareProfiles ? 11 : 0);
-            Check(clicked && routeCount == expectedRoutes && Prop(bridge, "Dialog") is null,
+            Check(clicked && routeCount == routesBeforeDisabled && Prop(bridge, "Dialog") is null,
                 "the master switch delegates to the ordinary Capture One Export dialog without a Spektrafilm job");
             ((IDisposable)bridge).Dispose();
             ((IDisposable)bridge).Dispose();
@@ -471,10 +471,12 @@ public static partial class StartupHook
                 var root = type.GetProperty("DestinationCustomRootFolder", Flags)!;
                 var subfolder = type.GetProperty("DestinationSubFolder", Flags)!;
                 var overwrite = type.GetProperty("FileOverwriteAction", Flags)!;
+                var filename = type.GetProperty("DestinationFilename", Flags)!;
                 var originalMode = mode.GetValue(selected)!;
                 var originalRoot = root.GetValue(selected);
                 var originalSubfolder = subfolder.GetValue(selected);
                 var originalAction = overwrite.GetValue(selected)!;
+                var originalFilename = filename.GetValue(selected);
                 var fixtureRoot = Directory.CreateDirectory(Path.Combine(folder, "native-recipe-location")).FullName;
                 var relative = Path.Combine("Prints", "Proofs");
                 var nested = Directory.CreateDirectory(Path.Combine(fixtureRoot, relative)).FullName;
@@ -493,7 +495,7 @@ public static partial class StartupHook
                     await Render("existing-recipe-folder", ".tif", true, fixtureOutputDirectory: nested);
                     Check(string.Equals(offeredDirectory, nested, StringComparison.OrdinalIgnoreCase),
                         "Previous Settings opens Save in the existing nested recipe folder");
-                    subfolder.SetValue(selected, RecipeNameToken());
+                    subfolder.SetValue(selected, NativeNameToken("RecipeName"));
                     await Render("token-recipe-folder", ".tif", false, expectedNativeLocation: byRecipe, fixtureOutputDirectory: byRecipe);
                     Check(string.Equals(offeredDirectory, byRecipe, StringComparison.OrdinalIgnoreCase),
                         "the real native Export dialog passes its resolved Recipe Name folder to Save");
@@ -502,6 +504,7 @@ public static partial class StartupHook
                     Check(string.Equals(offeredDirectory, fixtureRoot, StringComparison.OrdinalIgnoreCase) && !Directory.Exists(missing),
                         "Previous Settings suggests the recipe root when its subfolder has not been created");
                     await CheckNumberedNames();
+                    await CheckNativeCounter();
                 }
                 finally
                 {
@@ -511,11 +514,13 @@ public static partial class StartupHook
                         root.SetValue(selected, originalRoot);
                         subfolder.SetValue(selected, originalSubfolder);
                         overwrite.SetValue(selected, originalAction);
+                        filename.SetValue(selected, originalFilename);
                     }
                     finally { notifications.SetValue(selected, false); }
                 }
                 Check(Equals(mode.GetValue(selected), originalMode) && Equals(root.GetValue(selected), originalRoot)
-                    && Equals(subfolder.GetValue(selected), originalSubfolder) && Equals(overwrite.GetValue(selected), originalAction),
+                    && Equals(subfolder.GetValue(selected), originalSubfolder) && Equals(overwrite.GetValue(selected), originalAction)
+                    && Equals(filename.GetValue(selected), originalFilename),
                     "the live recipe location and existing-file policy are restored");
 
                 async Task CheckNumberedNames()
@@ -523,9 +528,12 @@ public static partial class StartupHook
                     if (expectedSuggestedFile is null)
                         throw new InvalidOperationException("The native filename collision fixture requires a recipe name suggestion.");
                     var extension = Path.GetExtension(expectedSuggestedFile);
-                    var stem = Path.GetFileNameWithoutExtension(expectedSuggestedFile);
+                    // Exercise repeated collisions independently of a recipe's native counter.
+                    const string stem = "Repeated recipe filename";
+                    filename.SetValue(selected, stem);
+                    var literalName = stem + extension;
                     var collisionFolder = Directory.CreateDirectory(Path.Combine(fixtureRoot, caseName + "-collisions")).FullName;
-                    var occupied = Path.Combine(collisionFolder, expectedSuggestedFile);
+                    var occupied = Path.Combine(collisionFolder, literalName);
                     var otherOutput = Path.Combine(collisionFolder, stem + " 3" + extension);
                     byte[] prior = [7, 2, 4];
                     File.WriteAllBytes(occupied, prior);
@@ -552,12 +560,101 @@ public static partial class StartupHook
                         "the numbered outputs retain the same effect-processed RGB16 image across both native commands");
                 }
 
-                static string RecipeNameToken()
+                async Task CheckNativeCounter()
+                {
+                    var counter = counterProperty ?? throw new MissingMemberException(document.GetType().FullName, "OutputCounter");
+                    var increment = document.GetType().GetProperty("OutputCounterIncrement", Flags)
+                        ?? throw new MissingMemberException(document.GetType().FullName, "OutputCounterIncrement");
+                    var initialValue = counter.GetValue(document)!;
+                    var initialStep = increment.GetValue(document)!;
+                    var counterFolder = Directory.CreateDirectory(Path.Combine(fixtureRoot, "native-counter")).FullName;
+                    subfolder.SetValue(selected, Path.GetFileName(counterFolder));
+                    filename.SetValue(selected, "Counter " + NativeNameToken("Counter"));
+                    overwrite.SetValue(selected, Enum.Parse(overwrite.PropertyType, "Overwrite"));
+                    var extension = Path.GetExtension(expectedSuggestedFile ?? throw new InvalidOperationException("No recipe filename was offered."));
+                    try
+                    {
+                        SetCounter(41);
+                        increment.SetValue(document, Convert.ChangeType(3, increment.PropertyType));
+                        var first = InspectName();
+                        var before = routeCount;
+                        cancelDestination = true;
+                        try
+                        {
+                            ExecuteNativeExportCommand(previous);
+                            Check(routeCount == before + 1 && job is not null && !await job.WaitAsync(TimeSpan.FromSeconds(10))
+                                && offeredFilename == first && ReadCounter() == 41,
+                                "canceling the native destination picker leaves the output counter unchanged");
+                        }
+                        finally { cancelDestination = false; }
+
+                        await Render("counter-custom-name", extension, true, fixtureOutputDirectory: counterFolder);
+                        Check(offeredFilename == first && ReadCounter() == 41, "a manually named export keeps the native output counter");
+                        var failedPath = Path.Combine(counterFolder, first);
+                        byte[] prior = [1, 4, 3];
+                        File.WriteAllBytes(failedPath, prior);
+                        File.SetAttributes(failedPath, FileAttributes.ReadOnly);
+                        try
+                        {
+                            destination = failedPath;
+                            before = routeCount;
+                            ExecuteNativeExportCommand(previous);
+                            Check(routeCount == before + 1 && job is not null && !await job.WaitAsync(TimeSpan.FromSeconds(45))
+                                && offeredFilename == first && ReadCounter() == 41 && File.ReadAllBytes(failedPath).SequenceEqual(prior),
+                                "a failed publication leaves both the previous file and native counter unchanged");
+                        }
+                        finally { File.SetAttributes(failedPath, FileAttributes.Normal); }
+
+                        var firstFrame = await Render("counter-native-export", extension, false, fixtureOutputDirectory: counterFolder,
+                            fixtureOutputFileName: first);
+                        Check(first == offeredFilename && ReadCounter() == 44, "native Export advances the selected counter by its native increment");
+                        var second = InspectName();
+                        Check(second != first && ReadCounter() == 44, "the next naming preview uses the new counter without changing it");
+                        var nextFrame = await Render("counter-previous-settings", extension, true, fixtureOutputDirectory: counterFolder,
+                            fixtureOutputFileName: second);
+                        Check(second == offeredFilename && ReadCounter() == 47, "Previous Settings consumes exactly one native counter step");
+                        Check(Difference(firstFrame, nextFrame).Mean < 8d / 65535,
+                            "counter-based native outputs retain the same applied Spektrafilm effect");
+
+                        var staleName = InspectName();
+                        beforeDestinationApproval = () => SetCounter(90);
+                        try
+                        {
+                            await Render("counter-changed-while-saving", extension, true, fixtureOutputDirectory: counterFolder,
+                                fixtureOutputFileName: staleName);
+                            Check(offeredFilename == staleName && ReadCounter() == 90
+                                && ((TextBlock)Field(spatial, "exportStatus")!).Text.Contains("naming changed during export", StringComparison.Ordinal),
+                                "an independently changed counter preserves the approved file and the host's newer counter");
+                        }
+                        finally { beforeDestinationApproval = null; }
+                    }
+                    finally
+                    {
+                        counter.SetValue(document, initialValue);
+                        increment.SetValue(document, initialStep);
+                    }
+                    Check(Equals(counter.GetValue(document), initialValue) && Equals(increment.GetValue(document), initialStep),
+                        "the copied catalog's native counter and increment are restored");
+
+                    long ReadCounter() => Convert.ToInt64(counter.GetValue(document));
+                    void SetCounter(int value) => counter.SetValue(document, Convert.ChangeType(value, counter.PropertyType));
+                    string InspectName()
+                    {
+                        var capture = host.GetMethod("ActiveRecipe", Flags)!.Invoke(null, new[] { window })!;
+                        Check(Prop(Prop(capture, "Naming")!, "AdvanceCounter") is Delegate,
+                            "the native filename token declares a real output counter");
+                        return (string)Prop(capture, "SuggestedFilename")! + extension;
+                    }
+                }
+
+                static string NativeNameToken(string id)
                 {
                     var core = AppDomain.CurrentDomain.GetAssemblies().Single(a => a.GetName().Name == "P1.C1.ImageCoreWrapper");
                     const string ns = "P1.C1.Common.DestinationNaming.";
                     var tokenType = core.GetType(ns + "NameTokenType", true)!;
-                    var token = Activator.CreateInstance(core.GetType(ns + "NameToken", true)!, Enum.Parse(tokenType, "RecipeName"));
+                    var token = id == "Counter"
+                        ? Activator.CreateInstance(core.GetType(ns + "NameTokenCounter", true)!, 3)
+                        : Activator.CreateInstance(core.GetType(ns + "NameToken", true)!, Enum.Parse(tokenType, id));
                     var tokens = Array.CreateInstance(core.GetType(ns + "NameTokenBase", true)!, 1);
                     tokens.SetValue(token, 0);
                     var nativeName = Activator.CreateInstance(core.GetType(ns + "DestinationName", true)!, new object[] { tokens })!;

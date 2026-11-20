@@ -7,7 +7,7 @@ Updated 2026-11-20. The critical-fix batch is implemented, tested, installed loc
 1. Read this file, `AGENTS.md` and `qa/AUDIT-FIX-STATUS.json` before changing code. The JSON is the authoritative task-progress ledger; its `remaining_work` and original acceptance tests matter more than a short status label.
 2. Check `git status`, current branch and PR head. Do not discard existing edits or switch the installed build merely because this documentation has a newer commit.
 3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP is `0.2.0-audit.32` from clean `ca0b5cd`. It passes native four-RAW effects export, stacked camera and print diffusion, optical and Capture One grain, drag preview caching, physical Vulkan and a private upgrade. Audit.31 retains the 10,000-edit hard-restart and full licensed host campaigns. Audit.29 retains the updated-catalog, workspace and export interruption campaigns.
-4. Choose an unresolved task and an exact ownership boundary. Do not repeat the completed installation, crash test or old defect reproductions as if nothing had happened.
+4. Group related work by the user workflow it improves. Run focused acceptance checks for each change and reserve broad host regressions for changes that affect several workflows or for a package candidate. Track external prerequisites alongside the affected tasks.
 5. Update task evidence and the delivery ledger at each completed milestone. Never mark a broad parent task complete because one mitigation shipped.
 
 Inside the standalone audit archive, use `CURRENT-IMPLEMENTATION.json`; repository-only `AGENTS.md` and `qa/` paths refer to the linked source checkout. The archive contains a copy of this handover, not the product or local test artifacts.
@@ -1374,6 +1374,16 @@ Evidence is in `.test-results/negative-density-full-smoke-20261120.log`, `.test-
 Evidence is in `.test-results/film-control-contracts-20261120.log`, `.test-results/host-film-control-schema-20261120`, `.test-results/host-film-control-regression-20261120` and `.test-results/host67-contracts/reference-drift-film-schema.json`.
 
 The optical definition evidence is in `.test-results/host-optical-schema-inventory-20261120`, `.test-results/optical-mode-gpu-parity-20261120.log`, `.test-results/contracts-optical-schema-native-acl-20261120` and `.test-results/host-optical-schema-effects-20261120`.
+
+## Native export filename counters
+
+- [x] Capture the native recipe naming preview and whether it contains a counter token. Advance the native counter after successful publication of the suggested filename. A canceled picker, custom name, or failed write leaves the counter as it was. A stale naming preview preserves the already approved output and avoids advancing the current counter.
+- [x] Use the licensed fixture’s three-digit counter and increment of three. The actual Export command writes `Counter 041.tif` and advances to 44. Previous Settings writes `Counter 044.tif` and advances to 47. Both files reopen as effect-processed RGB16 with the requested ICC. An intervening counter change to 90 preserves both the approved file and the new counter. Existing recipe suffix behavior uses a separate literal name in the fixture.
+- [x] Pass the 12,507 host-independent Viewer and export assertions. Compile against 16.4 and signed 16.7.8.3529 with no warnings, and compare all 566 emitted host references.
+- [x] Pass 142 licensed export and naming assertions in one targeted launch. The source catalog and all nine original recipe files match their starting hashes. The supported host’s ordinary Export still opens without a Spektrafilm job when the master switch is off.
+- [ ] Verify a native counter that remains changed across catalog close and reopen. The current fixture restores its counter and increment when done. File commit and counter advancement are separate operations.
+
+Run `Run-HostSmoke.ps1 -NativeEffectFolders -SkipRestart` with the copied fixture and a verified preferences backup. Evidence is under `.test-results/host-native-output-counter-completed-20261120`, `.test-results/host67-contracts/reference-drift-native-counter.json` and `.test-results/native-counter-viewer-contracts-20261120.log`. [Capture One counter settings](https://support.captureone.com/hc/en-us/articles/360002533438-Controlling-the-counter)
 
 ## Status maintenance
 
