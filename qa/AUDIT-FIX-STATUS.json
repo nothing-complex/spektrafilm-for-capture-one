@@ -3719,6 +3719,32 @@
     "original_test_catalog_hash_unchanged": true,
     "local_evidence_note": "Paths under .test-results/build/dist are ignored local artifacts and are not present in a public clone.",
     "latest_development_package": {
+      "version": "0.2.0-audit.35",
+      "archive": "dist/Spektrafilm-for-Capture-One-v0.2.0-audit.35-windows-x64.zip",
+      "sha256": "ad372b46210f34b42a924787e5c94733defdd51218b4edda62ab283cf69079b7",
+      "source": {
+        "commit": "df4a7d9690cca3c4c8affdfcdd63e6bb8a654770",
+        "dirty": false,
+        "treeDigest": "f2994c05e707683842ad7b02b9466d985bb754bc796eb66267f22284e8f98156"
+      },
+      "verified_package_entries": 153,
+      "verified_runtime_entries": 19,
+      "panel_sha256": "276aed12fa3dbbff0e3aad49a893803fb41a47356ac383620641f4cf9b6cb40a",
+      "renderer_sha256": "9ab72c386c0b4e11ffe5e232cf4469fcb36180c3640a2b5e3a9458fb79a2a488",
+      "renderer_smoke": "passed",
+      "tested_host": "16.4.6.2414",
+      "native_revision_launch_assertions": 50,
+      "native_revision_restart_assertions": 50,
+      "native_recipe_launch_assertions": 100,
+      "native_recipe_restart_assertions": 72,
+      "native_folder_and_collision_assertions": 185,
+      "receipt": ".test-results/audit35-package-verify-20261120/result.json",
+      "independent_pixel_file_check": ".test-results/audit35-package-verify-20261120/independent-file-check.json",
+      "private_upgrade_receipt": ".test-results/sf35-upgrade/installed-upgrade-receipt.json",
+      "private_desktop_shortcut": "Spektrafilm for Capture One.lnk",
+      "package_scope": "Local development ZIP tested in isolated Capture One 16.4 fixtures and a private upgrade. The regular installation and public release state are separate."
+    },
+    "previous_development_package": {
       "version": "0.2.0-audit.34",
       "archive": "dist/Spektrafilm-for-Capture-One-v0.2.0-audit.34-windows-x64.zip",
       "sha256": "80e176f5badd17a14512a10cf4b7f20654c576c4ba0b269d4f93907cca640095",
@@ -3742,7 +3768,7 @@
       "private_upgrade_receipt": ".test-results/host-audit34-upgrade-20261120/installed-upgrade-receipt.json",
       "package_scope": "Local development archive. The paid host version used for runtime testing is 16.4.6.2414."
     },
-    "previous_development_package": {
+    "development_package_audit_32": {
       "version": "0.2.0-audit.32",
       "archive": "dist/Spektrafilm-for-Capture-One-v0.2.0-audit.32-windows-x64.zip",
       "sha256": "9e69802f784023a3fb2050ce50c42d37f06b3d3f325c0450813cfbd7f42aa5b6",
