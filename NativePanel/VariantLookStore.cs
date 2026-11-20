@@ -44,6 +44,7 @@ internal sealed class VariantLookStore
     internal bool IsBlocked(Guid variant) { lock (session) return blocked.ContainsKey(variant); }
     internal bool HasPending { get { lock (session) return session.Pending.Count != 0; } }
     internal bool HasUnprotectedPending { get { lock (session) return session.Pending.Values.Any(edit => !edit.RecoveryDurable); } }
+    internal bool HasCommitted(Guid variant) { lock (session) return session.KnownHash.GetValueOrDefault(variant) is not null; }
 
     internal VariantLook? Read(Guid variant)
     {

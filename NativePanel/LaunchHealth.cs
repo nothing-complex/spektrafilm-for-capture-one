@@ -28,6 +28,7 @@ internal static class LaunchHealth
     private static string? hostVersion;
     private static bool writeErrorLogged;
 
+    internal static string? HostVersion => hostVersion;
     internal static void SetHostVersion(string? version) => hostVersion = version;
 
     internal static void Report(LaunchPhase phase, ExportBridgeState export = ExportBridgeState.Checking,

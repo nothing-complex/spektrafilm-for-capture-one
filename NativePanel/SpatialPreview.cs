@@ -179,6 +179,8 @@ internal sealed class SpatialPreview : IDisposable
     internal FrameworkElement Element { get; }
     internal FrameworkElement LiveControls { get; }
     internal FrameworkElement ExportControls { get; }
+    internal string? VerifiedRendererAssets => renderer?.AssetContract ?? draftRenderer?.AssetContract;
+
     internal ViewerHealth Health => !enabled ? ViewerHealth.Disabled
         : failedRevision is not null ? ViewerHealth.ProcessingError
         : pending is not null || pendingDraft is not null ? ViewerHealth.Rendering

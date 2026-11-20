@@ -85,6 +85,8 @@ py -3.13 -m pip download --only-binary=:all: --require-hashes -r requirements-lu
 
 Diagnostic logs and up to five joint backups per catalog are under `%LOCALAPPDATA%\FilmToolsForCaptureOne`. A changed database copy passes SQLite integrity verification before publication and backup rotation. Each database backup has matching `.spektrafilm.zip` and `.manifest.json` files containing its saved looks, pending recovery records and checksums. Keep all three together. A look-only change creates a new backup even if the catalog database hash is the same. Original images and Capture One previews need their own backups.
 
+Use **Copy support details** in the Spektrafilm tool menu to copy the build versions, Viewer status, native Export route and look save status. The copied report contains no file paths or image data. The local diagnostic log keeps the active file and one previous generation.
+
 To restore a backup, open PowerShell in the Spektrafilm installation folder. Choose a new catalog filename and run the preview. Add `-Apply` to the same command when the preview shows the intended path. The script verifies the database copy and restores variant looks and pending edits for the new location.
 
 ```powershell

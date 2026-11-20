@@ -657,17 +657,20 @@
       "status": "partial",
       "implemented": [
         "Unreadable/future/invalid saved states are blocked and preserved, with explicit backed-up reset rather than silent default overwrite.",
-        "Transient read I/O is distinguished from corrupt state. An exclusive file lock in the live host paused the controls and automatic retry restored the original contents after release without rewriting the file."
+        "Transient read I/O is distinguished from corrupt state. An exclusive file lock in the live host paused the controls and automatic retry restored the original contents after release without rewriting the file.",
+        "Licensed first/restart fixtures explicitly blocked a future version, a missing film stock, malformed UTF-8 and an 80 KiB JSON look. The native controls and redacted support report indicated recovery. Attempted edits preserved the rejected bytes. Explicit recovery archived those bytes and restored the independently backed-up valid look."
       ],
       "evidence_paths": [
         "NativePanel/VariantLookStore.cs",
         "NativePanel/LookStateValidation.cs",
         "NativePanel/PanelFiles.cs",
         "tests/state/Program.cs",
-        ".test-results/host-audit-state-selection-20261119/host-smoke.log"
+        ".test-results/host-audit-state-selection-20261119/host-smoke.log",
+        "qa/HostSmoke/LookRecoveryHost.cs",
+        ".test-results/host-protected-look-formats-20261120/host-smoke.log"
       ],
       "remaining_work": [
-        "Complete typed missing/valid/recovered/unsupported/corrupt outcomes and verified previous-generation recovery. Extend hostile-byte and unavailable-stock live fixtures."
+        "Complete separate typed unsupported/corrupt outcomes and add a product-managed verified previous generation. The live recovery fixture supplied an independently preserved valid look."
       ],
       "original_acceptance_tests": [
         "future schema, missing stock, truncated UTF-8, malformed dictionary, too-large file, temporary sharing violation. Assert originals survive any normal slider movement and no defaults are silently committed over unrecognized data."
@@ -1490,15 +1493,21 @@
       "priority": "P2",
       "status": "partial",
       "implemented": [
-        "Persistent export-bridge and save/recovery messages make several failures visible without being overwritten by viewer status."
+        "Persistent export-bridge and save/recovery messages make several failures visible without being overwritten by viewer status.",
+        "Native docked and floated menus expose Copy support details and offer Retry look save while pending. The copied report uses an allow-list of build/runtime identities, typed Export/Viewer states, look durability and dropped-log count. Real missing-delegate, restored bridge, master-off and locked-look fixtures verify the reported route without including native error paths.",
+        "Local panel diagnostics now enqueue bounded JSON records on a background writer with one capped previous generation. Nine contracts cover rotation, newline escaping, concurrent producers, a locked destination and eventual recovery. Final licensed runs passed 240 and 244 assertions."
       ],
       "evidence_paths": [
         "NativePanel/SpektraFilmTool.cs",
         "NativePanel/SpatialPreview.cs",
-        "NativePanel/VariantLookStore.cs"
+        "NativePanel/VariantLookStore.cs",
+        "NativePanel/PanelLog.cs",
+        "tests/state/PanelLogContracts.cs",
+        ".test-results/state-final-isolated-20261120",
+        ".test-results/host-protected-look-formats-20261120/host-smoke.log"
       ],
       "remaining_work": [
-        "Implement unified actionable integration health, retry/recovery controls, bounded structured logs and redacted diagnostics bundle."
+        "Add per-capability native fault scenarios for renderer and floating window, test user clipboard flow and finish extended log contention validation."
       ],
       "original_acceptance_tests": [
         "fault injection by capability, user can identify degraded feature without opening logs, export visibly reports whether it will contain Spektrafilm, persisted-save error remains prominent."

@@ -104,7 +104,7 @@ internal static class SpektraFilmTool
         internal void SetExportBridgeStatus(ExportBridgeState state, string? detail = null) => panel.SetExportBridgeStatus(state, detail);
         internal InspectorToolHeaderViewModel CreateDockedHeader(ILifeCycleRegistrationService registration) =>
             new InspectorToolHeaderViewModelBuilder(StartupHook.ProductName, () => Tool.Document, registration)
-                .DoShowActionMenu(new PanelActionMenu(() => floating is null ? "Float Tool" : "Show Floating Tool", ShowFloating))
+                .DoShowActionMenu(new PanelActionMenu(() => floating is null ? "Float Tool" : "Show Floating Tool", ShowFloating, panel))
                 .Build();
 
         private void ShowFloating()
@@ -127,7 +127,7 @@ internal static class SpektraFilmTool
                     VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                     HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
                 };
-                window = CreateFloatingWindow(scroll);
+                window = CreateFloatingWindow(scroll, panel);
                 if (floatingBounds is { } bounds)
                 {
                     var desktop = new Rect(SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop,
@@ -172,7 +172,7 @@ internal static class SpektraFilmTool
             }
         }
 
-        private static DockableWindow CreateFloatingWindow(ScrollViewer scroll)
+        private static DockableWindow CreateFloatingWindow(ScrollViewer scroll, LookPanel panel)
         {
             var layout = new DockPanel
             {
@@ -196,7 +196,7 @@ internal static class SpektraFilmTool
             {
                 Background = DefaultConstants.CaptureOneBrushHeaderBackground,
                 DataContext = new InspectorToolHeaderViewModel(StartupHook.ProductName,
-                    argActionMenuGenerator: new PanelActionMenu(() => "Dock Tool", window.Close)),
+                    argActionMenuGenerator: new PanelActionMenu(() => "Dock Tool", window.Close, panel)),
             };
             // The Inspector header handles its action-menu input before it reaches this handler.
             header.MouseLeftButtonDown += (_, args) =>
@@ -248,13 +248,16 @@ internal static class SpektraFilmTool
                 Holder.Content = panel;
         }
 
-        private sealed class PanelActionMenu(Func<string> label, Action action) : IActionMenuGenerator
+        private sealed class PanelActionMenu(Func<string> label, Action action, LookPanel panel) : IActionMenuGenerator
         {
             public bool HasItems => true;
 
             public IEnumerable<IMenuItemViewModel> Generate()
             {
                 yield return new CommandMenuItemViewModel(label(), action);
+                if (panel.HasPendingLookWrites)
+                    yield return new CommandMenuItemViewModel("Retry look save", panel.RetryPendingLookWrites);
+                yield return new CommandMenuItemViewModel("Copy support details", panel.CopySupportDetails);
             }
         }
 
@@ -703,6 +706,60 @@ internal static class SpektraFilmTool
         internal LaunchPhase ControlsLoadPhase => controlsLoadFailed ? LaunchPhase.Failed
             : StocksReady ? LaunchPhase.Ready : LaunchPhase.LoadingControls;
         internal ViewerHealth ViewerStatus => opticalPreview.Health;
+        internal bool HasPendingLookWrites => looks.HasPending;
+
+        internal void CopySupportDetails()
+        {
+            try
+            {
+                Clipboard.SetText(BuildSupportDetails());
+                status.Text = "Support details copied.";
+            }
+            catch (System.Runtime.InteropServices.COMException)
+            {
+                status.Text = "The clipboard is busy. Use Copy support details again.";
+            }
+        }
+
+        private string BuildSupportDetails()
+        {
+            var storage = SupportStorageState();
+            var version = typeof(LookPanel).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+            // Export only the enumerated state and version identities. The log,
+            // variant, paths, metadata and control values stay on the computer.
+            return JsonSerializer.Serialize(new
+            {
+                SchemaVersion = 1,
+                Build = version,
+                CaptureOne = LaunchHealth.HostVersion,
+                RendererProtocol = RendererProtocol.Version,
+                RendererAssets = opticalPreview.VerifiedRendererAssets,
+                Controls = ControlsLoadPhase.ToString(),
+                Viewer = ViewerStatus.ToString(),
+                NativeExportBridge = ExportBridgeStatus.ToString(),
+                NativeExportRoute = SupportExportRoute(storage),
+                LookStorage = storage,
+                DroppedLogEntries = StartupHook.DroppedLogEntries,
+            }, new JsonSerializerOptions { WriteIndented = true });
+        }
+
+        private string SupportStorageState()
+        {
+            if (retryLookReadAt is not null) return "ReadUnavailable";
+            if (displayedVariant is not { } selected) return "NoImage";
+            if (looks.IsBlocked(selected)) return "RecoveryRequired";
+            if (looks.HasUnprotectedPending) return "SaveUnprotected";
+            if (looks.HasPending) return "RecoveryCheckpoint";
+            return looks.HasCommitted(selected) ? "Saved" : "Default";
+        }
+
+        private string SupportExportRoute(string storage)
+        {
+            if (!StocksReady || displayedVariant is null) return "Waiting";
+            if (storage is "ReadUnavailable" or "RecoveryRequired") return "LookUnavailable";
+            if (!IsSpektraFilmEnabled) return "CaptureOne";
+            return ExportBridgeStatus == ExportBridgeState.Connected ? "Spektrafilm" : "UsePanel";
+        }
 
         private Task SavePresetAsync() =>
             SavePresetWithDestinationAsync(picker => picker.ShowDialog() == true ? picker.FileName : null);

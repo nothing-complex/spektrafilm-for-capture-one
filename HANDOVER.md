@@ -612,6 +612,16 @@ Evidence is in `.test-results/audit-capabilities-generated-20261120.md` and `.te
 
 Evidence is under `.test-results/host-recipe-icc-final-20261120`, `.test-results/contracts-recipe-icc-final-20261120`, `.test-results/wic-icc16-probe-20261120` and `.test-results/audit9-package-verify-20261120`.
 
+## Support report, bounded logs and protected looks
+
+- [x] Add Copy support details to the docked and floated tool menus and Retry look save while an edit is pending. The report exposes build and renderer identities, Viewer state, native Export route and look durability with an explicit allow-list.
+- [x] Queue only 256 diagnostic records and write JSON on a background worker. Rotate at 1 MiB into one previous generation. Contracts cover long text, line breaks, locking, concurrent writes, rotation and reopening.
+- [x] Exercise missing native Export callbacks, recovery, master-off Export and locked reads in the licensed host. Check that native error paths are absent from the copied report.
+- [x] Test a future look format, missing stock, malformed UTF-8 and oversized look. Each is retained byte for byte and archived on explicit recovery. The fixture supplies the backed-up valid generation. The real host passed 240 first-launch and 244 restart checks.
+- [ ] Add a product-managed last known good generation, test more native capability faults and complete the extended log stress report.
+
+Evidence is under `.test-results/state-final-isolated-20261120` and `.test-results/host-protected-look-formats-20261120`. A ten-minute file/queue stress run was started independently using the `--measure-diagnostic-log` state-contract probe.
+
 ## Status maintenance
 
 `qa/AUDIT-FIX-STATUS.json` owns task IDs, status, implemented substeps, remaining acceptance work and evidence. This handover owns context, runtime identity and resume instructions. `.test-results/FINAL-RESULT.json` is the completed runtime delivery receipt; keep its runtime commit/package identity distinct from later documentation-only commits.

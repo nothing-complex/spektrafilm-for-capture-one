@@ -135,6 +135,7 @@ public static partial class StartupHook
             if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_PROOF_TEST") == "1")
                 await TestProofing(spatial);
             await TestLockedLook(panel, store, variant, exposure, toggle);
+            TestBlockedLookInputs(panel, store, variant, exposure, toggle);
             var optics = Call(spatial, "CaptureSettings")!;
             Call(spatial, "ValidateSettings", optics);
             var selections = (System.Collections.Generic.Dictionary<string,string>)Prop(optics, "Selections")!;
@@ -1384,6 +1385,10 @@ public static partial class StartupHook
                 && warning.Text.Contains("retry", StringComparison.OrdinalIgnoreCase),
                 "temporarily inaccessible saved look pauses editing and reports retry");
             Check(Call(store, "IsBlocked", variant) is false, "sharing violation leaves corrupt-state recovery inactive");
+            using var support = JsonDocument.Parse((string)Call(panel, "BuildSupportDetails")!);
+            Check(support.RootElement.GetProperty("LookStorage").GetString() == "ReadUnavailable"
+                && support.RootElement.GetProperty("NativeExportRoute").GetString() == "LookUnavailable",
+                "redacted support details explain an unavailable look without exporting its filename");
         }
 
         var until = DateTime.UtcNow.AddSeconds(5);
@@ -1431,6 +1436,15 @@ public static partial class StartupHook
                     exposure.GetType().GetProperty("Value", Flags)!.SetValue(exposure, 0.4);
                     Check(warning.Visibility == Visibility.Visible && Prop(panel, "IsSpektraExportActive") is true,
                         "attach warning survives an edit and direct Export stays available");
+                    var details = Prop(panel, "ExportBridgeStatus")!;
+                    const string privateText = @"C:\Fixture User\Do not share my raw.CR3";
+                    Call(panel, "SetExportBridgeStatus", details, privateText);
+                    var report = (string)Call(panel, "BuildSupportDetails")!;
+                    using var support = JsonDocument.Parse(report);
+                    Check(support.RootElement.GetProperty("NativeExportRoute").GetString() == "UsePanel"
+                        && support.RootElement.GetProperty("NativeExportBridge").GetString() == "Unavailable"
+                        && !report.Contains("Fixture User", StringComparison.Ordinal),
+                        "redacted support details identify the alternate Export route without including native error paths");
                 }
                 finally { callbacks.SetValue(command, original); }
             }
@@ -1440,6 +1454,24 @@ public static partial class StartupHook
         var current = hookField.GetValue(null) ?? throw new InvalidOperationException("Native Export did not rebind.");
         Check(warning.Visibility == Visibility.Collapsed && Prop(panel, "ExportBridgeStatus")!.ToString() == "Connected",
             "successful native rebind clears its own warning");
+        var connected = (string)Call(panel, "BuildSupportDetails")!;
+        using (var report = JsonDocument.Parse(connected))
+        {
+            var names = report.RootElement.EnumerateObject().Select(property => property.Name).ToHashSet(StringComparer.Ordinal);
+            Check(names.SetEquals(new[] { "SchemaVersion", "Build", "CaptureOne", "RendererProtocol", "RendererAssets",
+                "Controls", "Viewer", "NativeExportBridge", "NativeExportRoute", "LookStorage", "DroppedLogEntries" })
+                && report.RootElement.GetProperty("NativeExportRoute").GetString() == "Spektrafilm",
+                "support details contain only allow-listed versions and states after native Export reconnects");
+        }
+        File.WriteAllText(Path.Combine(folder, "support-details.json"), connected);
+        toggle.IsChecked = false;
+        try
+        {
+            using var disabled = JsonDocument.Parse((string)Call(panel, "BuildSupportDetails")!);
+            Check(disabled.RootElement.GetProperty("NativeExportRoute").GetString() == "CaptureOne",
+                "support details identify ordinary Capture One export when the master switch is off");
+        }
+        finally { toggle.IsChecked = true; }
         Window? owner = null;
         try
         {

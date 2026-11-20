@@ -6,6 +6,8 @@ using System.Text.Json.Nodes;
 
 if (args is ["--measure-durable-edits", var measurementDirectory])
     return DurableEditProbe.Run(measurementDirectory);
+if (args is ["--measure-diagnostic-log", var diagnosticsDirectory, var seconds])
+    return await PanelLogContracts.SoakAsync(diagnosticsDirectory, int.Parse(seconds, System.Globalization.CultureInfo.InvariantCulture));
 
 if (args.Length != 0)
 {
@@ -63,8 +65,10 @@ var id = Guid.NewGuid();
 var original = Sample(.7);
 var store = new VariantLookStore(root, catalog);
 Check("missing means no saved look", store.Read(id) is null);
+Check("missing look is reported as a default", !store.HasCommitted(id));
 store.Queue(id, original);
 store.Flush();
+Check("committed look is reported as saved", store.HasCommitted(id));
 var stateFile = StateFile(root, id);
 Check("roundtrip", new VariantLookStore(root, catalog).Read(id)?.Look.Exposure == .7);
 Check("case-only catalog path", new VariantLookStore(root, catalog.ToUpperInvariant()).Read(id) is not null);
@@ -472,6 +476,7 @@ Throws<IOException>("native scope error is surfaced after successful setters", (
     () => { closedScopes++; throw new IOException("undo close failed after success"); }));
 Check("native close error cannot skip executed changes", nativeValues[0] == 11);
 Check("native close error closes only once", closedScopes == 4);
+await PanelLogContracts.RunAsync(scratch, Check);
 Console.WriteLine($"PASS: {assertions} state/recovery assertions, including separate-process recovery. Fixtures: {scratch}");
 return 0;
 

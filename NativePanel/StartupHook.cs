@@ -30,6 +30,9 @@ internal static class StartupHook
     private static IInspectorPaletteTabViewModel? previousTab;
     private static Forms.Form? window;
     private static string? lastState;
+    private static readonly Lazy<PanelLog?> PanelLogger = new(() =>
+        Environment.GetEnvironmentVariable("SPEKTRAFILM_PANEL_LOG") is { } path && Path.IsPathFullyQualified(path)
+            ? new PanelLog(path) : null);
 
     public static void Initialize()
     {
@@ -84,7 +87,16 @@ internal static class StartupHook
         }
         try { Detach(); }
         catch (Exception error) { Log(error.ToString()); }
-        finally { LaunchHealth.Report(LaunchPhase.Closed, ExportBridgeState.Detached); }
+        finally
+        {
+            LaunchHealth.Report(LaunchPhase.Closed, ExportBridgeState.Detached);
+            try
+            {
+                if (PanelLogger.IsValueCreated)
+                    PanelLogger.Value?.Complete().Wait(TimeSpan.FromMilliseconds(150));
+            }
+            catch (AggregateException) { }
+        }
     }
 
     private static void OnApplicationIdle(object? sender, EventArgs args)
@@ -350,13 +362,9 @@ internal static class StartupHook
 
     internal static void Log(string text)
     {
-        try
-        {
-            var path = Environment.GetEnvironmentVariable("SPEKTRAFILM_PANEL_LOG");
-            if (!string.IsNullOrWhiteSpace(path))
-                File.AppendAllText(path, $"{DateTime.Now:O} {text}{Environment.NewLine}");
-        }
-        catch (IOException) { }
-        catch (UnauthorizedAccessException) { }
+        try { PanelLogger.Value?.Write(text); }
+        catch (Exception error) when (error is ArgumentException or IOException or UnauthorizedAccessException) { }
     }
+
+    internal static int DroppedLogEntries => PanelLogger.IsValueCreated ? PanelLogger.Value?.Dropped ?? 0 : 0;
 }
