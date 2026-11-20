@@ -44,6 +44,7 @@ internal static class OutputPathGuard
         }
 
         internal string Path { get; }
+        internal bool AlreadyExists => existing is not null;
 
         internal void Write(Action<Stream> write, CancellationToken stop = default)
         {

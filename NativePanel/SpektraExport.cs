@@ -40,25 +40,27 @@ internal static class SpektraExport
 
     private static bool Occupied(string path) => File.Exists(path) || Directory.Exists(path);
 
-    internal static string? ExistingRecipeDirectory(string? root, string? subfolder)
+    internal static (string? Suggested, string? Exact) ExistingRecipeLocation(string? root, string? subfolder, bool hasSubfolder)
     {
-        if (string.IsNullOrWhiteSpace(root) || !Path.IsPathFullyQualified(root)) return null;
+        if (string.IsNullOrWhiteSpace(root) || !Path.IsPathFullyQualified(root)) return default;
         try
         {
             var baseDirectory = Path.GetFullPath(root);
+            if (!Directory.Exists(baseDirectory)) return default;
+            if (!hasSubfolder) return (baseDirectory, baseDirectory);
             if (!string.IsNullOrWhiteSpace(subfolder) && !Path.IsPathRooted(subfolder))
             {
                 var candidate = Path.GetFullPath(subfolder, baseDirectory);
                 var relative = Path.GetRelativePath(baseDirectory, candidate);
                 if (relative != ".." && !relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)
                     && !Path.IsPathRooted(relative) && Directory.Exists(candidate))
-                    return candidate;
+                    return (candidate, candidate);
             }
-            return Directory.Exists(baseDirectory) ? baseDirectory : null;
+            return (baseDirectory, null);
         }
         catch (Exception error) when (error is IOException or ArgumentException or NotSupportedException)
         {
-            return null;
+            return default;
         }
     }
 

@@ -472,11 +472,13 @@ public static partial class StartupHook
                 var subfolder = type.GetProperty("DestinationSubFolder", Flags)!;
                 var overwrite = type.GetProperty("FileOverwriteAction", Flags)!;
                 var filename = type.GetProperty("DestinationFilename", Flags)!;
+                var format = type.GetProperty("FileType", Flags)!;
                 var originalMode = mode.GetValue(selected)!;
                 var originalRoot = root.GetValue(selected);
                 var originalSubfolder = subfolder.GetValue(selected);
                 var originalAction = overwrite.GetValue(selected)!;
                 var originalFilename = filename.GetValue(selected);
+                var originalFormat = format.GetValue(selected);
                 var fixtureRoot = Directory.CreateDirectory(Path.Combine(folder, "native-recipe-location")).FullName;
                 var relative = Path.Combine("Prints", "Proofs");
                 var nested = Directory.CreateDirectory(Path.Combine(fixtureRoot, relative)).FullName;
@@ -505,6 +507,7 @@ public static partial class StartupHook
                         "Previous Settings suggests the recipe root when its subfolder has not been created");
                     await CheckNumberedNames();
                     await CheckNativeCounter();
+                    await CheckSkipExisting();
                 }
                 finally
                 {
@@ -515,12 +518,13 @@ public static partial class StartupHook
                         subfolder.SetValue(selected, originalSubfolder);
                         overwrite.SetValue(selected, originalAction);
                         filename.SetValue(selected, originalFilename);
+                        format.SetValue(selected, originalFormat);
                     }
                     finally { notifications.SetValue(selected, false); }
                 }
                 Check(Equals(mode.GetValue(selected), originalMode) && Equals(root.GetValue(selected), originalRoot)
                     && Equals(subfolder.GetValue(selected), originalSubfolder) && Equals(overwrite.GetValue(selected), originalAction)
-                    && Equals(filename.GetValue(selected), originalFilename),
+                    && Equals(filename.GetValue(selected), originalFilename) && Equals(format.GetValue(selected), originalFormat),
                     "the live recipe location and existing-file policy are restored");
 
                 async Task CheckNumberedNames()
@@ -644,6 +648,74 @@ public static partial class StartupHook
                         Check(Prop(Prop(capture, "Naming")!, "AdvanceCounter") is Delegate,
                             "the native filename token declares a real output counter");
                         return (string)Prop(capture, "SuggestedFilename")! + extension;
+                    }
+                }
+
+                async Task CheckSkipExisting()
+                {
+                    var directory = Directory.CreateDirectory(Path.Combine(fixtureRoot, "native-skip")).FullName;
+                    subfolder.SetValue(selected, Path.GetFileName(directory));
+                    filename.SetValue(selected, "Skip " + NativeNameToken("Counter"));
+                    format.SetValue(selected, Enum.Parse(format.PropertyType, "Tiff"));
+                    overwrite.SetValue(selected, Enum.Parse(overwrite.PropertyType, "Skip"));
+                    var currentRecipe = host.GetMethod("ActiveRecipe", Flags)!.Invoke(null, new[] { window })!;
+                    Check(Prop(currentRecipe, "FormatId") is "Tiff" && Prop(currentRecipe, "SkipExistingOutput") is true
+                        && Equals(Prop(currentRecipe, "ExactDirectory"), directory), "the fixture captures a precise TIFF Skip recipe");
+                    var stem = (string)Prop(currentRecipe, "SuggestedFilename")!;
+                    var expectedFile = stem + ".tif";
+                    var protectedPath = Path.Combine(directory, expectedFile);
+                    var counterBefore = counterProperty!.GetValue(document);
+                    byte[] previousBytes = [7, 9, 2];
+                    File.WriteAllBytes(protectedPath, previousBytes);
+                    var writeTime = File.GetLastWriteTimeUtc(protectedPath);
+
+                    await RunSkip("Native Export", () => ShowNativeDialog(() =>
+                    {
+                        if (Prop(bridge, "Dialog") is not Window { IsVisible: true } owner || owner.DataContext is not { } model
+                            || Prop(model, "ExportCommand") is not ICommand confirm || !confirm.CanExecute(null))
+                            return false;
+                        confirm.Execute(null);
+                        return true;
+                    }), expectedPicker: false);
+                    await RunSkip("Previous Settings", () => ExecuteNativeExportCommand(previous), expectedPicker: false);
+                    Check(File.GetLastWriteTimeUtc(protectedPath) == writeTime, "native Skip leaves the existing file’s timestamp intact");
+
+                    File.Move(protectedPath, protectedPath + "." + caseName + ".before");
+                    destination = protectedPath;
+                    beforeDestinationApproval = () => File.WriteAllBytes(protectedPath, previousBytes);
+                    try { await RunSkip("Previous Settings with a file arriving during Save", () => ExecuteNativeExportCommand(previous), expectedPicker: true); }
+                    finally { beforeDestinationApproval = null; }
+                    var lastJob = Prop(Call(Field(spatial, "exportJobs")!, "ReadLatest")!, "JobId");
+
+                    subfolder.SetValue(selected, "Missing Skip Folder");
+                    File.WriteAllBytes(Path.Combine(fixtureRoot, expectedFile), previousBytes);
+                    cancelDestination = true;
+                    try
+                    {
+                        offeredFilename = null;
+                        ExecuteNativeExportCommand(previous);
+                        Check(job is not null && !await job.WaitAsync(TimeSpan.FromSeconds(10)) && offeredFilename == expectedFile
+                            && Equals(lastJob, Prop(Call(Field(spatial, "exportJobs")!, "ReadLatest")!, "JobId")),
+                            "the fallback root is a Save hint and does not trigger Skip for a different recipe destination");
+                    }
+                    finally { cancelDestination = false; }
+
+                    async Task RunSkip(string command, Action execute, bool expectedPicker)
+                    {
+                        offeredFilename = null;
+                        job = null;
+                        var before = routeCount;
+                        cancelDestination = !expectedPicker;
+                        try { execute(); }
+                        finally { cancelDestination = false; }
+                        Check(routeCount == before + 1 && job is not null && await job.WaitAsync(TimeSpan.FromSeconds(10))
+                            && offeredFilename == (expectedPicker ? expectedFile : null),
+                            $"{command} honors the exact native Skip policy at the expected point");
+                        var receipt = Call(Field(spatial, "exportJobs")!, "ReadLatest")!;
+                        Check(Equals(Prop(receipt, "Destination"), protectedPath) && Prop(receipt, "Stage")?.ToString() == "Skipped"
+                            && Equals(Prop(receipt, "Width"), 0) && Equals(counterProperty.GetValue(document), counterBefore)
+                            && File.ReadAllBytes(protectedPath).SequenceEqual(previousBytes),
+                            $"{command} preserves the file and counter and records a distinct skipped outcome");
                     }
                 }
 

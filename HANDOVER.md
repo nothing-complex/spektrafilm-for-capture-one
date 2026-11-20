@@ -1385,6 +1385,15 @@ The optical definition evidence is in `.test-results/host-optical-schema-invento
 
 Run `Run-HostSmoke.ps1 -NativeEffectFolders -SkipRestart` with the copied fixture and a verified preferences backup. Evidence is under `.test-results/host-native-output-counter-completed-20261120`, `.test-results/host67-contracts/reference-drift-native-counter.json` and `.test-results/native-counter-viewer-contracts-20261120.log`. [Capture One counter settings](https://support.captureone.com/hc/en-us/articles/360002533438-Controlling-the-counter)
 
+## Native export Skip policy
+
+- [x] Keep the file when a TIFF or PNG recipe set to Skip resolves to a verified existing destination. Record a separate terminal receipt, and keep the native counter. Check the approved recipe path again after Save so a recently created file is preserved. Missing or unresolved subfolders still provide a Save hint.
+- [x] Pass 152 checks on licensed 16.4. The fixture explicitly selects TIFF and invokes both native commands. It also covers a file arriving during Save and an occupied root with a missing recipe subfolder. Three receipts report Skip with zero render or counter events. Existing bytes, all nine recipe files and the source catalog verify.
+- [x] Pass 12,509 Viewer and export contracts and compare 566 emitted host references against signed 16.7.8.3529. Licensed 16.7 runtime coverage remains open.
+- [ ] Exercise a native PNG Skip recipe and the broader Location matrix. Explicit overwrites still use Save approval.
+
+Evidence is under `.test-results/host-native-tiff-recipe-skip-20261120`, `.test-results/recipe-skip-viewer-contracts-20261120.log` and `.test-results/host67-contracts/reference-drift-recipe-skip.json`. Run `Run-HostSmoke.ps1 -NativeEffectFolders -SkipRestart` on a copied catalog with the scoped preferences backup.
+
 ## Status maintenance
 
 `qa/AUDIT-FIX-STATUS.json` owns task IDs, status, implemented substeps, remaining acceptance work and evidence. This handover owns context, runtime identity and resume instructions. `.test-results/FINAL-RESULT.json` is the completed runtime delivery receipt; keep its runtime commit/package identity distinct from later documentation-only commits.

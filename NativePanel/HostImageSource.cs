@@ -60,7 +60,8 @@ internal static class HostImageSource
         string CropMode, string RootFolderMode, string CustomRootFolder, string Subfolder, string Filename,
         string Suffix, int TiffBits, int JpegQuality, int Width, int Height, double Scale, bool IgnoreCrop,
         double Resolution, string ResolutionUnit, ExportMetadata Metadata, TiffCompressOption TiffCompression,
-        RecipeNaming? Naming, string? SuggestedDirectory, bool AddSuffixToExistingFileName)
+        RecipeNaming? Naming, string? SuggestedDirectory, string? ExactDirectory,
+        bool AddSuffixToExistingFileName, bool SkipExistingOutput)
     {
         internal string? SuggestedFilename => Naming?.Stem;
     }
@@ -150,42 +151,46 @@ internal static class HostImageSource
             TiffCompressionMethod.Zip => TiffCompressOption.Zip,
             _ => throw new InvalidOperationException("Choose uncompressed, LZW or ZIP in Capture One’s TIFF recipe."),
         } : TiffCompressOption.Zip;
+        var (suggestedDirectory, exactDirectory) = ReadRecipeLocation(selection, recipe);
         return new RecipeInfo(recipe.Name, format.ToString(), recipe.ColorProfileName, recipe.ColorProfilePath,
             recipe.CropExportMethod.ToString(), recipe.DestinationRootFolder.ToString(), recipe.DestinationCustomRootFolder,
             recipe.DestinationSubFolder, recipe.DestinationFilename, recipe.DestinationSubName, recipe.TiffBits, recipe.JpegQuality,
             scale.ScaledPixelWidth, scale.ScaledPixelHeight, scale.Scale, ignoreCrop, recipe.Resolution, recipe.ResolutionUnit.ToString(),
-            metadata, compression, ReadRecipeNaming(selection, recipe), ReadSuggestedDirectory(selection, recipe),
-            recipe.FileOverwriteAction == ProcessedFileOverwriteAction.Rename);
+            metadata, compression, ReadRecipeNaming(selection, recipe), suggestedDirectory, exactDirectory,
+            recipe.FileOverwriteAction == ProcessedFileOverwriteAction.Rename,
+            recipe.FileOverwriteAction == ProcessedFileOverwriteAction.Skip);
     }
 
-    private static string? ReadSuggestedDirectory(HostProfile.Selection selection, IDestinationProcessingSettings recipe)
+    private static (string? Suggested, string? Exact) ReadRecipeLocation(HostProfile.Selection selection, IDestinationProcessingSettings recipe)
     {
         var variant = selection.Variant;
-        if (variant.CoreImage is not { } image) return null;
+        if (variant.CoreImage is not { } image) return default;
         var root = recipe.DestinationRootFolder.ToString() switch
         {
             "CustomPath" => recipe.DestinationCustomRootFolder,
             "ImageFolder" => image.PathToImageDirectory,
             _ => null,
         };
+        var format = recipe.DestinationSubFolder;
+        var hasSubfolder = !string.IsNullOrWhiteSpace(format);
         string? subfolder = null;
         try
         {
             root = GetExportRootLocation?.Invoke(null, new object[] { selection.Document, recipe, image }) as string ?? root;
-            if (!string.IsNullOrWhiteSpace(root) && !string.IsNullOrWhiteSpace(recipe.DestinationSubFolder)
+            if (!string.IsNullOrWhiteSpace(root) && hasSubfolder
                 && GetRecipeSubfolderNamingManager?.Invoke(selection.Manager, new object[] { selection.Document }) is INamingManager naming
                 && ((ISelectedCollectionsProvider)selection.Document).PrimarySelectedCollection is ISimpleCollection collection)
             {
                 var now = DateTime.Now;
                 subfolder = naming.RetrieveName(null, image, variant, recipe, collection.Name, null,
-                    0, null, null, now, now, recipe.DestinationSubFolder);
+                    0, null, null, now, now, format);
             }
         }
         catch (Exception error) when (error is TargetInvocationException or InvalidOperationException or ArgumentException)
         {
             // A missing native preview still permits the manual Save location.
         }
-        return SpektraExport.ExistingRecipeDirectory(root, subfolder);
+        return SpektraExport.ExistingRecipeLocation(root, subfolder, hasSubfolder);
     }
 
     private static RecipeNaming? ReadRecipeNaming(HostProfile.Selection selection, IDestinationProcessingSettings recipe)

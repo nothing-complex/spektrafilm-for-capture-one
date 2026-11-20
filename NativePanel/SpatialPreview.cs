@@ -615,6 +615,9 @@ internal sealed class SpatialPreview : IDisposable
             var dpi = recipe is null ? ExportResolution.DefaultDpi : ExportResolution.DotsPerInch(recipe.Resolution, recipe.ResolutionUnit);
             var suggestedName = SpektraExport.SuggestedOutputName(recipe?.SuggestedFilename, target.SourcePath, extension,
                 recipe?.SuggestedDirectory, recipe?.AddSuffixToExistingFileName == true);
+            var skipPath = recipe is { SkipExistingOutput: true, FormatId: "Tiff" or "Png",
+                SuggestedFilename: { } stem, ExactDirectory: { } exactDirectory }
+                ? Path.Combine(exactDirectory, stem + extension) : null;
 
             var picker = new SaveFileDialog
             {
@@ -637,12 +640,16 @@ internal sealed class SpatialPreview : IDisposable
             exportWork = work;
             try
             {
+                if (skipPath is not null && ExistingRecipeOutput(skipPath, target.SourcePath) is { } existing)
+                    return Skip(existing);
                 var destination = chooseDestination(picker, owner);
                 work.Token.ThrowIfCancellationRequested();
                 if (destination is null)
                     return false;
 
                 var approved = OutputPathGuard.Approve(destination, target.SourcePath);
+                if (approved.AlreadyExists && StringComparer.OrdinalIgnoreCase.Equals(skipPath, approved.Path))
+                    return Skip(approved);
                 var outputFormat = SpektraExport.PixelFormatFor(approved.Path);
                 receipt = exportJobs.Accept(work.VariantId, approved.Path);
                 if (owner is { IsVisible: true } && owner.Title.EndsWith(ExportFailureTitleSuffix, StringComparison.Ordinal))
@@ -743,6 +750,20 @@ internal sealed class SpatialPreview : IDisposable
                     result.PixelWidth, result.PixelHeight);
                 StartupHook.Log($"Spektrafilm 16-bit export saved at {result.PixelWidth}x{result.PixelHeight}: {approved.Path}");
                 return true;
+
+                bool Skip(OutputPathGuard.ApprovedDestination existingOutput)
+                {
+                    receipt = exportJobs.Accept(work.VariantId, existingOutput.Path);
+                    var name = Path.GetFileName(existingOutput.Path);
+                    Advance(ExportStage.Skipped, $"Skipped Spektrafilm export · {name} already exists.");
+                    StartupHook.Log("export.recipe-skip.v1", new { JobId = receipt.JobId });
+                    if (!exportStatus.IsVisible)
+                    {
+                        try { SubmitNativeExportNotice("Spektrafilm export skipped", "The recipe’s output file already exists."); }
+                        catch (Exception error) { StartupHook.Log("Could not display the export skip notice: " + error.Message); }
+                    }
+                    return true;
+                }
             }
             finally
             {
@@ -806,6 +827,22 @@ internal sealed class SpatialPreview : IDisposable
         }
     }
 
+    private static OutputPathGuard.ApprovedDestination? ExistingRecipeOutput(string path, string original)
+    {
+        if (!File.Exists(path))
+            return null;
+        try
+        {
+            var approved = OutputPathGuard.Approve(path, original);
+            return approved.AlreadyExists ? approved : null;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            // Keep the Save step if the recipe destination cannot be verified.
+            return null;
+        }
+    }
+
     private static string AdvanceNativeExportCounter(Func<bool> advance, Guid jobId)
     {
         try
@@ -849,6 +886,7 @@ internal sealed class SpatialPreview : IDisposable
     {
         null => string.Empty,
         ExportStage.Completed => $"Last Spektrafilm export · {receipt.Width} × {receipt.Height} · {Path.GetFileName(receipt.Destination)}",
+        ExportStage.Skipped => $"Previous Spektrafilm export skipped · {Path.GetFileName(receipt.Destination)} already exists.",
         ExportStage.Canceled => "Previous Spektrafilm export canceled.",
         ExportStage.Failed => "Previous Spektrafilm export failed. " + receipt.Error,
         _ => "Unfinished Spektrafilm export · " + Path.GetFileName(receipt.Destination),

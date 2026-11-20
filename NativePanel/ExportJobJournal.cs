@@ -6,14 +6,14 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 
 [JsonConverter(typeof(JsonStringEnumConverter<ExportStage>))]
-internal enum ExportStage { Accepted, WaitingForViewer, DevelopingSource, RenderingFilm, Encoding, Completed, Canceled, Failed }
+internal enum ExportStage { Accepted, WaitingForViewer, DevelopingSource, RenderingFilm, Encoding, Completed, Canceled, Failed, Skipped }
 
 internal sealed record ExportReceipt([property: JsonRequired] int Version, [property: JsonRequired] Guid JobId,
     [property: JsonRequired] Guid VariantId, [property: JsonRequired] string Destination, [property: JsonRequired] DateTime AcceptedUtc,
     [property: JsonRequired] DateTime UpdatedUtc, [property: JsonRequired] ExportStage Stage,
     int Width = 0, int Height = 0, string? Error = null)
 {
-    internal bool Finished => Stage is ExportStage.Completed or ExportStage.Canceled or ExportStage.Failed;
+    internal bool Finished => Stage is ExportStage.Completed or ExportStage.Canceled or ExportStage.Failed or ExportStage.Skipped;
 }
 
 internal sealed class ExportJobJournal(string directory, Action<string> log)

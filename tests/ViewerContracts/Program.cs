@@ -146,14 +146,17 @@ internal static partial class Program
         var root = Directory.CreateDirectory(Path.Combine(folder, "recipe-root")).FullName;
         var nested = Directory.CreateDirectory(Path.Combine(root, "Prints", "Proofs")).FullName;
         var outside = Directory.CreateDirectory(Path.Combine(folder, "recipe-root-other")).FullName;
-        Check(SpektraExport.ExistingRecipeDirectory(root, Path.Combine("Prints", "Proofs")) == nested,
+        Check(SpektraExport.ExistingRecipeLocation(root, Path.Combine("Prints", "Proofs"), true) == (nested, nested),
             "the recipe suggests an existing nested output folder");
-        Check(SpektraExport.ExistingRecipeDirectory(root, "Uncreated") == root && !Directory.Exists(Path.Combine(root, "Uncreated")),
+        Check(SpektraExport.ExistingRecipeLocation(root, "Uncreated", true) == (root, null) && !Directory.Exists(Path.Combine(root, "Uncreated")),
             "an absent recipe subfolder leaves Save at the root without creating folders");
-        Check(SpektraExport.ExistingRecipeDirectory(root, Path.Combine("..", "recipe-root-other")) == root
-            && SpektraExport.ExistingRecipeDirectory(root, outside) == root,
+        Check(SpektraExport.ExistingRecipeLocation(root, Path.Combine("..", "recipe-root-other"), true) == (root, null)
+            && SpektraExport.ExistingRecipeLocation(root, outside, true) == (root, null),
             "a recipe subfolder cannot redirect the dialog away from its output root");
-        Check(SpektraExport.ExistingRecipeDirectory("relative-root", "Prints") is null,
+        Check(SpektraExport.ExistingRecipeLocation(root, null, true) == (root, null)
+            && SpektraExport.ExistingRecipeLocation(root, null, false) == (root, root),
+            "an unresolved subfolder is a Save hint while a recipe with no subfolder uses the exact root");
+        Check(SpektraExport.ExistingRecipeLocation("relative-root", "Prints", true) == (null, null),
             "a relative recipe root is left to Save's ordinary location selection");
     }
 
@@ -197,6 +200,10 @@ internal static partial class Program
         var unavailable = new ExportJobJournal(Path.Combine(firstPath, "journal"), messages.Add);
         Check(unavailable.Accept(variant, firstPath).Stage == ExportStage.Accepted && messages.Count == 2,
             "an unavailable progress directory does not block a separately authorized export");
+        var skipped = journal.Report(journal.Accept(variant, firstPath), ExportStage.Skipped);
+        Check(restarted.ReadLatest() == skipped && skipped is { Finished: true, Width: 0, Height: 0 }
+            && File.ReadAllText(firstPath) == "existing output",
+            "a native Skip persists a terminal outcome without describing a newly rendered file");
 
         var sharedDirectory = Path.Combine(folder, "Contended export jobs");
         var errors = new ConcurrentQueue<string>();
