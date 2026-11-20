@@ -6,7 +6,7 @@ Updated 2026-11-20. The critical-fix batch is implemented, tested, installed loc
 
 1. Read this file, `AGENTS.md` and `qa/AUDIT-FIX-STATUS.json` before changing code. The JSON is the authoritative task-progress ledger; its `remaining_work` and original acceptance tests matter more than a short status label.
 2. Check `git status`, current branch and PR head. Do not discard existing edits or switch the installed build merely because this documentation has a newer commit.
-3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP is `0.2.0-audit.20` from clean `9ed0628`. The extracted package passed native effects export, grain export, Viewer paint telemetry, the full host suite and a private upgrade.
+3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP is `0.2.0-audit.21` from clean `ce24f86`. The extracted package passed native effects export, grain export, Viewer paint telemetry, the full host suite and a private upgrade.
 4. Choose an unresolved task and an exact ownership boundary. Do not repeat the completed installation, crash test or old defect reproductions as if nothing had happened.
 5. Update task evidence and the delivery ledger at each completed milestone. Never mark a broad parent task complete because one mitigation shipped.
 
@@ -900,6 +900,15 @@ The combined receipt is `.test-results/audit19-package-verify-20261120/result.js
 
 The combined receipt is `.test-results/audit20-package-verify-20261120/result.json`. The exact host output and regressions are under `.test-results/host-audit20-native-effects-repeat-20261120`, `.test-results/host-audit20-native-grain-20261120`, `.test-results/host-audit20-native-full-20261120`, and `.test-results/host-audit20-native-viewer-20261120`. The private upgrade receipt is at `D:/Library AI testing/sf-audit20-ready-20261120/installed-upgrade-receipt.json`.
 
+## Development package audit.21
+
+- [x] Build clean `ce24f862a901b00fca321d526d8ffff53a774ee9` and verify 153 package entries, 19 critical runtime entries and independently regenerated capability bytes. The ZIP SHA-256 is `68438df6f4433a1e60336c54f39474b10c45ef52f3916ca9546b13eb3b0595e1`. The extracted worker matches the recorded 45 and 100 MP benchmark binary. [Windows 2022 and 2025 checks](https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44719732269)
+- [x] Pass 191 native effects checks and 104 native/optical grain checks on both launch and restart. The exact package produced 40 effects-matrix files and 20 additional accepted grain-fixture files in 16-bit TIFF or PNG. Both native Export commands carry the recipe profile and geometry and apply the film look and tested optical effects. The read-only copies used to test failed replacements are excluded from these counts.
+- [x] Pass 336 first-launch and 340 restart general host assertions, plus 32 managed physical Vulkan checks. The exact Viewer trace passed 19 checks across 18 navigation bursts and 144 edits over 25.98 seconds. Its actual draws identify the package's renderer asset fingerprint.
+- [x] Upgrade privately from audit.20 to audit.21. The previous version remained available until the exact new licensed host reported Ready with Export Connected. The installed capability report, custom file and external look kept their verified bytes. The regular installation remains `ffc4819`.
+
+The combined receipt is `.test-results/audit21-package-verify-20261120/result.json`. Use `.test-results/host-audit21-native-effects-20261120`, `.test-results/host-audit21-native-grain-20261120`, `.test-results/host-audit21-native-full-20261120` or `.test-results/host-audit21-native-viewer-20261120` for the individual runs. The upgrade receipt is at `D:/Library AI testing/sf-audit21-ready-20261120/installed-upgrade-receipt.json`.
+
 ## Accepted export dialog and storage failure
 
 - [x] On first launch and restart, close the actual native Export confirmation after a TIFF with native and optical grain is accepted. The binding is released immediately and the job completes at its approved path with the same 16-bit pixels and recipe ICC.
@@ -970,6 +979,7 @@ Evidence is under `.test-results/optical-scratch-physical-20261120`, `.test-resu
 - [x] Compare the audit.20 worker with the new binary on eight 45 MP stacked-optics replies across packed Viewer and float export, and two 100 MP packed optics replies. All ten matched byte for byte. The 45 MP plan kept nine tiles at 2930 px with 1465 px of overlap. Reported transient cache dropped from 11.67 to 11.00 GiB. On the two resident Viewer edits, reported upload fell from 720 MB to 3,784 bytes and hashed response times changed from 2.71 and 2.72 s to 2.55 and 2.56 s. Replacing the source still uploads the full 720 MB.
 - [x] At 100 MP the retained transient cache dropped from 3.66 to 2.17 GiB and peak worker commit from 5.80 to 4.90 GiB. The warm hashed response remained about 1.76 s. Repeated captures of new 45 MP sources had similar whole-process peak commit before and after. The 7 GiB planning target remains open for the largest optical halo.
 - [x] Enable Vulkan synchronization validation and send four alternating-source requests along each output route across two real tiles of a 4097 by 129 chart. Both validation logs contained no errors. Reproduce with the local SDK layer and `qa/renderer-benchmark.py --source-change-interval 2`. [Vulkan validation log configuration](https://github.com/KhronosGroup/Vulkan-ValidationLayers/blob/main/docs/error_messages.md#logging-to-a-file)
+- [x] Pass the full Windows and physical NVIDIA smoke suite plus full Intel GPU smoke. In a separate padded-row OpenFX harness, compare the exact previous revision on both adapters. Both revisions pass the smaller 643 by 317 case. The larger 1027 by 769 case reports the same two-code half-float difference and fails the same tolerance on both revisions. Its float output matches exactly in both. Evidence is in `padded-ofx-comparison.json` in the directory below.
 
 Evidence is in `.test-results/renderer-resident-halation-20261120/comparison.json`, `viewer-tiled-sync.json` and `export-tiled-sync.json` in that directory. The two worker hashes and every source-transfer decision are recorded.
 
