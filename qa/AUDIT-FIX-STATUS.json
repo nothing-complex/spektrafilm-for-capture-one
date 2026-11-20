@@ -1985,7 +1985,8 @@
         "Windows contracts pass 12,506 checks, including exact frozen BGRA across profiles, blended strengths, output alpha, cancellation and bounded calling-thread allocation for a parallel large conversion. The licensed current-source Viewer stress and stacked native exports pass 52 and 146 assertions respectively per launch.",
         "Run 100 verified native-resolution selections across four RAWs, with 30 interleaved selections, and collect 2,514 memory samples. Disabling Spektrafilm clears the Viewer and exits its workers. One approximately 964 MB developed ARW remains reachable at collection in this earlier build.",
         "Release a completed native result from the callback handle once it transfers to the caller. Retaining the callback in a managed test no longer retains the delivered byte array. The revised 12-visit licensed fixture collects every sampled source and measures 111,372,360 bytes of managed memory after drain versus 1,074,568,968 before the callback fix.",
-        "Exercise the exact native scheduler with a deliberately delayed callback. Twenty-six real host assertions verify timeout, retained slot and ICC ownership, accepted 16-bit export after release and no publication after detach. Both real native export commands independently reopen with stacked optics and exact profile, with 146 host assertions per launch and 32 verified 16-bit files."
+        "Exercise the exact native scheduler with a deliberately delayed callback. Twenty-six real host assertions verify timeout, retained slot and ICC ownership, accepted 16-bit export after release and no publication after detach. Both real native export commands independently reopen with stacked optics and exact profile, with 146 host assertions per launch and 32 verified 16-bit files.",
+        "Repeat the same 100-visit native-resolution sequence, including 30 interleaved selections, and pass 129 licensed assertions with an explicit zero-retained-source check. Managed bytes after worker drain and collection fall from 1,079,096,800 to 116,033,448. Compare 2,514 and 2,362 samples, identical capture dimensions and strengths, and the same worker SHA. The donor catalog and all RAWs remain byte identical."
       ],
       "evidence_paths": [
         "NativePanel/RenderMemoryBudget.cs",
@@ -2010,10 +2011,12 @@
         ".test-results/contracts-native-result-ownership-20261120/ViewerContracts.log",
         ".test-results/host-native-result-ownership-12-visits-20261120/viewer-churn.json",
         ".test-results/host-native-result-ownership-lease-fresh-20261120/host-smoke.log",
-        ".test-results/host-native-result-ownership-effects-20261120/independent-rgb16.json"
+        ".test-results/host-native-result-ownership-effects-20261120/independent-rgb16.json",
+        ".test-results/host-native-result-ownership-100-visits-20261120/viewer-memory-timeline.json",
+        ".test-results/completed-native-result-ownership-ab-20261120.json"
       ],
       "remaining_work": [
-        "Finalize enforced cache budgets and lifetime ownership across overlapping contexts. Repeat the 100-visit full-resolution campaign with the completed-result fix and its stricter collection assertion. The paired 2048 px workload has a true no-plugin baseline."
+        "Finalize enforced cache budgets and lifetime ownership across overlapping contexts. The 100-visit native-resolution workload passes with every source collectible. The paired 2048 px workload has a true no-plugin baseline."
       ],
       "original_acceptance_tests": [
         "Allocation traces for 24/45/61MP at strength 0,0.5,1 and repeated switches; bound retained memory after GC/worker idle.",
