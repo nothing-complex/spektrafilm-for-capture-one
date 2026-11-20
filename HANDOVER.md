@@ -1264,6 +1264,13 @@ Evidence is in `.test-results/host-real-unsaved-close-prompt-20261120`. This com
 - [x] Use both actual native export commands while an enabled saved look is loading. Each presents the expected owned warning and accepts no job before readiness. The fixture verifies and dismisses the live Windows dialog. The first automated attempt stalled because Windows assigned the visible OK button the Cancel control ID while reporting OK as the default. The corrected fixture verifies the body, owner and default before dismissing the actual button. Ready effects exports still pass with 40 verified files. See `.test-results/host-scoped-variant-save-native-final-20261120`.
 - [x] Pass 348 and 352 complete licensed assertions, including the actual close confirmation, then repeat 10,000 real slider movements over 100 visits across four RAW variants. Read every acknowledged write from disk. After the disposable process is terminated, restart restores every variant's final acknowledged settings and master switch byte for byte. The new run measures p50 4.70 ms, p95 5.45 ms and p99 6.09 ms with the Viewer paused. Evidence is in `.test-results/host-scoped-variant-save-general-final-20261120` and `.test-results/host-scoped-save-10000-edits-20261120`.
 
+## Print optics by processing mode
+
+- [x] Disable the print diffusion and paper glare groups in Scan Negative and show the mode that makes them available. Keep the user's values and the active camera diffusion and scanner MTF controls. Returning to Print Simulation restores access to the retained values.
+- [x] Compare the two actual native Scan Negative outputs with different dormant print settings. Both reopen as 16-bit files with the exact recipe ICC and agree within 4.17e-7 mean full scale across 18 million codes per launch. Both source launches pass 146 checks and write 32 verified effect and control files in total. The native UI inventory passes 20 checks.
+
+The initial UI probe evaluated individual controls inside collapsed sections. The successful fixture verifies the owning groups, active neighboring controls and actual native output. Evidence is in `.test-results/host-scan-mode-print-optics-retry-20261120` and `.test-results/host-scan-mode-optics-inventory-20261120`. This is source validation after audit.31.
+
 ## Status maintenance
 
 `qa/AUDIT-FIX-STATUS.json` owns task IDs, status, implemented substeps, remaining acceptance work and evidence. This handover owns context, runtime identity and resume instructions. `.test-results/FINAL-RESULT.json` is the completed runtime delivery receipt; keep its runtime commit/package identity distinct from later documentation-only commits.

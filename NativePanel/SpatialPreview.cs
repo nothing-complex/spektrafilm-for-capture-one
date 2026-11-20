@@ -59,6 +59,7 @@ internal sealed class SpatialPreview : IDisposable
     private readonly Dictionary<string, NativeSlider> values = new();
     private readonly Dictionary<string, ComboBox> choices = new();
     private readonly Dictionary<string, CheckBox> toggles = new();
+    private readonly List<FrameworkElement> printOnlyControls = new();
     private readonly Settings defaults;
     private readonly TextBlock status = new() { Margin = new Thickness(0, 5, 0, 3), TextWrapping = TextWrapping.Wrap };
     private readonly DispatcherTimer refresh = new() { Interval = TimeSpan.FromMilliseconds(33) };
@@ -203,6 +204,15 @@ internal sealed class SpatialPreview : IDisposable
     internal FrameworkElement Element { get; }
     internal FrameworkElement LiveControls { get; }
     internal FrameworkElement ExportControls { get; }
+
+    internal void SetPrintMode(bool printing)
+    {
+        foreach (var control in printOnlyControls)
+        {
+            control.IsEnabled = printing;
+            control.ToolTip = printing ? null : "Available in Print Simulation mode.";
+        }
+    }
     internal string? VerifiedRendererAssets => renderer?.AssetContract ?? draftRenderer?.AssetContract;
 
     internal ViewerHealth Health => !enabled ? ViewerHealth.Disabled
@@ -383,7 +393,10 @@ internal sealed class SpatialPreview : IDisposable
         halation.Children.Add(halationChannels);
         body.Children.Add(Section("optics-halation", "Halation and scatter", halation));
         body.Children.Add(MakeDiffusion("camera", "Camera diffusion"));
-        body.Children.Add(MakeDiffusion("print", "Print diffusion"));
+        var printDiffusion = MakeDiffusion("print", "Print diffusion");
+        ToolTipService.SetShowOnDisabled(printDiffusion, true);
+        printOnlyControls.Add(printDiffusion);
+        body.Children.Add(printDiffusion);
 
         var grain = new StackPanel();
         AddChoice(grain, "grain-model", "Grain model", new[]
@@ -441,9 +454,13 @@ internal sealed class SpatialPreview : IDisposable
         AddSlider(scanner, "scanner-white-level", "White point", 0, 1, 0.98, 0.01);
         AddToggle(scanner, "scanner-black", "Correct black level");
         AddSlider(scanner, "scanner-black-level", "Black point", 0, 1, 0.01, 0.01);
-        AddSlider(scanner, "scanner-glare", "Scanner glare", 0, 0.2, 0.03, 0.001);
-        AddSlider(scanner, "scanner-glare-roughness", "Glare roughness", 0, 4, 0.7, 0.05);
-        AddSlider(scanner, "scanner-glare-blur", "Glare blur", 0, 32, 0.5, 0.1);
+        var printGlare = new StackPanel();
+        AddSlider(printGlare, "scanner-glare", "Scanner glare", 0, 0.2, 0.03, 0.001);
+        AddSlider(printGlare, "scanner-glare-roughness", "Glare roughness", 0, 4, 0.7, 0.05);
+        AddSlider(printGlare, "scanner-glare-blur", "Glare blur", 0, 32, 0.5, 0.1);
+        ToolTipService.SetShowOnDisabled(printGlare, true);
+        printOnlyControls.Add(printGlare);
+        scanner.Children.Add(printGlare);
         AddSlider(scanner, "scanner-mtf", "Scanner MTF50 (lp/mm)", 0, 300, 60, 1);
         AddSlider(scanner, "scanner-unsharp-radius", "Unsharp radius (µm)", 0, 100, 5, 0.5);
         AddSlider(scanner, "scanner-unsharp-amount", "Unsharp amount", 0, 4, 0.7, 0.05);

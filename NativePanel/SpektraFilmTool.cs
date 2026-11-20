@@ -1615,6 +1615,7 @@ internal static class SpektraFilmTool
                 film.ItemsSource = films;
                 film.SelectedItem = films.FirstOrDefault(stock => stock.Id == currentFilm) ?? films.FirstOrDefault(stock => stock.Id == DefaultFilm);
                 paper.IsEnabled = printExposure.IsEnabled = printing.IsEnabled = inPrintMode;
+                opticalPreview.SetPrintMode(inPrintMode);
                 SetScanOptions();
             }
             finally

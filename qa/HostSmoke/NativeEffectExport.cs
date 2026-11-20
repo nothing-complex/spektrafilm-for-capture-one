@@ -306,6 +306,7 @@ public static partial class StartupHook
 
             var grain = compareGrain ? await CompareGrain(fullEffects) : null;
             var compressionComparison = compareCompression ? await CompareCompression(fullEffects) : null;
+            var scanMode = compareProfiles ? await CompareScanMode() : null;
             var outputProfiles = compareProfiles ? await CompareOutputProfiles() : null;
             var printDiffusion = compareProfiles ? await ComparePrintDiffusion() : null;
             if (compareFolders) await CheckFolders();
@@ -322,7 +323,7 @@ public static partial class StartupHook
                 return true;
             });
             var expectedRoutes = 5 + (compareGrain ? 8 : 0) + (compareCompression ? 6 : 0)
-                + (compareFolders ? 5 : 0) + (comparePanelModes ? 6 : 0) + (compareProfiles ? 9 : 0);
+                + (compareFolders ? 5 : 0) + (comparePanelModes ? 6 : 0) + (compareProfiles ? 11 : 0);
             Check(clicked && routeCount == expectedRoutes && Prop(bridge, "Dialog") is null,
                 "the master switch delegates to the ordinary Capture One Export dialog without a Spektrafilm job");
             ((IDisposable)bridge).Dispose();
@@ -333,7 +334,7 @@ public static partial class StartupHook
             {
                 width = expectedWidth, height = expectedHeight, iccSha256 = iccSha, tiffCompression = compression.ToString(),
                 filmDifference, opticsDifference, halationScatterDifference, commandDifference, grain, compressionComparison,
-                panelModes, outputProfiles, printDiffusion,
+                panelModes, outputProfiles, printDiffusion, scanMode,
                 nativeExportCallbacks = routeCount, masterOffDelegated = clicked, timings,
             }, new JsonSerializerOptions { WriteIndented = true }));
 
@@ -645,6 +646,59 @@ public static partial class StartupHook
                 {
                     foreach (var (control, property, before) in opticalValues) property.SetValue(control, before);
                     filter.SelectedItem = initial;
+                }
+            }
+
+            async Task<object> CompareScanMode()
+            {
+                var mode = (ComboBox)Field(panel, "mode")!;
+                var printing = mode.SelectedItem;
+                var scan = mode.ItemsSource.Cast<object>().Single(item => Equals(Prop(item, "Id"), "scan"));
+                var filter = (ComboBox)choices["print-diffusion-family"]!;
+                var initialFilter = filter.SelectedItem;
+                var filterOn = filter.ItemsSource.Cast<object>().Single(item => Equals(Prop(item, "Id"), "black_pro_mist"));
+                var filterOff = filter.ItemsSource.Cast<object>().Single(item => Equals(Prop(item, "Id"), "off"));
+                var printOnly = ((IEnumerable)Field(spatial, "printOnlyControls")!).Cast<FrameworkElement>().ToArray();
+                var scanner = (CheckBox)((IDictionary)Field(spatial, "toggles")!)["scanner-enabled"]!;
+                var initialScanner = scanner.IsChecked;
+                var glare = (FrameworkElement)values["scanner-glare"]!;
+                var glareValue = glare.GetType().GetProperty("Value", Flags)!;
+                var initialGlare = glareValue.GetValue(glare);
+                const double printGlare = .08;
+                try
+                {
+                    filter.SelectedItem = filterOn;
+                    scanner.IsChecked = true;
+                    glareValue.SetValue(glare, printGlare);
+                    Check(printOnly.Length == 2 && printOnly.All(group => group.IsEnabled),
+                        "Print Simulation makes its diffusion and paper glare controls available");
+                    mode.SelectedItem = scan;
+                    var scanMtf = ((FrameworkElement)values["scanner-mtf"]!).IsEnabled;
+                    Check(printOnly.All(group => !group.IsEnabled) && diffusion.IsEnabled && scanMtf,
+                        $"Scan Negative disables only print optics (mode {Prop(mode.SelectedItem, "Id")}, print groups {string.Join(", ", printOnly.Select(group => group.IsEnabled))}, camera {diffusion.IsEnabled}, MTF {scanMtf})");
+                    Check(ReferenceEquals(filter.SelectedItem, filterOn) && glareValue.GetValue(glare) is printGlare,
+                        "Scan Negative retains the previously configured print settings");
+                    var remembered = await Render("scan-with-remembered-print-settings", ".tif", false);
+                    filter.SelectedItem = filterOff;
+                    glareValue.SetValue(glare, 0d);
+                    var neutral = await Render("scan-with-neutral-print-settings", ".png", true);
+                    var difference = Difference(remembered, neutral);
+                    Check(difference.Mean < 8d / 65535 && difference.Maximum < .01,
+                        "both native Scan Negative exports agree when only inactive print settings differ");
+                    filter.SelectedItem = filterOn;
+                    glareValue.SetValue(glare, printGlare);
+                    mode.SelectedItem = printing;
+                    Check(printOnly.All(group => group.IsEnabled) && ReferenceEquals(filter.SelectedItem, filterOn)
+                        && glareValue.GetValue(glare) is printGlare,
+                        "returning to Print Simulation makes the retained settings available again");
+                    return difference;
+                }
+                finally
+                {
+                    mode.SelectedItem = printing;
+                    filter.SelectedItem = initialFilter;
+                    scanner.IsChecked = initialScanner;
+                    glareValue.SetValue(glare, initialGlare);
                 }
             }
 

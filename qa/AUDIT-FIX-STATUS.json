@@ -605,7 +605,8 @@
       "status": "implemented",
       "implemented": [
         "Developer exhaustion is disabled; saved nonzero values are retained and a separate explicit clear action is available.",
-        "A real older preset with nonzero exhaustion used the disabled slider and an explicit Clear action. Renderer request construction refused it before worker creation. Clear saved the variant, preserved the original preset and restored a valid request. Native Undo returned to the preceding state."
+        "A real older preset with nonzero exhaustion used the disabled slider and an explicit Clear action. Renderer request construction refused it before worker creation. Clear saved the variant, preserved the original preset and restored a valid request. Native Undo returned to the preceding state.",
+        "Scan Negative disables the print diffusion and paper glare control groups while preserving their values and the active camera diffusion and scanner MTF controls. Returning to Print Simulation re-enables the saved print settings. The two actual native Scan Negative commands produce 16-bit RGB outputs agreeing within 4.17e-7 mean full scale across 18 million codes per launch when the dormant print settings differ. Each licensed profile and mode run passes 146 checks and the control inventory passes 20."
       ],
       "evidence_paths": [
         "NativePanel/SpektraFilmTool.cs",
@@ -2200,7 +2201,10 @@
         "ofx-still-renderer/main.cpp",
         "NativePanel/RendererParameters.cs",
         ".test-results/host-compiled-controls-20261120/host-smoke.log",
-        ".test-results/renderer-parameter-matrix-20261120.log"
+        ".test-results/renderer-parameter-matrix-20261120.log",
+        ".test-results/host-scan-mode-print-optics-retry-20261120/independent-scan-rgb16.json",
+        ".test-results/host-scan-mode-print-optics-retry-20261120/host-smoke.log",
+        ".test-results/host-scan-mode-optics-inventory-20261120/panel-control-inventory.json"
       ],
       "remaining_work": [],
       "original_acceptance_tests": [
