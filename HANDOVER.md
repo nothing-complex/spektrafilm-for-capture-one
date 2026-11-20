@@ -6,7 +6,7 @@ Updated 2026-11-20. The critical-fix batch is implemented, tested, installed loc
 
 1. Read this file, `AGENTS.md` and `qa/AUDIT-FIX-STATUS.json` before changing code. The JSON is the authoritative task-progress ledger; its `remaining_work` and original acceptance tests matter more than a short status label.
 2. Check `git status`, current branch and PR head. Do not discard existing edits or switch the installed build merely because this documentation has a newer commit.
-3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP identifies clean source `fd7056d`. Its verification used an isolated installation. The normal app stayed on `ffc4819`.
+3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP identifies clean source `46894ed`. Its verification used an isolated installation. The normal app stayed on `ffc4819`.
 4. Choose an unresolved task and an exact ownership boundary. Do not repeat the completed installation, crash test or old defect reproductions as if nothing had happened.
 5. Update task evidence and the delivery ledger at each completed milestone. Never mark a broad parent task complete because one mitigation shipped.
 
@@ -585,9 +585,11 @@ Evidence is under `.test-results/host-10000-restart-20261120`.
 - [x] Generate the supported Capture One host and compiled Vulkan option tables from the exact packaged manifests. Include the Markdown report and its checksum in new Windows ZIPs.
 - [x] Generate 137 current renderer options and pass 20 PowerShell 5.1 manifest checks. The documentation cases verify locale-independent numeric output and rejection of mismatched or malformed descriptors.
 - [x] Find the installed-file omission in the audit.7 fixture and add the generated document to the installer. Verify installation and preservation of prior user notes in the 30-assertion installer suite.
-- [ ] Verify the generated table in a complete new package, and map every visible panel control to its applicable worker or host contract.
+- [x] Verify the full audit.8 extracted and installed manifests, including 152 package files and 19 critical runtime files. The installed guide matches the regenerated 137-option table. The manifest rejects a changed copy of the guide.
+- [x] Pass 24 GPU, 208 first-launch, 212 restart and 115 native RAW tests from the installed audit.8 package. The same source passed [Windows Contracts](https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44661185246).
+- [ ] Map every visible panel control to its applicable worker or host contract.
 
-Evidence is in `.test-results/audit-capabilities-generated-20261120.md`.
+Evidence is in `.test-results/audit-capabilities-generated-20261120.md` and `.test-results/audit8-package-verify-20261120/result.json`.
 
 ## Status maintenance
 

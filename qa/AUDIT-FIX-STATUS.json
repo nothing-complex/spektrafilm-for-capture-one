@@ -2390,7 +2390,8 @@
         "Packaged clean bb0c19e as audit.3 and verified 150 payload records, 19 runtime records, capability metadata, installer, shortcut and Vulkan smoke in an isolated installation.",
         "Development 0.2.0-audit.4 was built from clean b1766d0, including renderer protocol 2. The ZIP matches its SHA-256, contains all 151 payload and 19 critical runtime records, rejects a changed capability file, and passed isolated Windows PowerShell 5.1 installation and shortcut verification, actual Vulkan, 558 parameter probes and the 480-render spectral matrix. The regular installation stays at ffc4819.",
         "The audit.5 ZIP from clean bbeae73 verified all 151 package and 19 critical runtime files, its production shortcut, actual GPU renderer, and a real version 3 preset in the licensed host.",
-        "The audit.6 ZIP from clean fd7056d verified the installed 151-file package, 19 critical runtime hashes, scoped branded shortcut, CheckOnly, Windows CI and 24 GPU assertions. The exact package also passed 202 first-launch, 206 restart and 115 native RAW checks. The real saved preset matched the package's source, parameter and asset fingerprints. The regular install remains ffc4819."
+        "The audit.6 ZIP from clean fd7056d verified the installed 151-file package, 19 critical runtime hashes, scoped branded shortcut, CheckOnly, Windows CI and 24 GPU assertions. The exact package also passed 202 first-launch, 206 restart and 115 native RAW checks. The real saved preset matched the package's source, parameter and asset fingerprints.",
+        "The audit.8 ZIP from clean 46894ed verified all 152 package files and 19 critical assets in the isolated install. The generated 137-option guide survived installation and altered bytes were rejected. The package passed 24 GPU, 208 first-launch, 212 restart and 115 RAW assertions. The regular install remains ffc4819."
       ],
       "evidence_paths": [
         "ReleaseManifest.ps1",
@@ -2409,7 +2410,8 @@
         ".test-results/audit4-package-verify-20261120/parameter-matrix.log",
         ".test-results/audit4-package-verify-20261120/spectral-matrix.log",
         ".test-results/audit5-package-verify-20261120/result.json",
-        ".test-results/audit6-package-verify-20261120/result.json"
+        ".test-results/audit6-package-verify-20261120/result.json",
+        ".test-results/audit8-package-verify-20261120/result.json"
       ],
       "remaining_work": [],
       "original_acceptance_tests": [
@@ -2834,7 +2836,8 @@
         "Document the packaged compiled renderer option description and the executable parameter and calibration matrices. Build and package verification require the described capabilities as a fingerprinted runtime asset.",
         "The compiled parameter description, host parser, build manifest validation and negotiated capabilities now agree on renderer protocol 2. An old compiled description is rejected in the state contract test.",
         "The packaging script generates and hashes CAPABILITIES.md from the verified host list and renderer parameter contract. The generator produced 137 entries from the current runtime and passed invariant locale, mismatched revision and malformed-choice regressions.",
-        "The audit.7 extracted package included the generated report and rejected altered bytes. Its installer omitted the new optional file. The installer allowlist now includes the report and a 30-assertion upgrade fixture verifies that pre-existing user notes at the same path are preserved."
+        "The audit.7 extracted package included the generated report and rejected altered bytes. Its installer omitted the new optional file. The installer allowlist now includes the report and a 30-assertion upgrade fixture verifies that pre-existing user notes at the same path are preserved.",
+        "Audit.8 ships and installs the verified 137-option table. Regenerating it from installed manifests produced the same text. Changing the file in the extracted fixture made package integrity validation fail."
       ],
       "evidence_paths": [
         "README.md",
@@ -2847,10 +2850,11 @@
         "ReleaseManifest.ps1",
         "Package-Windows.ps1",
         "tests/installer/Test-Manifest.ps1",
-        ".test-results/audit-capabilities-generated-20261120.md"
+        ".test-results/audit-capabilities-generated-20261120.md",
+        ".test-results/audit8-package-verify-20261120/result.json"
       ],
       "remaining_work": [
-        "Verify a complete new package contains the generated table and rejects tampering. Add generated mapping from every visible panel control to its declared capability and exercise published release links when a release exists."
+        "Add generated mapping from every visible panel control to its declared capability and exercise published release links when a release exists."
       ],
       "original_acceptance_tests": [
         "Every visible enabled control has declared capability and a non-error execution test or is visibly unavailable.",
@@ -2980,30 +2984,31 @@
     "original_test_catalog_hash_unchanged": true,
     "local_evidence_note": "Paths under .test-results/build/dist are ignored local artifacts and are not present in a public clone.",
     "latest_development_package": {
-      "version": "0.2.0-audit.6",
-      "archive": "dist/Spektrafilm-for-Capture-One-v0.2.0-audit.6-windows-x64.zip",
-      "sha256": "d981fee2685b6512465374445cd6f5bf6b38edceb5db198658dfd41613537516",
+      "version": "0.2.0-audit.8",
+      "archive": "dist/Spektrafilm-for-Capture-One-v0.2.0-audit.8-windows-x64.zip",
+      "sha256": "be967b51dc55631a8113f29aafe3d276f2c775d0d153d65c822bdc891cdce710",
       "source": {
-        "commit": "fd7056d437b262c0c59371d3b179952e9d199387",
+        "commit": "46894ed6c23058f3be5dfdce2b7e2c9f02c1c8e8",
         "dirty": false,
-        "treeDigest": "de6de6b4d2f87c5b502b706c7eafeb8763fdc9c265d8760eebe608bfd32f20b0"
+        "treeDigest": "f8b9dfff66f089dad682c3af8c1484c129413ed59c4f0e40afb45f9d6c97bcc5"
       },
-      "verified_package_entries": 151,
+      "verified_package_entries": 152,
       "verified_runtime_entries": 19,
       "renderer_protocol": 2,
       "renderer_sha256": "8382adfef06a1e0c1c5a38b07cdd3154ad9c9b26bb22537967122656d76761ba",
       "asset_contract": "ee543d6d5cd5d76f9045aa3d0418614043406a81fa00247ef9fdb649cf80cbd9",
+      "generated_capabilities_sha256": "725e1a82999543343b8faa1bfef128d1b49128c7de9ee66cb754564e4885eb4f",
       "version3_native_preset_verified": true,
       "isolated_install_and_checkonly": "passed",
       "exact_package_host_tests": {
-        "first_launch": 202,
-        "restart": 206,
+        "first_launch": 208,
+        "restart": 212,
         "raw_matrix": 115,
         "managed_gpu": 24
       },
-      "remote_windows_contracts": "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44658495640",
+      "remote_windows_contracts": "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44661185246",
       "normal_installed_revision": "ffc481988eb2e6e7ef7a1379486c4a8b2656ac81",
-      "receipt": ".test-results/audit6-package-verify-20261120/result.json"
+      "receipt": ".test-results/audit8-package-verify-20261120/result.json"
     }
   },
   "completed_milestones": [
