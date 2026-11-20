@@ -343,6 +343,7 @@ internal static class SpektraFilmTool
         private (Guid Variant, VariantLook Before)? historyGesture;
         private Guid? displayedVariant;
         private long? retryLookReadAt;
+        private VariantLook? previousSavedLook;
         private DispatcherOperation? selectionSync;
         private LookOptions? options;
         private bool controlsLoadFailed;
@@ -512,6 +513,7 @@ internal static class SpektraFilmTool
             if (disposed)
                 return;
             var enabled = displayedVariant is not null && IsSpektraFilmEnabled;
+            recoverSavedLook.Content = previousSavedLook is null ? "Recover saved look…" : "Restore previous saved look…";
             recoverSavedLook.Visibility = displayedVariant is { } selected && looks.IsBlocked(selected)
                 ? Visibility.Visible : Visibility.Collapsed;
             enableSpektraFilm.IsEnabled = displayedVariant is { } variant && StocksReady
@@ -905,6 +907,7 @@ internal static class SpektraFilmTool
                 displayedVariant = null;
                 displayedLook = null;
                 retryLookReadAt = null;
+                previousSavedLook = null;
                 UpdateEnabledState();
             }
             return false;
@@ -918,28 +921,36 @@ internal static class SpektraFilmTool
             {
                 UpdateHistoryGesture(false);
                 displayedLook = null;
+                previousSavedLook = null;
                 retryLookReadAt = null;
                 status.Text = string.Empty;
                 FlushLooks();
                 displayedVariant = variant;
                 try
                 {
-                    var saved = looks.Read(variant);
-                    ApplyControls(saved?.Look, saved?.Optics, saved?.Enabled ?? true, saved?.Grain ?? DefaultGrain);
-                    displayedLook = CaptureLook();
-                    if (looks.RecoveryNotice is { } notice)
-                        status.Text = notice;
-                }
-                catch (LookReadUnavailableException error)
-                {
-                    retryLookReadAt = Environment.TickCount64 + 1000;
-                    ApplyControls(null, null, false);
-                    ShowSaveError(error.Message);
+                    var outcome = looks.ReadOutcome(variant);
+                    if (outcome.State == LookLoadState.TransientIo)
+                        retryLookReadAt = Environment.TickCount64 + 1000;
+                    var saved = outcome.Look;
+                    ApplyControls(saved?.Look, saved?.Optics, saved?.Enabled ?? !outcome.ReadOnly, saved?.Grain ?? DefaultGrain);
+                    if (!outcome.ReadOnly)
+                        displayedLook = CaptureLook();
+                    else if (saved is not null)
+                    {
+                        previousSavedLook = saved;
+                        UpdateEnabledState();
+                    }
+                    if (outcome.Detail is { } detail)
+                    {
+                        status.Text = detail;
+                        if (outcome.ReadOnly) ShowSaveError(detail);
+                    }
                 }
                 catch (Exception error)
                 {
                     looks.ProtectUnreadable(variant, error);
-                    ApplyControls(null, null, false);
+                    previousSavedLook = null;
+                    ApplyControls(null, null, false, DefaultGrain);
                     status.Text = $"Could not load this image’s Spektrafilm look. {error.Message}";
                     StartupHook.Log(status.Text);
                     ShowSaveError(status.Text);
@@ -962,7 +973,7 @@ internal static class SpektraFilmTool
         private void PersistLook(string entryName)
         {
             if (settingValues || !StocksReady || retryLookReadAt is not null
-                || displayedVariant is not { } variant || CaptureLook() is not { } look)
+                || displayedVariant is not { } variant || looks.IsBlocked(variant) || CaptureLook() is not { } look)
                 return;
             // The key belongs to the displayed controls, even if the host selection has just changed.
             var before = displayedLook;
@@ -1061,28 +1072,48 @@ internal static class SpektraFilmTool
                 status.Text = "This image has no blocked saved look to reset.";
                 return Task.CompletedTask;
             }
-            if (System.Windows.MessageBox.Show(
-                "Reset this image’s unreadable Spektrafilm look to defaults? The original saved file and any recovery edit will be preserved before replacement. Existing Capture One adjustments are unchanged.",
-                StartupHook.ProductName, MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+            var previous = previousSavedLook;
+            var prompt = previous is null
+                ? "Reset this image’s Spektrafilm look to defaults? The original file and any recovery edit will be archived before replacement."
+                : "Restore this image’s previous verified Spektrafilm look? The current file and any recovery edit will be archived before replacement.";
+            if (System.Windows.MessageBox.Show(prompt, StartupHook.ProductName, MessageBoxButton.YesNo,
+                MessageBoxImage.Warning) != MessageBoxResult.Yes)
                 return Task.CompletedTask;
             if (!SyncSelection() || displayedVariant != variant || !looks.IsBlocked(variant))
                 return Task.CompletedTask;
             try
             {
-                ApplyControls(null, null, false, DefaultGrain);
-                var look = CurrentSettings() ?? throw new InvalidOperationException("Film stocks are not ready.");
-                looks.ResetBlocked(variant, new VariantLook(look, opticalPreview.CaptureSettings(), true, Grain: DefaultGrain));
-                displayedVariant = null;
-                UseSelectedLook(variant);
-                saveError.Visibility = Visibility.Collapsed;
-                status.Text = "Saved look reset. The original files are preserved in the Look recovery folder.";
+                RecoverSelectedLook(variant, previous);
             }
             catch (Exception error)
             {
-                ShowSaveError($"The saved look could not be reset. {error.Message}");
+                if (!looks.IsBlocked(variant))
+                {
+                    displayedVariant = null;
+                    UseSelectedLook(variant);
+                }
+                ShowSaveError($"The saved look could not be recovered. {error.Message}");
                 UpdateEnabledState();
             }
             return Task.CompletedTask;
+        }
+
+        private void RecoverSelectedLook(Guid variant, VariantLook? previous)
+        {
+            if (previous is not null)
+                looks.RestorePrevious(variant, previous);
+            else
+            {
+                ApplyControls(null, null, false, DefaultGrain);
+                var look = CurrentSettings() ?? throw new InvalidOperationException("Film stocks are not ready.");
+                looks.ResetBlocked(variant, new VariantLook(look, opticalPreview.CaptureSettings(), true, Grain: DefaultGrain));
+            }
+            displayedVariant = null;
+            UseSelectedLook(variant);
+            saveError.Visibility = Visibility.Collapsed;
+            status.Text = previous is null
+                ? "Saved look reset. The original files are preserved in the Look recovery folder."
+                : "Previous saved look restored. The original files are preserved in the Look recovery folder.";
         }
 
         private void ValidateLoadedSettings(LookSettings look, SpatialPreview.Settings? optics)
@@ -1102,7 +1133,7 @@ internal static class SpektraFilmTool
         {
             var available = options ?? throw new InvalidOperationException("The available stocks are still loading.");
             static Stock Find(Stock[] stocks, string id) => stocks.FirstOrDefault(option => option.Id == id)
-                ?? throw new InvalidDataException("This preset uses a stock or mode that is unavailable.");
+                ?? throw new LookUnsupportedException("This look uses a stock or mode that is unavailable.");
             var selectedMode = Find(available.Modes, settings.Mode);
             var selectedFilm = Find(available.Films, settings.Film);
             var selectedPaper = Find(available.Papers, settings.Paper);

@@ -17,6 +17,10 @@ internal sealed record VariantLook([property: JsonRequired] LookSettings Look, [
 internal sealed class LookReadUnavailableException(Exception inner)
     : IOException("The saved look is temporarily inaccessible. Spektrafilm will retry loading it. " + inner.Message, inner);
 
+internal enum LookLoadState { Missing, Valid, Recovered, Unsupported, Corrupt, TransientIo }
+internal sealed record LookLoadOutcome(LookLoadState State, VariantLook? Look, string? Detail = null, bool ReadOnly = false);
+internal sealed class LookUnsupportedException(string message) : IOException(message);
+
 internal sealed class VariantLookStore
 {
     // Failed writes must survive UI teardown. Pending edits also get an independent
@@ -26,7 +30,7 @@ internal sealed class VariantLookStore
     private readonly string recoveryDirectory;
     private readonly string catalogKey;
     private readonly Session session;
-    private readonly Dictionary<Guid, string> blocked;
+    private readonly Dictionary<Guid, BlockedLook> blocked;
     internal GrainReceiptStore GrainReceipts { get; }
     internal string CatalogIdentity => catalogKey;
     internal string? RecoveryNotice { get; private set; }
@@ -46,18 +50,50 @@ internal sealed class VariantLookStore
     internal bool HasUnprotectedPending { get { lock (session) return session.Pending.Values.Any(edit => !edit.RecoveryDurable); } }
     internal bool HasCommitted(Guid variant) { lock (session) return session.KnownHash.GetValueOrDefault(variant) is not null; }
 
+    internal LookLoadOutcome ReadOutcome(Guid variant)
+    {
+        lock (session)
+        {
+            try
+            {
+                var look = Read(variant);
+                var state = RecoveryNotice is not null ? LookLoadState.Recovered : look is null ? LookLoadState.Missing : LookLoadState.Valid;
+                return new(state, look, RecoveryNotice);
+            }
+            catch (LookReadUnavailableException error)
+            {
+                return new(LookLoadState.TransientIo, null, error.Message, ReadOnly: true);
+            }
+            catch (InvalidDataException) when (blocked.TryGetValue(variant, out var issue))
+            {
+                var previous = ReadPrevious(variant, issue);
+                return previous is null ? new(issue.State, null, issue.Message, ReadOnly: true)
+                    : new(LookLoadState.Recovered, previous,
+                        "Loaded the previous verified Spektrafilm look. Choose Recover saved look to restore it. " + issue.Message, ReadOnly: true);
+            }
+        }
+    }
+
     internal VariantLook? Read(Guid variant)
     {
         lock (session)
         {
             RecoveryNotice = null;
             if (blocked.TryGetValue(variant, out var issue))
-                throw new InvalidDataException(issue);
+                throw new InvalidDataException(issue.Message);
             if (session.Pending.TryGetValue(variant, out var edit))
                 return Clone(edit.Look);
             try
             {
-                var primary = ReadPrimary(variant, out var hash);
+                VariantLook? primary;
+                string? hash;
+                try { primary = ReadPrimary(variant, out hash); }
+                catch (Exception error) when (error is JsonException or InvalidDataException)
+                {
+                    throw Block(variant, error, canRecoverPrevious: true);
+                }
+                session.KnownHash[variant] = hash;
+                session.KnownLookHash[variant] = primary is null ? null : LookHash(primary);
                 var recoveryPath = GetRecoveryPath(variant);
                 RecoveryCheckpoint? recovery;
                 try { recovery = PanelFiles.ReadPreset<RecoveryCheckpoint>(recoveryPath); }
@@ -83,11 +119,12 @@ internal sealed class VariantLookStore
                     else
                         throw new InvalidDataException("A recovered edit conflicts with another saved look. Both files have been kept; use explicit recovery to reset.");
                 }
-                session.KnownHash[variant] = hash;
-                session.KnownLookHash[variant] = primary is null ? null : LookHash(primary);
+                if (primary is null && File.Exists(GetPreviousPath(variant)))
+                    throw Block(variant, new InvalidDataException("The current saved look is missing."), canRecoverPrevious: true);
                 return primary;
             }
-            catch (Exception error) when (error is JsonException or InvalidDataException)
+            catch (LookUnsupportedException error) { throw Block(variant, error); }
+            catch (Exception error) when ((error is JsonException or InvalidDataException) && !blocked.ContainsKey(variant))
             {
                 throw Block(variant, error);
             }
@@ -105,7 +142,7 @@ internal sealed class VariantLookStore
         lock (session)
         {
             if (blocked.TryGetValue(variant, out var issue))
-                throw new InvalidDataException(issue);
+                throw new InvalidDataException(issue.Message);
             if (!session.KnownHash.ContainsKey(variant) && !session.Pending.ContainsKey(variant))
                 Read(variant); // Never overwrite an existing look without validating it.
             session.Pending.TryGetValue(variant, out var prior);
@@ -151,13 +188,14 @@ internal sealed class VariantLookStore
                 try
                 {
                     if (blocked.TryGetValue(variant, out var issue))
-                        throw new InvalidDataException(issue);
+                        throw new InvalidDataException(issue.Message);
                     Directory.CreateDirectory(directory);
                     var path = GetPath(variant);
                     PanelFiles.WriteAtomically(path, stream => stream.Write(pending.Json), () =>
                     {
-                        if (FileHash(path) != pending.BaseHash)
-                            throw Block(variant, new InvalidDataException("The saved look changed outside this panel. Your pending edit and the external file are both retained."));
+                        if (pending.KeepPrevious && pending.BaseHash is not null)
+                            SavePrevious(variant, path, pending.BaseHash);
+                        EnsureExpectedPrimary(variant, path, pending.BaseHash);
                     }, overwrite: pending.BaseHash is not null);
                     session.KnownHash[variant] = pending.Hash;
                     session.KnownLookHash[variant] = pending.Hash;
@@ -193,17 +231,32 @@ internal sealed class VariantLookStore
         LookStateValidation.Validate(replacement);
         lock (session)
         {
-            if (!blocked.ContainsKey(variant))
+            if (!blocked.TryGetValue(variant, out var issue))
                 throw new InvalidOperationException("This image has no blocked look to recover.");
-            ArchiveFile(GetPath(variant), variant, "before-reset");
+            var baseline = ArchiveFile(GetPath(variant), variant, "before-reset")?.Hash;
+            if (issue.ArchivedPrimary && baseline != issue.ObservedHash)
+            {
+                blocked.Remove(variant);
+                throw new InvalidDataException("The saved look changed after it was opened for recovery. Reselect this image before trying again.");
+            }
             ArchiveFile(GetRecoveryPath(variant), variant, "pending-before-reset");
-            var baseline = FileHash(GetPath(variant));
-            var edit = PrepareEdit(replacement, baseline);
+            var edit = PrepareEdit(replacement, baseline) with { KeepPrevious = false };
             session.KnownHash[variant] = baseline;
             session.KnownLookHash.Remove(variant);
             session.Pending[variant] = edit;
             blocked.Remove(variant);
             FlushPending(variant);
+        }
+    }
+
+    internal void RestorePrevious(Guid variant, VariantLook expected)
+    {
+        lock (session)
+        {
+            if (!blocked.TryGetValue(variant, out var issue) || ReadPrevious(variant, issue) is not { } latest
+                || !Equivalent(latest, expected))
+                throw new InvalidDataException("The previous saved look changed or is no longer available.");
+            ResetBlocked(variant, latest);
         }
     }
 
@@ -217,7 +270,7 @@ internal sealed class VariantLookStore
         hash = null;
         try
         {
-            var saved = PanelFiles.ReadPreset<VariantLook>(GetPath(variant), out var digest);
+            var saved = PanelFiles.ReadPreset<VariantLook>(GetPath(variant), out var digest, CheckVersion);
             LookStateValidation.Validate(saved);
             hash = digest;
             return saved;
@@ -226,33 +279,108 @@ internal sealed class VariantLookStore
         catch (DirectoryNotFoundException) { return null; }
     }
 
-    private InvalidDataException Block(Guid variant, Exception error)
+    private static void CheckVersion(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.Object && element.TryGetProperty("Version", out var version)
+            && version.ValueKind == JsonValueKind.Number && version.TryGetInt32(out var value) && value != 1)
+            throw new LookUnsupportedException($"Saved Spektrafilm look version {value} is unsupported.");
+    }
+
+    private InvalidDataException Block(Guid variant, Exception error, bool canRecoverPrevious = false)
     {
         var detail = "The original saved look has not been changed.";
+        (string Path, string Hash)? archived = null;
+        var archivedPrimary = false;
         try
         {
-            var archived = ArchiveFile(GetPath(variant), variant, "unreadable");
+            archived = ArchiveFile(GetPath(variant), variant, "unreadable");
+            archivedPrimary = true;
             ArchiveFile(GetRecoveryPath(variant), variant, "unreadable-recovery");
-            if (archived is not null) detail += $" A recovery copy is at {archived}.";
+            if (archived is { } copy) detail += $" A recovery copy is at {copy.Path}.";
         }
         catch (Exception backupError) when (backupError is IOException or UnauthorizedAccessException)
         {
             detail += $" An additional recovery copy could not be written: {backupError.Message}";
         }
         var message = $"{error.Message} {detail} Editing is paused for this image. Use Recover saved look only if you want to reset it.";
-        blocked[variant] = message;
+        var state = error is LookUnsupportedException ? LookLoadState.Unsupported : LookLoadState.Corrupt;
+        blocked[variant] = new(state, message, canRecoverPrevious, archived?.Hash, archivedPrimary);
         return new InvalidDataException(message, error);
     }
 
-    private string? ArchiveFile(string source, Guid variant, string reason)
+    private (string Path, string Hash)? ArchiveFile(string source, Guid variant, string reason)
     {
-        if (!File.Exists(source)) return null;
-        var archives = Path.Combine(recoveryDirectory, "Preserved originals");
-        Directory.CreateDirectory(archives);
-        var destination = Path.Combine(archives, $"{variant:N}-{reason}-{DateTime.UtcNow:yyyyMMdd-HHmmssfff}-{Guid.NewGuid():N}.json");
-        using var original = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read);
-        PanelFiles.WriteAtomically(destination, stream => original.CopyTo(stream));
-        return destination;
+        FileStream original;
+        try { original = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read); }
+        catch (FileNotFoundException) { return null; }
+        catch (DirectoryNotFoundException) { return null; }
+        using (original)
+        {
+            var hash = Convert.ToHexString(SHA256.HashData(original));
+            original.Position = 0;
+            var archives = Path.Combine(recoveryDirectory, "Preserved originals");
+            Directory.CreateDirectory(archives);
+            var destination = Path.Combine(archives, $"{variant:N}-{reason}-{DateTime.UtcNow:yyyyMMdd-HHmmssfff}-{Guid.NewGuid():N}-{hash}.json");
+            PanelFiles.WriteAtomically(destination, stream => original.CopyTo(stream), overwrite: false);
+            if (FileHash(destination) != hash)
+                throw new IOException("The preserved look did not match the original bytes.");
+            return (destination, hash);
+        }
+    }
+
+    private void EnsureExpectedPrimary(Guid variant, string path, string? expectedHash)
+    {
+        if (FileHash(path) != expectedHash)
+            throw ExternalChange(variant);
+    }
+
+    private InvalidDataException ExternalChange(Guid variant) => Block(variant,
+        new InvalidDataException("The saved look changed outside this panel. Your pending edit and the external file are both retained."));
+
+    private void SavePrevious(Guid variant, string primary, string expectedHash)
+    {
+        byte[] bytes;
+        try
+        {
+            using var original = new FileStream(primary, FileMode.Open, FileAccess.Read, FileShare.Read);
+            bytes = PanelFiles.ReadPresetBytes(original);
+        }
+        catch (Exception error) when (error is FileNotFoundException or DirectoryNotFoundException or InvalidDataException)
+        {
+            throw ExternalChange(variant);
+        }
+        if (Digest(bytes) != expectedHash)
+            throw ExternalChange(variant);
+        PanelFiles.WriteAtomically(GetPreviousPath(variant), stream =>
+        {
+            stream.Write("SFL1"u8);
+            stream.Write(variant.ToByteArray());
+            stream.Write(Convert.FromHexString(expectedHash));
+            stream.Write(bytes);
+        });
+    }
+
+    private VariantLook? ReadPrevious(Guid variant, BlockedLook issue)
+    {
+        if (!issue.CanRecoverPrevious) return null;
+        try
+        {
+            using var file = File.OpenRead(GetPreviousPath(variant));
+            Span<byte> header = stackalloc byte[52]; // version, variant UUID, SHA-256
+            file.ReadExactly(header);
+            if (!header[..4].SequenceEqual("SFL1"u8) || new Guid(header[4..20]) != variant)
+                return null;
+            var bytes = PanelFiles.ReadPresetBytes(file);
+            if (!SHA256.HashData(bytes).AsSpan().SequenceEqual(header[20..]))
+                return null;
+            var previous = PanelFiles.DecodePreset<VariantLook>(bytes, CheckVersion);
+            LookStateValidation.Validate(previous);
+            return previous;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException or JsonException)
+        {
+            return null;
+        }
     }
 
     private void TryDeleteRecovery(Guid variant)
@@ -290,6 +418,7 @@ internal sealed class VariantLookStore
     internal static bool Equivalent(VariantLook? first, VariantLook second) => first is not null &&
         JsonNode.DeepEquals(JsonSerializer.SerializeToNode(first), JsonSerializer.SerializeToNode(second));
     private string GetPath(Guid variant) => Path.Combine(directory, variant.ToString("N") + ".json");
+    private string GetPreviousPath(Guid variant) => Path.Combine(directory, variant.ToString("N") + ".previous.look");
     private string GetRecoveryPath(Guid variant) => Path.Combine(recoveryDirectory, variant.ToString("N") + ".pending.json");
     private static string CatalogKey(string database)
     {
@@ -302,9 +431,11 @@ internal sealed class VariantLookStore
         internal readonly Dictionary<Guid, PendingEdit> Pending = new();
         internal readonly Dictionary<Guid, string?> KnownHash = new();
         internal readonly Dictionary<Guid, string?> KnownLookHash = new();
-        internal readonly Dictionary<Guid, string> Blocked = new();
+        internal readonly Dictionary<Guid, BlockedLook> Blocked = new();
     }
-    private sealed record PendingEdit(VariantLook Look, string? BaseHash, byte[] Json, string Hash, bool RecoveryDurable = false);
+    private sealed record BlockedLook(LookLoadState State, string Message, bool CanRecoverPrevious,
+        string? ObservedHash, bool ArchivedPrimary);
+    private sealed record PendingEdit(VariantLook Look, string? BaseHash, byte[] Json, string Hash, bool RecoveryDurable = false, bool KeepPrevious = true);
     private sealed record RecoveryCheckpoint([property: JsonRequired] int Version, [property: JsonRequired] string CatalogKey,
         [property: JsonRequired] Guid Variant, [property: JsonRequired] string? BaseHash, [property: JsonRequired] VariantLook Look);
 }

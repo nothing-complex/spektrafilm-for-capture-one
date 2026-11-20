@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 21 bounded primary fixes implemented and 49 partial items. It includes feasibility investigations and enhancements.
+Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 22 bounded primary fixes implemented and 48 partial items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -619,9 +619,19 @@ Evidence is under `.test-results/host-recipe-icc-final-20261120`, `.test-results
 - [x] Exercise missing native Export callbacks, recovery, master-off Export and locked reads in the licensed host. Check that native error paths are absent from the copied report.
 - [x] Test a future look format, missing stock, malformed UTF-8 and oversized look. Each is retained byte for byte and archived on explicit recovery. The fixture supplies the backed-up valid generation. The real host passed 240 first-launch and 244 restart checks.
 - [x] Run the standalone file and queue stress test for 600 seconds. Each logger received 148,608 records. The writable logger dropped none, with 985,178 current and 1,048,274 previous bytes. The locked logger dropped every record. P99 enqueue time for the pair was 0.0036 ms and the worst measured pair was 0.4652 ms.
-- [ ] Add a product-managed last known good generation, test more native capability faults and stress end-to-end telemetry during native interaction.
+- [ ] Test more native capability faults and stress end-to-end telemetry during native interaction.
 
 Evidence is under `.test-results/state-final-isolated-20261120` and `.test-results/host-protected-look-formats-20261120`. The standalone `--measure-diagnostic-log` probe wrote its receipt to `.test-results/panel-log-ten-minute-20261120/measurement.json`.
+
+## Verified previous look recovery
+
+- [x] Separate default, valid, recovered, unsupported, corrupt and retryable read outcomes. Normal saves retain the exact prior valid bytes with a variant identity and SHA-256. The new generation is included in joint catalog backup and restore.
+- [x] On a corrupt or missing current look, show the previous verified values read-only and offer explicit restore. A future format or unavailable stock remains blocked. Explicit recovery keeps dated, hash-verified copies of the rejected bytes and refuses to overwrite a file that changed while confirmation was pending.
+- [x] In a licensed disposable catalog, create the older generation through an actual WPF slider edit. Test a future format, missing stock, malformed development dictionary, broken UTF-8 and an oversized payload. Actual restore reinstates the original saved values. First launch passed 265 assertions and forced restart passed 269.
+- [x] The Windows suite passed 243 state assertions, 43 joint backup/restore assertions and 12,245 Viewer assertions. The child-process tests check previous-generation recovery and the digest and variant checks reject corrupted backups.
+- [ ] Measure per-movement latency after adding verified previous generations. The 10,000-edit native measurement is in progress; per-movement latency and power-failure limits remain under `HS-01` and `HS-04`.
+
+Evidence is under `.test-results/host-verified-previous-look-20261120` and `.test-results/contracts-previous-generation-20261120`.
 
 ## Native floating window placement
 

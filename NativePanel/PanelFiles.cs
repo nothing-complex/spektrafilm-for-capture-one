@@ -5,7 +5,7 @@ using System.Text.Json.Serialization;
 
 internal static class PanelFiles
 {
-    private const int MaxPresetBytes = 65536;
+    internal const int MaxPresetBytes = 65536;
     private static readonly JsonSerializerOptions WriteOptions = new() { WriteIndented = true };
     private static readonly JsonSerializerOptions ReadOptions = new()
     {
@@ -15,19 +15,31 @@ internal static class PanelFiles
 
     internal static T ReadPreset<T>(string path) => ReadPreset<T>(path, out _);
 
-    internal static T ReadPreset<T>(string path, out string digest)
+    internal static T ReadPreset<T>(string path, out string digest, Action<JsonElement>? inspect = null)
     {
         using var file = File.OpenRead(path);
-        if (file.Length > MaxPresetBytes)
-            throw new InvalidDataException("The preset is larger than 64 KB.");
-        var bytes = new byte[checked((int)file.Length)];
-        file.ReadExactly(bytes);
+        var bytes = ReadPresetBytes(file);
         digest = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes));
-        ReadOnlySpan<byte> json = bytes;
+        return DecodePreset<T>(bytes, inspect);
+    }
+
+    internal static byte[] ReadPresetBytes(FileStream file)
+    {
+        var remaining = file.Length - file.Position;
+        if (remaining > MaxPresetBytes)
+            throw new InvalidDataException("The preset is larger than 64 KB.");
+        var bytes = new byte[checked((int)remaining)];
+        file.ReadExactly(bytes);
+        return bytes;
+    }
+
+    internal static T DecodePreset<T>(ReadOnlySpan<byte> json, Action<JsonElement>? inspect = null)
+    {
         if (json.StartsWith("\uFEFF"u8))
             json = json[3..];
         using var document = JsonDocument.Parse(json.ToArray(), new JsonDocumentOptions { MaxDepth = 32 });
         RejectDuplicateProperties(document.RootElement);
+        inspect?.Invoke(document.RootElement);
         return JsonSerializer.Deserialize<T>(json, ReadOptions) ?? throw new InvalidDataException("The preset contains no look settings.");
     }
 

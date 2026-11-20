@@ -654,11 +654,14 @@
       "id": "HS-03",
       "title": "Unreadable or future-version state can be replaced by defaults",
       "priority": "P1",
-      "status": "partial",
+      "status": "implemented",
       "implemented": [
         "Unreadable/future/invalid saved states are blocked and preserved, with explicit backed-up reset rather than silent default overwrite.",
         "Transient read I/O is distinguished from corrupt state. An exclusive file lock in the live host paused the controls and automatic retry restored the original contents after release without rewriting the file.",
-        "Licensed first/restart fixtures explicitly blocked a future version, a missing film stock, malformed UTF-8 and an 80 KiB JSON look. The native controls and redacted support report indicated recovery. Attempted edits preserved the rejected bytes. Explicit recovery archived those bytes and restored the independently backed-up valid look."
+        "Licensed first/restart fixtures explicitly blocked a future version, a missing film stock, malformed UTF-8 and an 80 KiB JSON look. The native controls and redacted support report indicated recovery. Attempted edits preserved the rejected bytes. Explicit recovery archived those bytes and restored the independently backed-up valid look.",
+        "The native panel consumes typed Missing, Valid, Recovered, Unsupported, Corrupt and TransientIo results. Future version and missing stock stay protected even when an older valid look exists. Explicit restoration revalidates the displayed choice before publication.",
+        "Each normal overwrite retains one prior exact verified generation, bound to its variant UUID and SHA-256. Truncated, oversized, malformed or missing current files can display that generation read-only. Original bytes are archived and hash-verified before explicit replacement; a changed file during confirmation is preserved.",
+        "Independent child processes reject tampered digest/variant and restore valid state. Catalog backup and restore preserve the previous generation. Real licensed launches passed 265 and 269 checks across all accepted and rejected states."
       ],
       "evidence_paths": [
         "NativePanel/VariantLookStore.cs",
@@ -667,11 +670,13 @@
         "tests/state/Program.cs",
         ".test-results/host-audit-state-selection-20261119/host-smoke.log",
         "qa/HostSmoke/LookRecoveryHost.cs",
-        ".test-results/host-protected-look-formats-20261120/host-smoke.log"
+        ".test-results/host-protected-look-formats-20261120/host-smoke.log",
+        ".test-results/contracts-previous-generation-20261120/StateContracts.log",
+        ".test-results/contracts-previous-generation-20261120/catalog-backup.log",
+        ".test-results/host-verified-previous-look-20261120/host-smoke.log",
+        "Restore-SpektrafilmCatalog.ps1"
       ],
-      "remaining_work": [
-        "Complete separate typed unsupported/corrupt outcomes and add a product-managed verified previous generation. The live recovery fixture supplied an independently preserved valid look."
-      ],
+      "remaining_work": [],
       "original_acceptance_tests": [
         "future schema, missing stock, truncated UTF-8, malformed dictionary, too-large file, temporary sharing violation. Assert originals survive any normal slider movement and no defaults are silently committed over unrecognized data."
       ],
@@ -2976,8 +2981,8 @@
   ],
   "counts": {
     "total": 70,
-    "implemented": 21,
-    "partial": 49,
+    "implemented": 22,
+    "partial": 48,
     "pending": 0
   },
   "last_reconciled": "2026-11-20",

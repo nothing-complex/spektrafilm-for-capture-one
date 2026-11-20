@@ -44,7 +44,7 @@ function Read-Manifest([string] $path) {
     }
     $names = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
     foreach ($record in $document.files) {
-        if ($record.path -cnotmatch '^(Variant looks/[0-9a-f]{32}\.json|Look recovery/[0-9a-f]{32}\.(pending|grain)\.json|Look recovery/Preserved originals/[0-9a-f]{32}-[A-Za-z0-9-]+\.json)$' -or
+        if ($record.path -cnotmatch '^(Variant looks/[0-9a-f]{32}(\.json|\.previous\.look)|Look recovery/[0-9a-f]{32}\.(pending|grain)\.json|Look recovery/Preserved originals/[0-9a-f]{32}-[A-Za-z0-9-]+\.json)$' -or
             !$names.Add($record.path) -or $record.sha256 -notmatch '^[0-9a-fA-F]{64}$' -or
             ($record.bytes -isnot [int] -and $record.bytes -isnot [long]) -or $record.bytes -lt 0) {
             throw 'The backup manifest has an invalid or duplicate state entry.'
@@ -83,6 +83,8 @@ function Copy-VerifiedState($zip, $manifest, [string] $catalogKey, [hashtable] $
 
         $parts = $record.path -split '/', 2
         $path = if ($writing) { Join-Path $staging[$parts[0]] $parts[1] }
+        if ($record.path.EndsWith('.previous.look', [StringComparison]::Ordinal) -and
+            ($entry.Length -le 52 -or $entry.Length -gt (64KB + 52))) { throw "Invalid previous look size: $($record.path)" }
         if ($record.path.EndsWith('.pending.json', [StringComparison]::Ordinal)) {
             if ($entry.Length -gt 64KB) { throw "Recovery checkpoint is too large: $($record.path)" }
             $reader = New-Object IO.StreamReader($entry.Open(), (New-Object Text.UTF8Encoding($false, $true)))

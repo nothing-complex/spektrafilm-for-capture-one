@@ -135,6 +135,12 @@ $grain = Join-Path (Split-Path -Parent $recovery) '11111111111111111111111111111
 $grainReceipt = [ordered]@{Version=1;Variant='11111111-1111-1111-1111-111111111111';
     Original=@{Type=1;Impact=7;Granularity=30};Applied=@{Type=2;Impact=35;Granularity=60};PreviousApplied=$null}
 [IO.File]::WriteAllText($grain, ($grainReceipt | ConvertTo-Json -Depth 4 -Compress))
+$previousFile = [IO.Path]::ChangeExtension($look, '.previous.look')
+$previousPayload = [IO.File]::ReadAllBytes($look)
+$sha = [Security.Cryptography.SHA256]::Create()
+try { $previousDigest = $sha.ComputeHash($previousPayload) } finally { $sha.Dispose() }
+$previous = [Text.Encoding]::ASCII.GetBytes('SFL1') + ([Guid]::Parse($pending.Variant)).ToByteArray() + $previousDigest + $previousPayload
+[IO.File]::WriteAllBytes($previousFile, $previous)
 $restorable = Save-CatalogBackup $db
 $manifest = [IO.File]::ReadAllText($restorable + '.manifest.json') | ConvertFrom-Json
 $reversed = @($manifest.files)
@@ -154,6 +160,8 @@ try{$restoredKey=([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF
 $restoredLook=Join-Path (Join-Path (Join-Path $restoredData 'Variant looks') $restoredKey) '11111111111111111111111111111111.json'
 $restoredPending=Join-Path (Join-Path (Join-Path $restoredData 'Look recovery') $restoredKey) '11111111111111111111111111111111.pending.json'
 Assert ((Get-FileHash -LiteralPath $restoredLook -Algorithm SHA256).Hash -eq $baseHash) 'Committed look bytes preserved under the new catalog key'
+$restoredPrevious = [IO.Path]::ChangeExtension($restoredLook, '.previous.look')
+Assert ((Get-FileHash -LiteralPath $restoredPrevious -Algorithm SHA256).Hash -eq (Get-FileHash -LiteralPath $previousFile -Algorithm SHA256).Hash) 'Previous verified look moves byte for byte with the catalog'
 $pendingCopy=[IO.File]::ReadAllText($restoredPending)|ConvertFrom-Json
 Assert ($pendingCopy.CatalogKey -eq $restoredKey -and $pendingCopy.BaseHash -eq $baseHash -and $pendingCopy.Look.Look.Exposure -eq 2.2) 'Pending recovery rebased without changing its look or base hash'
 Assert (([IO.File]::ReadAllText($recovery)|ConvertFrom-Json).CatalogKey -eq $key) 'Original pending checkpoint unchanged'

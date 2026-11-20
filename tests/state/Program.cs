@@ -27,6 +27,12 @@ if (args.Length != 0)
             && receipt.Original == new GrainValues(1, 7, 30)
             && receipt.Matches(new GrainValues(2, 35, 60))
             && receipt.Matches(new GrainValues(2, 48, 72)) ? 0 : 15;
+    if (args[0] == "--verify-previous")
+    {
+        var previous = childStore.ReadOutcome(childVariant);
+        return previous.State == LookLoadState.Recovered && previous.ReadOnly
+            && previous.Look?.Look.Exposure == double.Parse(args[4], System.Globalization.CultureInfo.InvariantCulture) ? 0 : 16;
+    }
     if (args[0] == "--verify")
         return childStore.Read(childVariant)?.Look.Exposure == double.Parse(args[4], System.Globalization.CultureInfo.InvariantCulture) ? 0 : 13;
     if (args[0] == "--commit-boundary")
@@ -145,6 +151,8 @@ store.Flush();
 var snapshot = new VariantLookStore(root, catalog).Read(id)!;
 Check("queued development immutable", snapshot.Look.Development["film_gamma"] == 1);
 Check("queued optics immutable", snapshot.Optics.Numbers["halation-amount"] == 0);
+
+TestPreviousGeneration(store, root, catalog, scratch);
 
 // Real process exit after a failed primary write, without relying on static state.
 RunChild("--failed-save", root, catalog, id.ToString());
@@ -492,6 +500,78 @@ static Process StartChild(params string[] arguments)
         info.ArgumentList.Add(typeof(Program).Assembly.Location);
     foreach (var arg in arguments) info.ArgumentList.Add(arg);
     return Process.Start(info)!;
+}
+
+void TestPreviousGeneration(VariantLookStore looks, string lookRoot, string catalogPath, string testRoot)
+{
+    var variant = Guid.NewGuid();
+    Check("typed missing distinguishes default", looks.ReadOutcome(variant).State == LookLoadState.Missing);
+    looks.Queue(variant, Sample(1.2)); looks.Flush();
+    var primary = StateFile(lookRoot, variant);
+    var priorBytes = File.ReadAllBytes(primary);
+    var previous = Path.ChangeExtension(primary, ".previous.look");
+    Check("first verified save has no older version", !File.Exists(previous));
+    looks.Queue(variant, Sample(2.1)); looks.Flush();
+    Check("previous generation preserves exact accepted JSON", File.ReadAllBytes(previous).AsSpan(52).SequenceEqual(priorBytes));
+    Check("typed valid returns current value", looks.ReadOutcome(variant) is { State: LookLoadState.Valid, Look.Look.Exposure: 2.1 });
+    using (var locked = new FileStream(primary, FileMode.Open, FileAccess.Read, FileShare.None))
+        Check("typed transient lock does not fall back to old value", looks.ReadOutcome(variant) is { State: LookLoadState.TransientIo, Look: null });
+
+    var rejected = new byte[] { 0x7b, 0x22, 0xf0, 0x9f, 0x92 };
+    File.WriteAllBytes(primary, rejected);
+    RunChild("--verify-previous", lookRoot, catalogPath, variant.ToString(), "1.2");
+    var recovery = looks.ReadOutcome(variant);
+    Check("typed recovery exposes previous look read-only", recovery is { State: LookLoadState.Recovered, ReadOnly: true, Look.Look.Exposure: 1.2 });
+    Throws<InvalidDataException>("read-only recovery rejects ordinary writes", () => looks.Queue(variant, Sample(6)));
+    Check("normal edits preserve damaged original exactly", File.ReadAllBytes(primary).SequenceEqual(rejected));
+    var previousBytes = File.ReadAllBytes(previous);
+    var tampered = (byte[])previousBytes.Clone();
+    tampered[30] ^= 1;
+    File.WriteAllBytes(previous, tampered);
+    Check("previous with wrong digest is unusable", looks.ReadOutcome(variant) is { State: LookLoadState.Corrupt, Look: null });
+    Throws<InvalidDataException>("manual restore revalidates the exact previous choice", () => looks.RestorePrevious(variant, recovery.Look!));
+    tampered[30] ^= 1;
+    tampered[6] ^= 1;
+    File.WriteAllBytes(previous, tampered);
+    Check("previous with wrong variant is unusable", looks.ReadOutcome(variant) is { State: LookLoadState.Corrupt, Look: null });
+    File.WriteAllBytes(previous, previousBytes);
+    looks.RestorePrevious(variant, recovery.Look!);
+    Check("explicit previous recovery restores exact look", File.ReadAllBytes(primary).SequenceEqual(priorBytes));
+    Check("recovery does not replace backup with damaged bytes", File.ReadAllBytes(previous).SequenceEqual(previousBytes));
+    var rejectedHash = Convert.ToHexString(SHA256.HashData(rejected));
+    Check("recovery archive is timestamped, hashed and byte-identical", Directory.EnumerateFiles(
+        Path.Combine(testRoot, "Look recovery"), $"{variant:N}-before-reset-*-{rejectedHash}.json", SearchOption.AllDirectories)
+        .Any(path => File.ReadAllBytes(path).SequenceEqual(rejected)));
+    RunChild("--verify", lookRoot, catalogPath, variant.ToString(), "1.2");
+
+    File.Delete(primary);
+    var missing = looks.ReadOutcome(variant);
+    Check("missing primary with known data is recoverable", missing is { State: LookLoadState.Recovered, ReadOnly: true, Look.Look.Exposure: 1.2 });
+    File.WriteAllBytes(primary, JsonSerializer.SerializeToUtf8Bytes(Sample(3.3)));
+    Throws<InvalidDataException>("external change after recovery opened is preserved", () => looks.RestorePrevious(variant, missing.Look!));
+    Check("reselect reads newer external version", looks.ReadOutcome(variant) is { State: LookLoadState.Valid, Look.Look.Exposure: 3.3 });
+    var future = JsonNode.Parse(File.ReadAllText(primary))!;
+    future["Version"] = 91;
+    future["NewSchemaMember"] = "unrecognized";
+    File.WriteAllText(primary, future.ToJsonString());
+    Check("future schema is typed unsupported even with future members and a valid previous look",
+        looks.ReadOutcome(variant) is { State: LookLoadState.Unsupported, Look: null, ReadOnly: true });
+    Throws<InvalidDataException>("future schema rejects normal writes", () => looks.Queue(variant, Sample(7)));
+    Check("future schema bytes remain immutable after normal write attempts", File.ReadAllText(primary) == future.ToJsonString());
+    looks.ResetBlocked(variant, Sample(.1));
+
+    var lockedPreviousVariant = Guid.NewGuid();
+    looks.Queue(lockedPreviousVariant, Sample(1)); looks.Flush();
+    var lockedPrevious = Path.ChangeExtension(StateFile(lookRoot, lockedPreviousVariant), ".previous.look");
+    using (var lockFile = new FileStream(lockedPrevious, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
+    {
+        looks.Queue(lockedPreviousVariant, Sample(2));
+        Throws<IOException>("previous publication fault protects pending newest look", looks.Flush);
+        Check("primary remains verifiable during a failed previous publication", PanelFiles.ReadPreset<VariantLook>(StateFile(lookRoot, lockedPreviousVariant)).Look.Exposure == 1);
+    }
+    looks.Flush();
+    Check("retry updates both verified generations", looks.Read(lockedPreviousVariant)?.Look.Exposure == 2
+        && PanelFiles.DecodePreset<VariantLook>(File.ReadAllBytes(lockedPrevious).AsSpan(52)).Look.Exposure == 1);
 }
 
 static void RunChild(params string[] arguments)
