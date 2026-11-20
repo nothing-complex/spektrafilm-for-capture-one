@@ -151,9 +151,15 @@ public static partial class StartupHook
                 File.WriteAllText(Path.Combine(folder, "first.passed"), $"PASS {checks} native control inventory assertions");
                 return;
             }
-            if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT") == "1")
+            var exportFixture = Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT");
+            if (exportFixture is "1" or "matrix")
             {
-                await TestNativeEffectExport(hookField, hosted, panel, spatial, window);
+                var phase = File.ReadAllText(Path.Combine(folder, "phase.txt"));
+                if (exportFixture == "matrix")
+                    await TestNativeEffectExportMatrix(hookField, hosted, panel, spatial, window, phase);
+                else
+                    await TestNativeEffectExport(hookField, hosted, panel, spatial, window, phase);
+                File.WriteAllText(Path.Combine(folder, phase + ".passed"), $"PASS {checks} native effects export assertions");
                 return;
             }
             if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_NATIVE_DEVELOPMENT_DEADLINE") == "1")

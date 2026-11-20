@@ -1109,7 +1109,8 @@
         "Startup binding now exposes a typed Checking/Connected/Unavailable/Detached state. Real first/second command failures leave the warning visible after edits and direct export available.",
         "Native confirmation commands in a visible Export dialog route through actual Spektrafilm TIFF/PNG output; cancel keeps the dialog open, success closes it, and Export with Previous Settings uses the same pipeline. Two broken closure shapes raise a persistent capability warning, preserve direct export availability and unwind on a clean reattach.",
         "The real Capture One Export command, its visible native confirmation, and Export with Previous Settings write the selected variant through the current film pipeline. Each of four licensed runs reopened 3000 by 2000 RGB48 TIFF and RGBA64 PNG with the exact Adobe RGB recipe profile. Across 41,238 sampled 16-bit RGB codes per run, the film look changed the RGB codes by a mean 11.66% of full scale and camera diffusion changed them a further 4.76%. The two native routes agreed within about one millionth of full-scale RGB on average. Each command accepted exactly one job. Switch-off delegated to the ordinary native Export dialog.",
-        "A changed native callback name failed before any mutation. Detach restored each native callback exactly once, repeated detach preserved both invocation lists, and reattachment reported Connected. The exact audit.15 build and current source each passed 39 checks on first launch and restart."
+        "A changed native callback name failed before any mutation. Detach restored each native callback exactly once, repeated detach preserved both invocation lists, and reattachment reported Connected. The exact audit.15 build and current source each passed 39 checks on first launch and restart.",
+        "Both native Export commands passed on DNG/sRGB, CR3/Adobe RGB, RAF/ProPhoto and NEF/Linear Rec.2020, all using the exact Adobe RGB recipe profile at 6.00–7.53 MP in RGB48 TIFF and RGBA64 PNG. Across 32 accepted outputs and 159 assertions each at first launch and restart, film changed mean RGB code by 6.23–11.66% of full scale and camera diffusion added 2.43–4.76%. Native command outputs differed by at most 1.21e-6 mean full-scale code."
       ],
       "evidence_paths": [
         "NativePanel/StartupHook.cs",
@@ -1120,7 +1121,9 @@
         "NativePanel/ExportHook.cs",
         "qa/HostSmoke/NativeEffectExport.cs",
         ".test-results/host-native-effect-export-final-20261120/first-native-effect-export.json",
-        ".test-results/host-source-native-effect-export-20261120/restart-native-effect-export.json"
+        ".test-results/host-source-native-effect-export-20261120/restart-native-effect-export.json",
+        ".test-results/host-four-raw-native-effects-20261120/host-smoke.log",
+        ".test-results/host-four-raw-native-effects-20261120/restart-NEF-native-effect-export.json"
       ],
       "remaining_work": [
         "Extend confirmation-stage diagnostics when the independent 16.7 compatibility work establishes a supported native adapter."
@@ -1503,7 +1506,8 @@
         "Capture the recipe's local RGB ICC profile before showing Save and color-convert the SDR film result through a genuine 16-bit RGBA64 transform. TIFF drops alpha without changing any converted RGB code; PNG retains alpha. Reopen the encoded file and verify the exact profile digest before atomically publishing it.",
         "The licensed Adobe RGB recipe produced the exact embedded profile in 210 first-launch and 214 restart checks. ProPhoto and Linear Rec.2020 TIFF/PNG fixtures retained the actual converted RGB, alpha where applicable, DPI and ICC. Across three profiles, an independent ICC matrix/TRC reference had p95 Delta E 2000 of 0.031–0.159 and maximum 0.803. The normal direct export remains sRGB.",
         "The real Capture One Export command, its visible native confirmation, and Export with Previous Settings write the selected variant through the current film pipeline. Each of four licensed runs reopened 3000 by 2000 RGB48 TIFF and RGBA64 PNG with the exact Adobe RGB recipe profile. Across 41,238 sampled 16-bit RGB codes per run, the film look changed the RGB codes by a mean 11.66% of full scale and camera diffusion changed them a further 4.76%. The two native routes agreed within about one millionth of full-scale RGB on average. Each command accepted exactly one job. Switch-off delegated to the ordinary native Export dialog.",
-        "Native TIFF delivery now retains the selected TIFF recipe’s lossless compression: Uncompressed, LZW or ZIP. After encoding, the file’s actual TIFF tag is verified alongside 16-bit pixels, ICC and orientation. The Windows tests round-tripped every sample using all three schemes. The licensed active ZIP recipe exported the film look and diffusion again."
+        "Native TIFF delivery now retains the selected TIFF recipe’s lossless compression: Uncompressed, LZW or ZIP. After encoding, the file’s actual TIFF tag is verified alongside 16-bit pixels, ICC and orientation. The Windows tests round-tripped every sample using all three schemes. The licensed active ZIP recipe exported the film look and diffusion again.",
+        "Both native Export commands passed on DNG/sRGB, CR3/Adobe RGB, RAF/ProPhoto and NEF/Linear Rec.2020, all using the exact Adobe RGB recipe profile at 6.00–7.53 MP in RGB48 TIFF and RGBA64 PNG. Across 32 accepted outputs and 159 assertions each at first launch and restart, film changed mean RGB code by 6.23–11.66% of full scale and camera diffusion added 2.43–4.76%. Native command outputs differed by at most 1.21e-6 mean full-scale code."
       ],
       "evidence_paths": [
         "NativePanel/SpektraFilmTool.cs",
@@ -1520,7 +1524,9 @@
         ".test-results/host-native-effect-export-final-20261120/first-native-effect-export.json",
         ".test-results/host-source-native-effect-export-20261120/restart-native-effect-export.json",
         ".test-results/host-recipe-compression-native-export-20261120/first-native-effect-export.json",
-        ".test-results/contracts-structured-export-compression-20261120/ViewerContracts.log"
+        ".test-results/contracts-structured-export-compression-20261120/ViewerContracts.log",
+        ".test-results/host-four-raw-native-effects-20261120/host-smoke.log",
+        ".test-results/host-four-raw-native-effects-20261120/restart-NEF-native-effect-export.json"
       ],
       "remaining_work": [
         "Compare selected RGB recipe output against additional native profile references. Exercise Uncompressed and LZW selections in the native dialog as well as their verified high-depth encoders. Native naming, tiling and other format and quality settings beyond the explicit 16-bit TIFF/PNG save policy remain open."
@@ -1841,7 +1847,8 @@
         "In a licensed 100-visit run, event to settled native paint measured p50 395.68 ms, p95 865.12 ms and max 1658.03 ms at 2048 px. A live Viewer was active, and three strength settings and four RAW formats are keyed in the per-visit machine-readable receipt.",
         "A paired 100-visit licensed baseline ran Capture One without loading the plugin. It verified the selected native image layer for each visit and recorded p50 17.30 ms and p95 50.64 ms. The separate live film run measured p50 359.52 ms and p95 771.35 ms to settled 2048 px paint. The receipts distinguish the timing endpoints and contain all individual visits.",
         "The exact audit.15 worker completed all 16 renderer/transport cases and 80 requests at 24, 45, 61 and 100 MP on RTX 3090. Both colour-only and optical cases used packed Viewer and float image export. At 100 MP, warm p95 was 428 ms or 5.30 s in the Viewer and 2.20 s or 8.51 s for float export, from four warm requests per case. The optical export used 6.33 GiB peak worker commit and 3.09 GiB transient cache. Its 800 tiled results returned 9.38 GB of GPU readback for the 1.60 GB float reply, identifying tile overlap transfer as the main measured candidate for improvement. These timings exclude Capture One development, ICC conversion and file encoding.",
-        "The structured export.performance.v1 event uses the accepted journal job ID and records elapsed Viewer drain, native RGB16 development, Vulkan work and transport, crop and blend, ICC conversion, and encode/verify/commit without logging paths in the event. Two licensed launches timed eight 3000 by 2000 DNG exports. Effect TIFF took 1.40–1.42 seconds after job acceptance. The matching PNG took 1.68–1.71 seconds. The file stage dominated at 568–569 ms for TIFF and 888–936 ms for PNG."
+        "The structured export.performance.v1 event uses the accepted journal job ID and records elapsed Viewer drain, native RGB16 development, Vulkan work and transport, crop and blend, ICC conversion, and encode/verify/commit without logging paths in the event. Two licensed launches timed eight 3000 by 2000 DNG exports. Effect TIFF took 1.40–1.42 seconds after job acceptance. The matching PNG took 1.68–1.71 seconds. The file stage dominated at 568–569 ms for TIFF and 888–936 ms for PNG.",
+        "The four-camera effect export matrix records 32 job-correlated v2 timing events and 159 licensed checks per launch. TIFF with film and diffusion took 1.27–1.68 s after acceptance and equivalent PNG took 1.55–2.26 s. The v2 ICC setup time is distinct from the file stage where WIC may lazily transform pixels. The v1 field named IccConversionMs measured setup."
       ],
       "evidence_paths": [
         "ofx-still-renderer/main.cpp",
@@ -1863,7 +1870,8 @@
         ".test-results/matrix-24-45-61-100mp-20261120/nvidia.json",
         ".test-results/matrix-24-45-61-100mp-20261120/adapter.txt",
         ".test-results/host-tile-centre-native-export-20261120/first-native-effect-export.json",
-        ".test-results/host-tile-centre-native-export-20261120/restart-native-effect-export.json"
+        ".test-results/host-tile-centre-native-export-20261120/restart-native-effect-export.json",
+        ".test-results/host-four-raw-native-effects-20261120/first-CR3-native-effect-export.json"
       ],
       "remaining_work": [
         "Correlate Viewer generations across development, render and paint, and run full interaction p50/p95 and memory budgets. Accepted export work has structured stage timing.",
@@ -2387,7 +2395,8 @@
         "The licensed 2048 px navigation matrix now records 100 visits, four RAW formats, three strengths, 30 interleaved selections, verified exact frame ownership, per-visit timing and memory snapshots. The same selection schedule with no plugin loaded supplies a native Viewer and memory baseline on this RTX 3090.",
         "The exact audit.14 worker passed the full standalone Vulkan smoke suite on isolated physical Intel integrated graphics, including packed/scalar parity, float stability, all seven multi-tile cases and the 128 MiB pressure fixture. Intel tile parity worst difference was 1.20e-7.",
         "The exact audit.15 worker completed all 16 renderer/transport cases and 80 requests at 24, 45, 61 and 100 MP on RTX 3090. Both colour-only and optical cases used packed Viewer and float image export. At 100 MP, warm p95 was 428 ms or 5.30 s in the Viewer and 2.20 s or 8.51 s for float export, from four warm requests per case. The optical export used 6.33 GiB peak worker commit and 3.09 GiB transient cache. Its 800 tiled results returned 9.38 GB of GPU readback for the 1.60 GB float reply, identifying tile overlap transfer as the main measured candidate for improvement. These timings exclude Capture One development, ICC conversion and file encoding.",
-        "The optimized worker passed the paired 24–100 MP matrix. Four full 100 MP optics frame hashes matched across binaries. Production exports also recorded eight job-correlated native-to-file measurements across two licensed launches of a DNG with the active 6 MP TIFF recipe, optionally delivered as PNG."
+        "The optimized worker passed the paired 24–100 MP matrix. Four full 100 MP optics frame hashes matched across binaries. Production exports also recorded eight job-correlated native-to-file measurements across two licensed launches of a DNG with the active 6 MP TIFF recipe, optionally delivered as PNG.",
+        "Both native Export commands passed on DNG/sRGB, CR3/Adobe RGB, RAF/ProPhoto and NEF/Linear Rec.2020, all using the exact Adobe RGB recipe profile at 6.00–7.53 MP in RGB48 TIFF and RGBA64 PNG. Across 32 accepted outputs and 159 assertions each at first launch and restart, film changed mean RGB code by 6.23–11.66% of full scale and camera diffusion added 2.43–4.76%. Native command outputs differed by at most 1.21e-6 mean full-scale code."
       ],
       "evidence_paths": [
         "tests",
@@ -2409,10 +2418,12 @@
         ".test-results/matrix-24-45-61-100mp-20261120/adapter.txt",
         ".test-results/matrix-tile-centres-20261120/nvidia.json",
         ".test-results/tile-centre-100mp-parity-20261120/after.json",
-        ".test-results/host-tile-centre-native-export-20261120/first-native-effect-export.json"
+        ".test-results/host-tile-centre-native-export-20261120/first-native-effect-export.json",
+        ".test-results/host-four-raw-native-effects-20261120/host-smoke.log",
+        ".test-results/host-four-raw-native-effects-20261120/restart-NEF-native-effect-export.json"
       ],
       "remaining_work": [
-        "Complete the end-to-end hardware/source-format acceptance matrix and choose release budgets. Actual native-to-file telemetry now covers one DNG fixture at 6 MP.",
+        "Complete the end-to-end hardware and source-format matrix and choose release budgets. Native-to-file telemetry covers four RAWs at recipe sizes of 6.00–7.53 MP on the licensed RTX 3090 workstation.",
         "Expand across multiple memory sizes and vendors and measure end-to-end actual display, RAW development, and codec stages."
       ],
       "original_acceptance_tests": [
@@ -3243,36 +3254,34 @@
     "original_test_catalog_hash_unchanged": true,
     "local_evidence_note": "Paths under .test-results/build/dist are ignored local artifacts and are not present in a public clone.",
     "latest_development_package": {
-      "version": "0.2.0-audit.15",
-      "archive": "dist/Spektrafilm-for-Capture-One-v0.2.0-audit.15-windows-x64.zip",
-      "sha256": "3c3ad963f8c560cde990409ef4fdc7bff52e73ab1204208790dbed08a1a56eb4",
+      "version": "0.2.0-audit.16",
+      "archive": "dist/Spektrafilm-for-Capture-One-v0.2.0-audit.16-windows-x64.zip",
+      "sha256": "cc76060976cb0c0856037bd16cd36b401a0f9477798c1df1702c71cc704bdb83",
       "source": {
-        "commit": "cc24e45f73fd0c301699fa686404d880906e9a00",
+        "commit": "8891983f4da0d3ac81326116939d3563f381a81a",
         "dirty": false,
-        "treeDigest": "ef8b282b718bb890c59e4fa1e0cf2462bb7624007549b103afd4eac6fb564cab"
+        "treeDigest": "89591027387b0a32feaa04f783c20fdd1ad560db4c3fdcef08720dcbfdf471b5"
       },
       "verified_package_entries": 153,
       "verified_runtime_entries": 19,
       "renderer_protocol": 2,
-      "renderer_sha256": "47ae010c3cbde41579e2e6b3c2ee6336496f3e2d1741d866827d14bde8c74e49",
-      "asset_contract": "7bc552c3a6db30572393c854bec69cb0f3621356484f80c5392b6a442894e710",
+      "renderer_sha256": "6c6cca74a73db3342c1859e4e90726d5a8f771357b4c2cde28f1bb3c2202f29b",
+      "asset_contract": "81f5e9d4d70cf0d63b6fd050775ebb246ff239926ffc1e66d724e5851b2847cf",
       "generated_capabilities_sha256": "e5281940406abf421f6ca2c338d673c212a4b088c1a209cfd1158d6fb6d6b0e9",
       "native_control_count": 196,
       "version3_native_preset_verified": true,
-      "isolated_install_and_checkonly": "passed audit.14 to audit.15 with real native readiness and exact installed capability report",
+      "isolated_install_and_checkonly": "pending exact audit.16 isolated upgrade",
       "exact_package_host_tests": {
-        "first_launch": 310,
-        "restart": 314,
-        "raw_matrix": 131,
-        "raw_matrix_restart": 131,
-        "native_inventory": 19,
-        "managed_gpu": 28,
-        "native_effect_export_first": 39,
-        "native_effect_export_restart": 39
+        "first_launch": 311,
+        "restart": 315,
+        "raw_matrix": 135,
+        "raw_matrix_restart": 135,
+        "native_effect_export_first": 50,
+        "native_effect_export_restart": 50
       },
-      "remote_windows_contracts": "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44687634647",
+      "remote_windows_contracts": "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44694685692",
       "normal_installed_revision": "ffc481988eb2e6e7ef7a1379486c4a8b2656ac81",
-      "receipt": ".test-results/audit15-package-verify-20261120/result.json"
+      "receipt": ".test-results/audit16-package-verify-20261120/static.json"
     }
   },
   "completed_milestones": [

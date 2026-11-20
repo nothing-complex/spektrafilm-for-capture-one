@@ -795,13 +795,13 @@ internal sealed class SpatialPreview : IDisposable
                     var encodingStarted = Stopwatch.GetTimestamp();
                     var image = DecodeExport(source, pixels, look.Strength, input.Space, encoding, deliveryFormat, rendered.Crop, work.Token, dpi);
                     var blendAndCropMs = Stopwatch.GetElapsedTime(encodingStarted).TotalMilliseconds;
-                    var iccStarted = Stopwatch.GetTimestamp();
+                    var profileSetupStarted = Stopwatch.GetTimestamp();
                     var output = deliveryProfile.ConvertSrgb(image, outputFormat);
-                    var iccMs = Stopwatch.GetElapsedTime(iccStarted).TotalMilliseconds;
+                    var profileSetupMs = Stopwatch.GetElapsedTime(profileSetupStarted).TotalMilliseconds;
                     var writeStarted = Stopwatch.GetTimestamp();
                     SpektraExport.SaveApproved(approved, output, work.Token, recipe?.Metadata, deliveryProfile,
                         recipe?.TiffCompression ?? TiffCompressOption.Zip);
-                    StartupHook.Log("export.performance.v1", new
+                    StartupHook.Log("export.performance.v2", new
                     {
                         JobId = jobId,
                         SourceFormat = target.SourceFormat,
@@ -816,7 +816,9 @@ internal sealed class SpatialPreview : IDisposable
                         NativeDevelopmentMs = developMs,
                         FilmRenderAndTransportMs = renderMs,
                         BlendAndCropMs = blendAndCropMs,
-                        IccConversionMs = iccMs,
+                        IccProfileSetupMs = profileSetupMs,
+                        TransformsDeliveryProfile = deliveryProfile.RequiresConversion,
+                        // WIC can evaluate the bitmap transform during encoding.
                         EncodeVerifyAndCommitMs = Stopwatch.GetElapsedTime(writeStarted).TotalMilliseconds,
                         TotalMs = Stopwatch.GetElapsedTime(started).TotalMilliseconds,
                     });

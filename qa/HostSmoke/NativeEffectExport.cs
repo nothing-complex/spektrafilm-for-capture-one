@@ -18,10 +18,36 @@ using Forms = System.Windows.Forms;
 
 public static partial class StartupHook
 {
-    private static async Task TestNativeEffectExport(FieldInfo hookField, object hosted, object panel, object spatial, object window)
+    private static async Task TestNativeEffectExportMatrix(FieldInfo hookField, object hosted, object panel, object spatial,
+        object window, string phase)
     {
-        var phase = File.ReadAllText(Path.Combine(folder, "phase.txt"));
+        var selection = new FixtureSelection(panel);
+        var encodings = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["DNG"] = "srgb", ["CR3"] = "adobe_rgb", ["RAF"] = "prophoto", ["NEF"] = "linear_rec2020",
+        };
+        Check(selection.Variants.Select(selection.Format).ToHashSet(StringComparer.Ordinal).SetEquals(encodings.Keys),
+            "native recipe effect matrix uses a DNG, CR3, RAF and NEF from the disposable catalogue");
+        var input = (ComboBox)Field(spatial, "inputSpace")!;
+        foreach (var variant in selection.Variants)
+        {
+            selection.Select(variant, variant);
+            var prior = input.SelectedItem;
+            var format = selection.Format(variant);
+            try
+            {
+                input.SelectedItem = input.ItemsSource.Cast<object>().Single(item => Equals(Prop(item, "Id"), encodings[format]));
+                await TestNativeEffectExport(hookField, hosted, panel, spatial, window, phase + "-" + format);
+            }
+            finally { input.SelectedItem = prior; }
+        }
+    }
+
+    private static async Task TestNativeEffectExport(FieldInfo hookField, object hosted, object panel, object spatial, object window, string caseName)
+    {
         var toggle = (CheckBox)Field(panel, "enableSpektraFilm")!;
+        var inputEncoding = (string)Prop(((ComboBox)Field(spatial, "inputSpace")!).SelectedItem, "Id")!;
+        var expectedVariant = (Guid)Field(panel, "displayedVariant")!;
         var strength = Field(panel, "strength")!;
         var exposure = Field(panel, "exposure")!;
         var choices = (IDictionary)Field(spatial, "choices")!;
@@ -125,7 +151,7 @@ public static partial class StartupHook
             ((IDisposable)bridge).Dispose();
             Check(Invocations(normalCommand).SequenceEqual(normalInvocations) && Invocations(previousCommand).SequenceEqual(previousInvocations),
                 "repeated detach restores the original native callback arrays without duplicate commands");
-            File.WriteAllText(Path.Combine(folder, phase + "-native-effect-export.json"), JsonSerializer.Serialize(new
+            File.WriteAllText(Path.Combine(folder, caseName + "-native-effect-export.json"), JsonSerializer.Serialize(new
             {
                 width = expectedWidth, height = expectedHeight, iccSha256 = iccSha, tiffCompression = compression.ToString(),
                 filmDifference, opticsDifference, commandDifference,
@@ -136,7 +162,7 @@ public static partial class StartupHook
             {
                 var before = routeCount;
                 job = null;
-                destination = Path.Combine(folder, phase + "-" + kind + extension);
+                destination = Path.Combine(folder, caseName + "-" + kind + extension);
                 if (usePrevious) ExecuteNativeExportCommand(previous);
                 else
                 {
@@ -173,18 +199,21 @@ public static partial class StartupHook
                     Check(matches, $"{kind} uses the selected Capture One TIFF compression {compression}");
                 }
                 var receipt = Call(Field(spatial, "exportJobs")!, "ReadLatest")!;
-                Check(Equals(Prop(receipt, "Destination"), destination) && Prop(receipt, "Stage")?.ToString() == "Completed",
+                Check(Equals(Prop(receipt, "Destination"), destination) && Equals(Prop(receipt, "VariantId"), expectedVariant)
+                    && Prop(receipt, "Stage")?.ToString() == "Completed",
                     $"{kind} finished its own export receipt");
                 var detail = await WaitForTiming((Guid)Prop(receipt, "JobId")!);
                 var film = detail.GetProperty("FilmRenderAndTransportMs");
                 var expectedFilm = kind != "no-film-reference";
-                var stages = new[] { "ViewerDrainMs", "NativeDevelopmentMs", "BlendAndCropMs", "IccConversionMs", "EncodeVerifyAndCommitMs" }
+                var stages = new[] { "ViewerDrainMs", "NativeDevelopmentMs", "BlendAndCropMs", "IccProfileSetupMs", "EncodeVerifyAndCommitMs" }
                     .Select(key => detail.GetProperty(key).GetDouble()).ToArray();
                 var filmMs = film.ValueKind == JsonValueKind.Number ? film.GetDouble() : 0;
                 Check(detail.GetProperty("SourceBitDepth").GetInt32() >= 16
+                    && detail.GetProperty("InputEncoding").GetString() == inputEncoding
                     && detail.GetProperty("OutputWidth").GetInt32() == expectedWidth
                     && detail.GetProperty("OutputHeight").GetInt32() == expectedHeight
                     && detail.GetProperty("OutputFormat").GetString() == (extension == ".tif" ? "TIFF" : "PNG")
+                    && detail.GetProperty("TransformsDeliveryProfile").ValueKind is JsonValueKind.True or JsonValueKind.False
                     && stages.All(value => double.IsFinite(value) && value >= 0)
                     && detail.GetProperty("TotalMs").GetDouble() >= stages.Sum() + filmMs
                     && (expectedFilm ? filmMs > 0 : film.ValueKind == JsonValueKind.Null)
@@ -200,7 +229,7 @@ public static partial class StartupHook
                 var start = Stopwatch.GetTimestamp();
                 while (Stopwatch.GetElapsedTime(start) < TimeSpan.FromSeconds(3))
                 {
-                    foreach (var line in File.ReadAllLines(log).Where(line => line.Contains("export.performance.v1", StringComparison.Ordinal)))
+                    foreach (var line in File.ReadAllLines(log).Where(line => line.Contains("export.performance.v2", StringComparison.Ordinal)))
                     {
                         try
                         {
@@ -258,7 +287,6 @@ public static partial class StartupHook
         }
         Check(hookField.GetValue(null) is not null && Prop(panel, "ExportBridgeStatus")?.ToString() == "Connected",
             "the real native Export bridge reconnects after the command test");
-        File.WriteAllText(Path.Combine(folder, phase + ".passed"), $"PASS {checks} native effects export assertions");
     }
 
     private static void ExecuteNativeExportCommand(object command)
