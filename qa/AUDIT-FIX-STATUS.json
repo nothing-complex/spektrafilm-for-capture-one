@@ -1978,7 +1978,8 @@
         "The existing Auto Viewer choice uses native projection and the same managed headroom. Viewer refresh retains one active source plus the bounded draft and display caches, and waits for workers to exit before accepting competing output work.",
         "The per-Viewer drag-source pyramid evicts by actual float-buffer byte length with a 128 MiB retention ceiling. Source replacement and switching drag preview Off discard the levels. A render already using an evicted level retains valid ownership until it returns.",
         "Measure 100 settled Capture One visits on DNG, NEF, RAF and CR3 at 2048 px and strength 0%, 50% and 100%. The same-process peak was 7,934,210,048 host private bytes, 700,862,464 worker private bytes and 958,644,384 managed bytes. After explicit drain, the process exited, all 100 sampled source objects became collectible and managed use measured 160,011,408 bytes. Host private bytes include Capture One’s own caches.",
-        "Paired 100-visit no-plugin and film runs with the same RAW and 30 interleaved selection sequence measured 5,028,196,352 and 7,954,604,032 host private bytes respectively. Managed peaks were 168,062,504 and 928,270,840 bytes. The film worker independently peaked at 700,903,424 bytes. All sampled film sources were collectible after the worker drained."
+        "Paired 100-visit no-plugin and film runs with the same RAW and 30 interleaved selection sequence measured 5,028,196,352 and 7,954,604,032 host private bytes respectively. Managed peaks were 168,062,504 and 928,270,840 bytes. The film worker independently peaked at 700,903,424 bytes. All sampled film sources were collectible after the worker drained.",
+        "Download checksum-verified Canon EOS R5 CR3 and Sony a7R IV A ARW source samples. The offline Capture One ImageCore metadata probe recognizes both as RAW and reports an actual canvas of 8192 × 5464 and 9504 × 6336 respectively."
       ],
       "evidence_paths": [
         "NativePanel/RenderMemoryBudget.cs",
@@ -1989,7 +1990,9 @@
         ".test-results/host-viewer-100-visits-current-paint-20261120/viewer-churn.json",
         ".test-results/host-draft-pyramid-20261120/host-smoke.log",
         ".test-results/host-native-only-viewer-baseline-20261120/viewer-native-baseline.json",
-        ".test-results/host-viewer-paired-live-20261120/viewer-churn.json"
+        ".test-results/host-viewer-paired-live-20261120/viewer-churn.json",
+        ".test-results/high-resolution-raw-fixtures-20261120/sources.json",
+        ".test-results/high-resolution-raw-fixtures-20261120/native-defaults.json"
       ],
       "remaining_work": [
         "Measure 24/45/61 MP at all strength values and finalize enforced cache budgets and lifetime ownership across overlapping contexts. The paired 2048 px workload has a true no-plugin baseline."
@@ -3553,38 +3556,39 @@
     "original_test_catalog_hash_unchanged": true,
     "local_evidence_note": "Paths under .test-results/build/dist are ignored local artifacts and are not present in a public clone.",
     "latest_development_package": {
-      "version": "0.2.0-audit.31",
-      "archive": "dist/Spektrafilm-for-Capture-One-v0.2.0-audit.31-windows-x64.zip",
-      "sha256": "4e404b9795917f4aca9efab6474716cec4a2db963eb50f0902d1e008f8ccb316",
+      "version": "0.2.0-audit.32",
+      "archive": "dist/Spektrafilm-for-Capture-One-v0.2.0-audit.32-windows-x64.zip",
+      "sha256": "9e69802f784023a3fb2050ce50c42d37f06b3d3f325c0450813cfbd7f42aa5b6",
       "source": {
-        "commit": "c48b8a845da7b4c62e37d279d0fbd77e89a7eb12",
+        "commit": "ca0b5cd552256a64194ef1fb9ec2d2dc08a0c4c0",
         "dirty": false,
-        "treeDigest": "35e9f0b49c6302df03130a641dc59701a82a33b2332650a9e5d0e562a2226a21"
+        "treeDigest": "f19bd70be723e2176205951fc0e9e3969141a78fe99073e11c9423ab554f7c88"
       },
       "verified_package_entries": 153,
       "verified_runtime_entries": 19,
       "renderer_protocol": 2,
       "renderer_sha256": "90c7f039ad666ace92929c380255c83b4aa59053a94c6c358ffb71653b05a74b",
-      "panel_sha256": "9d65ea135b9649899bba2c31a6a33556c9a130cd48731e3d2ef00502007ad475",
+      "panel_sha256": "055cea14c108b409602e6ec1977edd3c34237318a2c9425b0de3619f97a60aa4",
       "asset_contract": "43461d249d3bb20c915225be812327779933c283fee38fb14e4a7c4cc38c51e8",
       "generated_capabilities_sha256": "ca685935a18f9884b0c86f85c9d3f54c5c81927c44c9838c932f7a0fe5ed6876",
       "tested_host": "16.4.6.2414 Windows x64",
-      "isolated_install_and_checkonly": "passed audit.30 to audit.31 with real native readiness, preserved user files and exact installed capability report",
+      "isolated_install_and_checkonly": "passed audit.31 to audit.32, retired the prior runtime only after Ready and native Export Connected, preserved user files and installed the private desktop shortcut",
       "exact_package_host_tests": {
-        "first_launch": 348,
-        "restart": 352,
+        "viewer_stress_first": 52,
+        "viewer_stress_restart": 52,
         "managed_gpu": 32,
         "native_effect_export_first": 222,
         "native_effect_export_restart": 222,
         "native_effect_files": 40,
-        "native_output_profiles_and_print_diffusion_first": 129,
-        "native_output_profiles_and_print_diffusion_restart": 129,
-        "native_output_profiles_and_print_diffusion_files": 28,
-        "durable_edits_first": 16,
-        "durable_edits_restart": 20
+        "native_stacked_optics_and_profiles_first": 146,
+        "native_stacked_optics_and_profiles_restart": 146,
+        "native_stacked_optics_and_profiles_files": 32,
+        "native_grain_first": 114,
+        "native_grain_restart": 114,
+        "native_grain_files": 24
       },
       "independent_rgb16_codes_per_comparison": 156601728,
-      "independent_native_command_maximum_mean_full_scale": 7.081949424819647e-07,
+      "independent_native_command_maximum_mean_full_scale": 7.010689792562074e-07,
       "independent_output_profiles": {
         "cases": 12,
         "pixelsPerComparison": 122694,
@@ -3594,24 +3598,15 @@
       "independent_print_diffusion": {
         "cases": 2,
         "codesPerComparison": 18000000,
-        "maximumCommandMeanFullScale": 4.4699015793087666e-07,
-        "minimumPrintEffectMeanFullScale": 0.01243935976958877
+        "maximumCommandMeanFullScale": 4.2661003874096114e-07,
+        "minimumPrintEffectMeanFullScale": 0.012439362801047786,
+        "maximumScanParityMeanFullScale": 4.0462517908157645e-07
       },
-      "remote_windows_contracts": "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44765205234",
+      "independent_native_and_optical_grain_maximum_mean_full_scale": 1.0364656714393497e-06,
+      "remote_windows_contracts": "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44769430454",
       "normal_installed_revision": "ffc481988eb2e6e7ef7a1379486c4a8b2656ac81",
-      "receipt": ".test-results/audit31-package-verify-20261120/result.json",
-      "crash_durability": {
-        "edits": 10000,
-        "variants": 4,
-        "imageVisits": 100,
-        "latency": {
-          "P50": 4.7032,
-          "P95": 5.4653,
-          "P99": 6.1237,
-          "Max": 36.2635
-        },
-        "receipt": ".test-results/host-audit31-durability-20261120/edit-latency.json"
-      }
+      "receipt": ".test-results/audit32-package-verify-20261120/result.json",
+      "prior_hard_restart_durability_fixture": ".test-results/host-audit31-durability-20261120/edit-latency.json"
     }
   },
   "completed_milestones": [

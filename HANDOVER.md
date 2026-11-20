@@ -6,7 +6,7 @@ Updated 2026-11-20. The critical-fix batch is implemented, tested, installed loc
 
 1. Read this file, `AGENTS.md` and `qa/AUDIT-FIX-STATUS.json` before changing code. The JSON is the authoritative task-progress ledger; its `remaining_work` and original acceptance tests matter more than a short status label.
 2. Check `git status`, current branch and PR head. Do not discard existing edits or switch the installed build merely because this documentation has a newer commit.
-3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP is `0.2.0-audit.31` from clean `c48b8a8`. The exact package passes native four-RAW effects export, stacked camera and print diffusion, three output profiles, 10,000 durable slider movements with hard restart, the full licensed host suite, physical Vulkan and a private upgrade. Audit.29 retains the updated-catalog, workspace and export interruption campaigns.
+3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP is `0.2.0-audit.32` from clean `ca0b5cd`. It passes native four-RAW effects export, stacked camera and print diffusion, optical and Capture One grain, drag preview caching, physical Vulkan and a private upgrade. Audit.31 retains the 10,000-edit hard-restart and full licensed host campaigns. Audit.29 retains the updated-catalog, workspace and export interruption campaigns.
 4. Choose an unresolved task and an exact ownership boundary. Do not repeat the completed installation, crash test or old defect reproductions as if nothing had happened.
 5. Update task evidence and the delivery ledger at each completed milestone. Never mark a broad parent task complete because one mitigation shipped.
 
@@ -1010,6 +1010,15 @@ The exact package receipt is `.test-results/audit30-package-verify-20261120/resu
 
 The verified receipt is `.test-results/audit31-package-verify-20261120/result.json`. Per-run evidence is in `.test-results/host-audit31-*-20261120`. The exact private upgrade receipt is `D:/Library AI testing/sf-audit31-ready-20261120/installed-upgrade-receipt.json`.
 
+## Development package audit.32
+
+- [x] Build clean `ca0b5cd552256a64194ef1fb9ec2d2dc08a0c4c0` and verify 153 package entries and 19 critical runtime files. The ZIP SHA-256 is `9e69802f784023a3fb2050ce50c42d37f06b3d3f325c0450813cfbd7f42aa5b6`. The extracted worker passes 32 managed GPU checks and the exact source passes Windows Server 2022 and 2025 CI. [GitHub CI](https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44769430454)
+- [x] On Capture One 16.4.6.2414, first launch and restart each pass 222 four-RAW export, 146 stacked optics and recipe, 114 grain and 52 Viewer stress checks. Independently reopen all 96 export files from both native commands, including native and optical grain together, TIFF RGB48, PNG RGBA64 and the exact recipe RGB profile. The four-RAW route comparisons use 156,601,728 codes per comparison and agree within 7.02e-7 mean full scale.
+- [x] Adding print diffusion to camera diffusion, boosted halation and scatter changes mean RGB 1.244% of full scale. Both native commands preserve the stack and agree within 4.27e-7 mean full scale. In Scan Negative, remembered print-only settings and neutral values agree within 4.05e-7. The independent ICC matrix and tone-curve comparison across three output profiles has maximum Delta E 2000 of 0.8844. The combined native and optical grain route agrees within 1.04e-6 across both launches.
+- [x] Privately upgrade from audit.31. Verify the desktop launcher is created, the package reaches Ready and native Export Connected, and the prior runtime stays available until the readiness check succeeds. Preserve the nested user look and separate user preset. The regular installed runtime remains at the earlier revision.
+
+The receipt is `.test-results/audit32-package-verify-20261120/result.json`. Individual runs are in `.test-results/host-audit32-*-20261120`. The isolated installer receipt is `D:/Library AI testing/sf-audit32-ready-20261120/installed-upgrade-receipt.json`.
+
 ## Accepted export dialog and storage failure
 
 - [x] On first launch and restart, close the actual native Export confirmation after a TIFF with native and optical grain is accepted. The binding is released immediately and the job completes at its approved path with the same 16-bit pixels and recipe ICC.
@@ -1279,6 +1288,13 @@ The initial UI probe evaluated individual controls inside collapsed sections. Th
 - [x] Recheck real Capture One Export and Export with Previous Settings with the new Viewer cache. Both licensed launches pass 222 assertions and write 40 confirmed RGB48 TIFF and RGBA64 PNG effect and control files across four RAW formats and input encodings. The independent decoder checks more than 156 million 16-bit codes per comparison, exact ICC and the separate film, diffusion, halation and scatter changes. The largest mean route difference is 6.72e-7 of full scale. Compared with audit.31 the largest mean change is 2.81e-6 on the DNG film-only control. Native no-film controls vary slightly between the runs too. See `.test-results/host-effects-after-draft-pyramid-20261120/independent-rgb16.json`.
 
 The primary RC-03 work is complete. Cross-context memory ownership is tracked under VE-09. The low-resolution scatter response and full-frame versus tiled diffusion still need renderer work.
+
+## High-resolution Viewer fixture sources
+
+- [x] Download the two RAW fixture sources and verify their SHA-256 against the public archive. Capture One ImageCore reads both without opening a catalog and reports 8192 × 5464 for the Canon EOS R5 CR3 and 9504 × 6336 for the Sony a7R IV A ARW. The native metadata and source hashes are under `.test-results/high-resolution-raw-fixtures-20261120`. [RAW sample archive](https://raw.pixls.us/) · [Checksum index](https://raw.pixls.us/data/filelist.sha256)
+- [ ] Keep the existing sample catalog read-only. Build an independent disposable catalog with the two verified references and the current 24 MP DNG. Copy a validated fixture schema, use the raw decoder defaults and dimensions for the new records, then verify sample identity and selection in the licensed host. Measure retained and peak host, managed and worker memory at 0%, 50% and 100% strength. Verify release after the source and workers are retired.
+
+For shared GPU admission, distinguish the worker's actual adapter and heap from its memory estimates. Vulkan's dynamic usage is per process, so independent children can simultaneously commit against separate soft forecasts. Report startup adapter identity, retained bytes and incremental tile footprint before adding cross-context scheduling. Compare overlapping standalone workers and the real two-context fixture before treating a cache eviction or queue priority as a measured improvement. [Khronos memory budget specification](https://docs.vulkan.org/refpages/latest/refpages/source/VkPhysicalDeviceMemoryBudgetPropertiesEXT.html)
 
 ## Status maintenance
 
