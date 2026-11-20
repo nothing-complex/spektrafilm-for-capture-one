@@ -1246,6 +1246,14 @@ The local branch `audit/diffusion-tile-support-prototype-2026-11-20` retains pro
 
 Evidence is in `.test-results/host-real-unsaved-close-prompt-20261120`. This completes the bounded HS-04 close and retention guard.
 
+## Independent saves for the edited variant
+
+- [x] Commit the changed variant as the slider moves. Leave other pending variants available for the existing selection, background retry and close paths. Preserve the recovery receipt when the same value is queued twice, and keep the failure visible until remaining writes clear.
+- [x] Pass 271 state and recovery tests. An exclusive lock blocks an earlier primary while the current image commits. The earlier checkpoint stays byte-identical with the same timestamp, and retry commits the exact value after access returns. The Windows contract suite passes with 12,406 Viewer and export checks and 101 installer checks. See `.test-results/contracts-scoped-variant-save-20261120`.
+- [x] Repeat isolation with real slider controls on two RAW variants. A held primary lock yields a durable checkpoint. The selected image's edit reaches its own file while the earlier checkpoint retains its bytes and timestamp. After the lock releases, retry publishes the earlier edit and leaves the newer one exact. Both licensed four-RAW launches pass 222 assertions.
+- [x] Use both actual native export commands while an enabled saved look is loading. Each presents the expected owned warning and accepts no job before readiness. The fixture verifies and dismisses the live Windows dialog. The first automated attempt stalled because Windows assigned the visible OK button the Cancel control ID while reporting OK as the default. The corrected fixture verifies the body, owner and default before dismissing the actual button. Ready effects exports still pass with 40 verified files. See `.test-results/host-scoped-variant-save-native-final-20261120`.
+- [x] Pass 348 and 352 complete licensed assertions, including the actual close confirmation, then repeat 10,000 real slider movements over 100 visits across four RAW variants. Read every acknowledged write from disk. After the disposable process is terminated, restart restores every variant's final acknowledged settings and master switch byte for byte. The new run measures p50 4.70 ms, p95 5.45 ms and p99 6.09 ms with the Viewer paused. Evidence is in `.test-results/host-scoped-variant-save-general-final-20261120` and `.test-results/host-scoped-save-10000-edits-20261120`.
+
 ## Status maintenance
 
 `qa/AUDIT-FIX-STATUS.json` owns task IDs, status, implemented substeps, remaining acceptance work and evidence. This handover owns context, runtime identity and resume instructions. `.test-results/FINAL-RESULT.json` is the completed runtime delivery receipt; keep its runtime commit/package identity distinct from later documentation-only commits.

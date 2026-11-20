@@ -43,6 +43,7 @@ public static partial class StartupHook
             finally { input.SelectedItem = prior; }
         }
         TestMixedNativeExportSelection(hookField.GetValue(null)!, panel, spatial, selection, phase);
+        TestSelectedVariantSave(panel, selection);
     }
 
     private static void TestMixedNativeExportSelection(object bridge, object panel, object spatial,
@@ -83,6 +84,18 @@ public static partial class StartupHook
                 options.SetValue(panel, null);
                 Check(Prop(panel, "IsSpektraExportActive") is false && Guarded(false),
                     "the persisted enabled look keeps native Export guarded while the selected panel is loading");
+                var owner = (Forms.Form)Field(bridge, "window")!;
+                var caption = (string)bridge.GetType().Assembly.GetType("StartupHook", true)!
+                    .GetField("ProductName", Flags)!.GetRawConstantValue()!;
+                foreach (var (binding, name) in new[] { ("normal", "Export"), ("previous", "Export with Previous Settings") })
+                {
+                    var command = Field(Field(bridge, binding)!, "command")!;
+                    var warned = DismissOwnedMessageBox(owner, caption, Forms.DialogResult.OK,
+                        () => ExecuteNativeExportCommand(command),
+                        "Wait for the saved Spektrafilm look to load. Open the tool to see its status.");
+                    Check(warned && Prop(bridge, "Dialog") is null && Equals(lastJob, Call(jobs, "ReadLatest")),
+                        $"the actual native {name} command shows the saved-look warning before accepting a job");
+                }
             }
             finally { options.SetValue(panel, loaded); }
             toggle.IsChecked = false;
@@ -94,7 +107,7 @@ public static partial class StartupHook
             Check(Equals(lastJob, Call(jobs, "ReadLatest")), "selection eligibility neither accepted a job nor changed the last completed export");
             File.WriteAllText(Path.Combine(folder, phase + "-export-selection.json"),
                 JsonSerializer.Serialize(new { mixedBatchGuarded = true, primaryOnlyDelegated = true, allDisabledDelegated = true,
-                    loadingSavedLookGuarded = true, disabledWithLockedStateDelegated = true }));
+                    loadingSavedLookGuarded = true, loadingCommandsWarned = true, disabledWithLockedStateDelegated = true }));
         }
         finally
         {
@@ -103,6 +116,67 @@ public static partial class StartupHook
             toggle.IsChecked = secondaryEnabled;
             selection.Select(primary, primary);
             toggle.IsChecked = primaryEnabled;
+            selection.Select(originallyDisplayed, originallyDisplayed);
+        }
+    }
+
+    private static void TestSelectedVariantSave(object panel, FixtureSelection selection)
+    {
+        var originallyDisplayed = (Guid)Field(panel, "displayedVariant")!;
+        var earlier = selection.Variants[0];
+        var current = selection.Variants[1];
+        var store = Field(panel, "looks")!;
+        var exposure = Field(panel, "exposure")!;
+        var value = exposure.GetType().GetProperty("Value", Flags)!;
+        var previousExposure = new Dictionary<Guid, double>();
+        foreach (var variant in new[] { earlier, current })
+        {
+            selection.Select(variant, variant);
+            previousExposure[variant] = (double)value.GetValue(exposure)!;
+        }
+        const double earlierEdit = 2.125;
+        const double currentEdit = 1.625;
+        var earlierPath = (string)Call(store, "GetPath", earlier)!;
+        var currentPath = (string)Call(store, "GetPath", current)!;
+        var recovery = (string)Call(store, "GetRecoveryPath", earlier)!;
+        var disposableRoot = Path.GetFullPath(folder) + Path.DirectorySeparatorChar;
+        Check(new[] { earlierPath, currentPath, recovery }.All(path =>
+                Path.GetFullPath(path).StartsWith(disposableRoot, StringComparison.OrdinalIgnoreCase))
+            && !File.Exists(recovery) && previousExposure[earlier] != earlierEdit && previousExposure[current] != currentEdit,
+            "the selected-variant recovery fixture starts with distinct values and disposable look paths");
+        static double ReadExposure(string path)
+        {
+            using var input = File.OpenRead(path);
+            using var state = JsonDocument.Parse(input);
+            return state.RootElement.GetProperty("Look").GetProperty("Exposure").GetDouble();
+        }
+        try
+        {
+            selection.Select(earlier, earlier);
+            using (var locked = File.Open(earlierPath, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                value.SetValue(exposure, earlierEdit);
+                Check(Prop(store, "HasPending") is true && Prop(store, "HasUnprotectedPending") is false && File.Exists(recovery),
+                    "a locked earlier variant keeps its real slider edit in durable recovery");
+                selection.Select(current, current);
+                File.SetLastWriteTimeUtc(recovery, new DateTime(2019, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+                var checkpoint = File.ReadAllBytes(recovery);
+                value.SetValue(exposure, currentEdit);
+                Check(ReadExposure(currentPath) == currentEdit, "a different real Capture One variant commits its slider movement");
+                Check(File.GetLastWriteTimeUtc(recovery).Year == 2019 && File.ReadAllBytes(recovery).SequenceEqual(checkpoint),
+                    "saving the current variant leaves the earlier variant's recovery bytes and timestamp untouched");
+            }
+            Call(store, "Flush");
+            Check(ReadExposure(earlierPath) == earlierEdit && ReadExposure(currentPath) == currentEdit && !File.Exists(recovery),
+                "retry publishes the earlier value and preserves the current variant's committed value");
+        }
+        finally
+        {
+            foreach (var (variant, original) in previousExposure)
+            {
+                selection.Select(variant, variant);
+                value.SetValue(exposure, original);
+            }
             selection.Select(originallyDisplayed, originallyDisplayed);
         }
     }

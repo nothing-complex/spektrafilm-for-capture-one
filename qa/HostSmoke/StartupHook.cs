@@ -6,6 +6,7 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -442,45 +443,93 @@ public static partial class StartupHook
 
     private static void CheckUnprotectedClosePrompt(Type hook, object store)
     {
-        const uint ownerWindow = 4;
-        const uint getDefaultId = 0x0400;
-        const uint command = 0x0111;
-        const int noButtonId = 7;
         var owner = (Forms.Form)hook.GetField("window", Flags)!.GetValue(null)!;
         var caption = (string)hook.GetField("ProductName", Flags)!.GetRawConstantValue()!;
         var closing = new Forms.FormClosingEventArgs(Forms.CloseReason.UserClosing, false);
-        var defaultIsNo = false;
-        var dismissed = false;
-        using var watcher = new Forms.Timer { Interval = 25 };
-        watcher.Tick += (_, _) =>
-        {
-            nint dialog = 0;
-            while ((dialog = FindWindowExW(0, dialog, "#32770", caption)) != 0)
-            {
-                if (GetWindow(dialog, ownerWindow) != owner.Handle) continue;
-                var button = GetDlgItem(dialog, noButtonId);
-                if (button == 0) continue;
-                defaultIsNo = SendMessageW(dialog, getDefaultId, 0, 0) == 0x534b0007;
-                watcher.Stop();
-                dismissed = true;
-                SendMessageW(dialog, command, noButtonId, button);
-                break;
-            }
-        };
-        watcher.Start();
-        hook.GetMethod("OnFormClosing", Flags)!.Invoke(null, new object[] { owner, closing });
-        Check(dismissed && defaultIsNo && closing.Cancel && Prop(store, "HasUnprotectedPending") is true,
+        var prompt = DismissOwnedMessageBox(owner, caption, Forms.DialogResult.No,
+            () => hook.GetMethod("OnFormClosing", Flags)!.Invoke(null, new object[] { owner, closing }));
+        Check(prompt && closing.Cancel && Prop(store, "HasUnprotectedPending") is true,
             "the real owned Windows confirmation defaults to staying open and its No button preserves the unsaved edit");
     }
 
+    private static bool DismissOwnedMessageBox(Forms.Form owner, string caption, Forms.DialogResult choice, Action show,
+        string? expectedMessage = null)
+    {
+        const uint ownerWindow = 4;
+        const uint getDefaultId = 0x0400;
+        const uint command = 0x0111;
+        const int hasDefaultId = 0x534b0000;
+        const uint abortIfHung = 2;
+        var defaultButtonId = (int)choice;
+        var ownerHandle = owner.Handle;
+        var opened = 0;
+        var matched = 0;
+        using var watcher = new System.Threading.Timer(_ =>
+        {
+            if (Volatile.Read(ref opened) != 0) return;
+            nint dialog = 0;
+            while ((dialog = FindWindowExW(0, dialog, "#32770", caption)) != 0)
+            {
+                if (GetWindow(dialog, ownerWindow) != ownerHandle) continue;
+                var buttonId = defaultButtonId;
+                var button = GetDlgItem(dialog, buttonId);
+                // An OK-only Win32 box can give the OK control the Cancel ID
+                // for Escape handling while reporting IDOK as its default.
+                if (button == 0 && choice == Forms.DialogResult.OK)
+                {
+                    buttonId = (int)Forms.DialogResult.Cancel;
+                    button = GetDlgItem(dialog, buttonId);
+                }
+                if (button == 0) continue;
+                if (Interlocked.Exchange(ref opened, 1) != 0) return;
+                var defaultMatches = SendMessageTimeoutW(dialog, getDefaultId, 0, 0, abortIfHung, 250,
+                    out var defaultId) != 0 && defaultId == (hasDefaultId | defaultButtonId);
+                if (defaultMatches && (expectedMessage is null || ReadOwnedMessage(dialog, expectedMessage)))
+                    Volatile.Write(ref matched, 1);
+                PostMessageW(dialog, command, buttonId, button);
+                return;
+            }
+        }, null, 25, 25);
+        show();
+        return Volatile.Read(ref matched) != 0;
+    }
+
+    private static bool ReadOwnedMessage(nint dialog, string expected)
+    {
+        const uint getText = 0x000d;
+        const uint abortIfHung = 2;
+        var body = new StringBuilder(expected.Length + 2);
+        nint label = 0;
+        while ((label = FindWindowExW(dialog, label, "Static", null)) != 0)
+        {
+            body.Clear();
+            if (ReadWindowText(label, getText, body.Capacity, body, abortIfHung, 250, out _) != 0
+                && body.ToString() == expected)
+                return true;
+        }
+        return false;
+    }
+
     [DllImport("user32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
-    private static extern nint FindWindowExW(nint parent, nint after, string className, string windowName);
+    private static extern nint FindWindowExW(nint parent, nint after, string className, string? windowName);
 
     [DllImport("user32.dll", ExactSpelling = true)]
     private static extern nint GetWindow(nint handle, uint relationship);
 
     [DllImport("user32.dll", ExactSpelling = true)]
     private static extern nint GetDlgItem(nint dialog, int id);
+
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern nint SendMessageTimeoutW(nint handle, uint message, nint wParam, nint lParam,
+        uint flags, uint timeout, out nint result);
+
+    [DllImport("user32.dll", EntryPoint = "SendMessageTimeoutW", CharSet = CharSet.Unicode, ExactSpelling = true)]
+    private static extern nint ReadWindowText(nint handle, uint message, nint wParam, StringBuilder text,
+        uint flags, uint timeout, out nint result);
+
+    [DllImport("user32.dll", ExactSpelling = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool PostMessageW(nint handle, uint message, nint wParam, nint lParam);
 
     static async Task TestViewportQuality(object spatial, Guid variant)
     {

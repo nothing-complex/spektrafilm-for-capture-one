@@ -1135,7 +1135,7 @@ internal static class SpektraFilmTool
             {
                 looks.Queue(variant, look);
                 displayedLook = look;
-                FlushLooks();
+                FlushLooksFor(variant);
                 if (historyGesture is null)
                     RecordLookEdit(variant, before, look, entryName);
             }
@@ -1197,12 +1197,16 @@ internal static class SpektraFilmTool
             return !looks.HasUnprotectedPending;
         }
 
-        internal void FlushLooks()
+        internal void FlushLooks() => FlushLooksFor(null);
+
+        private void FlushLooksFor(Guid? variant)
         {
             try
             {
-                looks.Flush();
-                if (retryLookReadAt is null && (displayedVariant is not { } selected || !looks.IsBlocked(selected)))
+                if (variant is { } edited) looks.FlushVariant(edited);
+                else looks.Flush();
+                if (!looks.HasPending && retryLookReadAt is null
+                    && (displayedVariant is not { } selected || !looks.IsBlocked(selected)))
                     saveError.Visibility = Visibility.Collapsed;
             }
             catch (Exception error)

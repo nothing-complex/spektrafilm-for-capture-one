@@ -148,6 +148,8 @@ internal sealed class VariantLookStore
             session.Pending.TryGetValue(variant, out var prior);
             var baseline = prior is null ? session.KnownHash.GetValueOrDefault(variant) : prior.BaseHash;
             var edit = PrepareEdit(look, baseline);
+            if (prior?.Hash == edit.Hash)
+                return; // Preserve the durability receipt for the same pending value.
             if (prior is null && session.KnownLookHash.GetValueOrDefault(variant) == edit.Hash)
             {
                 try
@@ -177,14 +179,24 @@ internal sealed class VariantLookStore
 
     internal void Flush() => FlushPending(null);
 
+    internal void FlushVariant(Guid variant) => FlushPending(variant);
+
     private void FlushPending(Guid? onlyVariant)
     {
         lock (session)
         {
-            var failures = new List<string>();
-            foreach (var (variant, pending) in session.Pending.ToArray())
+            KeyValuePair<Guid, PendingEdit>[] edits;
+            if (onlyVariant is { } only)
             {
-                if (onlyVariant is { } only && only != variant) continue;
+                if (!session.Pending.TryGetValue(only, out var pendingEdit)) return;
+                edits = [new(only, pendingEdit)];
+            }
+            else
+                edits = session.Pending.ToArray();
+
+            var failures = new List<string>();
+            foreach (var (variant, pending) in edits)
+            {
                 try
                 {
                     if (blocked.TryGetValue(variant, out var issue))

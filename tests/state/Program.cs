@@ -137,7 +137,20 @@ using (var locked = new FileStream(stateFile, FileMode.Open, FileAccess.Read, Fi
     Check("failed primary has durable recovery", !store.HasUnprotectedPending);
     var replacementPanelStore = new VariantLookStore(root, catalog);
     Check("pending survives store replacement", replacementPanelStore.Read(id)?.Look.Exposure == 1.3);
-    Check("recovery checkpoint durable", Directory.GetFiles(Path.Combine(scratch, "Look recovery"), "*.pending.json", SearchOption.AllDirectories).Length == 1);
+    var checkpoints = Directory.GetFiles(Path.Combine(scratch, "Look recovery"), "*.pending.json", SearchOption.AllDirectories);
+    Check("recovery checkpoint durable", checkpoints.Length == 1);
+    store.Queue(id, Sample(1.3));
+    Check("queueing an equal pending value retains its durability", store.HasPending && !store.HasUnprotectedPending);
+    var checkpoint = checkpoints[0];
+    var checkpointBytes = File.ReadAllBytes(checkpoint);
+    File.SetLastWriteTimeUtc(checkpoint, new DateTime(2019, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+    var other = Guid.NewGuid();
+    store.Queue(other, Sample(1.6));
+    store.FlushVariant(other);
+    Check("selected variant commits while another primary is locked", store.HasCommitted(other) && store.Read(other)?.Look.Exposure == 1.6);
+    Check("selected variant save leaves the unrelated durable recovery untouched",
+        store.HasPending && !store.HasUnprotectedPending
+        && File.GetLastWriteTimeUtc(checkpoint).Year == 2019 && File.ReadAllBytes(checkpoint).SequenceEqual(checkpointBytes));
 }
 new VariantLookStore(root, catalog).Flush();
 Check("retry saves pending", new VariantLookStore(root, catalog).Read(id)?.Look.Exposure == 1.3);
