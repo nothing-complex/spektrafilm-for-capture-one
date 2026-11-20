@@ -13,12 +13,15 @@ internal sealed class NativeSlider : Grid
     private readonly ToolSliderWPF control;
     private readonly decimal displayScale;
     private readonly double defaultValue;
+    private double publishedValue;
+    private bool requiresInteger;
 
     internal NativeSlider(string title, double minimum, double maximum, double initial, double step,
         string unit = "", double displayScale = 1, int? decimalPlaces = null)
     {
         this.displayScale = (decimal)displayScale;
         defaultValue = initial;
+        publishedValue = initial;
         Margin = new Thickness(0, 2, 0, 2);
         Resources.MergedDictionaries.Add(new SharedResourceDictionary { Source = StyleSource });
 
@@ -46,7 +49,7 @@ internal sealed class NativeSlider : Grid
         control.PropertyChanged += (_, args) =>
         {
             if (args.PropertyName == nameof(ToolSliderWPF.Value))
-                ValueChanged?.Invoke(this, EventArgs.Empty);
+                PublishValue();
         };
         control.SliderPointerDown += (_, _) => DragStarted?.Invoke(this, EventArgs.Empty);
         control.SliderPointerUp += (_, _) => DragCompleted?.Invoke(this, EventArgs.Empty);
@@ -61,7 +64,7 @@ internal sealed class NativeSlider : Grid
     internal double Value
     {
         get => (double)(control.Value / displayScale);
-        set => control.Value = ToDisplay(Math.Clamp(value, Minimum, Maximum));
+        set => control.Value = ToDisplay(Math.Clamp(Normalize(value), Minimum, Maximum));
     }
 
     internal double Minimum => (double)(control.Minimum / displayScale);
@@ -73,7 +76,32 @@ internal sealed class NativeSlider : Grid
     internal event EventHandler? DragStarted;
     internal event EventHandler? DragCompleted;
 
+    internal void BindRenderer(RendererParameters renderer, string key)
+    {
+        requiresInteger = renderer.VerifyNumericControl(key, Minimum, Maximum, Initial, Increment);
+        PublishValue();
+    }
+
     internal void ResetToDefault() => Value = defaultValue;
+
+    private double Normalize(double value) => requiresInteger ? Math.Round(value, MidpointRounding.AwayFromZero) : value;
+
+    private void PublishValue()
+    {
+        var value = Value;
+        var normalized = Normalize(value);
+        if (value != normalized)
+        {
+            // The native numeric box can assign fractional values directly.
+            // Publish only the corrected value from the resulting notification.
+            Value = normalized;
+            return;
+        }
+        if (publishedValue == value)
+            return;
+        publishedValue = value;
+        ValueChanged?.Invoke(this, EventArgs.Empty);
+    }
 
     private decimal ToDisplay(double value) => (decimal)value * displayScale;
 

@@ -544,10 +544,10 @@ internal static class SpektraFilmTool
             scanInvert.Unchecked += (_, _) => RefreshLook();
             controls.Children.Add(scanInvert);
             AddStock(controls, "Print stock", paper);
-            exposure = AddSlider(controls, "Film exposure", -8, 8, 0, 0.1, "EV");
-            printExposure = AddSlider(controls, "Print exposure", -5, 5, 0, 0.1, "EV");
+            exposure = AddSlider(controls, FilmControls.Exposure);
+            printExposure = AddSlider(controls, FilmControls.PrintExposure);
             printExposure.ToolTip = "More light on the print stock makes the result darker.";
-            strength = AddSlider(controls, "Look strength", 0, 100, 100, 1, "%");
+            strength = AddSlider(controls, FilmControls.Strength);
             strength.ValueChanged += (_, _) =>
             {
                 if (!settingValues)
@@ -754,43 +754,33 @@ internal static class SpektraFilmTool
         private FrameworkElement MakeFilmControls()
         {
             var section = new StackPanel();
-            AddDevelopment(section, "film_gamma", "Negative gamma", 0.1, 2, 1, 0.05);
+            AddDevelopment(section, FilmControls.Negative[0]);
             filmPushPullMode.ItemsSource = new[] { new Stock("standard", "Standard"), new Stock("experimental", "Experimental") };
             filmPushPullMode.SelectedIndex = 0;
             AddStock(section, "Push / pull model", filmPushPullMode);
-            AddDevelopment(section, "film_push_pull", "Film push / pull", -2, 2, 0, 0.1, "EV");
-            AddDevelopment(section, "negative_bleach_bypass", "Negative bleach bypass", 0, 1, 0, 0.01, "%", 100);
-            AddDevelopment(section, "negative_leuco_cyan", "Negative leuco cyan", 0, 2, 1, 0.05);
-            AddDevelopment(section, "uv_cutoff", "UV cutoff", 380, 450, 380, 1, "nm");
-            AddDevelopment(section, "ir_cutoff", "IR cutoff", 600, 780, 780, 1, "nm");
+            foreach (var definition in FilmControls.Negative.Skip(1))
+                AddDevelopment(section, definition);
             return Section("film-development", "Film development", section);
         }
 
         private FrameworkElement MakePrintControls()
         {
-            AddDevelopment(printing, "print_gamma", "Print gamma", 0.1, 2, 1, 0.05);
-            AddDevelopment(printing, "print_push_pull", "Print push / pull", -2, 2, 0, 0.1, "EV");
-            AddDevelopment(printing, "print_shadows", "Print shadow shape", -1, 1, 0, 0.05);
-            AddDevelopment(printing, "print_highlights", "Print highlight shape", -1, 1, 0, 0.05);
-            AddDevelopment(printing, "print_exhaustion", "Developer exhaustion", 0, 1, 0, 0.01, "%", 100);
-            var exhaustion = development["print_exhaustion"].Slider;
-            exhaustion.IsEnabled = false;
-            exhaustion.ToolTip = "Developer exhaustion is not supported by the image renderer. Existing preset values are preserved until you explicitly clear them.";
-            var exhaustionReset = Button("Clear unsupported developer exhaustion", () =>
+            foreach (var definition in FilmControls.Printing)
             {
-                exhaustion.Value = 0;
-                return Task.CompletedTask;
-            });
-            exhaustionReset.Visibility = Visibility.Collapsed;
-            exhaustion.ValueChanged += (_, _) => exhaustionReset.Visibility = exhaustion.Value == 0 ? Visibility.Collapsed : Visibility.Visible;
-            printing.Children.Add(exhaustionReset);
-            AddDevelopment(printing, "print_bleach_bypass", "Print bleach bypass", 0, 1, 0, 0.01, "%", 100);
-            AddDevelopment(printing, "cyan_filter", "Cyan filtration", 0, 120, 0, 1, "CC");
-            AddDevelopment(printing, "magenta_filter", "Magenta filter shift", -60, 60, 0, 1, "CC");
-            AddDevelopment(printing, "yellow_filter", "Yellow filter shift", -60, 60, 0, 1, "CC");
-            AddDevelopment(printing, "preflash_exposure", "Preflash exposure", 0, 1, 0, 0.01);
-            AddDevelopment(printing, "preflash_magenta", "Preflash magenta", -60, 60, 0, 1, "CC");
-            AddDevelopment(printing, "preflash_yellow", "Preflash yellow", -60, 60, 0, 1, "CC");
+                var slider = AddDevelopment(printing, definition);
+                if (definition.StateKey != "print_exhaustion")
+                    continue;
+                slider.IsEnabled = false;
+                slider.ToolTip = "Developer exhaustion is not supported by the image renderer. Existing preset values are preserved until you explicitly clear them.";
+                var clear = Button("Clear unsupported developer exhaustion", () =>
+                {
+                    slider.ResetToDefault();
+                    return Task.CompletedTask;
+                });
+                clear.Visibility = Visibility.Collapsed;
+                slider.ValueChanged += (_, _) => clear.Visibility = slider.Value == 0 ? Visibility.Collapsed : Visibility.Visible;
+                printing.Children.Add(clear);
+            }
             return Section("enlarger-and-print", "Enlarger and print", printing);
         }
 
@@ -798,17 +788,16 @@ internal static class SpektraFilmTool
         {
             var section = new StackPanel();
             AddStock(section, "Spectral reconstruction", spectralMethod);
-            AddDevelopment(section, "dir_amount", "DIR coupler amount", 0, 2, 1, 0.05);
-            AddDevelopment(section, "dir_same_layer", "Same-layer inhibition", 0, 2, 1, 0.05);
-            AddDevelopment(section, "dir_interlayer", "Interlayer inhibition", 0, 2, 1, 0.05);
+            foreach (var definition in FilmControls.Couplers)
+                AddDevelopment(section, definition);
             return Section("spectral-dir", "Spectral reconstruction and DIR", section);
         }
 
-        private void AddDevelopment(StackPanel section, string key, string label, double min, double max,
-            double initial, double step, string unit = "", double displayScale = 1)
+        private NativeSlider AddDevelopment(StackPanel section, FilmSlider definition)
         {
-            var slider = AddSlider(section, label, min, max, initial, step, unit, displayScale);
-            development.Add(key, (slider, initial));
+            var slider = AddSlider(section, definition);
+            development.Add(definition.StateKey, (slider, definition.Initial));
+            return slider;
         }
 
         private static Expander Section(string key, string title, FrameworkElement content) =>
@@ -1513,9 +1502,7 @@ internal static class SpektraFilmTool
         private void ValidateLoadedSettings(LookSettings look, SpatialPreview.Settings? optics)
         {
             LookStateValidation.ValidateLook(look);
-            foreach (var (key, value) in look.Development)
-                if (!development.TryGetValue(key, out var item) || value < item.Slider.Minimum || value > item.Slider.Maximum)
-                    throw new InvalidDataException($"The saved development control '{key}' is unsupported or out of range.");
+            LookStateValidation.ValidateDevelopment(look.Development);
             if (look.FilmPushPullMode is not "standard" and not "experimental")
                 throw new InvalidDataException("The saved push/pull model is unavailable.");
             if (optics is null) return;
@@ -1779,10 +1766,10 @@ internal static class SpektraFilmTool
             };
         }
 
-        private NativeSlider AddSlider(StackPanel section, string title, double min, double max, double initial, double step,
-            string unit = "", double displayScale = 1)
+        private NativeSlider AddSlider(StackPanel section, FilmSlider definition)
         {
-            var slider = new NativeSlider(title, min, max, initial, step, unit, displayScale);
+            var slider = new NativeSlider(definition.Label, definition.Minimum, definition.Maximum,
+                definition.Initial, definition.Increment, definition.Unit, definition.DisplayScale);
             slider.ValueChanged += (_, _) => RefreshLook();
             if (opticalPreview is not null)
                 opticalPreview.TrackSliderDrag(slider);
@@ -1806,12 +1793,12 @@ internal static class SpektraFilmTool
                 renderer.VerifyOptions("mode", available.Modes.Select(mode => mode.Id));
                 renderer.VerifyOptions("mode", new[] { "print", "scan", "scan_inverted" });
                 renderer.VerifyOptions("film-push-pull-mode", ((Stock[])filmPushPullMode.ItemsSource).Select(choice => choice.Id));
-                VerifyNumber("film-exposure", exposure);
-                VerifyNumber("print-exposure", printExposure);
+                exposure.BindRenderer(renderer, FilmControls.Exposure.WorkerKey!);
+                printExposure.BindRenderer(renderer, FilmControls.PrintExposure.WorkerKey!);
                 renderer.VerifyBooleanControl("uv-enabled");
                 renderer.VerifyBooleanControl("ir-enabled");
                 foreach (var (stateKey, workerKey) in SpatialPreview.DevelopmentRendererParameters)
-                    VerifyNumber(workerKey, development[stateKey].Slider);
+                    development[stateKey].Slider.BindRenderer(renderer, workerKey);
                 if (!renderer.SupportsChoice("spectral-method", "hanatos2026")
                     || !available.Films.All(stock => renderer.SupportsHanatos2026(stock.Id)))
                     available = available with { SpectralMethods = available.SpectralMethods.Where(method => method.Id != "hanatos2026").ToArray() };
@@ -1824,8 +1811,6 @@ internal static class SpektraFilmTool
                 controlsLoadFailed = false;
                 SyncSelection();
 
-                void VerifyNumber(string key, NativeSlider slider) =>
-                    renderer.VerifyNumericControl(key, slider.Minimum, slider.Maximum, slider.Initial, slider.Increment);
             }
             catch (Exception error)
             {
@@ -1888,8 +1873,9 @@ internal static class SpektraFilmTool
                 film.SelectedItem = options.Films.First(stock => stock.Id == DefaultFilm);
                 scanInvert.IsChecked = false;
                 filmPushPullMode.SelectedIndex = 0;
-                exposure.Value = printExposure.Value = 0;
-                strength.Value = 100;
+                exposure.ResetToDefault();
+                printExposure.ResetToDefault();
+                strength.ResetToDefault();
                 foreach (var (slider, initial) in development.Values)
                     slider.Value = initial;
             }

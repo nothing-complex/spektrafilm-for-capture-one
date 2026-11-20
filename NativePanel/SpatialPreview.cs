@@ -266,7 +266,7 @@ internal sealed class SpatialPreview : IDisposable
         foreach (var (key, selector) in choices)
             renderer.VerifyOptions(key, ((Choice[])selector.ItemsSource).Select(choice => choice.Id));
         foreach (var (key, slider) in values)
-            renderer.VerifyNumericControl(key, slider.Minimum, slider.Maximum, slider.Initial, slider.Increment);
+            slider.BindRenderer(renderer, key);
         foreach (var key in toggles.Keys.Where(key => !key.StartsWith("custom-", StringComparison.Ordinal)))
             renderer.VerifyBooleanControl(key);
     }
@@ -1634,17 +1634,9 @@ internal sealed class SpatialPreview : IDisposable
         }
     }
 
-    internal static IReadOnlyList<(string StateKey, string WorkerKey)> DevelopmentRendererParameters { get; } = Array.AsReadOnly(new[]
-    {
-        ("film_gamma", "film-gamma"), ("film_push_pull", "film-push-pull"), ("print_gamma", "print-gamma"),
-        ("print_push_pull", "print-push-pull"), ("negative_bleach_bypass", "negative-bleach-bypass"),
-        ("print_bleach_bypass", "print-bleach-bypass"), ("negative_leuco_cyan", "negative-leuco-cyan"),
-        ("print_shadows", "print-shadow-shape"), ("print_highlights", "print-highlight-shape"),
-        ("cyan_filter", "cyan-filter"), ("magenta_filter", "magenta-filter"), ("yellow_filter", "yellow-filter"),
-        ("preflash_exposure", "preflash"), ("preflash_magenta", "preflash-magenta"), ("preflash_yellow", "preflash-yellow"),
-        ("uv_cutoff", "uv-cutoff"), ("ir_cutoff", "ir-cutoff"), ("dir_amount", "dir-amount"),
-        ("dir_same_layer", "dir-same-layer"), ("dir_interlayer", "dir-interlayer"),
-    });
+    internal static IReadOnlyList<(string StateKey, string WorkerKey)> DevelopmentRendererParameters { get; } =
+        Array.AsReadOnly(FilmControls.Development.Values.Where(item => item.WorkerKey is not null)
+            .Select(item => (item.StateKey, item.WorkerKey!)).ToArray());
 
     internal string[] RendererOptions(LookSettings look, string inputColor, string outputColor, bool export = false, bool draft = false)
     {
@@ -1672,8 +1664,13 @@ internal sealed class SpatialPreview : IDisposable
             if (look.Development.TryGetValue(sourceKey, out var value))
                 Numeric(rendererKey, value);
         }
-        Set("uv-enabled", look.Development.GetValueOrDefault("uv_cutoff", 380) > 380 ? "true" : "false");
-        Set("ir-enabled", look.Development.GetValueOrDefault("ir_cutoff", 780) < 780 ? "true" : "false");
+        SetFilter("uv_cutoff", "uv-enabled");
+        SetFilter("ir_cutoff", "ir-enabled");
+        void SetFilter(string key, string option)
+        {
+            var baseline = FilmControls.Development[key].Initial;
+            Set(option, look.Development.GetValueOrDefault(key, baseline) != baseline ? "true" : "false");
+        }
 
         foreach (var key in choices.Keys)
             Set(key, Selected(key).Id);

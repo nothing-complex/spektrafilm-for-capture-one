@@ -24,9 +24,17 @@ internal static class LookStateValidation
     {
         if (look is null || !Identifier(look.Film) || !Identifier(look.Paper) || !Identifier(look.Mode)
             || !Identifier(look.SpectralMethod) || !Identifier(look.FilmPushPullMode)
-            || !InRange(look.Exposure, -8, 8) || !InRange(look.PrintExposure, -5, 5) || !InRange(look.Strength, 0, 1))
+            || !FilmControls.Exposure.Contains(look.Exposure) || !FilmControls.PrintExposure.Contains(look.PrintExposure)
+            || !FilmControls.Strength.Contains(look.Strength * 100))
             throw new InvalidDataException("The saved film settings contain a missing, invalid or out-of-range value.");
         ValidateNumbers(look.Development);
+    }
+
+    internal static void ValidateDevelopment(IReadOnlyDictionary<string, double> values)
+    {
+        foreach (var (key, value) in values)
+            if (!FilmControls.Development.TryGetValue(key, out var definition) || !definition.Contains(value))
+                throw new InvalidDataException($"The saved development control '{key}' is unsupported or out of range.");
     }
 
     internal static void ValidateOptics(SpatialPreview.Settings settings)

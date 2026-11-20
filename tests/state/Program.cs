@@ -376,10 +376,10 @@ void WriteRendererFixture(bool academyPrinterDensity, object[] parameters, int p
 WriteRendererFixture(false, fixtureOptions);
 var capabilities = RendererParameters.Read(scratch);
 capabilities.VerifyArguments(new[] { "--mode", "print", "--film-gamma", "0.1", "--grain-seed", "2147483647" });
-capabilities.VerifyNumericControl("film-gamma", .1, 2, 1.3, .05);
-capabilities.VerifyNumericControl("grain-seed", 0, 32767, 1, 1);
+Check("continuous and integer controls bind their compiled parameter types",
+    !capabilities.VerifyNumericControl("film-gamma", .1, 2, 1.3, .05)
+    && capabilities.VerifyNumericControl("grain-seed", 0, 32767, 1, 1));
 capabilities.VerifyBooleanControl("uv-enabled");
-Check("managed numeric bounds, an intentional panel default and a smaller integer range match the renderer", true);
 Throws<InvalidDataException>("numeric control refuses a narrower worker maximum",
     () => capabilities.VerifyNumericControl("film-gamma", .1, 2.01, 1, .05));
 Throws<InvalidDataException>("numeric control refuses a default outside the panel range",
@@ -388,6 +388,10 @@ Throws<InvalidDataException>("numeric control refuses a nonfinite UI bound",
     () => capabilities.VerifyNumericControl("film-gamma", double.NaN, 2, 1, .05));
 Throws<InvalidDataException>("integer control refuses a fractional step",
     () => capabilities.VerifyNumericControl("grain-seed", 0, 32767, 1, .5));
+Throws<InvalidDataException>("integer control rejects a fractional initial value even when it formats as an integer",
+    () => capabilities.VerifyNumericControl("grain-seed", 0, 32767, 1.0000001, 1));
+Throws<InvalidDataException>("integer control rejects a fractional endpoint even when it formats as an integer",
+    () => capabilities.VerifyNumericControl("grain-seed", .0000001, 32767, 1, 1));
 Throws<InvalidDataException>("numeric control refuses an absent renderer key",
     () => capabilities.VerifyNumericControl("deleted-number", 0, 1, 0, .1));
 Throws<InvalidDataException>("boolean control refuses a compiled choice using the same name",
@@ -421,6 +425,39 @@ WriteRendererFixture(false, fixtureOptions, protocol: 1);
 Throws<InvalidDataException>("compiled parameter description must match the panel protocol", () => RendererParameters.Read(scratch));
 WriteRendererFixture(true, fixtureOptions);
 Check("compiled APD data enables the declared mode", RendererParameters.Read(scratch).SupportsChoice("mode", "process_negative"));
+
+var filmDefaults = FilmControls.Development.Values.ToDictionary(item => item.StateKey, item => item.Initial);
+var developmentKeys = FilmControls.Development.Values.Select(item => item.WorkerKey).OfType<string>().ToArray();
+Check("the film control schema keeps 21 saved keys and 20 distinct wire mappings",
+    filmDefaults.Count == 21 && developmentKeys.Length == 20 && developmentKeys.Distinct().Count() == 20
+    && filmDefaults["print_exhaustion"] == 0);
+LookStateValidation.ValidateDevelopment(filmDefaults);
+foreach (var definition in FilmControls.Development.Values)
+{
+    foreach (var bound in new[] { definition.Minimum, definition.Maximum })
+    {
+        var settings = new Dictionary<string, double> { [definition.StateKey] = bound };
+        var decoded = PanelFiles.DecodePreset<Dictionary<string, double>>(PanelFiles.EncodeCompactPreset(settings));
+        LookStateValidation.ValidateDevelopment(decoded);
+        Check($"{definition.StateKey} boundary {bound} roundtrips", decoded[definition.StateKey] == bound);
+    }
+    Throws<InvalidDataException>($"{definition.StateKey} rejects a value just outside its control range",
+        () => LookStateValidation.ValidateDevelopment(new Dictionary<string, double>
+        {
+            [definition.StateKey] = Math.BitIncrement(definition.Maximum),
+        }));
+}
+var manifestJson = File.ReadAllBytes(rendererManifestPath);
+var malformedRandom = new Random(1167);
+for (var iteration = 0; iteration < 64; iteration++)
+{
+    var length = malformedRandom.Next(manifestJson.Length - 1);
+    File.WriteAllBytes(rendererManifestPath, manifestJson.AsSpan(0, length).ToArray());
+    Throws<JsonException>($"compiled parameter JSON rejects truncated prefix {iteration}", () => RendererParameters.Read(scratch));
+}
+File.WriteAllBytes(rendererManifestPath, new byte[PanelFiles.MaxPresetBytes + 1]);
+Throws<InvalidDataException>("compiled parameter description refuses an oversized payload", () => RendererParameters.Read(scratch));
+File.WriteAllBytes(rendererManifestPath, manifestJson);
 
 var presetPath = Path.Combine(scratch, "all-controls.spektra.json");
 PanelFiles.WritePreset(presetPath, LookPreset.From(presetSource));

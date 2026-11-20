@@ -14,6 +14,57 @@ public static partial class StartupHook
 {
     private sealed record PanelControl(string Section, string Label, string Kind, string Capability, string? Option = null);
 
+    private static void VerifyNativeSliderTypes(object panel, object spatial, object store, Guid variant)
+    {
+        var sliders = (IDictionary)Field(spatial, "values")!;
+        var cases = new[]
+        {
+            ("grain-seed", 17.5m, 18d), ("grain-sublayer-count", 3.5m, 4d),
+            ("grain-synthesis-samples", 79.7m, 80d), ("grain-synthesis-cell-cap", 18.49m, 18d),
+            ("camera-diffusion-strength", 1.375m, 1.375), ("camera-diffusion-warmth", -.375m, -.375),
+        };
+        var original = Call(spatial, "CaptureSettings")!;
+        var legacy = Call(spatial, "CaptureSettings")!;
+        var legacyNumbers = (IDictionary)Prop(legacy, "Numbers")!;
+        foreach (var (key, entered, expected) in cases)
+        {
+            var slider = sliders[key]!;
+            var control = Field(slider, "control")!;
+            var value = control.GetType().GetProperty("Value", Flags)!;
+            var notifications = new List<double>();
+            var changed = slider.GetType().GetEvent("ValueChanged", Flags)!;
+            EventHandler observe = (_, _) => notifications.Add((double)Prop(slider, "Value")!);
+            changed.GetAddMethod(nonPublic: true)!.Invoke(slider, new object[] { observe });
+            try
+            {
+                value.SetValue(control, entered);
+            }
+            finally
+            {
+                changed.GetRemoveMethod(nonPublic: true)!.Invoke(slider, new object[] { observe });
+            }
+            var saved = Call(store, "Read", variant)!;
+            var numbers = (IDictionary)Prop(Prop(saved, "Optics")!, "Numbers")!;
+            Check(notifications.SequenceEqual(new[] { expected }) && Equals(numbers[key], expected),
+                $"{key} publishes and persists one valid setting from the native value change");
+            legacyNumbers[key] = (double)entered;
+            Call(slider, "ResetToDefault");
+            Check(Equals(Prop(slider, "Value"), Prop(slider, "Initial")), $"{key} resets to its declared default");
+        }
+        Call(spatial, "ValidateSettings", legacy);
+        Call(spatial, "LoadSettings", legacy);
+        var controls = (IDictionary)Prop(Call(spatial, "CaptureSettings")!, "Numbers")!;
+        var look = Call(panel, "CurrentSettings")!;
+        var options = (string[])Call(spatial, "RendererOptions", look, "srgb", "srgb", false, false)!;
+        var wire = Enumerable.Range(0, options.Length / 2)
+            .ToDictionary(index => options[index * 2][2..], index => options[index * 2 + 1], StringComparer.Ordinal);
+        foreach (var (key, entered, expected) in cases)
+            Check(Equals(controls[key], expected) && Equals(legacyNumbers[key], (double)entered)
+                && wire[key] == expected.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                $"{key} loads legacy numeric input and emits a supported renderer value");
+        Call(spatial, "LoadSettings", original);
+    }
+
     private static void SavePanelControlInventory(object panel, object spatial)
     {
         var bindings = new Dictionary<object, (string Capability, string? Option)>(ReferenceEqualityComparer.Instance);

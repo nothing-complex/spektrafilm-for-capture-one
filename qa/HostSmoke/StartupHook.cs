@@ -187,6 +187,7 @@ public static partial class StartupHook
             if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_PANEL_INVENTORY") == "1")
             {
                 SavePanelControlInventory(panel, spatial);
+                VerifyNativeSliderTypes(panel, spatial, store, variant);
                 File.WriteAllText(Path.Combine(folder, "first.passed"), $"PASS {checks} native control inventory assertions");
                 return;
             }

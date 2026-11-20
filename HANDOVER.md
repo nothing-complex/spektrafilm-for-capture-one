@@ -1359,6 +1359,16 @@ Evidence is in `.test-results/host-native-look-batch-final-20261120` and the 281
 
 Evidence is in `.test-results/negative-density-full-smoke-20261120.log`, `.test-results/density-{baseline,candidate,sweep,overlap}-20261120.json` and `.test-results/host-density-viewer-20261120`. The source-build checkpoint has local evidence. The latest verified ZIP and installed build identities are listed above.
 
+## Film slider definitions and typed optical values
+
+- [x] Use `NativePanel/FilmControls.cs` for development control order, saved keys, wire options, ranges, increments, units and reset values. The existing preset keys and native labels remain the same. The legacy Developer exhaustion value can still be read and explicitly cleared. It has no worker option.
+- [x] Bind slider numerics to the generated renderer parameter type. Round the four integer grain controls before publishing a native value change or applying older fractional values. Preserve fractions for continuous settings. Loading older values leaves the input data intact and only corrects the active control and render value.
+- [x] Pass 446 state and recovery checks, including all 42 development endpoints, one-step-outside values, 64 truncated descriptions and the manifest size limit. Run `Run-HostSmoke.ps1 -PanelInventory -SkipRestart` to verify the actual native controls. The licensed fixture passed 38 assertions, including storage and wire values after fractional native input, legacy reload, reset values, and exact inventory parity.
+- [x] Pass the real Capture One 16.4 general fixture, with 352 checks on launch and 356 after restart. The copied catalog fixture retains its original hash. Build against the signed 16.7.8.3529 references without warnings and verify all 563 compiled host references match the licensed 16.4 build.
+- [ ] Extend the same definitions to the optical controls and mode dependencies. Keep the authored panel defaults distinct where intentional, including UV/IR cutoff off values and the bounded grain seed UI.
+
+Evidence is in `.test-results/film-control-contracts-20261120.log`, `.test-results/host-film-control-schema-20261120`, `.test-results/host-film-control-regression-20261120` and `.test-results/host67-contracts/reference-drift-film-schema.json`.
+
 ## Status maintenance
 
 `qa/AUDIT-FIX-STATUS.json` owns task IDs, status, implemented substeps, remaining acceptance work and evidence. This handover owns context, runtime identity and resume instructions. `.test-results/FINAL-RESULT.json` is the completed runtime delivery receipt; keep its runtime commit/package identity distinct from later documentation-only commits.

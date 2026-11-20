@@ -1227,7 +1227,11 @@
       "implemented": [
         "Saved look/preset dictionaries, types, ranges, unknown fields and UI enum options are validated before application; parameter header is fingerprinted.",
         "The panel reads a bounded compiled parameter manifest and validates available options against its runtime. The licensed-host fixture checked the actual arguments from the full Print and Scan slider boundary presets.",
-        "Validate every renderer-facing native slider's bounds, initial value and integer step before enabling the panel, as well as the actual switches, scan inversion and push/pull model. Reject contradictory or unrepresentable compiled option shapes. The actual host inventory verifies 112 numeric sliders and retains all 197 control entries; the Windows state suite passes 268 checks and the native general suite passes 344 and 348."
+        "Validate every renderer-facing native slider's bounds, initial value and integer step before enabling the panel, as well as the actual switches, scan inversion and push/pull model. Reject contradictory or unrepresentable compiled option shapes. The actual host inventory verifies 112 numeric sliders and retains all 197 control entries; the Windows state suite passes 268 checks and the native general suite passes 344 and 348.",
+        "One managed definition now supplies the film development slider groups, labels, units, ranges, increments, reset values, saved keys and 20 development wire mappings. Exposure, print exposure and look strength use that definition for controls and state bounds. The unavailable exhaustion value stays recoverable and has no wire mapping.",
+        "Bind each native slider to the compiled numeric type. The four integer options normalize fractional UI notification and legacy saved values before use. The numeric editor, saved state and worker receive the same whole value on the next edit. Fractional camera diffusion settings are preserved. The licensed 38-check inventory exercises event count, storage, reset and command serialization for the four integers and two fractional values, and matches the prior control inventory.",
+        "Pass 446 state and recovery assertions, including 42 development bound round trips, values one representable step outside each range, 64 deterministically truncated manifests and the explicit manifest size boundary.",
+        "The general licensed 16.4 fixture passes 352 checks on first launch and 356 after restart, with the source catalog hash intact. The same source builds against signed 16.7.8.3529 references with zero warnings and all 563 CLR host references match."
       ],
       "evidence_paths": [
         "NativePanel/LookStateValidation.cs",
@@ -1239,10 +1243,15 @@
         ".test-results/contracts-compilercaps-20261120/summary.json",
         ".test-results/host-compiled-controls-20261120/host-smoke.log",
         ".test-results/host-renderer-numeric-inventory-20261120/panel-numeric-contract.json",
-        ".test-results/contracts-renderer-control-ranges-20261120/StateContracts.log"
+        ".test-results/contracts-renderer-control-ranges-20261120/StateContracts.log",
+        "NativePanel/FilmControls.cs",
+        ".test-results/film-control-contracts-20261120.log",
+        ".test-results/host-film-control-schema-20261120",
+        ".test-results/host-film-control-regression-20261120",
+        ".test-results/host67-contracts/reference-drift-film-schema.json"
       ],
       "remaining_work": [
-        "Drive managed units, ranges, defaults, dependency groups and schema migrations from the canonical description. Add malformed/bounded property-based validation beyond the current exact fixtures."
+        "Move the remaining optical slider and choice definitions, mode dependencies and schema migrations into the canonical managed description. Extend the bounded property tests to arbitrary look mutations and validate mode-dependent availability and the full manifest in CI."
       ],
       "original_acceptance_tests": [
         "enumerate all upstream exposed controls and exact wire mappings",
@@ -1820,7 +1829,8 @@
         "The compiled renderer emits a versioned parameter description from its actual numeric limits, choices, defaults and generated film data. Builds verify its parameter header hash and package the description as a required fingerprinted runtime file.",
         "Panel startup validates its advertised stocks, modes, spectral choices and optics colour/enum choices. A renderer missing the 2026 method or calibration for any advertised stock does not expose the 2026 option. The compiled CLI and managed verifier both reject unavailable Process Negative.",
         "The licensed host validated generated requests for Print and Scan at the managed slider boundaries. The standalone GPU matrix verifies every described renderer key and rejects invalid values, including missing APD calibration.",
-        "The licensed inventory records the actual ranges, units, steps and UI reset values of 112 renderer-facing sliders against their compiled bounds and renderer defaults. Startup refuses incompatible numeric bounds or boolean types. Existing panel reset values and UV/IR off semantics stay intact."
+        "The licensed inventory records the actual ranges, units, steps and UI reset values of 112 renderer-facing sliders against their compiled bounds and renderer defaults. Startup refuses incompatible numeric bounds or boolean types. Existing panel reset values and UV/IR off semantics stay intact.",
+        "The managed film slider definitions now drive units, range validation, defaults and wire mapping. UI integer behavior comes directly from the compiled parameter type, while old out-of-type fractional values are normalized on load before constructing renderer arguments. The licensed test verifies continuous optics still preserve fractional values."
       ],
       "evidence_paths": [
         "stocks.json",
@@ -1836,10 +1846,12 @@
         ".test-results/renderer-parameter-matrix-20261120.log",
         ".test-results/host-compiled-controls-20261120/host-smoke.log",
         ".test-results/host-renderer-numeric-inventory-20261120/panel-numeric-contract.json",
-        ".test-results/host-renderer-range-full-20261120/host-smoke.log"
+        ".test-results/host-renderer-range-full-20261120/host-smoke.log",
+        "NativePanel/FilmControls.cs",
+        ".test-results/host-film-control-schema-20261120/host-smoke.log"
       ],
       "remaining_work": [
-        "Extend schema coverage with managed labels, units, dependency groups, conditional parameter capabilities and explicit defaults/migration applied by the panel. The authored WPF style and units still live in C#.",
+        "Extend the managed schema to optical-control labels, units, dependency groups and conditional capabilities, and finish versioned migrations. The managed film definitions now supply those controls' presentation and wire metadata.",
         "Check host colour generation against native reference probes on each supported host; a worker accepting an encoding does not prove the exact native RAW transform."
       ],
       "original_acceptance_tests": [

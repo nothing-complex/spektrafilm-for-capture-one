@@ -45,15 +45,18 @@ internal sealed class RendererParameters
                 throw new InvalidDataException($"The renderer does not advertise the selected {key} option '{value}'. Reinstall the matching runtime.");
     }
 
-    internal void VerifyNumericControl(string key, double minimum, double maximum, double initial, double increment)
+    internal bool VerifyNumericControl(string key, double minimum, double maximum, double initial, double increment)
     {
         if (!parameters.TryGetValue(key, out var parameter) || parameter.Kind is not ("number" or "integer")
             || !double.IsFinite(minimum) || !double.IsFinite(maximum) || !double.IsFinite(initial) || !double.IsFinite(increment)
             || minimum > initial || initial > maximum || increment <= 0
-            || (parameter.Kind == "integer" && increment != Math.Truncate(increment))
+            || (parameter.Kind == "integer" && (increment != Math.Truncate(increment)
+                || minimum != Math.Truncate(minimum) || maximum != Math.Truncate(maximum)
+                || initial != Math.Truncate(initial)))
             || !parameter.Accepts(NumberToken(minimum)) || !parameter.Accepts(NumberToken(maximum))
             || !parameter.Accepts(NumberToken(initial)))
             throw new InvalidDataException($"The {key} control range does not match this Spektrafilm renderer. Reinstall the matching runtime.");
+        return parameter.Kind == "integer";
     }
 
     internal void VerifyBooleanControl(string key)
