@@ -1,0 +1,226 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+
+internal abstract record OpticalItem;
+internal abstract record OpticalParameter(string Key, string Label) : OpticalItem;
+internal sealed record OpticalSlider(string Key, string Label, double Minimum, double Maximum, double Initial,
+    double Increment) : OpticalParameter(Key, Label)
+{
+    internal bool Contains(double value) => double.IsFinite(value) && value >= Minimum && value <= Maximum;
+}
+internal sealed record OpticalOption(string Id, string Label);
+internal sealed record OpticalChoice(string Key, string Label, IReadOnlyList<OpticalOption> Options, string Default) : OpticalParameter(Key, Label);
+internal sealed record OpticalToggle(string Key, string Label, bool Initial = false, bool SendsToWorker = true) : OpticalParameter(Key, Label);
+internal sealed record OpticalSection(string? Key, string Label, IReadOnlyList<OpticalItem> Items,
+    bool PrintOnly = false, string? RequiresToggle = null) : OpticalItem;
+internal sealed record OpticalInput(PreviewInputSpace Space, string Id, string Label);
+
+internal static class OpticalControls
+{
+    internal static IReadOnlyList<OpticalInput> Inputs { get; } = Array.AsReadOnly<OpticalInput>([
+        new(PreviewInputSpace.Srgb, "srgb", "sRGB"),
+        new(PreviewInputSpace.AdobeRgb, "adobe_rgb", "Adobe RGB (1998)"),
+        new(PreviewInputSpace.ProPhotoRgb, "prophoto", "ProPhoto RGB"),
+        new(PreviewInputSpace.LinearRec2020, "linear_rec2020", "Linear Rec.2020"),
+    ]);
+    internal static IReadOnlyList<OpticalOption> Outputs { get; } = Array.AsReadOnly<OpticalOption>([
+        new("srgb", "sRGB"), new("rec709_gamma24", "Rec.709 gamma 2.4"), new("linear_rec709", "Linear Rec.709"),
+    ]);
+    private static readonly IReadOnlyList<OpticalOption> Diffusion = Array.AsReadOnly<OpticalOption>([
+        new("off", "Off"), new("black_pro_mist", "Black Pro-Mist"), new("glimmerglass", "Glimmerglass"),
+        new("pro_mist", "Pro-Mist"), new("cinebloom", "CineBloom"),
+    ]);
+
+    internal static IReadOnlyList<OpticalSection> Sections { get; } = Array.AsReadOnly<OpticalSection>([
+        new("optics-metering", "Exposure metering", [
+            new OpticalToggle("auto-exposure", "Automatic film exposure"),
+            new OpticalChoice("auto-exposure-meter", "Metering", [new("center_weighted", "Center weighted"), new("median", "Median")], "center_weighted"),
+        ]),
+        new("optics-halation", "Halation and scatter", [
+            new OpticalSlider("halation-amount", "Halation amount", 0, 4, 0, .05),
+            new OpticalSlider("halation-scale", "Halation spread", 0, 4, 1, .05),
+            new OpticalSlider("scatter-amount", "Emulsion scatter", 0, 2, 0, .05),
+            new OpticalSlider("scatter-scale", "Emulsion scatter spread", 0, 4, 1, .05),
+            new OpticalSlider("halation-boost", "Highlight boost (EV)", 0, 20, 0, .1),
+            new OpticalSlider("halation-boost-range", "Highlight boost range", 0, 1, .3, .01),
+            new OpticalSlider("halation-protect", "Highlight protection (EV)", 0, 10, 4, .1),
+            new OpticalToggle("custom-halation-rgb", "Override stock halation channels", SendsToWorker: false),
+            new OpticalSection(null, "", [
+                new OpticalSlider("halation-red", "Red strength", 0, 1, .05, .005),
+                new OpticalSlider("halation-green", "Green strength", 0, 1, .015, .005),
+                new OpticalSlider("halation-blue", "Blue strength", 0, 1, 0, .005),
+            ], RequiresToggle: "custom-halation-rgb"),
+        ]),
+        DiffusionSection("camera", "Camera diffusion"),
+        DiffusionSection("print", "Print diffusion", printOnly: true),
+        new("optics-grain", "Spektrafilm grain", [
+            new OpticalChoice("grain-model", "Grain model", [
+                new("off", "Off"), new("preview", "Preview"), new("production", "Production"), new("synthesis", "Grain synthesis"),
+            ], "off"),
+            new OpticalSlider("grain-amount", "Grain amount", 0, 2, 1, .05),
+            new OpticalSlider("grain-saturation", "Grain saturation", 0, 1, 1, .05),
+            new OpticalSlider("grain-final-blur", "Final blur (µm)", 0, 25, 7.17, .01),
+            new OpticalChoice("film-format", "Film format", [
+                new("8", "8 mm"), new("super8", "Super 8"), new("16", "16 mm"), new("super16", "Super 16"),
+                new("35", "35 mm"), new("super35", "Super 35"), new("65", "65 mm"), new("70", "IMAX 70"),
+            ], "35"),
+            new OpticalSlider("grain-seed", "Seed", 0, 32767, 1, 1),
+            new OpticalSection("optics-particle-grain", "Particle grain", [
+                new OpticalToggle("grain-sublayers", "Use emulsion sublayers", true),
+                new OpticalSlider("grain-sublayer-count", "Sublayers", 1, 8, 1, 1),
+                new OpticalSlider("grain-particle-area", "Particle area (µm²)", .01, 5, .1, .01),
+                new OpticalSlider("grain-dye-cloud-blur", "Dye cloud blur (µm)", 0, 10, 1, .1),
+                new OpticalSlider("grain-microstructure", "Microstructure scale", 0, 4, .2, .05),
+                new OpticalSlider("grain-microstructure-sigma", "Microstructure width (nm)", 0, 500, 30, 1),
+                .. Channels("grain-particle-scale", "Particle scale", .01, 20, (1.2, 1, 2.5), .01),
+                .. Channels("grain-density-min", "Minimum density", 0, 1, (.04, .05, .06), .01),
+                .. Channels("grain-uniformity", "Uniformity", 0, 1, (.99, .97, .98), .01),
+                .. GrainLayers("grain-layer-scale"),
+            ]),
+            new OpticalSection("optics-grain-synthesis", "Grain synthesis", [
+                new OpticalToggle("grain-synthesis-layered", "Layered grain", true),
+                new OpticalSlider("grain-synthesis-size", "Size", .25, 4, 1, .05),
+                new OpticalSlider("grain-synthesis-amount", "Amount", 0, 3, 1, .05),
+                new OpticalSlider("grain-synthesis-sharpness", "Sharpness", .25, 4, 1, .05),
+                new OpticalSlider("grain-synthesis-quality", "Quality", .25, 4, 1, .05),
+                new OpticalSlider("grain-synthesis-samples", "Samples", 1, 2048, 128, 1),
+                new OpticalSlider("grain-synthesis-radius", "Mean radius (µm)", .05, 10, .25, .01),
+                new OpticalSlider("grain-synthesis-radius-sd", "Radius variation", 0, 1, 0, .01),
+                new OpticalSlider("grain-synthesis-observation", "Observation width (µm)", 0, 20, 1, .1),
+                new OpticalSlider("grain-synthesis-cell", "Cell size ratio", .25, 2, 1, .05),
+                new OpticalSlider("grain-synthesis-radius-quantile", "Radius quantile", .95, .9999, .999, .0001),
+                new OpticalSlider("grain-synthesis-epsilon", "Coverage tolerance", .000001, .01, .0001, .000001),
+                new OpticalSlider("grain-synthesis-cell-cap", "Max grains per cell", 1, 128, 32, 1),
+                .. Channels("grain-synthesis-radius-scale", "Radius scale", .01, 20, (1.2, 1, 2.5), .01),
+                .. GrainLayers("grain-synthesis-layer-scale"),
+            ]),
+        ]),
+        new("optics-scanning", "Scanning", [
+            new OpticalToggle("scanner-enabled", "Enable scanner controls"),
+            new OpticalToggle("scanner-white", "Correct white level"),
+            new OpticalSlider("scanner-white-level", "White point", 0, 1, .98, .01),
+            new OpticalToggle("scanner-black", "Correct black level"),
+            new OpticalSlider("scanner-black-level", "Black point", 0, 1, .01, .01),
+            new OpticalSection(null, "", [
+                new OpticalSlider("scanner-glare", "Scanner glare", 0, .2, .03, .001),
+                new OpticalSlider("scanner-glare-roughness", "Glare roughness", 0, 4, .7, .05),
+                new OpticalSlider("scanner-glare-blur", "Glare blur", 0, 32, .5, .1),
+            ], PrintOnly: true),
+            new OpticalSlider("scanner-mtf", "Scanner MTF50 (lp/mm)", 0, 300, 60, 1),
+            new OpticalSlider("scanner-unsharp-radius", "Unsharp radius (µm)", 0, 100, 5, .5),
+            new OpticalSlider("scanner-unsharp-amount", "Unsharp amount", 0, 4, .7, .05),
+        ]),
+        new("optics-enlarger", "Enlarger positioning", [
+            new OpticalSlider("enlarger-scale", "Enlarger scale", 1, 32, 1, .1),
+            new OpticalSlider("enlarger-x", "Horizontal offset (%)", -100, 100, 0, 1),
+            new OpticalSlider("enlarger-y", "Vertical offset (%)", -100, 100, 0, 1),
+        ]),
+        new("optics-couplers", "Coupler diffusion", [
+            new OpticalSlider("dir-diffusion", "Diffusion width (µm)", 0, 100, 20, .5),
+            new OpticalSlider("dir-tail-size", "Tail width (µm)", 0, 1000, 200, 1),
+            new OpticalSlider("dir-tail-weight", "Tail weight", 0, 1, .06, .01),
+            new OpticalToggle("custom-dir-rgb", "Override stock coupler channels", SendsToWorker: false),
+            new OpticalSection(null, "", [
+                .. Channels("dir-gamma", "Same-layer gamma", 0, 1, (.341, .319, .273), .001),
+                new OpticalSlider("dir-r-to-g", "R → G coupling", 0, 1, .353, .001),
+                new OpticalSlider("dir-r-to-b", "R → B coupling", 0, 1, .302, .001),
+                new OpticalSlider("dir-g-to-r", "G → R coupling", 0, 1, .154, .001),
+                new OpticalSlider("dir-g-to-b", "G → B coupling", 0, 1, .353, .001),
+                new OpticalSlider("dir-b-to-r", "B → R coupling", 0, 1, .168, .001),
+                new OpticalSlider("dir-b-to-g", "B → G coupling", 0, 1, .226, .001),
+            ], RequiresToggle: "custom-dir-rgb"),
+        ]),
+        new("optics-color-adaptation", "Color adaptation", [
+            new OpticalToggle("color-adaptation", "Color adaptation"),
+            new OpticalToggle("color-input-compression", "Input spectral gamut compression", true),
+            new OpticalToggle("color-curve-smoothing", "Density curve smoothing", true),
+            new OpticalToggle("color-output-lightness-compression", "Output lightness compression", true),
+            new OpticalToggle("color-output-chroma-compression", "Output chroma compression", true),
+        ]),
+    ]);
+
+    internal sealed record Binding(OpticalParameter Parameter, bool PrintOnly, string? RequiresToggle)
+    {
+        internal bool ShouldSend(bool printing, Func<string, bool> isOn) =>
+            Parameter is not OpticalToggle { SendsToWorker: false } && (!PrintOnly || printing)
+            && (RequiresToggle is null || isOn(RequiresToggle));
+    }
+
+    internal static IReadOnlyDictionary<string, Binding> Parameters { get; } =
+        Sections.SelectMany(section => Bindings(section, false, null)).ToDictionary(x => x.Parameter.Key, StringComparer.Ordinal);
+
+    internal static void ValidateNumber(string key, double value)
+    {
+        if (!Parameters.TryGetValue(key, out var binding) || binding.Parameter is not OpticalSlider slider || !slider.Contains(value))
+            throw new InvalidDataException($"Unsupported saved optical value: {key}.");
+    }
+
+    internal static bool HasChoice(string key, string id) => key switch
+    {
+        "input-color" => Inputs.Any(x => x.Id == id),
+        "output-color" => Outputs.Any(x => x.Id == id),
+        _ => Parameters.TryGetValue(key, out var binding) && binding.Parameter is OpticalChoice choice
+            && choice.Options.Any(option => option.Id == id),
+    };
+
+    internal static void VerifyRendererChoices(RendererParameters renderer)
+    {
+        renderer.VerifyOptions("input-color", Inputs.Select(option => option.Id));
+        renderer.VerifyOptions("output-color", Outputs.Select(option => option.Id));
+        foreach (var choice in Parameters.Values.Select(binding => binding.Parameter).OfType<OpticalChoice>())
+            renderer.VerifyOptions(choice.Key, choice.Options.Select(option => option.Id));
+    }
+
+    internal static void VerifyRendererToggles(RendererParameters renderer)
+    {
+        foreach (var toggle in Parameters.Values.Select(binding => binding.Parameter).OfType<OpticalToggle>())
+            if (toggle.SendsToWorker)
+                renderer.VerifyBooleanControl(toggle.Key);
+    }
+
+    private static IEnumerable<Binding> Bindings(OpticalSection section, bool printOnly, string? requiresToggle)
+    {
+        foreach (var item in section.Items)
+        {
+            if (item is OpticalSection child)
+            {
+                foreach (var binding in Bindings(child, printOnly || section.PrintOnly, section.RequiresToggle ?? requiresToggle))
+                    yield return binding;
+            }
+            else if (item is OpticalParameter parameter)
+                yield return new Binding(parameter, printOnly || section.PrintOnly, section.RequiresToggle ?? requiresToggle);
+        }
+    }
+
+    private static OpticalSection DiffusionSection(string stage, string label, bool printOnly = false)
+    {
+        var prefix = stage + "-diffusion-";
+        return new OpticalSection("optics-" + stage + "-diffusion", label, [
+            new OpticalChoice(prefix + "family", "Filter", Diffusion, "off"),
+            new OpticalSlider(prefix + "strength", "Filter strength", 0, 2, .5, .125),
+            new OpticalSlider(prefix + "scale", "Spatial scale", 0, 4, 1, .05),
+            new OpticalSlider(prefix + "warmth", "Halo warmth", -1.5, 1.5, 0, .05),
+            new OpticalSlider(prefix + "core-intensity", "Core intensity", 0, 4, 1, .05),
+            new OpticalSlider(prefix + "core-size", "Core size", .1, 4, 1, .05),
+            new OpticalSlider(prefix + "halo-intensity", "Halo intensity", 0, 4, 1, .05),
+            new OpticalSlider(prefix + "halo-size", "Halo size", .1, 4, 1, .05),
+            new OpticalSlider(prefix + "bloom-intensity", "Bloom intensity", 0, 4, 1, .05),
+            new OpticalSlider(prefix + "bloom-size", "Bloom size", .1, 4, 1, .05),
+        ], PrintOnly: printOnly);
+    }
+
+    private static OpticalSlider[] Channels(string key, string label, double min, double max,
+        (double Red, double Green, double Blue) initial, double step) => [
+        new(key + "-r", label + " · R", min, max, initial.Red, step),
+        new(key + "-g", label + " · G", min, max, initial.Green, step),
+        new(key + "-b", label + " · B", min, max, initial.Blue, step),
+    ];
+
+    private static OpticalSlider[] GrainLayers(string key) => [
+        new(key + "-0", "Layer 1 scale", .01, 20, 6, .01),
+        new(key + "-1", "Layer 2 scale", .01, 20, 1, .01),
+        new(key + "-2", "Layer 3 scale", .01, 20, .4, .01),
+    ];
+}

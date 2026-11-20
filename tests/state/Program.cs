@@ -8,6 +8,11 @@ if (args is ["--measure-durable-edits", var measurementDirectory])
     return DurableEditProbe.Run(measurementDirectory);
 if (args is ["--measure-diagnostic-log", var diagnosticsDirectory, var seconds])
     return await PanelLogContracts.SoakAsync(diagnosticsDirectory, int.Parse(seconds, System.Globalization.CultureInfo.InvariantCulture));
+if (args is ["--verify-compiled-controls", var parameterManifest])
+{
+    OpticalControlContracts.VerifyCompiled(parameterManifest);
+    return 0;
+}
 if (args is ["--host-signatures"])
 {
     var passed = 0;
@@ -458,6 +463,7 @@ for (var iteration = 0; iteration < 64; iteration++)
 File.WriteAllBytes(rendererManifestPath, new byte[PanelFiles.MaxPresetBytes + 1]);
 Throws<InvalidDataException>("compiled parameter description refuses an oversized payload", () => RendererParameters.Read(scratch));
 File.WriteAllBytes(rendererManifestPath, manifestJson);
+OpticalControlContracts.Run(Check);
 
 var presetPath = Path.Combine(scratch, "all-controls.spektra.json");
 PanelFiles.WritePreset(presetPath, LookPreset.From(presetSource));

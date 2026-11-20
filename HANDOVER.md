@@ -1365,9 +1365,15 @@ Evidence is in `.test-results/negative-density-full-smoke-20261120.log`, `.test-
 - [x] Bind slider numerics to the generated renderer parameter type. Round the four integer grain controls before publishing a native value change or applying older fractional values. Preserve fractions for continuous settings. Loading older values leaves the input data intact and only corrects the active control and render value.
 - [x] Pass 446 state and recovery checks, including all 42 development endpoints, one-step-outside values, 64 truncated descriptions and the manifest size limit. Run `Run-HostSmoke.ps1 -PanelInventory -SkipRestart` to verify the actual native controls. The licensed fixture passed 38 assertions, including storage and wire values after fractional native input, legacy reload, reset values, and exact inventory parity.
 - [x] Pass the real Capture One 16.4 general fixture, with 352 checks on launch and 356 after restart. The copied catalog fixture retains its original hash. Build against the signed 16.7.8.3529 references without warnings and verify all 563 compiled host references match the licensed 16.4 build.
-- [ ] Extend the same definitions to the optical controls and mode dependencies. Keep the authored panel defaults distinct where intentional, including UV/IR cutoff off values and the bounded grain seed UI.
+- [x] Put 110 optical controls in `NativePanel/OpticalControls.cs`. The same definitions drive WPF groups, choices, defaults, range validation and wire ownership. The entire numeric inventory matches byte for byte. The real 16.4 panel retains all 199 entries.
+- [x] Preserve 13 print-only settings in the look when switching to Scan Film. The panel disables their controls and omits them from scan requests. Switching back to Print sends the exact staged settings. The 42-check licensed inventory and six Vulkan comparisons verify the behavior. The scan and inverted scan bytes match with the print flags included or omitted, and Print Simulation changes.
+- [x] The normal Windows panel build verifies all 112 numeric controls against the worker's compiled description at their minimum, initial value and maximum. State tests cover the tracked inventory and 32 seeded look mutations.
+- [x] Pass 728 host-independent state and recovery checks, 12,507 Viewer and export contracts, and 222 licensed native effects-export checks on DNG, CR3, RAF and NEF. Both native Export commands deliver the 16-bit effect with the chosen ICC. The copied catalog hash is unchanged, and the rebuilt renderer matches the licensed fixture worker byte for byte.
+- [ ] Finish versioned migrations and verify the remaining backend availability conditions. The public CI inventory checks are host independent. Add the compiled-worker matrix to public Windows CI separately.
 
 Evidence is in `.test-results/film-control-contracts-20261120.log`, `.test-results/host-film-control-schema-20261120`, `.test-results/host-film-control-regression-20261120` and `.test-results/host67-contracts/reference-drift-film-schema.json`.
+
+The optical definition evidence is in `.test-results/host-optical-schema-inventory-20261120`, `.test-results/optical-mode-gpu-parity-20261120.log`, `.test-results/contracts-optical-schema-native-acl-20261120` and `.test-results/host-optical-schema-effects-20261120`.
 
 ## Status maintenance
 

@@ -81,6 +81,10 @@ if ($parameterManifest.schemaVersion -ne 1 -or $parameterManifest.rendererProtoc
     throw 'The renderer returned an unsupported parameter description.'
 }
 [IO.File]::WriteAllText((Join-Path $output 'parameter-capabilities.json'), $description + "`n", [Text.UTF8Encoding]::new($false))
+if ($BuildPanel) {
+    Invoke-Checked 'dotnet' @('run', '--project', (Join-Path $PSScriptRoot 'tests\state\StateContracts.csproj'), '-c', 'Release',
+        '--', '--verify-compiled-controls', (Join-Path $output 'parameter-capabilities.json'))
+}
 if (!$SkipSmoke) {
     Invoke-Checked $PythonPath @((Join-Path $PSScriptRoot 'ofx-still-renderer\smoke.py'), '--exe', $executable)
 }

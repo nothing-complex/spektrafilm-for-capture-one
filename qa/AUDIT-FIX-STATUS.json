@@ -1231,7 +1231,10 @@
         "One managed definition now supplies the film development slider groups, labels, units, ranges, increments, reset values, saved keys and 20 development wire mappings. Exposure, print exposure and look strength use that definition for controls and state bounds. The unavailable exhaustion value stays recoverable and has no wire mapping.",
         "Bind each native slider to the compiled numeric type. The four integer options normalize fractional UI notification and legacy saved values before use. The numeric editor, saved state and worker receive the same whole value on the next edit. Fractional camera diffusion settings are preserved. The licensed 38-check inventory exercises event count, storage, reset and command serialization for the four integers and two fractional values, and matches the prior control inventory.",
         "Pass 446 state and recovery assertions, including 42 development bound round trips, values one representable step outside each range, 64 deterministically truncated manifests and the explicit manifest size boundary.",
-        "The general licensed 16.4 fixture passes 352 checks on first launch and 356 after restart, with the source catalog hash intact. The same source builds against signed 16.7.8.3529 references with zero warnings and all 563 CLR host references match."
+        "The general licensed 16.4 fixture passes 352 checks on first launch and 356 after restart, with the source catalog hash intact. The same source builds against signed 16.7.8.3529 references with zero warnings and all 563 CLR host references match.",
+        "The optical definition drives 110 native controls, including group order, labels and units, saved ranges and defaults, choice IDs, wire ownership and Print or stock-override dependencies. The 199-entry native inventory and detailed numeric manifest match their previous forms, with byte-identical numeric inventory.",
+        "The portable suite verifies the tracked native inventory, generates 32 legal look dictionaries and rejects mutated persisted values just beyond the control range. The licensed 42-check fixture switches Print to Scan and back, verifies the correct 13 disabled options are omitted in Scan and restores the exact Print request.",
+        "Pass 728 state and recovery assertions, 12,507 Viewer contracts and 222 licensed four-RAW native effects-export assertions. Both native commands retain the 16-bit effect and exact recipe ICC. The ordinary panel build completes with the compiled gate enabled and its renderer matches the licensed fixture worker bytes."
       ],
       "evidence_paths": [
         "NativePanel/LookStateValidation.cs",
@@ -1248,10 +1251,15 @@
         ".test-results/film-control-contracts-20261120.log",
         ".test-results/host-film-control-schema-20261120",
         ".test-results/host-film-control-regression-20261120",
-        ".test-results/host67-contracts/reference-drift-film-schema.json"
+        ".test-results/host67-contracts/reference-drift-film-schema.json",
+        "NativePanel/OpticalControls.cs",
+        "tests/state/OpticalControlContracts.cs",
+        ".test-results/contracts-optical-schema-native-acl-20261120/StateContracts.log",
+        ".test-results/host-optical-schema-inventory-20261120",
+        ".test-results/host-optical-schema-effects-20261120"
       ],
       "remaining_work": [
-        "Move the remaining optical slider and choice definitions, mode dependencies and schema migrations into the canonical managed description. Extend the bounded property tests to arbitrary look mutations and validate mode-dependent availability and the full manifest in CI."
+        "Finish versioned look migration and extend availability checks to remaining backend conditions. Host-independent CI covers numeric look mutations and checks the tracked native inventory. The Windows panel build validates the actual compiled description; the public Windows CI jobs still need the actual compiled renderer matrix."
       ],
       "original_acceptance_tests": [
         "enumerate all upstream exposed controls and exact wire mappings",
@@ -1830,7 +1838,8 @@
         "Panel startup validates its advertised stocks, modes, spectral choices and optics colour/enum choices. A renderer missing the 2026 method or calibration for any advertised stock does not expose the 2026 option. The compiled CLI and managed verifier both reject unavailable Process Negative.",
         "The licensed host validated generated requests for Print and Scan at the managed slider boundaries. The standalone GPU matrix verifies every described renderer key and rejects invalid values, including missing APD calibration.",
         "The licensed inventory records the actual ranges, units, steps and UI reset values of 112 renderer-facing sliders against their compiled bounds and renderer defaults. Startup refuses incompatible numeric bounds or boolean types. Existing panel reset values and UV/IR off semantics stay intact.",
-        "The managed film slider definitions now drive units, range validation, defaults and wire mapping. UI integer behavior comes directly from the compiled parameter type, while old out-of-type fractional values are normalized on load before constructing renderer arguments. The licensed test verifies continuous optics still preserve fractional values."
+        "The managed film slider definitions now drive units, range validation, defaults and wire mapping. UI integer behavior comes directly from the compiled parameter type, while old out-of-type fractional values are normalized on load before constructing renderer arguments. The licensed test verifies continuous optics still preserve fractional values.",
+        "The optical definitions now drive presentation, persisted ranges and wire option ownership. The Windows panel build checks every managed renderer option type and choice against the actual worker descriptor. All 112 numeric controls accept their authored minimum, default and maximum."
       ],
       "evidence_paths": [
         "stocks.json",
@@ -1848,10 +1857,13 @@
         ".test-results/host-renderer-numeric-inventory-20261120/panel-numeric-contract.json",
         ".test-results/host-renderer-range-full-20261120/host-smoke.log",
         "NativePanel/FilmControls.cs",
-        ".test-results/host-film-control-schema-20261120/host-smoke.log"
+        ".test-results/host-film-control-schema-20261120/host-smoke.log",
+        "NativePanel/OpticalControls.cs",
+        "tests/state/OpticalControlContracts.cs",
+        ".test-results/host-optical-schema-inventory-20261120"
       ],
       "remaining_work": [
-        "Extend the managed schema to optical-control labels, units, dependency groups and conditional capabilities, and finish versioned migrations. The managed film definitions now supply those controls' presentation and wire metadata.",
+        "Finish versioned migrations and extend the declared dependencies to the remaining optional renderer capability conditions.",
         "Check host colour generation against native reference probes on each supported host; a worker accepting an encoding does not prove the exact native RAW transform."
       ],
       "original_acceptance_tests": [
@@ -3141,16 +3153,19 @@
       "status": "partial",
       "implemented": [
         "The known unsupported developer-exhaustion control is disabled with retained legacy data and explicit clear action.",
-        "A real older preset with nonzero exhaustion used the disabled slider and an explicit Clear action. Renderer request construction refused it before worker creation. Clear saved the variant, preserved the original preset and restored a valid request. Native Undo returned to the preceding state."
+        "A real older preset with nonzero exhaustion used the disabled slider and an explicit Clear action. Renderer request construction refused it before worker creation. Clear saved the variant, preserved the original preset and restored a valid request. Native Undo returned to the preceding state.",
+        "The same mode and override dependencies drive the optical controls and emitted keys. The licensed panel disables and omits Print diffusion and glare in Scan Film and restores the staged choices in Print Simulation. A physical Vulkan run confirms exact output parity when the obsolete flags are omitted from Scan and Scan Inverted, and a real change in Print."
       ],
       "evidence_paths": [
         "NativePanel/SpektraFilmTool.cs",
         "NativePanel/SpatialPreview.cs",
         ".test-results/host-compiled-controls-20261120/host-smoke.log",
-        ".test-results/renderer-parameter-matrix-20261120.log"
+        ".test-results/renderer-parameter-matrix-20261120.log",
+        ".test-results/host-optical-schema-inventory-20261120/host-smoke.log",
+        ".test-results/optical-mode-gpu-parity-20261120.log"
       ],
       "remaining_work": [
-        "Verify cross-control interactions and each upstream backend availability condition. Confirm UI gating for optional dependencies rather than only the single-setting request matrix."
+        "Verify the remaining cross-control interactions and upstream backend availability conditions. Extend the native gating checks beyond Print and stock overrides."
       ],
       "original_acceptance_tests": [
         "every enabled control has a successful parameter sweep or explicitly supported validation outcome",

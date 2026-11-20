@@ -31,7 +31,9 @@ internal sealed class RendererParameters
     }
 
     internal static RendererParameters Read(string root) =>
-        new(PanelFiles.ReadPreset<Manifest>(Path.Combine(root, "renderer", "parameter-capabilities.json")));
+        ReadManifest(Path.Combine(root, "renderer", "parameter-capabilities.json"));
+
+    internal static RendererParameters ReadManifest(string path) => new(PanelFiles.ReadPreset<Manifest>(path));
 
     internal bool SupportsChoice(string key, string value) => parameters.TryGetValue(key, out var parameter)
         && parameter.Choices?.Contains(value, StringComparer.Ordinal) == true && IsAvailable(key, value);

@@ -24,17 +24,6 @@ internal sealed class SpatialPreview : IDisposable
     private const int InitialPreviewLongEdge = 1200;
     private const int DragSettleDelay = 220;
     private const string ExportFailureTitleSuffix = " · Export failed";
-    private static readonly InputChoice[] InputSpaces =
-    {
-        new(PreviewInputSpace.Srgb, "srgb", "sRGB"),
-        new(PreviewInputSpace.AdobeRgb, "adobe_rgb", "Adobe RGB (1998)"),
-        new(PreviewInputSpace.ProPhotoRgb, "prophoto", "ProPhoto RGB"),
-        new(PreviewInputSpace.LinearRec2020, "linear_rec2020", "Linear Rec.2020"),
-    };
-    private static readonly Choice[] OutputSpaces =
-    {
-        new("srgb", "sRGB"), new("rec709_gamma24", "Rec.709 gamma 2.4"), new("linear_rec709", "Linear Rec.709"),
-    };
     private static readonly Choice[] PreviewSizes =
     {
         new("native", "Native resolution"), new("auto", "Auto (up to 4096 px)"), new("4096", "4096 px"),
@@ -47,11 +36,6 @@ internal sealed class SpatialPreview : IDisposable
         new(2048, "2048 px"), new(2560, "2560 px"),
     };
     private static readonly DragSize DefaultDragSize = DragSizes[2];
-    private static readonly Choice[] DiffusionFamilies =
-    {
-        new("off", "Off"), new("black_pro_mist", "Black Pro-Mist"), new("glimmerglass", "Glimmerglass"),
-        new("pro_mist", "Pro-Mist"), new("cinebloom", "CineBloom"),
-    };
     private readonly object window;
     private readonly Func<LookSettings?> getSettings;
     private readonly Func<Guid, bool> useSelectedLook;
@@ -59,7 +43,6 @@ internal sealed class SpatialPreview : IDisposable
     private readonly Dictionary<string, ComboBox> choices = new();
     private readonly Dictionary<string, CheckBox> toggles = new();
     private readonly List<FrameworkElement> printOnlyControls = new();
-    private readonly Settings defaults;
     private readonly TextBlock status = new() { Margin = new Thickness(0, 5, 0, 3), TextWrapping = TextWrapping.Wrap };
     private readonly DispatcherTimer refresh = new() { Interval = TimeSpan.FromMilliseconds(33) };
     private readonly ViewerPreview viewer;
@@ -90,11 +73,11 @@ internal sealed class SpatialPreview : IDisposable
     private PreviewInputSpace? failedSpace;
     private readonly ComboBox inputSpace = new()
     {
-        DisplayMemberPath = nameof(InputChoice.Label),
-        ItemsSource = InputSpaces,
+        DisplayMemberPath = nameof(OpticalInput.Label),
+        ItemsSource = OpticalControls.Inputs,
         SelectedIndex = 0,
     };
-    private readonly ComboBox outputSpace = new() { DisplayMemberPath = nameof(Choice.Label), ItemsSource = OutputSpaces, SelectedIndex = 0 };
+    private readonly ComboBox outputSpace = new() { DisplayMemberPath = nameof(OpticalOption.Label), ItemsSource = OpticalControls.Outputs, SelectedIndex = 0 };
     private readonly ComboBox previewSize = new() { DisplayMemberPath = nameof(Choice.Label), ItemsSource = PreviewSizes, SelectedIndex = 0 };
     private readonly ComboBox dragPreviewSize = new()
     {
@@ -181,7 +164,6 @@ internal sealed class SpatialPreview : IDisposable
         dragPreviewSize.SelectedItem = DragSizes.FirstOrDefault(x => x.LongEdge == preferences.DragSize) ?? DefaultDragSize;
         fastSynthesis.IsChecked = preferences.DraftSynthesis;
         loading = false;
-        defaults = CaptureSettings();
         refresh.Tick += OnRefreshTick;
         showSource.Checked += (_, _) => RequestRefresh();
         showSource.Unchecked += (_, _) => RequestRefresh();
@@ -261,14 +243,10 @@ internal sealed class SpatialPreview : IDisposable
 
     internal void VerifyRendererOptions(RendererParameters renderer)
     {
-        renderer.VerifyOptions("input-color", InputSpaces.Select(choice => choice.Id));
-        renderer.VerifyOptions("output-color", OutputSpaces.Select(choice => choice.Id));
-        foreach (var (key, selector) in choices)
-            renderer.VerifyOptions(key, ((Choice[])selector.ItemsSource).Select(choice => choice.Id));
+        OpticalControls.VerifyRendererChoices(renderer);
         foreach (var (key, slider) in values)
             slider.BindRenderer(renderer, key);
-        foreach (var key in toggles.Keys.Where(key => !key.StartsWith("custom-", StringComparison.Ordinal)))
-            renderer.VerifyBooleanControl(key);
+        OpticalControls.VerifyRendererToggles(renderer);
     }
 
     internal Settings CaptureSettings()
@@ -279,9 +257,9 @@ internal sealed class SpatialPreview : IDisposable
         foreach (var (key, slider) in values)
             numbers.Add(key, slider.Value);
         foreach (var (key, chooser) in choices)
-            selections.Add(key, ((Choice)chooser.SelectedItem).Id);
-        selections.Add("input-color", ((InputChoice)inputSpace.SelectedItem).Id);
-        selections.Add("output-color", ((Choice)outputSpace.SelectedItem).Id);
+            selections.Add(key, ((OpticalOption)chooser.SelectedItem).Id);
+        selections.Add("input-color", ((OpticalInput)inputSpace.SelectedItem).Id);
+        selections.Add("output-color", ((OpticalOption)outputSpace.SelectedItem).Id);
         foreach (var (key, item) in toggles)
             switches.Add(key, item.IsChecked == true);
         return new Settings(numbers, selections, switches);
@@ -292,7 +270,7 @@ internal sealed class SpatialPreview : IDisposable
         loading = true;
         try
         {
-            LoadControlValues(settings ?? defaults);
+            LoadControlValues(settings);
         }
         finally
         {
@@ -304,48 +282,48 @@ internal sealed class SpatialPreview : IDisposable
     internal void ValidateSettings(Settings settings)
     {
         foreach (var (key, value) in settings.Numbers)
-            if (!values.TryGetValue(key, out var slider) || !double.IsFinite(value)
-                || value < slider.Minimum || value > slider.Maximum)
-                throw new InvalidDataException($"Unsupported saved optical value: {key}.");
+            OpticalControls.ValidateNumber(key, value);
         foreach (var (key, value) in settings.Selections)
         {
             var valid = key switch
             {
-                "input-color" => InputSpaces.Any(x => x.Id == value),
-                "output-color" => OutputSpaces.Any(x => x.Id == value),
                 // Accept older looks without making hardware preferences part of a look again.
                 "preview-size" => PreviewSizes.Any(x => x.Id == value),
                 "drag-preview-size" => DragSizes.Any(x => x.LongEdge.ToString(CultureInfo.InvariantCulture) == value),
-                _ => choices.TryGetValue(key, out var chooser) && ((Choice[])chooser.ItemsSource).Any(x => x.Id == value),
+                _ => OpticalControls.HasChoice(key, value),
             };
             if (!valid) throw new InvalidDataException($"Unsupported saved optical choice: {key}={value}.");
         }
         foreach (var key in settings.Switches.Keys)
-            if (!toggles.ContainsKey(key) && key is not ("show-source" or "draft-synthesis" or "quick-drag-preview"))
+            if ((!OpticalControls.Parameters.TryGetValue(key, out var binding) || binding.Parameter is not OpticalToggle)
+                && key is not ("show-source" or "draft-synthesis" or "quick-drag-preview"))
                 throw new InvalidDataException($"Unsupported saved optical switch: {key}.");
     }
 
-    private void LoadControlValues(Settings settings)
+    private void LoadControlValues(Settings? settings)
     {
-        foreach (var (key, slider) in values)
+        foreach (var binding in OpticalControls.Parameters.Values)
         {
-            var value = settings.Numbers is { } numbers && numbers.TryGetValue(key, out var saved)
-                ? saved : defaults.Numbers[key];
-            slider.Value = double.IsFinite(value) && value >= slider.Minimum && value <= slider.Maximum
-                ? value : defaults.Numbers[key];
+            switch (binding.Parameter)
+            {
+                case OpticalSlider number:
+                    var amount = settings?.Numbers?.GetValueOrDefault(number.Key, number.Initial) ?? number.Initial;
+                    values[number.Key].Value = number.Contains(amount) ? amount : number.Initial;
+                    break;
+                case OpticalChoice choice:
+                    var id = settings?.Selections?.GetValueOrDefault(choice.Key) ?? choice.Default;
+                    choices[choice.Key].SelectedItem = choice.Options.FirstOrDefault(item => item.Id == id)
+                        ?? choice.Options.Single(item => item.Id == choice.Default);
+                    break;
+                case OpticalToggle toggle:
+                    toggles[toggle.Key].IsChecked = settings?.Switches?.GetValueOrDefault(toggle.Key, toggle.Initial) ?? toggle.Initial;
+                    break;
+            }
         }
-        foreach (var (key, chooser) in choices)
-        {
-            var baseline = defaults.Selections[key];
-            var id = settings.Selections?.GetValueOrDefault(key) ?? baseline;
-            var options = (Choice[])chooser.ItemsSource;
-            chooser.SelectedItem = Array.Find(options, item => item.Id == id) ?? Array.Find(options, item => item.Id == baseline);
-        }
-        var colorId = settings.Selections?.GetValueOrDefault("input-color");
-        inputSpace.SelectedItem = InputSpaces.FirstOrDefault(space => space.Id == colorId) ?? InputSpaces[0];
-        outputSpace.SelectedItem = OutputSpaces.FirstOrDefault(item => item.Id == settings.Selections?.GetValueOrDefault("output-color")) ?? OutputSpaces[0];
-        foreach (var (key, item) in toggles)
-            item.IsChecked = settings.Switches is { } switches && switches.TryGetValue(key, out var saved) ? saved : defaults.Switches[key];
+        var colorId = settings?.Selections?.GetValueOrDefault("input-color");
+        inputSpace.SelectedItem = OpticalControls.Inputs.FirstOrDefault(space => space.Id == colorId) ?? OpticalControls.Inputs[0];
+        var encoding = settings?.Selections?.GetValueOrDefault("output-color");
+        outputSpace.SelectedItem = OpticalControls.Outputs.FirstOrDefault(item => item.Id == encoding) ?? OpticalControls.Outputs[0];
         // Compare and hardware quality settings are UI preferences, not part of a look.
         CompareSource = false;
     }
@@ -368,182 +346,62 @@ internal sealed class SpatialPreview : IDisposable
         AddPreviewChoice(color, outputSpace, "Render output encoding");
         body.Children.Add(Section("optics-color-management", "Color management", color));
 
-        var metering = new StackPanel();
-        AddToggle(metering, "auto-exposure", "Automatic film exposure");
-        AddChoice(metering, "auto-exposure-meter", "Metering", new[]
-        {
-            new Choice("center_weighted", "Center weighted"), new Choice("median", "Median"),
-        });
-        body.Children.Add(Section("optics-metering", "Exposure metering", metering));
-
-        var halation = new StackPanel();
-        AddSlider(halation, "halation-amount", "Halation amount", 0, 4, 0, 0.05);
-        AddSlider(halation, "halation-scale", "Halation spread", 0, 4, 1, 0.05);
-        AddSlider(halation, "scatter-amount", "Emulsion scatter", 0, 2, 0, 0.05);
-        AddSlider(halation, "scatter-scale", "Emulsion scatter spread", 0, 4, 1, 0.05);
-        AddSlider(halation, "halation-boost", "Highlight boost (EV)", 0, 20, 0, 0.1);
-        AddSlider(halation, "halation-boost-range", "Highlight boost range", 0, 1, 0.3, 0.01);
-        AddSlider(halation, "halation-protect", "Highlight protection (EV)", 0, 10, 4, 0.1);
-        var halationChannels = new StackPanel();
-        var customHalation = AddToggle(halation, "custom-halation-rgb", "Override stock halation channels");
-        SetToggleEnabled(customHalation, halationChannels);
-        AddSlider(halationChannels, "halation-red", "Red strength", 0, 1, 0.05, 0.005);
-        AddSlider(halationChannels, "halation-green", "Green strength", 0, 1, 0.015, 0.005);
-        AddSlider(halationChannels, "halation-blue", "Blue strength", 0, 1, 0, 0.005);
-        halation.Children.Add(halationChannels);
-        body.Children.Add(Section("optics-halation", "Halation and scatter", halation));
-        body.Children.Add(MakeDiffusion("camera", "Camera diffusion"));
-        var printDiffusion = MakeDiffusion("print", "Print diffusion");
-        ToolTipService.SetShowOnDisabled(printDiffusion, true);
-        printOnlyControls.Add(printDiffusion);
-        body.Children.Add(printDiffusion);
-
-        var grain = new StackPanel();
-        AddChoice(grain, "grain-model", "Grain model", new[]
-        {
-            new Choice("off", "Off"), new Choice("preview", "Preview"), new Choice("production", "Production"),
-            new Choice("synthesis", "Grain synthesis"),
-        });
-        AddSlider(grain, "grain-amount", "Grain amount", 0, 2, 1, 0.05);
-        AddSlider(grain, "grain-saturation", "Grain saturation", 0, 1, 1, 0.05);
-        AddSlider(grain, "grain-final-blur", "Final blur (µm)", 0, 25, 7.17, 0.01);
-        AddChoice(grain, "film-format", "Film format", new[]
-        {
-            new Choice("8", "8 mm"), new Choice("super8", "Super 8"), new Choice("16", "16 mm"),
-            new Choice("super16", "Super 16"), new Choice("35", "35 mm"), new Choice("super35", "Super 35"),
-            new Choice("65", "65 mm"), new Choice("70", "IMAX 70"),
-        }, 4);
-        AddSlider(grain, "grain-seed", "Seed", 0, 32767, 1, 1);
-        var particle = new StackPanel();
-        AddToggle(particle, "grain-sublayers", "Use emulsion sublayers", true);
-        AddSlider(particle, "grain-sublayer-count", "Sublayers", 1, 8, 1, 1);
-        AddSlider(particle, "grain-particle-area", "Particle area (µm²)", 0.01, 5, 0.1, 0.01);
-        AddSlider(particle, "grain-dye-cloud-blur", "Dye cloud blur (µm)", 0, 10, 1, 0.1);
-        AddSlider(particle, "grain-microstructure", "Microstructure scale", 0, 4, 0.2, 0.05);
-        AddSlider(particle, "grain-microstructure-sigma", "Microstructure width (nm)", 0, 500, 30, 1);
-        AddChannelSliders(particle, "grain-particle-scale", "Particle scale", 0.01, 20, (1.2, 1, 2.5), 0.01);
-        AddChannelSliders(particle, "grain-density-min", "Minimum density", 0, 1, (0.04, 0.05, 0.06), 0.01);
-        AddChannelSliders(particle, "grain-uniformity", "Uniformity", 0, 1, (0.99, 0.97, 0.98), 0.01);
-        AddLayerSliders(particle, "grain-layer-scale", (6, 1, 0.4));
-        grain.Children.Add(Section("optics-particle-grain", "Particle grain", particle));
-        var synthesis = new StackPanel();
-        fastSynthesis.Checked += (_, _) => OnPreferencesChanged();
-        fastSynthesis.Unchecked += (_, _) => OnPreferencesChanged();
-        synthesis.Children.Add(fastSynthesis);
-        AddToggle(synthesis, "grain-synthesis-layered", "Layered grain", true);
-        AddSlider(synthesis, "grain-synthesis-size", "Size", 0.25, 4, 1, 0.05);
-        AddSlider(synthesis, "grain-synthesis-amount", "Amount", 0, 3, 1, 0.05);
-        AddSlider(synthesis, "grain-synthesis-sharpness", "Sharpness", 0.25, 4, 1, 0.05);
-        AddSlider(synthesis, "grain-synthesis-quality", "Quality", 0.25, 4, 1, 0.05);
-        AddSlider(synthesis, "grain-synthesis-samples", "Samples", 1, 2048, 128, 1);
-        AddSlider(synthesis, "grain-synthesis-radius", "Mean radius (µm)", 0.05, 10, 0.25, 0.01);
-        AddSlider(synthesis, "grain-synthesis-radius-sd", "Radius variation", 0, 1, 0, 0.01);
-        AddSlider(synthesis, "grain-synthesis-observation", "Observation width (µm)", 0, 20, 1, 0.1);
-        AddSlider(synthesis, "grain-synthesis-cell", "Cell size ratio", 0.25, 2, 1, 0.05);
-        AddSlider(synthesis, "grain-synthesis-radius-quantile", "Radius quantile", 0.95, 0.9999, 0.999, 0.0001);
-        AddSlider(synthesis, "grain-synthesis-epsilon", "Coverage tolerance", 0.000001, 0.01, 0.0001, 0.000001);
-        AddSlider(synthesis, "grain-synthesis-cell-cap", "Max grains per cell", 1, 128, 32, 1);
-        AddChannelSliders(synthesis, "grain-synthesis-radius-scale", "Radius scale", 0.01, 20, (1.2, 1, 2.5), 0.01);
-        AddLayerSliders(synthesis, "grain-synthesis-layer-scale", (6, 1, 0.4));
-        grain.Children.Add(Section("optics-grain-synthesis", "Grain synthesis", synthesis));
-        body.Children.Add(Section("optics-grain", "Spektrafilm grain", grain));
-
-        var scanner = new StackPanel();
-        AddToggle(scanner, "scanner-enabled", "Enable scanner controls");
-        AddToggle(scanner, "scanner-white", "Correct white level");
-        AddSlider(scanner, "scanner-white-level", "White point", 0, 1, 0.98, 0.01);
-        AddToggle(scanner, "scanner-black", "Correct black level");
-        AddSlider(scanner, "scanner-black-level", "Black point", 0, 1, 0.01, 0.01);
-        var printGlare = new StackPanel();
-        AddSlider(printGlare, "scanner-glare", "Scanner glare", 0, 0.2, 0.03, 0.001);
-        AddSlider(printGlare, "scanner-glare-roughness", "Glare roughness", 0, 4, 0.7, 0.05);
-        AddSlider(printGlare, "scanner-glare-blur", "Glare blur", 0, 32, 0.5, 0.1);
-        ToolTipService.SetShowOnDisabled(printGlare, true);
-        printOnlyControls.Add(printGlare);
-        scanner.Children.Add(printGlare);
-        AddSlider(scanner, "scanner-mtf", "Scanner MTF50 (lp/mm)", 0, 300, 60, 1);
-        AddSlider(scanner, "scanner-unsharp-radius", "Unsharp radius (µm)", 0, 100, 5, 0.5);
-        AddSlider(scanner, "scanner-unsharp-amount", "Unsharp amount", 0, 4, 0.7, 0.05);
-        body.Children.Add(Section("optics-scanning", "Scanning", scanner));
-
-        var geometry = new StackPanel();
-        var scale = AddSlider(geometry, "enlarger-scale", "Enlarger scale", 1, 32, 1, 0.1);
-        scale.ToolTip =
-            "1.0 keeps the original framing. Higher values magnify the image inside the frame.";
-        AddSlider(geometry, "enlarger-x", "Horizontal offset (%)", -100, 100, 0, 1);
-        AddSlider(geometry, "enlarger-y", "Vertical offset (%)", -100, 100, 0, 1);
-        geometry.PreviewMouseWheel += ScrollPastFramingControls;
-        body.Children.Add(Section("optics-enlarger", "Enlarger positioning", geometry));
-
-        var couplers = new StackPanel();
-        AddSlider(couplers, "dir-diffusion", "Diffusion width (µm)", 0, 100, 20, 0.5);
-        AddSlider(couplers, "dir-tail-size", "Tail width (µm)", 0, 1000, 200, 1);
-        AddSlider(couplers, "dir-tail-weight", "Tail weight", 0, 1, 0.06, 0.01);
-        var couplerChannels = new StackPanel();
-        var customCouplers = AddToggle(couplers, "custom-dir-rgb", "Override stock coupler channels");
-        SetToggleEnabled(customCouplers, couplerChannels);
-        AddChannelSliders(couplerChannels, "dir-gamma", "Same-layer gamma", 0, 1, (0.341, 0.319, 0.273), 0.001);
-        foreach (var (from, to, baseline) in new[]
-        {
-            ("r", "g", 0.353), ("r", "b", 0.302), ("g", "r", 0.154),
-            ("g", "b", 0.353), ("b", "r", 0.168), ("b", "g", 0.226),
-        })
-            AddSlider(couplerChannels, $"dir-{from}-to-{to}", $"{from.ToUpperInvariant()} → {to.ToUpperInvariant()} coupling", 0, 1, baseline, 0.001);
-        couplers.Children.Add(couplerChannels);
-        body.Children.Add(Section("optics-couplers", "Coupler diffusion", couplers));
-
-        var adaptation = new StackPanel();
-        AddToggle(adaptation, "color-adaptation", "Color adaptation");
-        AddToggle(adaptation, "color-input-compression", "Input spectral gamut compression", true);
-        AddToggle(adaptation, "color-curve-smoothing", "Density curve smoothing", true);
-        AddToggle(adaptation, "color-output-lightness-compression", "Output lightness compression", true);
-        AddToggle(adaptation, "color-output-chroma-compression", "Output chroma compression", true);
-        body.Children.Add(Section("optics-color-adaptation", "Color adaptation", adaptation));
-
+        foreach (var group in OpticalControls.Sections)
+            body.Children.Add(BuildSection(group));
+        values["enlarger-scale"].ToolTip = "1.0 keeps the original framing. Higher values magnify the image inside the frame.";
         return Section("optics", "Spektrafilm optics", body);
     }
 
-    private Expander MakeDiffusion(string stage, string name)
+    private FrameworkElement BuildSection(OpticalSection group)
     {
-        var section = new StackPanel();
-        AddChoice(section, stage + "-diffusion-family", "Filter", DiffusionFamilies);
-        AddSlider(section, stage + "-diffusion-strength", "Filter strength", 0, 2, 0.5, 0.125);
-        AddSlider(section, stage + "-diffusion-scale", "Spatial scale", 0, 4, 1, 0.05);
-        AddSlider(section, stage + "-diffusion-warmth", "Halo warmth", -1.5, 1.5, 0, 0.05);
-        foreach (var (part, label) in new[] { ("core", "Core"), ("halo", "Halo"), ("bloom", "Bloom") })
+        var panel = new StackPanel();
+        if (group.Key == "optics-grain-synthesis")
         {
-            AddSlider(section, $"{stage}-diffusion-{part}-intensity", label + " intensity", 0, 4, 1, 0.05);
-            AddSlider(section, $"{stage}-diffusion-{part}-size", label + " size", 0.1, 4, 1, 0.05);
+            fastSynthesis.Checked += (_, _) => OnPreferencesChanged();
+            fastSynthesis.Unchecked += (_, _) => OnPreferencesChanged();
+            panel.Children.Add(fastSynthesis);
         }
-        return Section("optics-" + stage + "-diffusion", name, section);
+        if (group.Key == "optics-enlarger")
+            panel.PreviewMouseWheel += ScrollPastFramingControls;
+        foreach (var item in group.Items)
+        {
+            switch (item)
+            {
+                case OpticalSlider slider:
+                    AddSlider(panel, slider);
+                    break;
+                case OpticalChoice choice:
+                    AddChoice(panel, choice);
+                    break;
+                case OpticalToggle toggle:
+                    AddToggle(panel, toggle);
+                    break;
+                case OpticalSection section:
+                    panel.Children.Add(BuildSection(section));
+                    break;
+            }
+        }
+        FrameworkElement view = group.Key is { } key ? Section(key, group.Label, panel) : panel;
+        if (group.PrintOnly)
+        {
+            ToolTipService.SetShowOnDisabled(view, true);
+            printOnlyControls.Add(view);
+        }
+        if (group.RequiresToggle is { } required)
+            SetToggleEnabled(toggles[required], view);
+        return view;
     }
 
     private static Expander Section(string key, string title, UIElement content) =>
         PanelPreferences.CreateSection(key, title, content, 5);
 
-    private void AddChannelSliders(Panel panel, string key, string label, double min, double max,
-        (double Red, double Green, double Blue) initial, double step)
+    private void AddToggle(Panel panel, OpticalToggle definition)
     {
-        AddSlider(panel, key + "-r", label + " · R", min, max, initial.Red, step);
-        AddSlider(panel, key + "-g", label + " · G", min, max, initial.Green, step);
-        AddSlider(panel, key + "-b", label + " · B", min, max, initial.Blue, step);
-    }
-
-    private void AddLayerSliders(Panel panel, string key, (double Layer0, double Layer1, double Layer2) initial)
-    {
-        AddSlider(panel, key + "-0", "Layer 1 scale", 0.01, 20, initial.Layer0, 0.01);
-        AddSlider(panel, key + "-1", "Layer 2 scale", 0.01, 20, initial.Layer1, 0.01);
-        AddSlider(panel, key + "-2", "Layer 3 scale", 0.01, 20, initial.Layer2, 0.01);
-    }
-
-    private CheckBox AddToggle(Panel panel, string key, string label, bool initial = false)
-    {
-        var item = new CheckBox { Content = label, IsChecked = initial, Margin = new Thickness(0, 3, 0, 2) };
+        var item = new CheckBox { Content = definition.Label, IsChecked = definition.Initial, Margin = new Thickness(0, 3, 0, 2) };
         item.Checked += (_, _) => OnSettingsChanged();
         item.Unchecked += (_, _) => OnSettingsChanged();
-        toggles.Add(key, item);
+        toggles.Add(definition.Key, item);
         panel.Children.Add(item);
-        return item;
     }
 
     private static void SetToggleEnabled(CheckBox toggle, FrameworkElement controls)
@@ -563,23 +421,27 @@ internal sealed class SpatialPreview : IDisposable
         });
     }
 
-    private NativeSlider AddSlider(Panel panel, string key, string title, double lower, double upper, double value, double step)
+    private void AddSlider(Panel panel, OpticalSlider definition)
     {
-        var control = new NativeSlider(title, lower, upper, value, step);
+        var control = new NativeSlider(definition.Label, definition.Minimum, definition.Maximum, definition.Initial, definition.Increment);
         TrackSliderDrag(control);
         control.ValueChanged += (_, _) => OnSettingsChanged();
-        values.Add(key, control);
+        values.Add(definition.Key, control);
         panel.Children.Add(control);
-        return control;
     }
 
-    private void AddChoice(Panel panel, string key, string title, Choice[] items, int selected = 0)
+    private void AddChoice(Panel panel, OpticalChoice definition)
     {
-        var chooser = new ComboBox { DisplayMemberPath = nameof(Choice.Label), ItemsSource = items, SelectedIndex = selected };
-        AutomationProperties.SetName(chooser, title);
+        var chooser = new ComboBox
+        {
+            DisplayMemberPath = nameof(OpticalOption.Label),
+            ItemsSource = definition.Options,
+            SelectedItem = definition.Options.Single(option => option.Id == definition.Default),
+        };
+        AutomationProperties.SetName(chooser, definition.Label);
         chooser.SelectionChanged += (_, _) => OnSettingsChanged();
-        choices.Add(key, chooser);
-        panel.Children.Add(new TextBlock { Text = title, Margin = new Thickness(0, 4, 0, 1) });
+        choices.Add(definition.Key, chooser);
+        panel.Children.Add(new TextBlock { Text = definition.Label, Margin = new Thickness(0, 4, 0, 1) });
         panel.Children.Add(chooser);
     }
 
@@ -742,8 +604,8 @@ internal sealed class SpatialPreview : IDisposable
         {
             var look = getSettings() ?? throw new InvalidOperationException("Wait for the Spektrafilm controls to finish loading.");
             var target = HostProfile.CaptureTarget(window);
-            var input = (InputChoice)inputSpace.SelectedItem;
-            var encoding = ((Choice)outputSpace.SelectedItem).Id;
+            var input = (OpticalInput)inputSpace.SelectedItem;
+            var encoding = ((OpticalOption)outputSpace.SelectedItem).Id;
             var args = look.Strength > 0 ? RendererOptions(look, input.Id, encoding, export: true) : Array.Empty<string>();
             var snapshot = HostImageSource.CaptureForExport(window, target,
                 input.Space, captureRecipe: useRecipeSize);
@@ -1118,10 +980,10 @@ internal sealed class SpatialPreview : IDisposable
             originalUnavailable = false;
             RequestRefresh();
         }
-        var selectedSpace = (InputChoice)inputSpace.SelectedItem;
+        var selectedSpace = (OpticalInput)inputSpace.SelectedItem;
         var space = selectedSpace.Space;
         if (!CheckSourceProfile(space)) return;
-        var encoding = (Choice)outputSpace.SelectedItem;
+        var encoding = (OpticalOption)outputSpace.SelectedItem;
         var automatic = ((Choice)previewSize.SelectedItem).Id == "auto";
         if (automatic && pending is null && pendingDraft is null && !dragging)
         {
@@ -1365,7 +1227,7 @@ internal sealed class SpatialPreview : IDisposable
     }
 
     private async Task TryShowInitialPreviewAsync(HostImageSource.Frame frame, long started, double nativeDevelopmentMs,
-        NativeImageRevision revision, Guid variant, InputChoice inputColor, Choice encoding, LookSettings look,
+        NativeImageRevision revision, Guid variant, OpticalInput inputColor, OpticalOption encoding, LookSettings look,
         int dragEdge, int version, CancellationToken token)
     {
         if (version != inputRevision || DragLongEdge != dragEdge)
@@ -1414,7 +1276,7 @@ internal sealed class SpatialPreview : IDisposable
     }
 
     private async Task RefreshDraftAsync(Guid selectedVariant, NativeImageRevision revision,
-        HostImageSource.Frame input, InputChoice inputColor, Choice encoding, LookSettings look, string viewerSize, int dragEdge, bool warmup = false)
+        HostImageSource.Frame input, OpticalInput inputColor, OpticalOption encoding, LookSettings look, string viewerSize, int dragEdge, bool warmup = false)
     {
         draftWarmupAttempted = true;
         if (!warmup)
@@ -1493,7 +1355,7 @@ internal sealed class SpatialPreview : IDisposable
     }
 
     private void TrackBriefPaint(BitmapSource image, HostImageSource.Frame source, ViewerFrameStage stage, long started,
-        int version, int requestedEdge, InputChoice input, Choice encoding, double strength,
+        int version, int requestedEdge, OpticalInput input, OpticalOption encoding, double strength,
         double? nativeMs, double? filmMs, double bitmapMs, OpticalRenderReceipt? receipt)
     {
         if (source.Description is not { } description) return;
@@ -1646,7 +1508,7 @@ internal sealed class SpatialPreview : IDisposable
             throw new InvalidOperationException("Set Developer exhaustion to zero before rendering this optical preview.");
 
         var args = new List<string>();
-        Choice Selected(string key) => (Choice)choices[key].SelectedItem;
+        OpticalOption Selected(string key) => (OpticalOption)choices[key].SelectedItem;
         void Set(string key, string value) { args.Add("--" + key); args.Add(value); }
         void Numeric(string key, double value) => Set(key, RendererParameters.NumberToken(value));
 
@@ -1654,7 +1516,8 @@ internal sealed class SpatialPreview : IDisposable
         Set("paper", look.Paper);
         Set("input-color", inputColor);
         Set("output-color", outputColor);
-        Set("mode", look.Mode.Contains("scan", StringComparison.Ordinal) ? (look.ScanInvert ? "scan_inverted" : "scan") : "print");
+        var scanning = look.Mode.Contains("scan", StringComparison.Ordinal);
+        Set("mode", scanning ? (look.ScanInvert ? "scan_inverted" : "scan") : "print");
         Set("spectral-method", look.SpectralMethod);
         Set("film-push-pull-mode", look.FilmPushPullMode);
         Numeric("film-exposure", look.Exposure);
@@ -1672,16 +1535,16 @@ internal sealed class SpatialPreview : IDisposable
             Set(option, look.Development.GetValueOrDefault(key, baseline) != baseline ? "true" : "false");
         }
 
+        Func<string, bool> isOn = key => toggles[key].IsChecked == true;
+        bool Send(string key) => OpticalControls.Parameters[key].ShouldSend(!scanning, isOn);
         foreach (var key in choices.Keys)
-            Set(key, Selected(key).Id);
+            if (Send(key))
+                Set(key, Selected(key).Id);
         var fastGrain = !export && (draft || fastSynthesis.IsChecked == true) && Selected("grain-model").Id == "synthesis";
         var grainQuality = Math.Min(values["grain-synthesis-quality"].Value, 2);
         foreach (var (key, slider) in values)
         {
-            var halationChannel = key is "halation-red" or "halation-green" or "halation-blue";
-            var couplerChannel = key.StartsWith("dir-gamma-", StringComparison.Ordinal) || key.Contains("-to-", StringComparison.Ordinal);
-            if ((halationChannel && toggles["custom-halation-rgb"].IsChecked != true)
-                || (couplerChannel && toggles["custom-dir-rgb"].IsChecked != true))
+            if (!Send(key))
                 continue;
             var value = slider.Value;
             if (fastGrain && key == "grain-synthesis-samples")
@@ -1691,7 +1554,7 @@ internal sealed class SpatialPreview : IDisposable
             Numeric(key, value);
         }
         foreach (var (key, toggle) in toggles)
-            if (!key.StartsWith("custom-", StringComparison.Ordinal))
+            if (Send(key))
                 Set(key, toggle.IsChecked == true ? "true" : "false");
         return args.ToArray();
     }
@@ -1718,6 +1581,5 @@ internal sealed class SpatialPreview : IDisposable
 
     private sealed record Choice(string Id, string Label);
     private sealed record DragSize(int LongEdge, string Label);
-    private sealed record InputChoice(PreviewInputSpace Space, string Id, string Label);
     internal sealed record Settings(Dictionary<string, double> Numbers, Dictionary<string, string> Selections, Dictionary<string, bool> Switches);
 }

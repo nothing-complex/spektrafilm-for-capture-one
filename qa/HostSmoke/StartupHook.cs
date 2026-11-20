@@ -188,6 +188,7 @@ public static partial class StartupHook
             {
                 SavePanelControlInventory(panel, spatial);
                 VerifyNativeSliderTypes(panel, spatial, store, variant);
+                VerifyOpticalModeDependencies(panel, spatial);
                 File.WriteAllText(Path.Combine(folder, "first.passed"), $"PASS {checks} native control inventory assertions");
                 return;
             }

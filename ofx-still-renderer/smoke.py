@@ -436,6 +436,22 @@ def check_metering_cache(exe, frame, base):
     print("Metering cache matched sixteen fresh full-frame and tiled renders, including source, input colour and method changes")
 
 
+def check_print_optics_mode(exe, frame, base):
+    small = frame[::3, ::3].copy()
+    scanner = base + " --scanner-enabled true --scanner-mtf 15"
+    print_optics = (" --print-diffusion-family pro_mist --print-diffusion-strength 1.5"
+                    " --scanner-glare .07 --scanner-glare-roughness 1 --scanner-glare-blur .6")
+    request = b"".join(
+        frame_request(small, f"{scanner} --mode {mode}{extra}")
+        for mode in ("scan", "scan_inverted", "print") for extra in ("", print_optics)
+    )
+    replies = run_stream(exe, request, mode="--native-preview-stream")
+    assert len(replies) == 6 and all(status == 0 for status, _ in replies)
+    assert replies[0] == replies[1] and replies[2] == replies[3]
+    assert replies[4] != replies[5]
+    print("Print diffusion and glare change Print Simulation and leave both negative scan encodings byte exact")
+
+
 def check_negative_density_cache(exe, frame, base):
     height, width = 259, 521
     chart = frame[np.arange(height)[:, None] % frame.shape[0], np.arange(width) % frame.shape[1]]
@@ -821,6 +837,7 @@ def main():
     check_output_transfers(args.exe, frame, base)
     check_packed_readback(args.exe, base)
     check_metering_cache(args.exe, frame, base)
+    check_print_optics_mode(args.exe, frame, base)
     check_negative_density_cache(args.exe, frame, base)
     check_tiled_parity(args.exe, base)
     check_optical_scratch_lifetime(args.exe, base)

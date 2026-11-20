@@ -7,6 +7,7 @@
   </PropertyGroup>
   <ItemGroup>
     <EmbeddedResource Include="../../capture-one-hosts.json" LogicalName="Spektrafilm.CaptureOneHosts.json" />
+    <EmbeddedResource Include="../../qa/panel-controls.json" LogicalName="Spektrafilm.PanelControls.json" />
     <Compile Include="../../NativePanel/HostCompatibility.cs" Link="HostCompatibility.cs" />
     <Compile Include="../../NativePanel/NativeExportConfirmation.cs" Link="NativeExportConfirmation.cs" />
     <Compile Include="../../NativePanel/NativeImageCoreCompatibility.cs" Link="NativeImageCoreCompatibility.cs" />
@@ -18,6 +19,8 @@
     <Compile Include="../../NativePanel/VariantLookBatchJournal.cs" Link="VariantLookBatchJournal.cs" />
     <Compile Include="../../NativePanel/LookStateValidation.cs" Link="LookStateValidation.cs" />
     <Compile Include="../../NativePanel/FilmControls.cs" Link="FilmControls.cs" />
+    <Compile Include="../../NativePanel/OpticalControls.cs" Link="OpticalControls.cs" />
+    <Compile Include="../../NativePanel/ColorTransfer.cs" Link="ColorTransfer.cs" />
     <Compile Include="../../NativePanel/LookSettings.cs" Link="LookSettings.cs" />
     <Compile Include="../../NativePanel/LookPreset.cs" Link="LookPreset.cs" />
     <Compile Include="../../NativePanel/RendererParameters.cs" Link="RendererParameters.cs" />

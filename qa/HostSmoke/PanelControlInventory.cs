@@ -65,6 +65,64 @@ public static partial class StartupHook
         Call(spatial, "LoadSettings", original);
     }
 
+    private static void VerifyOpticalModeDependencies(object panel, object spatial)
+    {
+        var mode = (ComboBox)Field(panel, "mode")!;
+        var choices = (IDictionary)Field(spatial, "choices")!;
+        var diffusion = (ComboBox)choices["print-diffusion-family"]!;
+        var sliders = (IDictionary)Field(spatial, "values")!;
+        var glare = sliders["scanner-glare"]!;
+        var value = glare.GetType().GetProperty("Value", Flags)!;
+        var enabled = (CheckBox)Field(panel, "enableSpektraFilm")!;
+        var previousMode = mode.SelectedItem;
+        var previousDiffusion = diffusion.SelectedItem;
+        var previousGlare = value.GetValue(glare);
+        var wasEnabled = enabled.IsChecked;
+        var sections = ((IEnumerable)Field(spatial, "printOnlyControls")!).Cast<FrameworkElement>().ToArray();
+        object Option(ComboBox chooser, string id) => chooser.Items.Cast<object>().Single(item => Equals(Prop(item, "Id"), id));
+        Dictionary<string, string> Wire()
+        {
+            var look = Call(panel, "CurrentSettings")!;
+            var args = (string[])Call(spatial, "RendererOptions", look, "srgb", "srgb", false, false)!;
+            return Enumerable.Range(0, args.Length / 2).ToDictionary(i => args[i * 2][2..], i => args[i * 2 + 1], StringComparer.Ordinal);
+        }
+        try
+        {
+            enabled.IsChecked = true;
+            mode.SelectedItem = Option(mode, "print");
+            diffusion.SelectedItem = Option(diffusion, "pro_mist");
+            value.SetValue(glare, .07d);
+            var print = Wire();
+            Check(sections.Length == 2 && sections.All(section => section.IsEnabled)
+                && print["print-diffusion-family"] == "pro_mist" && print["scanner-glare"] == "0.07",
+                "Print Simulation enables the two print-only groups and sends their staged values");
+
+            mode.SelectedItem = Option(mode, "scan");
+            var scan = Wire();
+            var omitted = print.Keys.Except(scan.Keys).ToArray();
+            Check(sections.All(section => !section.IsEnabled) && scan["mode"] == "scan" && omitted.Length == 13
+                && omitted.All(key => key.StartsWith("print-diffusion-", StringComparison.Ordinal) || key.StartsWith("scanner-glare", StringComparison.Ordinal))
+                && scan.ContainsKey("camera-diffusion-strength") && scan.ContainsKey("scanner-unsharp-amount"),
+                "Scan Film disables and omits the print-only optics while retaining camera diffusion and scanner sharpening");
+            var staged = Call(spatial, "CaptureSettings")!;
+            Check(Equals(((IDictionary)Prop(staged, "Selections")!)["print-diffusion-family"], "pro_mist")
+                && Equals(((IDictionary)Prop(staged, "Numbers")!)["scanner-glare"], .07d),
+                "switching to Scan Film retains the dormant print optics in saved look state");
+
+            mode.SelectedItem = Option(mode, "print");
+            var returned = Wire();
+            Check(sections.All(section => section.IsEnabled) && print.SequenceEqual(returned),
+                "returning to Print Simulation restores the exact staged renderer request");
+        }
+        finally
+        {
+            mode.SelectedItem = previousMode;
+            diffusion.SelectedItem = previousDiffusion;
+            value.SetValue(glare, previousGlare);
+            enabled.IsChecked = wasEnabled;
+        }
+    }
+
     private static void SavePanelControlInventory(object panel, object spatial)
     {
         var bindings = new Dictionary<object, (string Capability, string? Option)>(ReferenceEqualityComparer.Instance);
