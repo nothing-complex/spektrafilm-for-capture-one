@@ -57,6 +57,7 @@ struct RendererDiagnostics {
   uint64_t privateScratchAllocationBytes = 0;
   uint64_t privateScratchAllocationCount = 0;
   uint64_t uploadBytes = 0;
+  uint64_t readbackBytes = 0;
   bool sharedBackend = false;
   uint32_t sharedBackendGeneration = 0;
   uint32_t sharedQueueCount = 0;

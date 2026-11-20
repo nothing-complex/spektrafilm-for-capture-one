@@ -293,7 +293,7 @@ internal static class Program
             byte[] clean;
             using (var renderer = new OpticalRenderer(nativePreview: true))
             {
-                clean = await renderer.RenderAsync(8, 8, source, options, default);
+                var packed = await renderer.RenderAsync(8, 8, source, options, default, displayPixels: true);
                 if (File.Exists(Path.Combine(root, "build-manifest.json")))
                 {
                     Check(renderer.AssetContract is { Length: 64 }, "the actual worker passed verified runtime asset admission");
@@ -301,11 +301,21 @@ internal static class Program
                 }
                 var metrics = await renderer.ReadDiagnosticsAsync(default);
                 Check(metrics?.GetProperty("schema").GetInt32() == 1, "GPU diagnostics protocol");
-                Check(metrics?.GetProperty("renderSequence").GetInt32() == 1, "GPU render counted");
+                Check(metrics?.GetProperty("renderSequence").GetInt32() == 1
+                    && metrics?.GetProperty("readbackBytes").GetInt64() == 8 * 8 * 4 + sizeof(uint),
+                    "fully packed Vulkan output readback is one word per pixel plus a validation word");
+                var packedAgain = await renderer.RenderAsync(8, 8, source, options, default, displayPixels: true);
+                metrics = await renderer.ReadDiagnosticsAsync(default);
+                Check(packedAgain.SequenceEqual(packed) && metrics?.GetProperty("renderSequence").GetInt32() == 1,
+                    "native unchanged packed request cached");
+                clean = await renderer.RenderAsync(8, 8, source, options, default);
+                metrics = await renderer.ReadDiagnosticsAsync(default);
+                Check(metrics?.GetProperty("renderSequence").GetInt32() == 2
+                    && metrics?.GetProperty("readbackBytes").GetInt64() == source.Length,
+                    "switching to float output preserves full precision and reuses the accepted source");
                 await renderer.RenderAsync(8, 8, source, options, default);
                 metrics = await renderer.ReadDiagnosticsAsync(default);
-                Check(metrics?.GetProperty("renderSequence").GetInt32() == 1, "native unchanged request cached");
-                var packed = await renderer.RenderAsync(8, 8, source, options, default, displayPixels: true);
+                Check(metrics?.GetProperty("renderSequence").GetInt32() == 2, "native unchanged float request cached");
                 var delivery = new SrgbDelivery(PreviewInputSpace.Srgb, "srgb", 1);
                 var input = new float[source.Length / sizeof(float)];
                 var rendered = new float[clean.Length / sizeof(float)];
@@ -321,6 +331,15 @@ internal static class Program
                     expectedPacked[index + 3] = (byte)MathF.Round(Math.Clamp(input[index + 3], 0, 1) * 255);
                 }
                 Check(packed.SequenceEqual(expectedPacked), "worker packed BGRA and managed delivery round identically at full sRGB strength");
+                using var cancellation = new CancellationTokenSource();
+                var largerSource = Pixels(1600 * 1200);
+                var pending = renderer.RenderAsync(1600, 1200, largerSource, options, cancellation.Token, displayPixels: true);
+                cancellation.CancelAfter(10);
+                await Throws<OperationCanceledException>(() => pending.WaitAsync(TimeSpan.FromSeconds(10)));
+                var recovered = await renderer.RenderAsync(8, 8, source, options, default, displayPixels: true);
+                metrics = await renderer.ReadDiagnosticsAsync(default);
+                Check(recovered.SequenceEqual(packed) && metrics?.GetProperty("renderSequence").GetInt32() == 1,
+                    "a canceled packed Vulkan request discards worker state and admits a fresh frame");
             }
             Environment.SetEnvironmentVariable("SPEKTRAFILM_VULKAN_COPY_PASS", "1");
             using (var renderer = new OpticalRenderer(nativePreview: true))

@@ -6,7 +6,7 @@ layout(std430, binding = 0) readonly buffer SourceWords {
   uint srcWords[];
 };
 
-layout(std430, binding = 1) writeonly buffer DestinationWords {
+layout(std430, binding = 1) buffer DestinationWords {
   uint dstWords[];
 };
 
@@ -57,8 +57,28 @@ vec3 ditherRgbForHalf(vec3 rgb, uint pixelIndex) {
   );
 }
 
+// RGB uses double-precision scaling in the CPU reference. The product of a
+// 24-bit float significand and 255 fits in uint, so retain the same rounding
+// without requiring the optional Vulkan shaderFloat64 capability.
+uint displayRgbCode(float value) {
+  if (value <= 0.0) return 0u;
+  if (value >= 1.0) return 255u;
+  const uint bits = floatBitsToUint(value);
+  const uint exponent = (bits >> 23u) & 255u;
+  if (exponent < 118u) return 0u;
+
+  const uint shift = 150u - exponent;
+  const uint scaled = ((bits & 0x7fffffu) | 0x800000u) * 255u;
+  const uint midpoint = 1u << (shift - 1u);
+  if (shift == 32u) return scaled > midpoint ? 1u : 0u;
+  const uint code = scaled >> shift;
+  const uint residue = scaled & ((1u << shift) - 1u);
+  return code + uint(residue > midpoint || (residue == midpoint && (code & 1u) != 0u));
+}
+
 void main() {
-  const uint pixelIndex = gl_GlobalInvocationID.x;
+  const uint pixelIndex = gl_GlobalInvocationID.x +
+    gl_GlobalInvocationID.y * gl_NumWorkGroups.x * gl_WorkGroupSize.x;
   if (pixelIndex >= params.pixelCount) {
     return;
   }
@@ -82,9 +102,21 @@ void main() {
       uintBitsToFloat(srcWords[floatWordOffset + 2u]),
       uintBitsToFloat(srcWords[floatWordOffset + 3u])
     );
-    const vec3 rgb = ditherRgbForHalf(vec3(rg, ba.x), pixelIndex);
-    const uint halfWordOffset = pixelIndex * 2u;
-    dstWords[halfWordOffset] = packHalf2x16(rgb.rg);
-    dstWords[halfWordOffset + 1u] = packHalf2x16(vec2(rgb.b, ba.y));
+    if (params.mode == 2u) {
+      const vec4 rgba = vec4(rg, ba);
+      if (any(isnan(rgba)) || any(isinf(rgba))) {
+        atomicOr(dstWords[params.pixelCount], 1u);
+        return;
+      }
+      // Alpha follows the CPU display path's float multiply and round-to-even.
+      const uint alpha = uint(roundEven(clamp(rgba.a, 0.0, 1.0) * 255.0));
+      dstWords[pixelIndex] = displayRgbCode(rgba.b) | (displayRgbCode(rgba.g) << 8u) |
+        (displayRgbCode(rgba.r) << 16u) | (alpha << 24u);
+    } else {
+      const vec3 rgb = ditherRgbForHalf(vec3(rg, ba.x), pixelIndex);
+      const uint halfWordOffset = pixelIndex * 2u;
+      dstWords[halfWordOffset] = packHalf2x16(rgb.rg);
+      dstWords[halfWordOffset + 1u] = packHalf2x16(vec2(rgb.b, ba.y));
+    }
   }
 }

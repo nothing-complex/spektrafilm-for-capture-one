@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 21 bounded primary fixes implemented, 48 partial items and 1 pending item. It includes feasibility investigations and enhancements.
+Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 21 bounded primary fixes implemented and 49 partial items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -550,6 +550,17 @@ Evidence is under `.test-results/host-catalog-isolation-painted-20261120`.
 - [ ] Verify actual Before/After halves, external viewers, fullscreen, virtualization and DPI before permitting additional simultaneous film previews.
 
 Evidence is under `.test-results/host-viewer-layouts-selection-20261120`, `.test-results/host-viewer-reattachment-regression-20261120` and `.test-results/contracts-viewer-reattachment-20261120`.
+
+## Packed Vulkan Viewer readback
+
+- [x] Pack full-strength sRGB display output on the GPU and keep the established float paths for partial strength and 16-bit export. In the enlarger case, the CPU packer retains the original alpha.
+- [x] Match five full-frame and tiled cases exactly to the scalar BGRA reference. Compare every byte of the 24 MP BGRA preview and 24 MP float export against the previous renderer. Both match.
+- [x] Pass 23 managed GPU checks including cancellation, worker recovery, cache reuse and transition back to float. Pass the full Vulkan smoke suite.
+- [x] Pass 202 first-launch and 206 forced-restart Capture One assertions with the new renderer, including 16-bit full-size RAW export and the native proofing guard.
+- [x] Measure warm 24 MP worker p95 of 56.30 ms against 304.46 ms previously across 21 runs per size. GPU readback decreased from 384,000,000 to 96,000,004 bytes on the RTX 3090. This timing covers the worker request and reply.
+- [ ] Evaluate optional GPU blending for all look strengths, enlarger alpha and shared memory or texture delivery. Verify more GPUs and physical device-loss recovery.
+
+Evidence is under `.test-results/rc13-*-20261120.json`, `.test-results/gpu-packed-final-smoke-20261120.log` and `.test-results/host-gpu-packed-20261120`.
 
 ## Status maintenance
 

@@ -234,6 +234,19 @@ bool isSupportedRgba(const ImageView &source, const MutableImageView &destinatio
          (destination.bytesPerComponent == 2 || destination.bytesPerComponent == 4);
 }
 
+bool isStillBgra8(const ImageView &source, const MutableImageView &destination, const RenderParams &params) {
+#ifdef SPEKTRAFILM_STILL_RENDERER
+  return source.components == 4 && source.bytesPerComponent == sizeof(float) &&
+         destination.components == 4 && destination.bytesPerComponent == 1 &&
+         params.outputColorSpace == ColorSpace::Srgb;
+#else
+  (void)source;
+  (void)destination;
+  (void)params;
+  return false;
+#endif
+}
+
 bool windowFitsView(
   const ImageView &view,
   const RenderWindow &window,
@@ -2748,9 +2761,9 @@ struct VulkanRenderer::Impl {
     ScratchBuffer filmRaw;
     ScratchBuffer filmDensity;
     ScratchBuffer destination;
-    ScratchBuffer destinationHalf;
+    ScratchBuffer destinationConverted;
     ScratchBuffer destinationStaging;
-    ScratchBuffer destinationHalfStaging;
+    ScratchBuffer destinationConvertedStaging;
     ScratchBuffer halationRawA;
     ScratchBuffer halationRawB;
     ScratchBuffer halationRawC;
@@ -3165,9 +3178,9 @@ uint64_t VulkanRenderer::Impl::transientAllocationBytes() const {
   add(coreFrame.filmRaw);
   add(coreFrame.filmDensity);
   add(coreFrame.destination);
-  add(coreFrame.destinationHalf);
+  add(coreFrame.destinationConverted);
   add(coreFrame.destinationStaging);
-  add(coreFrame.destinationHalfStaging);
+  add(coreFrame.destinationConvertedStaging);
   add(coreFrame.halationRawA);
   add(coreFrame.halationRawB);
   add(coreFrame.halationRawC);
@@ -4586,9 +4599,9 @@ void VulkanRenderer::Impl::destroyCoreFrameResources() {
   destroyScratchBuffer(coreFrame.halationRawC);
   destroyScratchBuffer(coreFrame.halationRawB);
   destroyScratchBuffer(coreFrame.halationRawA);
-  destroyScratchBuffer(coreFrame.destinationHalfStaging);
+  destroyScratchBuffer(coreFrame.destinationConvertedStaging);
   destroyScratchBuffer(coreFrame.destinationStaging);
-  destroyScratchBuffer(coreFrame.destinationHalf);
+  destroyScratchBuffer(coreFrame.destinationConverted);
   destroyScratchBuffer(coreFrame.destination);
   destroyScratchBuffer(coreFrame.filmDensity);
   destroyScratchBuffer(coreFrame.filmRaw);
@@ -4813,6 +4826,7 @@ bool VulkanRenderer::Impl::renderCopyValidation(
   }
   const PerfClock::time_point outputCopyEnd = PerfClock::now();
   diagnostics.outputCopyMs = elapsedMilliseconds(outputCopyStart, outputCopyEnd);
+  diagnostics.readbackBytes = byteCount;
 
   RendererPassDiagnostics pass{};
   pass.name = "copyValidation";
@@ -4848,7 +4862,8 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
   if (width <= 0 || height <= 0) {
     return true;
   }
-  if (!isSupportedRgba(source, destination)) {
+  const bool destinationIsBgra8 = isStillBgra8(source, destination, params);
+  if (!destinationIsBgra8 && !isSupportedRgba(source, destination)) {
     lastError = "Only RGBA 16-bit half and 32-bit float images are supported by the Windows Vulkan path.";
     return false;
   }
@@ -4859,7 +4874,6 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
     return false;
   }
   const uint64_t byteCount64 = pixelCount * 4u * sizeof(float);
-  const uint64_t halfByteCount64 = pixelCount * 4u * sizeof(uint16_t);
   if (pixelCount == 0 || byteCount64 > static_cast<uint64_t>(std::numeric_limits<VkDeviceSize>::max())) {
     lastError = "The Vulkan core render window is too large.";
     return false;
@@ -4870,9 +4884,11 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
     return false;
   }
   const VkDeviceSize byteCount = static_cast<VkDeviceSize>(byteCount64);
-  const VkDeviceSize halfByteCount = static_cast<VkDeviceSize>(halfByteCount64);
   const VkDeviceSize grainLayerByteCount = static_cast<VkDeviceSize>(grainLayerByteCount64);
   const bool destinationIsHalf = destination.bytesPerComponent == 2;
+  const bool destinationFormatConvert = destinationIsHalf || destinationIsBgra8;
+  const VkDeviceSize destinationPayloadBytes = pixelCount * 4u * destination.bytesPerComponent;
+  const VkDeviceSize destinationReadbackBytes = destinationPayloadBytes + (destinationIsBgra8 ? sizeof(uint32_t) : 0u);
   const uint32_t coordinateWidth =
     activeTileContext.enabled ? std::max(activeTileContext.fullWidth, 1u) : static_cast<uint32_t>(width);
   const uint32_t coordinateHeight =
@@ -5023,7 +5039,6 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
     static_cast<VkDeviceSize>(diffusionDownsamplePixelCount * 4u * sizeof(float));
   const VkDeviceSize diffusionDownsampleGroupByteCount =
     diffusionDownsampleByteCount * static_cast<VkDeviceSize>(std::max(diffusionGroupSize, 1u));
-  const bool destinationFormatConvert = destinationIsHalf;
   const bool halationFeatureEnabled =
     envFlagEnabledOrDefault("SPEKTRAFILM_VULKAN_HALATION_PASS", true) && params.halationEnabled && !finalProcessNegative;
   const bool halationScatterEnabled =
@@ -5145,7 +5160,6 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
       !ensurePrivateScratchBuffer(coreFrame.destination, pixelStorageByteCount, "core destination")) {
     return false;
   }
-  const uint32_t formatGroups = static_cast<uint32_t>((pixelCount + 255u) / 256u);
   if (uploadSource &&
       !ensureUploadScratchBuffer(
         coreFrame.sourceStaging,
@@ -5155,12 +5169,13 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
       )) {
     return false;
   }
-  if (destinationIsHalf) {
-    if (!ensurePrivateScratchBuffer(coreFrame.destinationHalf, halfByteCount, "core destination half") ||
+  if (destinationFormatConvert) {
+    if (!ensurePrivateScratchBuffer(coreFrame.destinationConverted, destinationReadbackBytes, "core converted destination",
+          VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT) ||
         !ensureReadbackScratchBuffer(
-          coreFrame.destinationHalfStaging,
-          halfByteCount,
-          "core destination half staging",
+          coreFrame.destinationConvertedStaging,
+          destinationReadbackBytes,
+          "core converted destination staging",
           VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
         )) {
       return false;
@@ -5521,10 +5536,10 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
   destinationBufferInfo.buffer = coreFrame.destination.buffer;
   destinationBufferInfo.offset = 0;
   destinationBufferInfo.range = pixelStorageByteCount;
-  VkDescriptorBufferInfo destinationHalfBufferInfo{};
-  destinationHalfBufferInfo.buffer = coreFrame.destinationHalf.buffer;
-  destinationHalfBufferInfo.offset = 0;
-  destinationHalfBufferInfo.range = halfByteCount;
+  VkDescriptorBufferInfo destinationConvertedBufferInfo{};
+  destinationConvertedBufferInfo.buffer = coreFrame.destinationConverted.buffer;
+  destinationConvertedBufferInfo.offset = 0;
+  destinationConvertedBufferInfo.range = destinationReadbackBytes;
   VkDescriptorBufferInfo filmDensityBufferInfo{};
   filmDensityBufferInfo.buffer = coreFrame.filmDensity.buffer;
   filmDensityBufferInfo.offset = 0;
@@ -6197,7 +6212,7 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
     updateFormatDescriptorSet(
       coreFrame.destinationFormatDescriptorSet,
       destinationBufferInfo,
-      destinationHalfBufferInfo
+      destinationConvertedBufferInfo
     );
   }
 
@@ -6707,13 +6722,23 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
   VkPipelineStageFlags hostBarrierSourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
   VkAccessFlags hostBarrierSourceAccess = VK_ACCESS_TRANSFER_WRITE_BIT;
   if (destinationFormatConvert) {
+    if (destinationIsBgra8) {
+      // The packed pass records non-finite output in one trailing status word.
+      vkCmdFillBuffer(commandBuffer, coreFrame.destinationConverted.buffer, destinationPayloadBytes, sizeof(uint32_t), 0u);
+    }
     VkMemoryBarrier destinationConvertInputBarrier{};
     destinationConvertInputBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
     destinationConvertInputBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
     destinationConvertInputBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    VkPipelineStageFlags conversionInputStage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+    if (destinationIsBgra8) {
+      conversionInputStage |= VK_PIPELINE_STAGE_TRANSFER_BIT;
+      destinationConvertInputBarrier.srcAccessMask |= VK_ACCESS_TRANSFER_WRITE_BIT;
+      destinationConvertInputBarrier.dstAccessMask |= VK_ACCESS_SHADER_WRITE_BIT;
+    }
     vkCmdPipelineBarrier(
       commandBuffer,
-      VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+      conversionInputStage,
       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
       0,
       1,
@@ -6724,7 +6749,7 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
       nullptr
     );
 
-    const uint32_t formatPushConstants[2] = {static_cast<uint32_t>(pixelCount), destinationIsHalf ? 1u : 0u};
+    const uint32_t formatPushConstants[2] = {static_cast<uint32_t>(pixelCount), destinationIsBgra8 ? 2u : 1u};
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, formatConvertPipeline);
     vkCmdBindDescriptorSets(
       commandBuffer,
@@ -6737,15 +6762,18 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
       nullptr
     );
     vkCmdPushConstants(commandBuffer, copyPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(formatPushConstants), formatPushConstants);
-    vkCmdDispatch(commandBuffer, formatGroups, 1, 1);
+    const uint32_t formatGroups = static_cast<uint32_t>((pixelCount + 255u) / 256u);
+    const uint32_t formatGroupsX = std::min(formatGroups, 65535u);
+    vkCmdDispatch(commandBuffer, formatGroupsX, (formatGroups + formatGroupsX - 1u) / formatGroupsX, 1);
 
     VkMemoryBarrier readbackBarrier{};
     readbackBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
     readbackBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
     readbackBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    if (destinationIsBgra8) readbackBarrier.srcAccessMask |= VK_ACCESS_TRANSFER_WRITE_BIT;
     vkCmdPipelineBarrier(
       commandBuffer,
-      VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+      conversionInputStage,
       VK_PIPELINE_STAGE_TRANSFER_BIT,
       0,
       1,
@@ -6757,8 +6785,8 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
     );
 
     VkBufferCopy destinationDownloadRegion{};
-    destinationDownloadRegion.size = halfByteCount;
-    vkCmdCopyBuffer(commandBuffer, coreFrame.destinationHalf.buffer, coreFrame.destinationHalfStaging.buffer, 1, &destinationDownloadRegion);
+    destinationDownloadRegion.size = destinationReadbackBytes;
+    vkCmdCopyBuffer(commandBuffer, coreFrame.destinationConverted.buffer, coreFrame.destinationConvertedStaging.buffer, 1, &destinationDownloadRegion);
   } else {
     VkMemoryBarrier readbackBarrier{};
     readbackBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
@@ -6782,7 +6810,7 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
     vkCmdCopyBuffer(
       commandBuffer,
       coreFrame.destination.buffer,
-      destinationIsHalf ? coreFrame.destinationHalfStaging.buffer : coreFrame.destinationStaging.buffer,
+      coreFrame.destinationStaging.buffer,
       1,
       &destinationDownloadRegion
     );
@@ -6839,18 +6867,25 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
   diagnostics.commandBufferMs = elapsedMilliseconds(commandStart, commandEnd);
 
   const PerfClock::time_point outputCopyStart = PerfClock::now();
-  ScratchBuffer &readbackStaging = destinationIsHalf ? coreFrame.destinationHalfStaging : coreFrame.destinationStaging;
-  const VkDeviceSize readbackByteCount = destinationIsHalf ? halfByteCount : byteCount;
+  ScratchBuffer &readbackStaging = destinationFormatConvert ? coreFrame.destinationConvertedStaging : coreFrame.destinationStaging;
   if (!readbackStaging.mapped) {
     lastError = "Vulkan destination staging buffer is not mapped.";
     return false;
   }
-  if (!invalidateMappedScratchBuffer(readbackStaging, readbackByteCount, "core destination staging")) {
+  if (!invalidateMappedScratchBuffer(readbackStaging, destinationReadbackBytes, "core destination staging")) {
     return false;
+  }
+  if (destinationIsBgra8) {
+    uint32_t invalidPixels = 0;
+    std::memcpy(&invalidPixels, static_cast<const uint8_t *>(readbackStaging.mapped) + destinationPayloadBytes, sizeof(invalidPixels));
+    if (invalidPixels != 0) {
+      lastError = "Renderer produced a non-finite pixel.";
+      return false;
+    }
   }
   if (!copyMappedBytesToWindow(
         readbackStaging.mapped,
-        static_cast<size_t>(readbackByteCount),
+        static_cast<size_t>(destinationPayloadBytes),
         destination,
         window,
         width,
@@ -6861,6 +6896,7 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
   }
   const PerfClock::time_point outputCopyEnd = PerfClock::now();
   diagnostics.outputCopyMs = elapsedMilliseconds(outputCopyStart, outputCopyEnd);
+  diagnostics.readbackBytes = destinationReadbackBytes;
 
   RendererPassDiagnostics exposurePass{};
   exposurePass.name = preExposureRawPath ? "spektrafilm_raw_exposure" : "spektrafilm_film_exposure";
@@ -7545,7 +7581,7 @@ bool VulkanRenderer::Impl::renderTiledBootstrap(
   if (fullWidth <= 0 || fullHeight <= 0) {
     return true;
   }
-  if (!isSupportedRgba(source, destination)) {
+  if (!isStillBgra8(source, destination, params) && !isSupportedRgba(source, destination)) {
     lastError = "Only RGBA 16-bit half and 32-bit float images are supported by the Windows Vulkan path.";
     return false;
   }
@@ -7766,6 +7802,7 @@ bool VulkanRenderer::Impl::renderTiledBootstrap(
       aggregate.sourceCopyMs += tileDiagnostics.sourceCopyMs;
       aggregate.commandBufferMs += tileDiagnostics.commandBufferMs;
       aggregate.outputCopyMs += tileDiagnostics.outputCopyMs;
+      aggregate.readbackBytes += tileDiagnostics.readbackBytes;
       aggregate.staticAllocationBytes = std::max(aggregate.staticAllocationBytes, tileDiagnostics.staticAllocationBytes);
       aggregate.staticAllocationCount = std::max(aggregate.staticAllocationCount, tileDiagnostics.staticAllocationCount);
       aggregate.scratchAllocationBytes = std::max(aggregate.scratchAllocationBytes, tileDiagnostics.scratchAllocationBytes);

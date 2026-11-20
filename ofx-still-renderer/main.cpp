@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <emmintrin.h>
 #include <fcntl.h>
@@ -675,7 +676,7 @@ FrameMemoryPlan planGpuMemory(Renderer &renderer, FrameSize size, RenderParams &
 }
 
 FrameMetrics renderFrame(Renderer &renderer, const InputFrame &input, RenderParams params, std::vector<float> &output,
-                         EnlargerCache *cache = nullptr) {
+                         EnlargerCache *cache = nullptr, std::vector<uint32_t> *display = nullptr) {
     FrameMetrics metrics{planGpuMemory(renderer, input.size, params)};
     const auto width = input.size.width;
     const auto height = input.size.height;
@@ -710,10 +711,19 @@ FrameMetrics renderFrame(Renderer &renderer, const InputFrame &input, RenderPara
         cache->clear();
     }
 
-    output.resize(input.pixels.size());
     const int rowBytes = width * 4 * sizeof(float);
     const ImageView source{pixels, 0, 0, width, height, rowBytes, 4, sizeof(float), revision};
-    const MutableImageView destination{output.data(), 0, 0, width, height, rowBytes, 4, sizeof(float)};
+    MutableImageView destination{nullptr, 0, 0, width, height, rowBytes, 4, sizeof(float)};
+    if (display) {
+        if (!output.empty()) std::vector<float>().swap(output);
+        display->resize(input.pixels.size() / 4);
+        destination.data = display->data();
+        destination.rowBytes = width * 4;
+        destination.bytesPerComponent = 1;
+    } else {
+        output.resize(input.pixels.size());
+        destination.data = output.data();
+    }
     const RenderWindow frame{0, 0, width, height};
     if (!renderer.render(source, destination, frame, params, 0.0))
         throw std::runtime_error(renderer.lastError());
@@ -860,6 +870,7 @@ void writeMetrics(const Renderer *renderer, uint64_t renderSequence, const Input
          << ",\"gpuCommandBufferMs\":" << d.gpuCommandBufferMs
          << ",\"gpuTimingAvailable\":" << (d.passGpuTimingAvailable ? "true" : "false")
          << ",\"outputCopyMs\":" << d.outputCopyMs
+         << ",\"readbackBytes\":" << d.readbackBytes
          << ",\"uploadBytes\":" << d.uploadBytes
          << ",\"enlargerMs\":" << metrics.enlargerMs
          << ",\"enlargerCacheHit\":" << (metrics.enlargerCacheHit ? "true" : "false")
@@ -895,8 +906,11 @@ void processStream(const FrameLimit &limit) {
     std::unique_ptr<Renderer> renderer;
     InputFrame input{};
     std::vector<float> output;
+    std::vector<uint32_t> packedOutput;
     std::optional<std::vector<std::string>> renderedArguments;
     const bool nativePreview = &limit == &kNativePreviewLimit;
+    size_t copyExperimentLength = 0;
+    getenv_s(&copyExperimentLength, nullptr, 0, "SPEKTRAFILM_VULKAN_COPY_PASS");
     uint64_t renderSequence = 0;
     uint64_t lastRequest = 0;
     bool versioned = false;
@@ -987,12 +1001,17 @@ void processStream(const FrameLimit &limit) {
                 }
                 if (nativePreview) replacement.revision = ++enlarger.sequence;
             }
-            if (replacesInput || !renderedArguments || args != *renderedArguments) {
+            if (replacesInput || !renderedArguments || args != *renderedArguments || (!packedPreview && !packedOutput.empty())) {
                 renderedArguments.reset();
                 try {
                     if (!renderer) renderer = startRenderer();
+                    // Enlarger resampling changes the renderer's alpha plane. Its
+                    // Viewer still uses the original alpha, supplied by the CPU packer.
+                    const bool packOnGpu = packedPreview && copyExperimentLength == 0 &&
+                        std::abs(params.enlargerScale - 1.0f) <= 1.0e-6f;
+                    if (!packOnGpu && !packedOutput.empty()) std::vector<uint32_t>().swap(packedOutput);
                     metrics = renderFrame(*renderer, replacesInput ? replacement : input, params, output,
-                                          nativePreview ? &enlarger : nullptr);
+                                          nativePreview ? &enlarger : nullptr, packOnGpu ? &packedOutput : nullptr);
                     ++renderSequence;
                 } catch (const std::exception &error) {
                     renderer.reset();
@@ -1004,7 +1023,10 @@ void processStream(const FrameLimit &limit) {
                 if (replacesInput) input = std::move(replacement);
                 if (nativePreview) renderedArguments = std::move(args);
             }
-            if (packedPreview) {
+            if (packedPreview && !packedOutput.empty()) {
+                writeReply(0, reinterpret_cast<const char *>(packedOutput.data()),
+                           static_cast<uint32_t>(packedOutput.size() * sizeof(uint32_t)), request);
+            } else if (packedPreview) {
                 writePackedPreview(input, output, request);
             } else {
                 writeReply(0, reinterpret_cast<const char *>(output.data()), static_cast<uint32_t>(byteCount(output.size())), request);

@@ -324,6 +324,48 @@ def check_output_transfers(exe, frame, base):
     print("Verified sRGB, Rec.709 gamma 2.4, and linear Rec.709 output against their decoded color tolerances")
 
 
+def check_packed_readback(exe, base):
+    clean = {key: value for key, value in os.environ.items() if not key.upper().startswith("SPEKTRAFILM_")}
+    height, width = 533, 779  # Odd sides, multiple work groups, and four genuine tiles.
+    rng = np.random.default_rng(12471)
+    frame = rng.uniform(-0.05, 1.25, (height, width, 4)).astype("<f4")
+    alpha_boundaries = ((np.arange(255) + .5) / 255).astype("<f4")
+    alpha = np.concatenate(([-.2, 0, 1, 1.3], alpha_boundaries,
+                            np.nextafter(alpha_boundaries, np.float32(0)),
+                            np.nextafter(alpha_boundaries, np.float32(1)))).astype("<f4")
+    frame[..., 3] = np.resize(alpha, (height, width))
+    cases = (
+        ("sRGB full", "legacy", "", False),
+        ("Adobe full", "legacy", "--input-color adobe_rgb --auto-exposure true", False),
+        ("ProPhoto tiled", "tiled", "--input-color prophoto", False),
+        ("linear Rec.2020 tiled", "tiled", "--input-color linear_rec2020 --scanner-enabled true", False),
+        ("enlarger preserves original alpha", "legacy", "--enlarger-scale 1.4 --enlarger-x -4", True),
+    )
+    for name, tiling, extra, expect_cpu in cases:
+        env = {**clean, "SPEKTRAFILM_VULKAN_TILE_MODE": tiling, "SPEKTRAFILM_VULKAN_TILE_WIDTH": "512",
+               "SPEKTRAFILM_VULKAN_TILE_HEIGHT": "512"}
+        options = f"{base} --output-color srgb {extra}"
+        request = b"FRAME8" + frame_request(frame, options)[len(b"FRAME"):]
+        request += f"METRICS\nREUSE8 {options}\nREUSE {options}\nMETRICS\nREUSE8 {options}\n".encode("ascii")
+        replies = run_stream(exe, request, mode="--native-preview-stream", env=env, timeout=35)
+        assert len(replies) == 6 and all(status == 0 for status, _ in replies), name
+        packed, packed_metrics, reused, float_bytes, float_metrics, packed_from_float = (data for _, data in replies)
+        rgba = np.frombuffer(float_bytes, dtype="<f4").reshape(frame.shape)
+        expected = np.empty_like(frame, dtype=np.uint8)
+        expected[..., :3] = np.rint(np.clip(rgba[..., 2::-1], 0, 1).astype(np.float64) * 255).astype(np.uint8)
+        expected[..., 3] = np.rint(np.clip(frame[..., 3], 0, 1) * np.float32(255)).astype(np.uint8)
+        np.testing.assert_array_equal(np.frombuffer(packed, dtype=np.uint8).reshape(frame.shape), expected, err_msg=name)
+        assert packed == reused == packed_from_float, name
+        render_metrics, reference_metrics = json.loads(packed_metrics), json.loads(float_metrics)
+        assert render_metrics["tiled"] == reference_metrics["tiled"] == (tiling == "tiled"), name
+        if tiling == "tiled":
+            assert render_metrics["tileCount"] > 1
+        expected_gpu_bytes = reference_metrics["readbackBytes"] // 4 + 4 * max(1, render_metrics["tileCount"])
+        assert render_metrics["readbackBytes"] == (reference_metrics["readbackBytes"] if expect_cpu else expected_gpu_bytes), name
+        assert render_metrics["renderSequence"] == 1 and reference_metrics["renderSequence"] == (1 if expect_cpu else 2), name
+    print("GPU BGRA8 matched the scalar reference over five full/tiled/crop cases, with original alpha and float reuse checks")
+
+
 def check_metering_cache(exe, frame, base):
     height, width = 333, 517
     image = frame[np.arange(height)[:, None] % frame.shape[0], np.arange(width) % frame.shape[1]]
@@ -543,6 +585,7 @@ def main():
     check_export_stream(args.exe, frame, base)
     check_enlarger_cache(args.exe, frame, base)
     check_output_transfers(args.exe, frame, base)
+    check_packed_readback(args.exe, base)
     check_metering_cache(args.exe, frame, base)
     check_tiled_parity(args.exe, base)
     check_gpu_budget(args.exe, base)

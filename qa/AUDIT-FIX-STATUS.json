@@ -1573,13 +1573,26 @@
       "id": "RC-13",
       "title": "Reduce GPU readback and pipe copies with GPU display conversion",
       "priority": "P2",
-      "status": "pending",
-      "implemented": [],
-      "evidence_paths": [],
+      "status": "partial",
+      "implemented": [
+        "Pack full-strength sRGB Viewer frames directly on the Vulkan device. Use exact ties-to-even RGB normalization without shader float64, retain original alpha, check non-finite results and read one 32-bit word per pixel plus one validation word per tile.",
+        "Five full-frame/tiled cases across four input spaces and the enlarger fallback matched their scalar references exactly. The 24 MP preview and 24 MP float export each matched the previous renderer byte for byte. The managed GPU suite passed 23 assertions including real cancellation and fresh worker admission.",
+        "A 21-render-per-size synthetic benchmark on the RTX 3090 measured warm worker p95 10.13 to 2.37 ms at 1200×800, 110.23 to 26.63 ms at 4095×2731 and 304.46 to 56.30 ms at 6000×4000. The 24 MP readback changed from 384,000,000 to 96,000,004 bytes; the existing pipe output remains 96,000,000 bytes.",
+        "Enlarger crop keeps the existing CPU packer because it needs the original pre-transform alpha. Partial-strength and export requests continue to use full float readback. The real Capture One launch and forced-restart suite passed 202 and 206 assertions."
+      ],
+      "evidence_paths": [
+        "upstream-ofx/shaders/vulkan/SpektraFormatConvert.comp",
+        "ofx-still-renderer/smoke.py",
+        "tests/renderer/Program.cs",
+        ".test-results/rc13-24mp-byte-parity-20261120.json",
+        ".test-results/rc13-cpu-packed-benchmark-20261120.json",
+        ".test-results/rc13-gpu-packed-benchmark-20261120.json",
+        ".test-results/gpu-packed-final-smoke-20261120.log",
+        ".test-results/host-gpu-packed-20261120"
+      ],
       "remaining_work": [
-        "Instrument copy stages",
-        "Fuse optional display transfer/strength/alpha and packed output in GPU final pass",
-        "Read back only display-required format; export retains float/high depth",
+        "Explore GPU linear-strength blending and pre-transform source alpha for the enlarger. Both retain their existing exact fallback.",
+        "Verify additional adapters and actual Vulkan device-loss handling. Cancellation of a real renderer process is already exercised.",
         "Evaluate bounded shared-memory ring preserving crash isolation",
         "Treat shared texture presentation as separate compatibility spike"
       ],
@@ -2910,8 +2923,8 @@
   "counts": {
     "total": 70,
     "implemented": 21,
-    "partial": 48,
-    "pending": 1
+    "partial": 49,
+    "pending": 0
   },
   "last_reconciled": "2026-11-20",
   "handover": "HANDOVER.md",
