@@ -115,6 +115,8 @@ public static partial class StartupHook
             TestPanelAccessibility(panel, spatial, exposure);
             TestStockFavorites(panel, store, variant, restart);
             await TestViewerHistogram(hook, spatial, restart);
+            if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_PROOF_TEST") == "1")
+                await TestProofing(spatial);
             await TestLockedLook(panel, store, variant, exposure, toggle);
             var optics = Call(spatial, "CaptureSettings")!;
             Call(spatial, "ValidateSettings", optics);
@@ -573,6 +575,50 @@ public static partial class StartupHook
         var paper = (ComboBox)Field(panel, "paper")!;
         Check(film.IsTextSearchEnabled && paper.IsTextSearchEnabled && TextSearch.GetTextPath(film) == "Label" && TextSearch.GetTextPath(paper) == "Label",
             "the actual stock pickers search their displayed names");
+    }
+
+    static async Task TestProofing(object spatial)
+    {
+        if (!File.Exists(Path.Combine(folder, "Capture One user.config.before-proofing")))
+            throw new InvalidOperationException("A verified Capture One preferences backup is required for the proofing fixture.");
+        var app = AppDomain.CurrentDomain.GetAssemblies().Single(assembly => assembly.GetName().Name == "CaptureOne");
+        var type = app.GetType("P1.C1.ApplicationSettings", true)!;
+        var settings = type.GetProperty("Default", Flags)!.GetValue(null)!;
+        var proofing = type.GetProperty("IsProofingRecipeSettings", Flags)!;
+        var original = (bool)proofing.GetValue(settings)!;
+        var viewer = Field(spatial, "viewer")!;
+
+        async Task WaitUntil(Func<bool> semaphore, string description)
+        {
+            var started = Stopwatch.GetTimestamp();
+            do
+            {
+                if (semaphore()) { Check(true, description); return; }
+                await Task.Delay(100);
+            } while (Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(20));
+            throw new InvalidOperationException(description);
+        }
+
+        try
+        {
+            proofing.SetValue(settings, false);
+            await WaitUntil(() => Prop(viewer, "HasPainted") is true && Field(spatial, "frameCurrent") is true,
+                "real Viewer displays the settled film frame with recipe proofing off");
+            var bitmap = Field(spatial, "viewerFrame");
+            var painter = (Visual)Prop(Field(viewer, "attachment")!, "Painter")!;
+            Check(ImageLayers(painter).Any(image => ReferenceEquals(image, bitmap)),
+                "native painter contains the unproofed Spektrafilm frame");
+            proofing.SetValue(settings, true);
+            await WaitUntil(() => (Prop(viewer, "UnavailableReason") as string)?.Contains("Recipe Proofing", StringComparison.Ordinal) == true
+                    && !ImageLayers(painter).Any(image => ReferenceEquals(image, bitmap)),
+                "native recipe proofing hides the Spektrafilm layer and explains the suspended Viewer");
+            proofing.SetValue(settings, false);
+            await WaitUntil(() => Prop(viewer, "HasPainted") is true && ImageLayers(painter)
+                    .Any(image => ReferenceEquals(image, Field(spatial, "viewerFrame"))),
+                "leaving native recipe proofing restores the current film overlay");
+        }
+        finally { proofing.SetValue(settings, original); }
+        Check(Equals(proofing.GetValue(settings), original), "native proofing preference restored after the disposable test");
     }
 
     static System.Collections.Generic.IEnumerable<ImageSource> ImageLayers(Visual visual)

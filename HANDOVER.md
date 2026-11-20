@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 21 bounded primary fixes implemented, 44 partial items and 5 pending items. It includes feasibility investigations and enhancements.
+Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 21 bounded primary fixes implemented, 45 partial items and 4 pending items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -517,6 +517,14 @@ Evidence is under `.test-results/host-native-controls-20261120`, `.test-results/
 - [ ] Reproduce native workspace serialization and actual reorder/removal/reopen in a dedicated fixture. Permanent factory registration remains unsupported pending proof.
 
 Evidence is under `.test-results/host-workspace-selection-20261120` and `.test-results/host-workspace-explicit-20261120`.
+
+## Native Recipe Proofing guard
+
+- [x] Suppress the film drawing while native Recipe Proofing is active. Returning to the regular Viewer repaints the same film bitmap and retains the edit.
+- [x] Verify the exact WPF drawing in 201 licensed-host assertions. The opt-in fixture backs up native preferences and removes its exact recent catalog entry. The final profile comparison retained the two Capture One run counters that advanced during launch.
+- [ ] Verify color-managed paint, separate recipe profiles, wide-gamut displays, custom proof and HDR against independent numerical patches.
+
+Evidence is under `.test-results/host-recipe-proofing-final-20261120`.
 
 ## Status maintenance
 

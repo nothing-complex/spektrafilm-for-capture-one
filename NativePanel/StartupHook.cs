@@ -197,7 +197,7 @@ internal static class StartupHook
         hosted.LoadControls();
     }
 
-    private static string? FindFreeTabSlot(IEnumerable<string> occupied)
+    private static string? FindFreeTabSlot(IEnumerable<string?> occupied)
     {
         var used = occupied.ToHashSet(StringComparer.Ordinal);
         return CustomTabIds.FirstOrDefault(name => !used.Contains(name));

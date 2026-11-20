@@ -1411,15 +1411,23 @@
       "id": "VE-10",
       "title": "Verify and unify display color management with native viewer and proofing",
       "priority": "P1",
-      "status": "pending",
-      "implemented": [],
-      "evidence_paths": [],
+      "status": "partial",
+      "implemented": [
+        "Suspend film painting while Capture One Recipe Proofing is enabled and explain how to resume. A proof-state change invalidates the real painter even when the film bitmap stays cached.",
+        "The exact Windows 16.4.6 host passed 201 assertions including inspection of the WPF drawing before, during and after native proofing. The opt-in fixture verifies backups and removes only its disposable recent catalog entry. The remaining two preference changes were Capture One's run counters."
+      ],
+      "evidence_paths": [
+        "NativePanel/ViewerPreview.cs",
+        "qa/HostSmoke/Run-HostSmoke.ps1",
+        ".test-results/host-recipe-proofing-final-20261120/host-smoke.log",
+        ".test-results/host-recipe-proofing-final-20261120/proof-settings-receipt.json"
+      ],
       "remaining_work": [
         "Build disposable color patch scene and instrument host display/profile/proof state without changing calibration.",
         "Determine whether the native paint context applies an ICC transform to overlays; compare raw numeric patch expectations and independent color-managed file viewer.",
         "Route through verified host display transform if possible, otherwise maintain explicit monitor ICC output with per-monitor invalidation.",
         "Separate film output encoding, export destination ICC and monitor display transform in types/UI; avoid double transforms.",
-        "Expose unsupported proof/HDR modes accurately until validated."
+        "Verify distinct destination profiles and custom-proof/HDR detection. The known Recipe Proofing toggle is currently guarded."
       ],
       "original_acceptance_tests": [
         "sRGB, wide-gamut, nonstandard gamma display profiles; move between monitors at 100/150/200% scaling.",
@@ -2879,8 +2887,8 @@
   "counts": {
     "total": 70,
     "implemented": 21,
-    "partial": 44,
-    "pending": 5
+    "partial": 45,
+    "pending": 4
   },
   "last_reconciled": "2026-11-20",
   "handover": "HANDOVER.md",

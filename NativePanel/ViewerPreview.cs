@@ -8,6 +8,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using P1.C1;
 using P1.C1.Core;
 using P1.C1.Core.Interfaces;
 using P1.C1.Core.ModelEntities;
@@ -21,6 +22,7 @@ internal sealed class ViewerPreview : IDisposable
     private const BindingFlags Instance = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
     private const string InactiveDocument = "Activate the selected catalog to resume the Spektrafilm preview.";
     private const string WaitingForGeometry = "Waiting for a visible image in the main Viewer.";
+    private const string RecipeProofing = "Turn off Capture One Recipe Proofing to show the Spektrafilm Viewer.";
     private readonly object window;
     private readonly byte[] sampleBytes = new byte[4];
     private Attachment? attachment;
@@ -54,8 +56,9 @@ internal sealed class ViewerPreview : IDisposable
                 && grid.IsAncestorOf(current.View))
             {
                 var reason = Availability(current) ?? current.PaintUnavailable;
+                var changed = UnavailableReason != reason;
                 SetStatus(reason);
-                if (!ReferenceEquals(current.Bitmap, bitmap))
+                if (changed || !ReferenceEquals(current.Bitmap, bitmap))
                 {
                     current.Bitmap = bitmap;
                     Invalidate(current.View);
@@ -310,6 +313,8 @@ internal sealed class ViewerPreview : IDisposable
             return InactiveDocument;
         if (!IsSelected(current.Document, current.VariantId))
             return "The selected image changed.";
+        if (ApplicationSettings.Default.IsProofingRecipeSettings)
+            return RecipeProofing;
         var view = current.View;
         if (current.Item.BeforeAfterLabelsViewModel is not { HasBeforeView: false })
             return "Exit Before/After comparison to resume live preview.";
