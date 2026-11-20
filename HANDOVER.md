@@ -6,7 +6,7 @@ Updated 2026-11-20. The critical-fix batch is implemented, tested, installed loc
 
 1. Read this file, `AGENTS.md` and `qa/AUDIT-FIX-STATUS.json` before changing code. The JSON is the authoritative task-progress ledger; its `remaining_work` and original acceptance tests matter more than a short status label.
 2. Check `git status`, current branch and PR head. Do not discard existing edits or switch the installed build merely because this documentation has a newer commit.
-3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP is `0.2.0-audit.19` from clean `17a7b80`. The extracted package passed native effects export, the full host suite and a private upgrade.
+3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP is `0.2.0-audit.20` from clean `9ed0628`. The extracted package passed native effects export, grain export, Viewer paint telemetry, the full host suite and a private upgrade.
 4. Choose an unresolved task and an exact ownership boundary. Do not repeat the completed installation, crash test or old defect reproductions as if nothing had happened.
 5. Update task evidence and the delivery ledger at each completed milestone. Never mark a broad parent task complete because one mitigation shipped.
 
@@ -889,6 +889,16 @@ The combined receipt is `.test-results/audit18-package-verify-20261120/result.js
 - [x] Verify an isolated audit.18 to audit.19 upgrade. The exact licensed process reported Ready and Export Connected before retirement of the previous copy. Retained custom and external looks and the installed capability report matched their recorded hashes. The regular installation identifies `ffc4819`.
 
 The combined receipt is `.test-results/audit19-package-verify-20261120/result.json`. See `.test-results/host-audit19-native-effects-20261120`, `.test-results/host-audit19-full-20261120` and `D:/Library AI testing/sf-audit19-ready-20261120/installed-upgrade-receipt.json`.
+
+## Development package audit.20
+
+- [x] Build clean `9ed06283793372fd6761d7485b9a4045445897a0` and verify 153 package entries, 19 critical runtime entries and independently reproduced capability bytes. The ZIP SHA-256 is `deb1a053c47a1b38411f09dd12e2c22c5492296b7fe0792a49218b2b293584a5`. [Windows 2022 and 2025 checks](https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44711843509)
+- [x] Pass 191 native effects assertions on each launch with both native Export commands and four RAW types. The matrix produced 40 tagged 16-bit TIFF and PNG files with film, camera diffusion, halation and scatter. The separate native and optical grain suite passed 99 assertions per launch and produced 20 accepted outputs with the same high-depth policy.
+- [x] Pass 327 first-launch and 331 restart general assertions, including the actual LUT Cancel button. The preliminary exact-package matrix reached Ready and Export Connected but the restart stopped responding before the test callback. Both launches then passed on a fresh disposable catalog. The cause of the initial stall remains unconfirmed.
+- [x] Pass 32 physical Vulkan checks and 51 Viewer churn checks. The latter verified 24 actual draws at a 4096 px long edge across DNG, NEF, RAF and CR3. The recorded worker asset fingerprint matched the package.
+- [x] Upgrade a private audit.19 installation to audit.20. CheckOnly retained the prior installation until the exact new licensed process reported the panel Ready and Export Connected. The installed capability report and retained custom and external preset hashes passed verification. The regular installation identifies `ffc4819`.
+
+The combined receipt is `.test-results/audit20-package-verify-20261120/result.json`. The exact host output and regressions are under `.test-results/host-audit20-native-effects-repeat-20261120`, `.test-results/host-audit20-native-grain-20261120`, `.test-results/host-audit20-native-full-20261120`, and `.test-results/host-audit20-native-viewer-20261120`. The private upgrade receipt is at `D:/Library AI testing/sf-audit20-ready-20261120/installed-upgrade-receipt.json`.
 
 ## Disconnected original recovery
 

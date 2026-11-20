@@ -3374,13 +3374,13 @@
     "original_test_catalog_hash_unchanged": true,
     "local_evidence_note": "Paths under .test-results/build/dist are ignored local artifacts and are not present in a public clone.",
     "latest_development_package": {
-      "version": "0.2.0-audit.19",
-      "archive": "dist/Spektrafilm-for-Capture-One-v0.2.0-audit.19-windows-x64.zip",
-      "sha256": "6ec50480e5c7b4455c12e31feedb224d2b9cbf1ceae700770bc3bb96f50a69e2",
+      "version": "0.2.0-audit.20",
+      "archive": "dist/Spektrafilm-for-Capture-One-v0.2.0-audit.20-windows-x64.zip",
+      "sha256": "deb1a053c47a1b38411f09dd12e2c22c5492296b7fe0792a49218b2b293584a5",
       "source": {
-        "commit": "17a7b8039d7d1994aba47008e15776804384bee9",
+        "commit": "9ed06283793372fd6761d7485b9a4045445897a0",
         "dirty": false,
-        "treeDigest": "788e8c95c96d4e28a6a6f29f7e528d5eb62d81d1e9fb17ed4e9f25b8ad97392a"
+        "treeDigest": "d5c74ff830590ee76e17373931241773595f6b8b81895ffe85114a172be2dd04"
       },
       "verified_package_entries": 153,
       "verified_runtime_entries": 19,
@@ -3390,18 +3390,24 @@
       "generated_capabilities_sha256": "ca685935a18f9884b0c86f85c9d3f54c5c81927c44c9838c932f7a0fe5ed6876",
       "native_control_count": 197,
       "version3_native_preset_verified": true,
-      "isolated_install_and_checkonly": "passed audit.18 to audit.19 with real native readiness, preserved user files and exact installed capability report",
+      "isolated_install_and_checkonly": "passed audit.19 to audit.20 with real native readiness, preserved user files and exact installed capability report",
       "exact_package_host_tests": {
-        "first_launch": 321,
-        "restart": 325,
-        "managed_gpu": 28,
+        "first_launch": 327,
+        "restart": 331,
+        "managed_gpu": 32,
         "native_effect_export_first": 191,
         "native_effect_export_restart": 191,
-        "native_effect_files": 40
+        "native_effect_files": 40,
+        "native_grain_first": 99,
+        "native_grain_restart": 99,
+        "native_grain_files": 20,
+        "viewer": 51,
+        "viewer_actual_frames": 24
       },
-      "remote_windows_contracts": "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44707254358",
+      "initial_matrix_restart": "The initial restart timed out after Ready and Export Connected while the fixture process stopped responding. The same package passed both launches on an independent disposable copy.",
+      "remote_windows_contracts": "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44711843509",
       "normal_installed_revision": "ffc481988eb2e6e7ef7a1379486c4a8b2656ac81",
-      "receipt": ".test-results/audit19-package-verify-20261120/result.json"
+      "receipt": ".test-results/audit20-package-verify-20261120/result.json"
     }
   },
   "completed_milestones": [
