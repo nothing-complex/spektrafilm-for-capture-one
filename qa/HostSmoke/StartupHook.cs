@@ -131,6 +131,11 @@ public static partial class StartupHook
                 File.WriteAllText(Path.Combine(folder, phase + ".passed"), $"PASS {checks} native RAW colour assertions");
                 return;
             }
+            if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX") == "source-mutations")
+            {
+                await TestNativeSourceMutations(panelAssembly!, panel, spatial, window);
+                return;
+            }
             var exposure = Field(panel, "exposure")!;
             var toggle = (CheckBox)Field(panel, "enableSpektraFilm")!;
             await TestLaunchHealth(hosted, spatial, toggle);

@@ -868,7 +868,8 @@
         "Tracked host compatibility manifest is shared by launch and build verification and embedded in the panel. Profiles bind version, executable architecture, exact assembly hash and declared capabilities.",
         "Headless tests refuse unknown version, altered hash, different architecture, malformed manifest and duplicate profiles. Compare packaged host-dependency hashes against the exact installed components on launch.",
         "The exact licensed host loaded and passed the current smoke matrix. Launch CheckOnly verified the installed x64 executable and rendered through the new Vulkan worker.",
-        "The launcher reads observed live panel, Export and Viewer status independently; diagnostics were exercised on the licensed supported host, including actual Viewer worker termination and an ordinary launch without injection."
+        "The launcher reads observed live panel, Export and Viewer status independently; diagnostics were exercised on the licensed supported host, including actual Viewer worker termination and an ordinary launch without injection.",
+        "Reviewed the exact 1eaaf7e contributor branch diff in GitHub PR 2. It proposes a Task<bool> confirmation with an Action callback, a new crop-scale enum, C2PA destination handles and a pre-selection notification. The contributor reports the live Viewer remains unavailable. These are testable hypotheses for the licensed adapter, with no new supported host profile."
       ],
       "evidence_paths": [
         "capture-one-hosts.json",
@@ -878,7 +879,8 @@
         ".test-results/contracts-host-manifest-20261119/summary.json",
         ".test-results/host-compatibility-check-20261119/check-only.log",
         "NativePanel/LaunchHealth.cs",
-        ".test-results/host-launch-full-handshake-20261119/host-smoke.log"
+        ".test-results/host-launch-full-handshake-20261119/host-smoke.log",
+        "https://github.com/nothing-complex/spektrafilm-for-capture-one/pull/2"
       ],
       "remaining_work": [
         "Extend observed capability diagnostics and independent verification to each supported version, native history, floating and catalog teardown.",
@@ -1666,7 +1668,8 @@
         "Pack full-strength sRGB Viewer frames directly on the Vulkan device. Use exact ties-to-even RGB normalization without shader float64, retain original alpha, check non-finite results and read one 32-bit word per pixel plus one validation word per tile.",
         "Five full-frame/tiled cases across four input spaces and the enlarger fallback matched their scalar references exactly. The 24 MP preview and 24 MP float export each matched the previous renderer byte for byte. The managed GPU suite passed 23 assertions including real cancellation and fresh worker admission.",
         "A 21-render-per-size synthetic benchmark on the RTX 3090 measured warm worker p95 10.13 to 2.37 ms at 1200×800, 110.23 to 26.63 ms at 4095×2731 and 304.46 to 56.30 ms at 6000×4000. The 24 MP readback changed from 384,000,000 to 96,000,004 bytes; the existing pipe output remains 96,000,000 bytes.",
-        "Enlarger crop keeps the existing CPU packer because it needs the original pre-transform alpha. Partial-strength and export requests continue to use full float readback. The real Capture One launch and forced-restart suite passed 202 and 206 assertions."
+        "Enlarger crop keeps the existing CPU packer because it needs the original pre-transform alpha. Partial-strength and export requests continue to use full float readback. The real Capture One launch and forced-restart suite passed 202 and 206 assertions.",
+        "Ran the exact audit.14 worker with isolated NVIDIA system, physical Intel integrated and SwiftShader CPU Vulkan ICDs. Four nontrivial graphs per path preserved alpha exactly, matched their own scalar display packing, and reduced each 65 by 47 GPU readback from 48,880 to 12,224 bytes. The largest RGB differences from NVIDIA were 9.47e-7 for Intel and 6.70e-6 for SwiftShader in float sRGB, and one packed code for each."
       ],
       "evidence_paths": [
         "upstream-ofx/shaders/vulkan/SpektraFormatConvert.comp",
@@ -1676,11 +1679,14 @@
         ".test-results/rc13-cpu-packed-benchmark-20261120.json",
         ".test-results/rc13-gpu-packed-benchmark-20261120.json",
         ".test-results/gpu-packed-final-smoke-20261120.log",
-        ".test-results/host-gpu-packed-20261120"
+        ".test-results/host-gpu-packed-20261120",
+        "qa/vulkan-adapter-parity.py",
+        ".test-results/swiftshader-differential-20261120/packed-and-float-parity.json",
+        ".test-results/swiftshader-differential-20261120/intel-packed-and-float-parity.json"
       ],
       "remaining_work": [
         "Explore GPU linear-strength blending and pre-transform source alpha for the enlarger. Both retain their existing exact fallback.",
-        "Verify additional adapters and actual Vulkan device-loss handling. Cancellation of a real renderer process is already exercised.",
+        "Verify physical Vulkan device loss handling and broader driver families. Packed parity on the integrated Intel adapter and the SwiftShader CPU device is verified. Cancellation of a real renderer process is already exercised.",
         "Evaluate bounded shared-memory ring preserving crash isolation",
         "Treat shared texture presentation as separate compatibility spike"
       ],
@@ -1856,7 +1862,8 @@
       "implemented": [
         "Native exposure, highlight and white balance settings each changed the immutable source revision on CR3, RAF, NEF and DNG. Reopened snapshots confirm the resulting pixels changed while dimensions and alpha stayed stable.",
         "Existing native rotate, mirror and keystone fixtures verify correct fresh developed pixels. The Viewer reuses the exact source variant, working space, capture dimensions and native revision. Pure tests show pan translation alone keeps projected source resolution stable.",
-        "With manual 2048 selection in the real host, native zoom from a 2934 px to 6000 px projection, pan by -1466 and +1022 px, and Fit restoration retained the exact 16-bit source, bitmap and worker sequence. The fresh and restart tests passed 214 and 218 assertions."
+        "With manual 2048 selection in the real host, native zoom from a 2934 px to 6000 px projection, pan by -1466 and +1022 px, and Fit restoration retained the exact 16-bit source, bitmap and worker sequence. The fresh and restart tests passed 214 and 218 assertions.",
+        "A 96-assertion licensed source mutation matrix changed and restored exposure, asymmetric crop, Capture One Grain and active lens distortion across DNG, NEF, RAF and CR3. All used fresh RGB16 source identities and matched independent native developments within measured repeatability. Crop changes only the geometry counter, with mean full-canvas sample difference at most 4.13e-7. Lens correction changes that same counter and changes the full-canvas pixels, so the counter alone cannot identify presentation-only crop changes."
       ],
       "evidence_paths": [
         "NativePanel/HostImageSource.cs",
@@ -1864,11 +1871,13 @@
         ".test-results/host-native-camera-icc-20261120/host-smoke.log",
         ".test-results/host-audit4-exact-package-20261120/host-smoke.log",
         "qa/HostSmoke/ViewerMotion.cs",
-        ".test-results/host-viewer-native-motion-final-20261120/host-smoke.log"
+        ".test-results/host-viewer-native-motion-final-20261120/host-smoke.log",
+        "qa/HostSmoke/NativeSourceMutations.cs",
+        ".test-results/host-native-source-mutations-final-20261120/native-source-mutations.json"
       ],
       "remaining_work": [
-        "Extend native clip and viewport changes to crop, lens correction, native Grain, unknown adjustment and adaptive-quality cases across cameras.",
-        "Confirm when crop can retain the full-canvas source without stale optical coordinates. Record presentation and monitor/proof dependencies separately from native revision."
+        "Verify explicit native Auto resolution tier transitions and optical alignment during crop in the actual Viewer. Record presentation and monitor/proof dependencies separately from native revision.",
+        "Keep conservative geometry-counter invalidation until a verified host signal can distinguish crop from lens distortion and other pixel-affecting changes."
       ],
       "original_acceptance_tests": [
         "Mutation matrix of native tools; each change invalidates the right stages and never reuses stale source.",
@@ -2893,7 +2902,8 @@
         "Windows Contracts succeeded for the exact audit.4 source commit that passed the separately licensed packaged host matrix.",
         "Tagged Windows packaging reruns the mandatory host-independent suites and Vulkan smoke before assembling a ZIP, reinspects the committed source after tests and records the summary checksum. Six manifest contracts reject missing, failed, skipped, duplicate and unsupported claimed results.",
         "The clean, locally tagged 366e25e clone refused packaging without an exact tag. The first tagged run correctly refused a failed contract caused by a deep Windows fixture path. The short-path clone passed all ten mandatory contracts and physical Vulkan smoke, validating a 152-entry ZIP against its manifest. No tag or ZIP was published.",
-        "Both GitHub-hosted Windows runners on draft PR #1 uploaded their host-independent JSON receipts through the pinned action. The downloaded summaries each contain nine passing contracts and explicit not-run reasons for Vulkan and licensed Capture One."
+        "Both GitHub-hosted Windows runners on draft PR #1 uploaded their host-independent JSON receipts through the pinned action. The downloaded summaries each contain nine passing contracts and explicit not-run reasons for Vulkan and licensed Capture One.",
+        "A genuine outside fork opened PR 2 against experimental/unchecked-capture-one without upstream write access. The contributor branch predates the audit workflow and currently lists only a skipped third-party check. Fork submission works, while fork-triggered Windows contract execution is still unverified."
       ],
       "evidence_paths": [
         ".github/workflows/contracts.yml",
@@ -2913,7 +2923,7 @@
         "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44675783266"
       ],
       "remaining_work": [
-        "Observe a real outside-fork PR with no write token. Keep licensed 16.4/16.7 compatibility evidence separate."
+        "Observe the read-only Windows contract workflow on a fork PR targeting a branch which contains the audited workflow. Keep licensed 16.4 and 16.7 compatibility evidence separate."
       ],
       "original_acceptance_tests": [
         "Fork PR can run pure tests without upstream write access or secrets.",
@@ -2976,7 +2986,8 @@
         "The compiled parameter description, host parser, build manifest validation and negotiated capabilities now agree on renderer protocol 2. An old compiled description is rejected in the state contract test.",
         "The packaging script generates and hashes CAPABILITIES.md from the verified host list and renderer parameter contract. The generator produced 137 entries from the current runtime and passed invariant locale, mismatched revision and malformed-choice regressions.",
         "The audit.7 extracted package included the generated report and rejected altered bytes. Its installer omitted the new optional file. The installer allowlist now includes the report and a 30-assertion upgrade fixture verifies that pre-existing user notes at the same path are preserved.",
-        "Audit.8 ships and installs the verified 137-option table. Regenerating it from installed manifests produced the same text. Changing the file in the extracted fixture made package integrity validation fail."
+        "Audit.8 ships and installs the verified 137-option table. Regenerating it from installed manifests produced the same text. Changing the file in the extracted fixture made package integrity validation fail.",
+        "GitHub's current latest release resolves to v0.1.1. Its actual Windows ZIP and checksum asset names match the README and published tag, with both URLs verified through release metadata."
       ],
       "evidence_paths": [
         "README.md",
@@ -2990,10 +3001,11 @@
         "Package-Windows.ps1",
         "tests/installer/Test-Manifest.ps1",
         ".test-results/audit-capabilities-generated-20261120.md",
-        ".test-results/audit8-package-verify-20261120/result.json"
+        ".test-results/audit8-package-verify-20261120/result.json",
+        "https://github.com/nothing-complex/spektrafilm-for-capture-one/releases/tag/v0.1.1"
       ],
       "remaining_work": [
-        "Add generated mapping from every visible panel control to its declared capability and exercise published release links when a release exists."
+        "Add generated mapping from every visible panel control to its declared capability. Recheck published links when a newer release exists."
       ],
       "original_acceptance_tests": [
         "Every visible enabled control has declared capability and a non-error execution test or is visibly unavailable.",

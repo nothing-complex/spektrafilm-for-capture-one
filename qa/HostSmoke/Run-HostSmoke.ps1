@@ -18,10 +18,16 @@ param(
     [switch] $CheckOrdinaryLaunch,
     [switch] $ShowTool,
     [switch] $ColorMatrix,
+    [switch] $NativeSourceMutations,
     [string] $CalibrationChart,
     [string] $ResultsDirectory
 )
 $ErrorActionPreference='Stop'
+if ($NativeSourceMutations) {
+    if (!$NativeSettingsConfig) { throw 'The native source mutation matrix requires a verified preferences backup.' }
+    $ColorMatrix=$true
+    $SkipRestart=$true
+}
 if ($UpgradeFromPackage -and (!$PackagedRuntime -or !$NativeSettingsConfig -or $CatalogIsolation -or $ConcurrentCatalogs -or
     $ViewerLayouts -or $ViewerChurn -or $DurableSliderEdits -or $MetadataFixtureRoot -or $ColorMatrix -or $CheckOrdinaryLaunch)) {
     throw 'The installed-upgrade fixture requires two extracted packages, a native preferences backup and a separate launch.'
@@ -322,7 +328,7 @@ try {
     $env:SPEKTRAFILM_DATA_ROOT=$folder
     $env:SPEKTRAFILM_PANEL_LOG=Join-Path $folder 'panel.log'
     $env:SPEKTRAFILM_HOST_SMOKE=$folder
-    $env:SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX=if($ColorMatrix){'1'}else{$null}
+    $env:SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX=if($NativeSourceMutations){'source-mutations'}elseif($ColorMatrix){'1'}else{$null}
     $env:SPEKTRAFILM_SHOW_TOOL=if($ShowTool){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_PROOF_TEST=if($NativeSettingsConfig -and !$CatalogIsolation -and !$ViewerLayouts -and !$DurableSliderEdits -and !$MetadataFixtureRoot -and !$ViewerChurn -and !$ConcurrentCatalogs){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_CATALOG_ISOLATION=if($CatalogIsolation){'1'}else{$null}
