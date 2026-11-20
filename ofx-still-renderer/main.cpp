@@ -774,10 +774,15 @@ FrameMetrics renderFrame(Renderer &renderer, const InputFrame &input, RenderPara
     }
     const RenderWindow frame{0, 0, width, height};
     if (stop) stop->check();
-    if (auto *vulkan = dynamic_cast<VulkanRenderer *>(&renderer))
+    auto *vulkan = dynamic_cast<VulkanRenderer *>(&renderer);
+    if (vulkan)
         vulkan->setCancellationProbe(stop ? &RequestCancellation::poll : nullptr, stop);
+    const uint64_t alternateRevision = cache && cache->key && bytes <= EnlargerCache::maxInactiveBytes
+        ? (revision == input.revision ? cache->revision : input.revision) : 0u;
     writeProgress(progress, WorkerStage::Vulkan);
-    const bool rendered = renderer.render(source, destination, frame, params, 0.0);
+    const bool rendered = vulkan
+        ? vulkan->render(source, destination, frame, params, 0.0, alternateRevision)
+        : renderer.render(source, destination, frame, params, 0.0);
     if (stop) stop->check();
     if (!rendered) {
         const auto error = renderer.lastError();
@@ -947,6 +952,7 @@ void writeMetrics(const Renderer *renderer, uint64_t renderSequence, const Input
          << ",\"scratchAllocationBytes\":" << d.scratchAllocationBytes
          << ",\"transientCachedBytes\":" << d.transientCachedBytes
          << ",\"transientBudgetBytes\":" << d.transientBudgetBytes
+         << ",\"alternateSourceCachedBytes\":" << d.alternateSourceCachedBytes
          << ",\"passCount\":" << d.passCount
          << ",\"tiled\":" << (d.tiledRendering ? "true" : "false")
          << ",\"tileCount\":" << d.tileCount

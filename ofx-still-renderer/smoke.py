@@ -285,9 +285,17 @@ def check_enlarger_cache(exe, frame, base):
         metrics = json.loads(replies[index * 2 + 1][1])
         assert metrics["enlargerCacheHit"] == hit
         assert metrics["enlargerCachedBytes"] == (source.nbytes if retained else 0)
+        alternate = metrics["alternateSourceCachedBytes"]
+        assert not alternate or alternate >= source.nbytes, metrics
+        if not retained:
+            assert alternate == 0, metrics
         if hit:
-            expected_upload = source.nbytes if previous_options == base else 0
+            expected_upload = 0
+            if previous_options == base and not alternate:
+                expected_upload = source.nbytes
             assert metrics["enlargerMs"] == 0 and metrics["uploadBytes"] == expected_upload and payload != previous, metrics
+            if previous_options == base and metrics["dynamicGpuBudget"] and metrics["gpuMemoryBudgetBytes"] >= 256 * 1024 * 1024:
+                assert alternate >= source.nbytes, metrics
         elif options != base:
             assert metrics["enlargerMs"] > 0 and metrics["uploadBytes"] >= source.nbytes
         if options == border:
@@ -558,6 +566,19 @@ def check_gpu_budget(exe, base):
     assert json.loads(replies[5][1])["renderSequence"] == 2
     print(f"GPU memory guard: simulated 128 MiB cap selected {metrics['tileCount']} tiles, "
           "preserved requested size, and recovered after two refused renders.")
+
+    paired = np.tile(source_frame(None), (5, 6, 1))[:1025, :2048].copy()
+    scaled = f"{options} --enlarger-scale 1.25 --enlarger-x 3"
+    request = frame_request(paired, scaled) + f"METRICS\nREUSE {options}\nMETRICS\nREUSE {scaled}\nMETRICS\n".encode("ascii")
+    pressure = {**environment, "SPEKTRAFILM_VULKAN_TRANSIENT_BUDGET_MB": "160"}
+    toggled = run_stream(exe, request, mode="--native-preview-stream", env=pressure)
+    assert len(toggled) == 6 and all(status == 0 for status, _ in toggled)
+    assert toggled[0] == toggled[4] and toggled[2] != toggled[4]
+    for _, payload in toggled[3::2]:
+        metrics = json.loads(payload)
+        assert metrics["alternateSourceCachedBytes"] == 0 and metrics["uploadBytes"] >= paired.nbytes, metrics
+    assert metrics["enlargerCacheHit"] and metrics["enlargerMs"] == 0, metrics
+    print("GPU memory guard: a 160 MiB budget reuploads the same CPU-cached enlargement without retaining a second GPU source")
 
 
 def check_adaptive_viewer(exe):

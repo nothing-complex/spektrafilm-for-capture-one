@@ -1755,13 +1755,15 @@
       "id": "RC-12",
       "title": "Cache or GPU-accelerate enlarger resampling",
       "priority": "P2",
-      "status": "partial",
+      "status": "implemented",
       "implemented": [
         "Native Viewer workers keep a single exact enlarger transform keyed by immutable source revision plus scale and XY shift. The GPU can keep using the transformed source on downstream edits; the original CPU frame remains available for identity, other geometry and later cold renders. Export and above-cap Viewer frames resample directly without duplicating the original.",
         "Vulkan tests matched eight cold renders bit for bit, changing source, scale and coordinates through odd dimensions, nonopaque alpha, opaque black border, identity and 32×. Warm print changes did no transform or upload. A 36 MP frame retained zero transformed bytes at the 512 MiB per-worker cap.",
         "RTX 3090 warm median/p95 dropped from 24.79/25.64 to 9.35/9.74 ms at 1200×800, from 296.05/356.23 to 101.19/103.89 ms at 4095×2731 and from 610.38/718.78 to 216.42/231.10 ms at 6000×4000, using twelve requests per size. These are worker and pipe timings. Licensed Capture One passed 177 initial and 182 restart checks.",
         "Keep a previously transformed Viewer frame through identity only for the same immutable input and at most 192 MiB. Returning to the identical 4096 by 2731 enlargement skips a 117.64 ms CPU pass and changes one paired hashed response from 277.07 to 152.81 ms. The 4096 by 3073 frame exceeds the inactive cap and releases the transform. All six full payload hashes match audit.21. Twelve fresh-versus-cached transitions pass on each physical adapter.",
-        "The licensed 4096 px Viewer passes 47 stress assertions. It retains the same native RGB16 source through the identity round trip and skips CPU resampling when returning to the same enlargement. Its scoped worker interruption recovers the saved geometry, rebuilds the transform and repaints in a fresh worker. Native Export remains connected."
+        "The licensed 4096 px Viewer passes 47 stress assertions. It retains the same native RGB16 source through the identity round trip and skips CPU resampling when returning to the same enlargement. Its scoped worker interruption recovers the saved geometry, rebuilds the transform and repaints in a fresh worker. Native Export remains connected.",
+        "Give the GPU a second resident allocation only for the explicitly paired immutable original and cached enlargement, below the 192 MiB inactive limit and when the live adapter budget can admit it. The paired 4096 px Viewer alternating test reduced four packed source transfers from 178,978,816 bytes each to zero. The median of those four hashed replies was 114.88 ms before and 97.04 ms after. All eight payloads match, with distinct replacement pixels and cache invalidation.",
+        "Both physical GPUs pass fresh-frame parity and the 160 MiB synthetic pressure test. Under pressure, the single-source GPU path reuploads with exact warm CPU-cache pixels. Vulkan synchronization validation reports no errors on a source-swapping fixture. The licensed NVIDIA Viewer records the complete transformed pair with no full-frame upload and passes 48 stress checks on both first launch and restart, including actual renderer termination and rebuilding the durable effect."
       ],
       "evidence_paths": [
         "qa/renderer-benchmark.py",
@@ -1772,11 +1774,14 @@
         ".test-results/enlarger-toggle-continuity-20261120/identity-threshold.json",
         ".test-results/enlarger-toggle-continuity-20261120/nvidia-focused.log",
         ".test-results/enlarger-toggle-continuity-20261120/intel-focused.log",
-        ".test-results/host-enlarger-toggle-recovery-20261120/host-smoke.log"
+        ".test-results/host-enlarger-toggle-recovery-20261120/host-smoke.log",
+        ".test-results/enlarger-resident-pair-20261120/gpu-pair.json",
+        ".test-results/enlarger-resident-pair-20261120/nvidia-pressure.log",
+        ".test-results/enlarger-resident-pair-20261120/intel-pressure.log",
+        ".test-results/host-enlarger-resident-pair-20261120/host-smoke.log"
       ],
       "remaining_work": [
-        "Evaluate independent GPU residency for original and transformed sources when there is measured device headroom. The current upstream renderer has one source allocation and identity or changed geometry can need another upload.",
-        "Extend the licensed transformed-cache interruption test to a second GPU and cover external memory pressure with multiple process contexts."
+        "Extend the licensed transformed-cache interruption test to a second GPU. Track external memory pressure and concurrent process admission in RC-11 and VE-08."
       ],
       "original_acceptance_tests": [
         "Existing reference_crop plus odd dimensions/outside-alpha/scale1/32x",
@@ -3365,8 +3370,8 @@
   ],
   "counts": {
     "total": 70,
-    "implemented": 35,
-    "partial": 35,
+    "implemented": 36,
+    "partial": 34,
     "pending": 0
   },
   "last_reconciled": "2026-11-20",

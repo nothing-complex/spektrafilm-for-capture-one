@@ -2791,6 +2791,8 @@ struct VulkanRenderer::Impl {
     ScratchBuffer sourceStaging;
     ScratchBuffer source;
     uint64_t sourceRevision = 0;
+    ScratchBuffer alternateSource;
+    uint64_t alternateSourceRevision = 0;
     ScratchBuffer filmRaw;
     ScratchBuffer filmDensity;
     ScratchBuffer destination;
@@ -3079,7 +3081,8 @@ struct VulkanRenderer::Impl {
     const MutableImageView &destination,
     const RenderWindow &window,
     const RenderParams &params,
-    double time
+    double time,
+    uint64_t alternateSourceRevision = 0
   );
   bool computeHalationBoostMilestone(
     const RenderWindow &window,
@@ -3094,7 +3097,8 @@ struct VulkanRenderer::Impl {
     const MutableImageView &destination,
     const RenderWindow &window,
     const RenderParams &params,
-    double time
+    double time,
+    uint64_t alternateSourceRevision
   );
 
   bool createBuffer(
@@ -3153,6 +3157,7 @@ struct VulkanRenderer::Impl {
   bool prepareStaticFilmResources(const RenderParams &params, bool includePrintScanResources, bool includeGrainResources);
   bool ensureCopyFrameResources();
   bool ensureCoreFrameResources();
+  void selectResidentSource(uint64_t revision, uint64_t alternate, VkDeviceSize sourceBytes);
   void destroyScratchBuffer(ScratchBuffer &scratch);
   void destroyStaticFilmResources();
   void destroyCopyFrameResources();
@@ -3204,6 +3209,7 @@ uint64_t VulkanRenderer::Impl::transientAllocationBytes() const {
 
   add(coreFrame.sourceStaging);
   add(coreFrame.source);
+  add(coreFrame.alternateSource);
   add(coreFrame.filmRaw);
   add(coreFrame.filmDensity);
   add(coreFrame.destination);
@@ -3255,6 +3261,34 @@ void VulkanRenderer::Impl::updateSharedDiagnostics() {
   diagnostics.sharedQueueCount = backend ? backend->queueCount() : 0u;
   diagnostics.transientCachedBytes = transientCachedBytes;
   diagnostics.transientBudgetBytes = backend ? backend->transientBudgetBytes : 0u;
+  diagnostics.alternateSourceCachedBytes = coreFrame.alternateSource.allocationSize;
+}
+
+void VulkanRenderer::Impl::selectResidentSource(uint64_t revision, uint64_t alternate, VkDeviceSize sourceBytes) {
+  if (revision == 0u || revision == alternate) alternate = 0u;
+  auto swapSources = [&]() {
+    std::swap(coreFrame.source, coreFrame.alternateSource);
+    std::swap(coreFrame.sourceRevision, coreFrame.alternateSourceRevision);
+  };
+  auto discardAlternate = [&]() {
+    destroyScratchBuffer(coreFrame.alternateSource);
+    coreFrame.alternateSourceRevision = 0u;
+  };
+  if (revision != 0u && coreFrame.alternateSourceRevision == revision) swapSources();
+  if (coreFrame.alternateSourceRevision != alternate) discardAlternate();
+
+  const bool retainCurrent = alternate != 0u && coreFrame.sourceRevision == alternate;
+  if (!retainCurrent && coreFrame.alternateSourceRevision == 0u) return;
+  const uint64_t cached = transientAllocationBytes();
+  const auto budget = backend->availableDeviceLocalMemory(cached);
+  // When retaining the departing source, reserve both the next source and a
+  // possible upload buffer. Leave spare headroom for the graph and other work.
+  const uint64_t needed = cached + (retainCurrent ? sourceBytes * 2u : 0u);
+  if (!budget.dynamic || needed > budget.bytes - budget.bytes / 4u) {
+    discardAlternate();
+    return;
+  }
+  if (retainCurrent) swapSources();
 }
 
 void VulkanRenderer::Impl::enforceTransientBudget() {
@@ -4548,6 +4582,7 @@ void VulkanRenderer::Impl::destroyCopyFrameResources() {
 
 void VulkanRenderer::Impl::destroyCoreFrameResources() {
   coreFrame.sourceRevision = 0;
+  coreFrame.alternateSourceRevision = 0;
   if (coreFrame.fence != VK_NULL_HANDLE) {
     vkDestroyFence(device, coreFrame.fence, nullptr);
     coreFrame.fence = VK_NULL_HANDLE;
@@ -4611,6 +4646,7 @@ void VulkanRenderer::Impl::destroyCoreFrameResources() {
   destroyScratchBuffer(coreFrame.filmDensity);
   destroyScratchBuffer(coreFrame.filmRaw);
   destroyScratchBuffer(coreFrame.source);
+  destroyScratchBuffer(coreFrame.alternateSource);
   destroyScratchBuffer(coreFrame.sourceStaging);
 }
 
@@ -4853,7 +4889,8 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
   const MutableImageView &destination,
   const RenderWindow &window,
   const RenderParams &params,
-  double time
+  double time,
+  uint64_t alternateSourceRevision
 ) {
   std::lock_guard<std::recursive_mutex> lock(renderMutex);
   diagnostics = {};
@@ -5136,6 +5173,7 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
   const float effectivePrintGamma = params.printGamma * printPushPullGamma(params.printPushPullStops);
 
   const uint64_t sourceRevision = fullFrameSourcePath ? 0u : reusableSourceRevision(source, window);
+  if (!fullFrameSourcePath) selectResidentSource(sourceRevision, alternateSourceRevision, sourceByteCount);
   const bool uploadSource = !fullFrameSourcePath &&
     (sourceRevision == 0u || sourceRevision != coreFrame.sourceRevision);
   if (uploadSource) coreFrame.sourceRevision = 0;
@@ -7517,7 +7555,8 @@ bool VulkanRenderer::Impl::renderTiledBootstrap(
   const MutableImageView &destination,
   const RenderWindow &window,
   const RenderParams &params,
-  double time
+  double time,
+  uint64_t alternateSourceRevision
 ) {
   std::lock_guard<std::recursive_mutex> lock(renderMutex);
   diagnostics = {};
@@ -7646,6 +7685,7 @@ bool VulkanRenderer::Impl::renderTiledBootstrap(
     return false;
   }
   const VkDeviceSize fullSourceByteCount = static_cast<VkDeviceSize>(fullSourceByteCount64);
+  selectResidentSource(sourceRevision, alternateSourceRevision, fullSourceByteCount);
   const bool uploadSource = sourceRevision == 0u || sourceRevision != coreFrame.sourceRevision;
   if (uploadSource) {
     coreFrame.sourceRevision = 0;
@@ -7922,6 +7962,17 @@ bool VulkanRenderer::render(
   const RenderParams &params,
   double time
 ) {
+  return render(source, destination, window, params, time, 0u);
+}
+
+bool VulkanRenderer::render(
+  const ImageView &source,
+  const MutableImageView &destination,
+  const RenderWindow &window,
+  const RenderParams &params,
+  double time,
+  uint64_t alternateSourceRevision
+) {
   if (!impl_ || !impl_->available) {
     if (impl_) {
       std::lock_guard<std::recursive_mutex> lock(impl_->renderMutex);
@@ -7940,9 +7991,9 @@ bool VulkanRenderer::render(
   } else {
     const GpuRenderTilingMode tileMode = resolveVulkanTileMode(params);
     if (tileMode == GpuRenderTilingMode::Tiled) {
-      ok = impl_->renderTiledBootstrap(source, destination, window, params, time);
+      ok = impl_->renderTiledBootstrap(source, destination, window, params, time, alternateSourceRevision);
     } else {
-      ok = impl_->renderCoreBootstrap(source, destination, window, params, time);
+      ok = impl_->renderCoreBootstrap(source, destination, window, params, time, alternateSourceRevision);
     }
   }
 

@@ -148,6 +148,11 @@ public static partial class StartupHook
             Check(restored.GetProperty("enlargerCacheHit").GetBoolean() && restored.GetProperty("enlargerMs").GetDouble() == 0
                 && Worker()!.Id == transformWorker && ReferenceEquals(before, Field(spatial, "source")),
                 "returning to the same enlarger geometry skips CPU resampling in the active native Viewer");
+            if (restored.GetProperty("dynamicGpuBudget").GetBoolean()
+                && restored.GetProperty("gpuMemoryBudgetBytes").GetInt64() >= 2L * 1024 * 1024 * 1024)
+                Check(restored.GetProperty("alternateSourceCachedBytes").GetInt64() >= retained
+                    && restored.GetProperty("uploadBytes").GetInt64() < retained,
+                    "the licensed Viewer switches back to the resident transformed GPU source under adequate headroom");
             var priorFrame = Field(spatial, "viewerFrame")!;
             var firstWorker = Worker()!.Id;
 

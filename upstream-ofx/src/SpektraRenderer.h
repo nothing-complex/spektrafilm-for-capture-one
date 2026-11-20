@@ -63,6 +63,7 @@ struct RendererDiagnostics {
   uint32_t sharedQueueCount = 0;
   uint64_t transientCachedBytes = 0;
   uint64_t transientBudgetBytes = 0;
+  uint64_t alternateSourceCachedBytes = 0;
   uint32_t passCount = 0;
   std::string metalDeviceName;
   uint64_t metalRecommendedMaxWorkingSetSize = 0;

@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The 70-item integration audit tracks 35 bounded primary fixes implemented and 35 partial items. It includes feasibility investigations and enhancements.
+Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The 70-item integration audit tracks 36 bounded primary fixes implemented and 34 partial items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -991,6 +991,15 @@ Evidence is in `.test-results/renderer-resident-halation-20261120/comparison.jso
 - [x] Pass 47 native Viewer stress assertions including the actual 4096 px identity round trip. Terminate only the verified disposable renderer. The replacement reuses the native high-depth source, rebuilds the committed enlargement and repaints. The measured recovery is 1.26 s and native Export stays connected.
 
 Use `.test-results/enlarger-toggle-continuity-20261120/identity-threshold.json`, the adjacent GPU logs and `.test-results/host-enlarger-toggle-recovery-20261120/host-smoke.log`. This checkpoint is newer than the verified audit.21 ZIP.
+
+## Paired native Viewer GPU sources
+
+- [x] Pair the original developed RGB16 source's float pixels and one exact enlarger transform. When the adapter reports enough current headroom, retain the other buffer and switch by immutable revision. A source change releases the old companion and uploads the new original. The existing 192 MiB inactive limit and renderer disposal still bound retention.
+- [x] Compare eight 4096 by 2731 packed replies against the CPU-cache-only worker. Every payload hash matches. Once both buffers are warm, four alternating requests upload zero bytes instead of 178,978,816 each. Their median hashed response time moved from 114.88 to 97.04 ms on the RTX 3090. The first use of each actual source still uploads it.
+- [x] Pass fresh-versus-warm comparisons on both physical GPUs and a simulated 160 MiB cap. The constrained route keeps the CPU transform and reuploads it on the GPU without changing the result. Khronos synchronization validation passes the alternating source and replacement program.
+- [x] Pass 48 native Viewer stress assertions on both first launch and restart, with actual high-depth pixels and an active GPU companion. The replacement worker rebuilds the durable enlargement after a forced termination and the native Export bridge remains connected.
+
+Evidence is under `.test-results/enlarger-resident-pair-20261120/gpu-pair.json`, its distinct loader and validation logs and `.test-results/host-enlarger-resident-pair-20261120`. The exact measured worker SHA-256 is `54e41c5a11c41db7b9bb194c0010eb7fa22fa42ed27a6d38fa7a4996c682f1ff`.
 
 ## LUT control parity, legacy comparison and native cancellation
 

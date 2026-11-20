@@ -38,6 +38,14 @@ public:
     const RenderParams &params,
     double time
   ) override;
+  bool render(
+    const ImageView &source,
+    const MutableImageView &destination,
+    const RenderWindow &window,
+    const RenderParams &params,
+    double time,
+    uint64_t alternateSourceRevision
+  );
 
 private:
   struct Impl;
