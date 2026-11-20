@@ -2,6 +2,7 @@ using System;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
@@ -72,6 +73,8 @@ public static partial class StartupHook
             var peer = UIElementAutomationPeer.CreatePeerForElement(editor);
             Check(peer?.GetPattern(PatternInterface.Value) is System.Windows.Automation.Provider.IValueProvider provider && !provider.IsReadOnly,
                 "the actual Capture One numeric editor exposes the editable UI Automation Value pattern");
+            Check(peer?.GetName() == "Film exposure" && peer.GetHelpText().Contains("Default 0 EV", StringComparison.Ordinal),
+                "the focused text-box automation peer exposes the control name and displayed default");
             var culture = input.GetType().GetProperty("CultureInfo", Flags)!;
             var previousCulture = culture.GetValue(input);
             async Task RouteKey(string text, Key key)
@@ -141,6 +144,96 @@ public static partial class StartupHook
                 contract.GetMethod("Redo")!.Invoke(undo, null);
                 Check(Same(Snapshot(), reset), "Redo restores the complete native Defaults result");
                 revert.Invoke(undo, new object[] { false });
+
+                if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_SLIDER_INTERACTION") == "1")
+                {
+                    await TestWheelAndFocus();
+                }
+
+                async Task TestWheelAndFocus()
+                {
+                    var settingsType = control.GetType().Assembly.GetType("P1.C1.ApplicationSettings", true)!;
+                    var settings = settingsType.GetProperty("Default", Flags)!.GetValue(null)!;
+                    var wheelPriority = settingsType.GetProperty("InputElementHasPriorityOverScrollViewer", Flags)!;
+                    var originalPriority = wheelPriority.GetValue(settings);
+                    Check(File.Exists(Path.Combine(folder, "Capture One user.config.before-proofing")),
+                        "the slider preference is tested under a verified preferences backup");
+                    void Scroll(int delta) => slider.RaiseEvent(new MouseWheelEventArgs(Mouse.PrimaryDevice, Environment.TickCount, delta)
+                    {
+                        RoutedEvent = Mouse.PreviewMouseWheelEvent,
+                        Source = slider,
+                    });
+                    try
+                    {
+                        SetValue(0);
+                        wheelPriority.SetValue(settings, false);
+                        Scroll(120);
+                        Confirm(0, "the default wheel-scroll preference leaves film exposure untouched");
+                        wheelPriority.SetValue(settings, true);
+                        Scroll(120);
+                        Confirm(.1, "the wheel preference uses one native slider increment and durably saves it");
+                        revert.Invoke(undo, new object[] { true });
+                        Confirm(0, "one native Undo reverts one wheel detent");
+                        contract.GetMethod("Redo")!.Invoke(undo, null);
+                        Confirm(.1, "native Redo restores the wheel adjustment");
+                        WithSliderModifier(ModifierKeys.Alt, () => Scroll(-120));
+                        Confirm(.1, "Alt leaves the wheel available for scrolling the tool");
+
+                        SetValue(0);
+                        WithSliderModifier(ModifierKeys.Shift, () => Scroll(120));
+                        Confirm(1, "Shift with the wheel uses the native larger increment");
+                        SetValue(7.9);
+                        WithSliderModifier(ModifierKeys.Shift, () => Scroll(120));
+                        Confirm(8, "large wheel increments respect the exact upper limit");
+                        SetValue(-7.9);
+                        WithSliderModifier(ModifierKeys.Shift, () => Scroll(-120));
+                        Confirm(-8, "large wheel increments respect the exact lower limit");
+                    }
+                    finally { wheelPriority.SetValue(settings, originalPriority); }
+
+                    SetValue(0);
+                    Check(editor.Focus(), "the wheel fixture returns keyboard focus to Film exposure");
+                    editor.SetCurrentValue(TextBox.TextProperty, "0.7");
+                    var visited = new System.Collections.Generic.List<string>();
+                    var current = editor as UIElement;
+                    for (var step = 0; step < 12 && current?.MoveFocus(new TraversalRequest(FocusNavigationDirection.Next)) == true; step++)
+                    {
+                        await editor.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+                        current = Keyboard.FocusedElement as UIElement;
+                        if (current is TextBox field)
+                        {
+                            var name = AutomationProperties.GetName(field);
+                            visited.Add(name);
+                            if (name == "Look strength") break;
+                        }
+                    }
+                    Check(visited.SequenceEqual(new[] { "Print exposure", "Look strength" }),
+                        "Tab reaches Print exposure and Look strength in visual order: " + string.Join(", ", visited));
+                    Confirm(.7, "Tab traversal commits Film exposure before moving to the next slider");
+
+                    var owner = hook.GetField("hostedTool", Flags)!.GetValue(null)!;
+                    Call(owner, "ShowFloating");
+                    var floating = (Window)Field(owner, "floating")!;
+                    try
+                    {
+                        floating.Width = Math.Max(floating.MinWidth, 320);
+                        await floating.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+                        var scroll = (ScrollViewer)Field(owner, "floatingScroll")!;
+                        var position = editor.TranslatePoint(new Point(0, 0), scroll);
+                        Check(floating.IsVisible && editor.IsVisible && editor.ActualWidth > 0
+                            && position.X >= -1 && position.X + editor.ActualWidth <= scroll.ActualWidth + 1,
+                            "the native numeric editor stays horizontally visible at the narrow floating width");
+                        Check(UIElementAutomationPeer.CreatePeerForElement(editor)?.GetName() == "Film exposure",
+                            "the native editor keeps its accessible name when floated");
+                    }
+                    finally
+                    {
+                        floating.Close();
+                        await editor.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+                    }
+
+                    void SetValue(double amount) => value.SetValue(exposure, amount);
+                }
             }
             finally { culture.SetValue(input, previousCulture); }
         }
@@ -151,6 +244,40 @@ public static partial class StartupHook
         }
         Confirm(original, "native input fixture restored the selected image's original film exposure");
     }
+
+    private static void WithSliderModifier(ModifierKeys modifier, Action gesture)
+    {
+        var original = new byte[256];
+        if (!GetSliderKeyboardState(original))
+            throw new InvalidOperationException("Could not read the fixture thread's keyboard state.");
+        var state = (byte[])original.Clone();
+        switch (modifier)
+        {
+            case ModifierKeys.Alt: state[0x12] |= 0x80; state[0xA4] |= 0x80; break;
+            case ModifierKeys.Shift: state[0x10] |= 0x80; state[0xA0] |= 0x80; break;
+            default: throw new ArgumentOutOfRangeException(nameof(modifier));
+        }
+        if (!SetSliderKeyboardState(state))
+            throw new InvalidOperationException("Could not set the fixture thread's keyboard state.");
+        try
+        {
+            Check(Keyboard.Modifiers.HasFlag(modifier), "the native WPF input device observes " + modifier + " on the fixture thread");
+            gesture();
+        }
+        finally
+        {
+            if (!SetSliderKeyboardState(original))
+                throw new InvalidOperationException("Could not restore the fixture thread's keyboard state.");
+        }
+    }
+
+    [DllImport("user32.dll", EntryPoint = "GetKeyboardState", ExactSpelling = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetSliderKeyboardState([Out] byte[] state);
+
+    [DllImport("user32.dll", EntryPoint = "SetKeyboardState", ExactSpelling = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetSliderKeyboardState(byte[] state);
 
     private static TextBox? FindEditor(DependencyObject root)
     {

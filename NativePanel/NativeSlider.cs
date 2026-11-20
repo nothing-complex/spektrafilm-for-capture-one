@@ -42,8 +42,16 @@ internal sealed class NativeSlider : Grid
             control.UpDownWidth += (places - 4) * 8;
         AutomationProperties.SetName(control, title);
         var displayUnit = string.IsNullOrEmpty(unit) ? "" : " " + unit;
-        AutomationProperties.SetHelpText(control,
-            $"Default {ToDisplay(initial)}{displayUnit}. Double-click the label or slider to reset.");
+        var help = $"Default {ToDisplay(initial)}{displayUnit}. Type a value or use the arrow keys to adjust. Double-click the label or slider to reset.";
+        AutomationProperties.SetHelpText(control, help);
+        control.Loaded += (_, _) =>
+        {
+            if (control.Template?.FindName("PART_Input", control) is not Control input) return;
+            input.ApplyTemplate();
+            if (FindNumericEditor(input) is not { } editor) return;
+            AutomationProperties.SetName(editor, title);
+            AutomationProperties.SetHelpText(editor, help);
+        };
         ToolTip = title;
         Children.Add(control);
         control.PropertyChanged += (_, args) =>
@@ -131,4 +139,13 @@ internal sealed class NativeSlider : Grid
 
     private static bool IsWithin(Visual source, object? part) =>
         part is Visual visual && (visual == source || visual.IsAncestorOf(source));
+
+    private static TextBox? FindNumericEditor(DependencyObject root)
+    {
+        if (root is TextBox editor) return editor;
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+            if (FindNumericEditor(VisualTreeHelper.GetChild(root, index)) is { } child)
+                return child;
+        return null;
+    }
 }

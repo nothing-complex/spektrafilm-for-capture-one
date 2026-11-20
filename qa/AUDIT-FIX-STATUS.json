@@ -3269,7 +3269,8 @@
         "Pass 12,678 host-independent checks and 193 new-launch plus 197 restart assertions. The real stock selection and durable look were unchanged by adding a favourite, and the restart placed it first. The actual preset Save route updated the recent file list.",
         "The real native label and track each restored and durably saved the film exposure default through WPF double-click routing. The live numeric editor committed Danish 1,4 and U.S. English -0.8 through Enter and the fixture restored the prior look. All 207 host assertions passed.",
         "The real visible native numeric control exposes an editable Windows UI Automation Value pattern and carries accessible full label/reset instructions. Licensed editor accepted both ±8 EV limits, canceled an uncommitted 2.4 EV with Escape and rejected NaN, Infinity and malformed text without changing the committed bytes. First and restart passed 282/286 checks.",
-        "The real numeric editor routes Up and Down at the 0.1 EV increment. Keyboard focus moves to the actual Defaults button and commits the pending number. Its Defaults action persists and restores the complete look through Capture One's native Undo and Redo. The first and restart general checks total 336 and 340."
+        "The real numeric editor routes Up and Down at the 0.1 EV increment. Keyboard focus moves to the actual Defaults button and commits the pending number. Its Defaults action persists and restores the complete look through Capture One's native Undo and Redo. The first and restart general checks total 336 and 340.",
+        "Give the actual focusable numeric editor its accessible name and displayed default, beyond the containing slider. The 58-check licensed fixture covers the editable Windows UI Automation peer, the three exposure/strength Tab stops with a durable focus-loss commit, narrow floating layout, both native wheel settings, Shift larger increments, Alt bypass, native wheel Undo/Redo and exact clamping. The test restored the changed preference and verified the source catalog was unchanged. Both reference builds match all 643 managed host references."
       ],
       "evidence_paths": [
         "NativePanel/NativeSlider.cs",
@@ -3282,10 +3283,12 @@
         "qa/HostSmoke/NativeSliderInput.cs",
         ".test-results/host-native-slider-keyboard-20261120/host-smoke.log",
         ".test-results/host-adaptive-watchdog-accessibility-20261120/host-smoke.log",
-        ".test-results/host-native-slider-defaults-20261120/host-smoke.log"
+        ".test-results/host-native-slider-defaults-20261120/host-smoke.log",
+        ".test-results/sf-native-slider-interaction/host-smoke.log",
+        ".test-results/native-slider-16.7-reference/compared-host-signatures.json"
       ],
       "remaining_work": [
-        "Exercise the mouse wheel, modifier-based fine adjustments, full keyboard focus order, narrow/different DPI hardware and a screen-reader session. Extend canonical per-control manifest annotations under HS-11."
+        "Verify complete tool focus order beyond the three primary numeric controls, physical mixed-DPI hardware and a real screen-reader session. Extend canonical per-control manifest annotations under HS-11."
       ],
       "original_acceptance_tests": [
         "Keyboard and pointer edit/reset/cancel sequences produce identical persisted values and one intended undo gesture.",
