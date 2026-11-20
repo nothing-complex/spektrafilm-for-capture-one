@@ -964,6 +964,15 @@ Evidence is in `.test-results/rc04-halation-overlap-baseline-20261120.json`, `.t
 
 Evidence is under `.test-results/optical-scratch-physical-20261120`, `.test-results/optical-scratch-sync-20261120`, `.test-results/optical-scratch-final-20261120` and `.test-results/portable-vulkan-bindings-20261120`. Audit.18 contains the earlier renderer, which serves as the before-build reference.
 
+## Resident Vulkan source for tiled halation
+
+- [x] Use the existing full-image shader addressing for the halation reduction after the fenced source upload. The effect reads the resident device image and keeps its revision across Viewer edits. Release tiled host staging of 256 MiB or more after its copy completes. The export worker still takes a fresh source for each job.
+- [x] Compare the audit.20 worker with the new binary on eight 45 MP stacked-optics replies across packed Viewer and float export, and two 100 MP packed optics replies. All ten matched byte for byte. The 45 MP plan kept nine tiles at 2930 px with 1465 px of overlap. Reported transient cache dropped from 11.67 to 11.00 GiB. On the two resident Viewer edits, reported upload fell from 720 MB to 3,784 bytes and hashed response times changed from 2.71 and 2.72 s to 2.55 and 2.56 s. Replacing the source still uploads the full 720 MB.
+- [x] At 100 MP the retained transient cache dropped from 3.66 to 2.17 GiB and peak worker commit from 5.80 to 4.90 GiB. The warm hashed response remained about 1.76 s. Repeated captures of new 45 MP sources had similar whole-process peak commit before and after. The 7 GiB planning target remains open for the largest optical halo.
+- [x] Enable Vulkan synchronization validation and send four alternating-source requests along each output route across two real tiles of a 4097 by 129 chart. Both validation logs contained no errors. Reproduce with the local SDK layer and `qa/renderer-benchmark.py --source-change-interval 2`. [Vulkan validation log configuration](https://github.com/KhronosGroup/Vulkan-ValidationLayers/blob/main/docs/error_messages.md#logging-to-a-file)
+
+Evidence is in `.test-results/renderer-resident-halation-20261120/comparison.json`, `viewer-tiled-sync.json` and `export-tiled-sync.json` in that directory. The two worker hashes and every source-transfer decision are recorded.
+
 ## LUT control parity, legacy comparison and native cancellation
 
 - [x] Use the actual Cancel LUT export button after accepting a 65-point job and observing its private Vulkan worker. The two licensed runs returned in 2.24 and 2.36 ms after the click, cleared the output lease and preserved the prior destination with no staging residue. A follow-up 33-point LUT completed on the same path in each run. The native fixture injects only the destination choice. The full general suite passed 327 and 331 assertions.

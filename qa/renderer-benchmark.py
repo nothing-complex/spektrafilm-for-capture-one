@@ -98,7 +98,8 @@ def command_json(child, command):
     return json.loads(read_exact(child.stdout, size))
 
 
-def run_case(executable, shape, scene, route, repetitions, timeout, simulated_cap_mib, hash_replies, tile_size):
+def run_case(executable, shape, scene, route, repetitions, timeout, simulated_cap_mib, hash_replies, tile_size,
+             source_change_interval):
     packed = route == "viewer"
     width, height = shape
     pixels = width * height
@@ -120,14 +121,20 @@ def run_case(executable, shape, scene, route, repetitions, timeout, simulated_ca
         if version["protocol"] != 1 or pixels > version["maxPixels"] or max(shape) > version["maxSide"]:
             raise ValueError(f"Frame {width}x{height} exceeds this worker's advertised limits.")
         measurements = []
-        tile = struct.pack("<8f", .12, .2, .3, 1, .7, .6, .5, 1) * (BLOCK_BYTES // 32)
+        tiles = [struct.pack("<8f", *sample) * (BLOCK_BYTES // 32) for sample in (
+            (.12, .2, .3, 1, .7, .6, .5, 1), (.18, .25, .32, 1, .64, .51, .44, 1),
+        )]
+        source_change = 0
         for iteration in range(repetitions):
-            mode = ("FRAME8" if packed else "FRAME") if iteration == 0 else ("REUSE8" if packed else "REUSE")
-            command = (mode, str(width), str(height)) if iteration == 0 else (mode,)
+            send_source = iteration == 0 or (source_change_interval > 0 and iteration % source_change_interval == 0)
+            mode = ("FRAME8" if packed else "FRAME") if send_source else ("REUSE8" if packed else "REUSE")
+            command = (mode, str(width), str(height)) if send_source else (mode,)
             options = SCENES[scene] + ("--film-exposure", f"{iteration % 5 / 10:.1f}")
             started = time.perf_counter_ns()
             child.stdin.write((" ".join(command + options) + "\n").encode("ascii"))
-            if iteration == 0:
+            if send_source:
+                tile = tiles[source_change % len(tiles)]
+                source_change += 1
                 for offset in range(0, pixels * 16, BLOCK_BYTES):
                     child.stdin.write(tile[:min(BLOCK_BYTES, pixels * 16 - offset)])
             child.stdin.flush()
@@ -145,7 +152,7 @@ def run_case(executable, shape, scene, route, repetitions, timeout, simulated_ca
                 raise ValueError("The renderer diagnostic is stale or incompatible.")
             measurement = {
                 "iteration": iteration + 1,
-                "sentSource": iteration == 0,
+                "sentSource": send_source,
                 "wallMs": milliseconds,
                 "replyBytes": size,
                 "workerMemory": process_memory(child.pid),
@@ -216,6 +223,8 @@ def main():
     parser.add_argument("--simulate-gpu-cap-mib", type=int, help="Test-only cap for the renderer allocator. Does not change physical VRAM.")
     parser.add_argument("--hash-replies", action="store_true", help="Include the SHA-256 of each frame. Wall time then includes hashing.")
     parser.add_argument("--tile-size", type=dimensions, help="Override tile size in this worker for cases that use tiling.")
+    parser.add_argument("--source-change-interval", type=int, default=0,
+                        help="Alternate two source charts every N requests. Zero uploads only the first source.")
     args = parser.parse_args()
     if os.name != "nt" or args.repetitions < 1 or args.case_timeout < 1:
         parser.error("Use Windows and positive repetition and timeout values.")
@@ -223,6 +232,8 @@ def main():
         parser.error("The simulated GPU allocator cap must be positive.")
     if args.tile_size is not None and not all(64 <= edge <= 8192 for edge in args.tile_size):
         parser.error("Both tile dimensions must be between 64 and 8192 pixels.")
+    if args.source_change_interval < 0:
+        parser.error("The source change interval must be nonnegative.")
     executable = args.renderer.resolve(strict=True)
     if args.output.exists():
         parser.error("Choose a new output JSON path.")
@@ -231,7 +242,8 @@ def main():
         "simulatedGpuAllocatorCapMiB": args.simulate_gpu_cap_mib,
         "hashedReplies": args.hash_replies,
         "tileSizeOverride": args.tile_size,
-        "timingScope": "Worker request and reply. The first request transfers input; later requests re-render edited parameters.",
+        "sourceChangeInterval": args.source_change_interval,
+        "timingScope": "Worker request and reply. Each measurement records whether it transferred input or used the resident source.",
         "memoryScope": "Worker process and renderer diagnostics. Driver workspace and Capture One host memory are outside this report.",
         "cases": [],
     }
@@ -245,7 +257,7 @@ def main():
             for shape in args.size or ((1200, 800), (3000, 2000), (6000, 4000)):
                 try:
                     case = run_case(executable, shape, scene, route, args.repetitions, args.case_timeout,
-                                    args.simulate_gpu_cap_mib, args.hash_replies, args.tile_size)
+                                    args.simulate_gpu_cap_mib, args.hash_replies, args.tile_size, args.source_change_interval)
                 except Exception as error:
                     result["failure"] = {"route": route, "scene": scene, "size": shape, "reason": str(error)}
                     update_result(result, args.output)

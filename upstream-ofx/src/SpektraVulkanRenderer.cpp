@@ -3082,11 +3082,11 @@ struct VulkanRenderer::Impl {
     double time
   );
   bool computeHalationBoostMilestone(
-    const ImageView &source,
     const RenderWindow &window,
     const RenderParams &params,
     uint32_t centerTileWidth,
-    uint32_t centerTileHeight
+    uint32_t centerTileHeight,
+    VkDeviceSize fullSourceByteCount
   );
 
   bool renderTiledBootstrap(
@@ -7126,24 +7126,14 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
 }
 
 bool VulkanRenderer::Impl::computeHalationBoostMilestone(
-  const ImageView &source,
   const RenderWindow &window,
   const RenderParams &params,
   uint32_t centerTileWidth,
-  uint32_t centerTileHeight
+  uint32_t centerTileHeight,
+  VkDeviceSize fullSourceByteCount
 ) {
   const int32_t fullWidth = window.x2 - window.x1;
   const int32_t fullHeight = window.y2 - window.y1;
-  if (fullWidth <= 0 || fullHeight <= 0) {
-    return true;
-  }
-  if (!windowFitsView(source, window, fullWidth, fullHeight)) {
-    lastError = "The requested halation boost milestone window does not fit inside the Vulkan source image view.";
-    return false;
-  }
-  // The milestone uploads individual tiles into the full-frame buffer.
-  coreFrame.sourceRevision = 0;
-
   centerTileWidth = std::max(centerTileWidth, 1u);
   centerTileHeight = std::max(centerTileHeight, 1u);
   const uint32_t tileColumns =
@@ -7201,6 +7191,8 @@ bool VulkanRenderer::Impl::computeHalationBoostMilestone(
   hanatosRawResponseBufferInfo.offset = 0;
   hanatosRawResponseBufferInfo.range = staticFilm.hanatosRawResponse.capacity;
 
+  // Reduce exposure over the same immutable device source the render tiles use.
+  const VkDescriptorBufferInfo sourceBufferInfo{coreFrame.source.buffer, 0, fullSourceByteCount};
   float globalMaxRaw = 0.0f;
   for (uint32_t tileY = 0u; tileY < tileRows; ++tileY) {
     for (uint32_t tileX = 0u; tileX < tileColumns; ++tileX) {
@@ -7234,14 +7226,7 @@ bool VulkanRenderer::Impl::computeHalationBoostMilestone(
         std::max<uint64_t>(chunkCount, 1u) * 4u * sizeof(float)
       );
 
-      if (!ensureUploadScratchBuffer(
-            coreFrame.sourceStaging,
-            byteCount,
-            "core halation boost milestone source staging",
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT
-          ) ||
-          !ensurePrivateScratchBuffer(coreFrame.source, byteCount, "core halation boost milestone source") ||
-          !ensurePrivateScratchBuffer(coreFrame.filmRaw, byteCount, "core halation boost milestone film raw") ||
+      if (!ensurePrivateScratchBuffer(coreFrame.filmRaw, byteCount, "core halation boost milestone film raw") ||
           !ensurePrivateScratchBuffer(
             coreFrame.halationBoostChunks,
             chunkByteCount,
@@ -7261,29 +7246,6 @@ bool VulkanRenderer::Impl::computeHalationBoostMilestone(
         return false;
       }
 
-      if (!coreFrame.sourceStaging.mapped) {
-        lastError = "Vulkan halation boost milestone source staging buffer is not mapped.";
-        return false;
-      }
-      const RenderWindow tileWindow{tileX0, tileY0, tileX1, tileY1};
-      if (!copySourceToFloatStaging(
-            source,
-            tileWindow,
-            tileWidth,
-            tileHeight,
-            static_cast<float *>(coreFrame.sourceStaging.mapped)
-          )) {
-        lastError = "The requested halation boost milestone tile does not fit inside the Vulkan source image view.";
-        return false;
-      }
-      if (!flushMappedScratchBuffer(coreFrame.sourceStaging, byteCount, "core halation boost milestone source staging")) {
-        return false;
-      }
-
-      VkDescriptorBufferInfo sourceBufferInfo{};
-      sourceBufferInfo.buffer = coreFrame.source.buffer;
-      sourceBufferInfo.offset = 0;
-      sourceBufferInfo.range = byteCount;
       VkDescriptorBufferInfo filmRawBufferInfo{};
       filmRawBufferInfo.buffer = coreFrame.filmRaw.buffer;
       filmRawBufferInfo.offset = 0;
@@ -7353,35 +7315,14 @@ bool VulkanRenderer::Impl::computeHalationBoostMilestone(
       VkMemoryBarrier hostInputBarrier{};
       hostInputBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
       hostInputBarrier.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
-      hostInputBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_SHADER_READ_BIT;
+      hostInputBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
       vkCmdPipelineBarrier(
         commandBuffer,
         VK_PIPELINE_STAGE_HOST_BIT,
-        VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-        0,
-        1,
-        &hostInputBarrier,
-        0,
-        nullptr,
-        0,
-        nullptr
-      );
-
-      VkBufferCopy sourceUploadRegion{};
-      sourceUploadRegion.size = byteCount;
-      vkCmdCopyBuffer(commandBuffer, coreFrame.sourceStaging.buffer, coreFrame.source.buffer, 1, &sourceUploadRegion);
-
-      VkMemoryBarrier sourceUploadBarrier{};
-      sourceUploadBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-      sourceUploadBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-      sourceUploadBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-      vkCmdPipelineBarrier(
-        commandBuffer,
-        VK_PIPELINE_STAGE_TRANSFER_BIT,
         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
         0,
         1,
-        &sourceUploadBarrier,
+        &hostInputBarrier,
         0,
         nullptr,
         0,
@@ -7433,7 +7374,7 @@ bool VulkanRenderer::Impl::computeHalationBoostMilestone(
 
       pushConstants._pad0 = 1u;
       pushConstants._pad1 = colorAdaptationFlags(params);
-      pushConstants._pad2 = 0u;
+      pushConstants._pad2 = 1u;
       vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, filmExposurePipeline);
       vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, corePipelineLayout, 0, 1, &coreFrame.exposureDescriptorSet, 0, nullptr);
       vkCmdPushConstants(commandBuffer, corePipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConstants), &pushConstants);
@@ -7694,14 +7635,6 @@ bool VulkanRenderer::Impl::renderTiledBootstrap(
     envFlagEnabledOrDefault("SPEKTRAFILM_VULKAN_HALATION_PASS", true) &&
     tileParams.halationEnabled &&
     tileParams.halationBoostEv > 0.0f;
-  if (halationBoostMilestoneEnabled &&
-      !computeHalationBoostMilestone(source, window, tileParams, centerTileWidth, centerTileHeight)) {
-    const std::string milestoneError = lastError.empty() ? "unknown Vulkan halation boost milestone failure" : lastError;
-    lastError = "Vulkan tiled render failed while computing the halation boost milestone: " + milestoneError;
-    updateSharedDiagnostics();
-    return false;
-  }
-
   const uint64_t fullSourcePixelCount =
     static_cast<uint64_t>(fullWidth) * static_cast<uint64_t>(fullHeight);
   const uint64_t fullSourceByteCount64 = fullSourcePixelCount * 4u * sizeof(float);
@@ -7756,6 +7689,23 @@ bool VulkanRenderer::Impl::renderTiledBootstrap(
       return false;
     }
     coreFrame.sourceRevision = sourceRevision;
+  }
+
+#ifdef SPEKTRAFILM_STILL_RENDERER
+  // The immediate copy has completed. Tiles read the device source directly,
+  // so large host upload buffers can leave before the optical scratch peaks.
+  constexpr uint64_t largeUploadBytes = 256ull * 1024ull * 1024ull;
+  if (coreFrame.sourceStaging.capacity >= largeUploadBytes) {
+    destroyScratchBuffer(coreFrame.sourceStaging);
+  }
+#endif
+
+  if (halationBoostMilestoneEnabled &&
+      !computeHalationBoostMilestone(window, tileParams, centerTileWidth, centerTileHeight, fullSourceByteCount)) {
+    const std::string milestoneError = lastError.empty() ? "unknown Vulkan halation boost milestone failure" : lastError;
+    lastError = "Vulkan tiled render failed while computing the halation boost milestone: " + milestoneError;
+    updateSharedDiagnostics();
+    return false;
   }
 
   RendererDiagnostics aggregate{};

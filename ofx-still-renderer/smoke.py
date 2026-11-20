@@ -498,11 +498,27 @@ def check_optical_scratch_lifetime(exe, base):
     assert all(status == 0 and len(output) == frame.nbytes for status, output in fresh)
     assert len({output for _, output in fresh}) == len(graphs), "Each optical fixture must change the image"
     sequence = (0, 1, 3, 2, 4, 1, 2, 0)
-    request = frame_request(frame, graphs[sequence[0]]) + b"".join(
-        f"REUSE {graphs[index]}\n".encode("ascii") for index in sequence[1:])
-    reused = run_stream(exe, request, mode="--export-stream", env=env)
-    assert reused == [fresh[index] for index in sequence], "Changing optical passes reused stale scratch pixels"
-    print("Shared optical scratch matched fresh float renders across eight warm and cold graph transitions")
+    replacement = frame.copy()
+    replacement[..., :3] *= .7
+    replacement_fresh, = run_stream(exe, frame_request(replacement, graphs[0]), mode="--export-stream", env=env)
+    assert replacement_fresh[0] == 0 and replacement_fresh != fresh[0]
+    edited = f"{graphs[0]} --film-exposure 0.2"
+    edited_fresh, = run_stream(exe, frame_request(replacement, edited), mode="--export-stream", env=env)
+    assert edited_fresh[0] == 0 and edited_fresh != replacement_fresh
+    request = frame_request(frame, graphs[sequence[0]]) + b"METRICS\n"
+    request += b"".join(f"REUSE {graphs[index]}\nMETRICS\n".encode("ascii") for index in sequence[1:])
+    request += frame_request(replacement, graphs[0]) + f"METRICS\nREUSE {edited}\nMETRICS\n".encode("ascii")
+    reused = run_stream(exe, request, mode="--native-preview-stream", env=env)
+    assert reused[::2] == [fresh[index] for index in sequence] + [replacement_fresh, edited_fresh], \
+        "Changing optical passes or replacing the source reused stale pixels"
+    for index, (status, payload) in enumerate(reused[1::2]):
+        metrics = json.loads(payload)
+        assert status == 0 and metrics["tiled"] and metrics["renderSequence"] == index + 1, (index, metrics)
+        if index in (0, len(sequence)):
+            assert metrics["uploadBytes"] >= frame.nbytes, metrics
+        else:
+            assert metrics["uploadBytes"] < frame.nbytes, metrics
+    print("Warmed optical graphs match fresh images, with one upload per source even with tiled halation boost")
 
 
 def check_gpu_budget(exe, base):

@@ -1083,7 +1083,8 @@
         "Query VK_EXT_memory_budget on the selected adapter where available and fall back to the conservative heap-based allocator budget. Use estimated graph bytes and reserved headroom to choose full-size tiling or refuse an infeasible frame. Grain synthesis retains the full-frame requirement.",
         "The exact audit.15 worker completed all 16 renderer/transport cases and 80 requests at 24, 45, 61 and 100 MP on RTX 3090. Both colour-only and optical cases used packed Viewer and float image export. At 100 MP, warm p95 was 428 ms or 5.30 s in the Viewer and 2.20 s or 8.51 s for float export, from four warm requests per case. The optical export used 6.33 GiB peak worker commit and 3.09 GiB transient cache. Its 800 tiled results returned 9.38 GB of GPU readback for the 1.60 GB float reply, identifying tile overlap transfer as the main measured candidate for improvement. These timings exclude Capture One development, ICC conversion and file encoding.",
         "The worker now chooses larger packed Viewer tiles only on images at least 4096 px in each dimension, with an existing halo no greater than 256 px and reported dynamic budget for source plus estimated scratch. Float and wide-halo plans retain their previous geometry. At 100 MP on RTX 3090, the actual default packed plan moved from 800 to 28 tiles, with one warm hashed exposure change at 4.89 to 1.55 seconds. Simulated 6 and 4 GiB caps selected 104 and 800 tiles respectively. All 12 complete pixel reply hashes matched the explicit prior plan and warm packed sources were reused without upload.",
-        "Reuse camera optical scratch between DIR and scanner post with the existing stage barriers and preserve inter-stage data. The matched 45 MP, 1465 px halo graph used 3.17 GiB less transient Vulkan memory in both packed Viewer and float export. All six full payload hashes were identical and warm latency was effectively unchanged. Peak worker commit fell by about 3.0 and 3.2 GiB respectively."
+        "Reuse camera optical scratch between DIR and scanner post with the existing stage barriers and preserve inter-stage data. The matched 45 MP, 1465 px halo graph used 3.17 GiB less transient Vulkan memory in both packed Viewer and float export. All six full payload hashes were identical and warm latency was effectively unchanged. Peak worker commit fell by about 3.0 and 3.2 GiB respectively.",
+        "Finish the fenced tiled upload before the halation reduction and release the large host staging allocation. Halation reads the immutable GPU source directly with tile coordinates. Four packed and four float 45 MP stacked-optics payloads plus two packed 100 MP payloads match the audit.20 worker byte for byte. Reported transient cache drops 0.67 GiB at 45 MP and 1.49 GiB at 100 MP. On a warm 45 MP Viewer exposure edit the measured upload changes from 720 MB to 3,784 bytes of parameters. Peak commit over repeated 45 MP replacements stays similar. Peak commit on the measured 100 MP Viewer pair drops from about 5.80 to 4.90 GiB."
       ],
       "evidence_paths": [
         "qa/renderer-benchmark.py",
@@ -1103,12 +1104,15 @@
         ".test-results/adaptive-viewer-only-20261120/verified-layouts.json",
         ".test-results/contracts-adaptive-viewer-only-20261120/summary.json",
         ".test-results/optical-scratch-physical-20261120/comparison.json",
-        ".test-results/optical-scratch-final-20261120/nvidia-contracts/renderer-smoke.log"
+        ".test-results/optical-scratch-final-20261120/nvidia-contracts/renderer-smoke.log",
+        ".test-results/renderer-resident-halation-20261120/comparison.json",
+        ".test-results/renderer-resident-halation-20261120/viewer-tiled-sync.json",
+        ".test-results/renderer-resident-halation-20261120/export-tiled-sync.json"
       ],
       "remaining_work": [
         "Calibrate all optics graphs, shared GPU activity and system memory on real 4/6/8 GB hardware from different vendors.",
         "Add process-wide adapter-aware admission for two Viewer contexts; explicitly release idle buffers by ownership and model allocator overlap at each tile.",
-        "The latest 45 MP jointly enabled optics graph uses 11.67 GiB of transient allocations after reuse, with 1465 px support and a 7 GiB planning target. Profile per-graph scratch and bound large-halo working tiles while preserving pixels and responsiveness."
+        "The latest 45 MP jointly enabled optics graph uses 11.00 GiB of transient allocations with 1465 px support and a 7 GiB planning target. Profile per-graph scratch, bound working tiles and model temporary overlap when a user actually replaces a large RAW."
       ],
       "original_acceptance_tests": [
         "4/6/8GB GPU scenarios and100MP source sizing",
