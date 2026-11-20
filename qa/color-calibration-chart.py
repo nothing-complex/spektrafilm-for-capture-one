@@ -17,7 +17,7 @@ def sha256(path: Path) -> str:
         return file_digest(stream, "sha256").hexdigest()
 
 
-def generate(destination: Path) -> None:
+def generate(destination: Path, *, flat_field: bool = False) -> None:
     import rawpy
     import tifffile
 
@@ -38,6 +38,16 @@ def generate(destination: Path) -> None:
         red, green, blue = np.rint(black + (white - black) * np.asarray(patch)).astype(np.uint16)
         block[::2, ::2], block[::2, 1::2], block[1::2, ::2], block[1::2, 1::2] = red, green, green, blue
         centres.append({"center": [x + tile // 2, y + tile // 2], "cameraChannelCodes": [int(red), int(green), int(blue)]})
+
+    if flat_field:
+        # A smooth Bayer reference with known falloff and a mild asymmetric cast.
+        # Keep all samples away from both clipping and the sensor's black level.
+        yy, xx = np.mgrid[-1:1:height * 1j, -1:1:width * 1j]
+        falloff = .54 - .09 * (xx * xx + yy * yy)
+        mosaic[::2, ::2] = np.rint(black + (white - black) * (falloff + .04 * xx)[::2, ::2])
+        mosaic[::2, 1::2] = np.rint(black + (white - black) * falloff[::2, 1::2])
+        mosaic[1::2, ::2] = np.rint(black + (white - black) * falloff[1::2, ::2])
+        mosaic[1::2, 1::2] = np.rint(black + (white - black) * (falloff - .04 * xx)[1::2, 1::2])
 
     # The synthetic camera uses linear sRGB primaries and a D65 white point.
     camera_to_xyz = np.array([[.4123908, .35758434, .18048079], [.21263901, .71516868, .07219232],
@@ -64,6 +74,9 @@ def generate(destination: Path) -> None:
     ]
     preview = np.rint(255 * np.asarray(patches).reshape(4, 6, 3) ** (1 / 2.2)).astype(np.uint8)
     preview = np.repeat(np.repeat(preview, 24, axis=0), 24, axis=1)
+    if flat_field:
+        plane = (mosaic[::16, ::16].astype(np.float32) - black) / (white - black)
+        preview = np.repeat(np.rint(255 * plane ** (1 / 2.2)).astype(np.uint8)[..., None], 3, axis=2)
     with tifffile.TiffWriter(chart) as writer:
         writer.write(preview, photometric="rgb", subfiletype=1, subifds=1, metadata=None, extratags=standard_tags)
         writer.write(mosaic, photometric=32803, subfiletype=0, metadata=None, rowsperstrip=64, extratags=sensor_tags)
@@ -73,7 +86,7 @@ def generate(destination: Path) -> None:
             raise ValueError("LibRaw did not decode the known black and white levels.")
     (destination / "reference.json").write_text(json.dumps({
         "width": width, "height": height, "black": black, "white": white, "rawSha256": sha256(chart),
-        "xyz_to_camera": xyz_to_camera.tolist(), "patches": centres,
+        "xyz_to_camera": xyz_to_camera.tolist(), "patches": centres if not flat_field else [],
     }, indent=2) + "\n", encoding="utf-8")
 
 
@@ -128,8 +141,9 @@ if __name__ == "__main__":
     parser = ArgumentParser(description=__doc__)
     parser.add_argument("operation", choices=("generate", "analyze"))
     parser.add_argument("directory", type=Path)
+    parser.add_argument("--flat-field", action="store_true", help="generate a lens-cast calibration reference")
     args = parser.parse_args()
     if args.operation == "generate":
-        generate(args.directory)
+        generate(args.directory, flat_field=args.flat_field)
     else:
         print(json.dumps(analyze(args.directory), indent=2))

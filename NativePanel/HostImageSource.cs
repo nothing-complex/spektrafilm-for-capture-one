@@ -343,10 +343,13 @@ internal static class HostImageSource
             return null;
         string model;
         string? masksSha256 = null;
+        string? profilesSha256;
         try
         {
-            if (ReadRevision(variant) != expectedRevision
-                || variant.GetSerializedLCCIds()?.Any() != false || variant.GetSerializedICCIds()?.Any() != false)
+            if (ReadRevision(variant) != expectedRevision)
+                return null;
+            profilesSha256 = NativeProfileIdentity.TryRead(variant);
+            if (profilesSha256 is null)
                 return null;
             if (variant.LocalAdjustmentsLayers is { Count: > 0 } layers)
             {
@@ -370,7 +373,7 @@ internal static class HostImageSource
             || value != expectedRevision.HighRes)
             return null;
         var normalizedModel = model.Remove(counter.Index, counter.Length);
-        var identitySha256 = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(normalizedModel))) + masksSha256;
+        var identitySha256 = $"{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(normalizedModel)))}:{masksSha256}:{profilesSha256}";
         return ReadRevision(variant) == expectedRevision
             ? identitySha256 : null;
     }

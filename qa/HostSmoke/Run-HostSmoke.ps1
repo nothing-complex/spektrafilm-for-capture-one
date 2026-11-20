@@ -42,6 +42,7 @@ param(
     [switch] $NativeEffectPanelModes,
     [switch] $NativeEffectSourceRevision,
     [switch] $NativeEffectMaskedSource,
+    [switch] $NativeEffectProfileSidecars,
     [switch] $NativeEffectClone,
     [ValidateSet('DevelopingSource','RenderingFilm','Encoding')][string] $NativeExportInterruption,
     [switch] $OriginalAvailabilityProbe,
@@ -76,7 +77,7 @@ if ($SavedLooksBackup -and (!$NativeSettingsConfig -or $UpgradeFromPackage -or $
     throw 'Moved-catalog look verification requires a single disposable catalog and a native preferences backup.'
 }
 if ($NativeEffectClone) { $NativeEffectGrain=$true; $SkipRestart=$true }
-$isolatedEffects=@($NativeEffectCompression,$NativeEffectOutputProfiles,$NativeEffectFolders,$NativeEffectPanelModes,$NativeEffectSourceRevision,$NativeEffectMaskedSource,$NativeEffectRecipeRestart) | Where-Object { $_ }
+$isolatedEffects=@($NativeEffectCompression,$NativeEffectOutputProfiles,$NativeEffectFolders,$NativeEffectPanelModes,$NativeEffectSourceRevision,$NativeEffectMaskedSource,$NativeEffectProfileSidecars,$NativeEffectRecipeRestart) | Where-Object { $_ }
 if ($NativeEffectRecipeRestart -and $SkipRestart) { throw 'The native recipe persistence fixture requires both launches.' }
 if ($isolatedEffects -and (!$NativeSettingsConfig -or $NativeEffectGrain -or $NativeEffectExportMatrix -or
     $UpgradeFromPackage -or @($isolatedEffects).Count -ne 1)) {
@@ -193,7 +194,7 @@ if ($PanelInventory) {
 }
 if ($NativeEffectExport -and (!$NativeSettingsConfig -or $ColorMatrix -or $CatalogIsolation -or $ConcurrentCatalogs -or
     $ViewerLayouts -or $ViewerChurn -or $DurableSliderEdits -or $MetadataFixtureRoot -or $ViewerStress -or $PanelInventory -or
-    $CheckOrdinaryLaunch -or $CalibrationChart -or $UpgradeFromPackage)) {
+    $CheckOrdinaryLaunch -or ($CalibrationChart -and !$NativeEffectProfileSidecars) -or $UpgradeFromPackage)) {
     throw 'The native effects export fixture is a separate launch and requires a native preferences backup.'
 }
 if ($UpgradeFromPackage -and (!$PackagedRuntime -or !$NativeSettingsConfig -or $CatalogIsolation -or $ConcurrentCatalogs -or
@@ -446,7 +447,7 @@ if ($NativeSettingsConfig) {
 }
 $nativeRecipes=$null
 $recipeHashes=@{}
-if ($NativeEffectCompression -or $NativeEffectOutputProfiles -or $NativeEffectFolders -or $NativeEffectSourceRevision -or $NativeEffectMaskedSource -or $NativeEffectRecipeRestart) {
+if ($NativeEffectCompression -or $NativeEffectOutputProfiles -or $NativeEffectFolders -or $NativeEffectSourceRevision -or $NativeEffectMaskedSource -or $NativeEffectProfileSidecars -or $NativeEffectRecipeRestart) {
     $nativeRecipes=Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'CaptureOne\Recipes143'
     $recipeRoot=Get-Item -LiteralPath $nativeRecipes -Force
     if (!$recipeRoot.PSIsContainer -or ($recipeRoot.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
@@ -529,6 +530,23 @@ if($CatalogIsolation -or $ConcurrentCatalogs){
     }
 } else {
     Copy-Item -LiteralPath $source -Destination $catalog
+}
+$originalProfileHashes=@{}
+if ($NativeEffectProfileSidecars -and !$CalibrationChart) {
+    $iccSource=Join-Path (Split-Path -Parent $source) 'Adjustments\ICC'
+    $profileRoot=Get-Item -LiteralPath $iccSource -Force
+    if (!$profileRoot.PSIsContainer -or ($profileRoot.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Pass a closed catalog with real local ICC sidecars.' }
+    $iccTarget=Join-Path $folder 'ICC fixture inputs'
+    [void][IO.Directory]::CreateDirectory($iccTarget)
+    foreach($profileItem in @(Get-ChildItem -LiteralPath $profileRoot.FullName -File | Where-Object Extension -In '.icc','.icm')) {
+        if ($profileItem.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'An ICC fixture sidecar is redirected.' }
+        $copyPath=Join-Path $iccTarget $profileItem.Name
+        $digest=(Get-FileHash -LiteralPath $profileItem.FullName).Hash
+        Copy-Item -LiteralPath $profileItem.FullName -Destination $copyPath
+        if ((Get-FileHash -LiteralPath $copyPath).Hash -ne $digest) { throw 'The isolated ICC sidecar copy could not be verified.' }
+        $originalProfileHashes[$profileItem.FullName]=$digest
+    }
+    if (!$originalProfileHashes.Count) { throw 'Pass a catalog that contains at least one local ICC sidecar.' }
 }
 if ($SavedLooksBackup) {
     $SavedLooksBackup=(Resolve-Path -LiteralPath $SavedLooksBackup).ProviderPath
@@ -619,7 +637,7 @@ try {
     $env:SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX=if($NativeSourceMutations){'source-mutations'}elseif($ColorMatrix){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_VIEWER_STRESS=if($ViewerStress){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_PANEL_INVENTORY=if($PanelInventory){'1'}else{$null}
-    $env:SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT=if($NativeEffectExportMatrix){'matrix'}elseif($NativeEffectClone){'clone'}elseif($NativeEffectGrain){'grain'}elseif($NativeEffectCompression){'compression'}elseif($NativeEffectOutputProfiles){'profiles'}elseif($NativeEffectFolders){'folders'}elseif($NativeEffectPanelModes){'panel-modes'}elseif($NativeEffectSourceRevision){'source-revision'}elseif($NativeEffectMaskedSource){'masked-source'}elseif($NativeEffectRecipeRestart){'recipe-restart'}elseif($NativeEffectExport){'1'}else{$null}
+    $env:SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT=if($NativeEffectExportMatrix){'matrix'}elseif($NativeEffectClone){'clone'}elseif($NativeEffectGrain){'grain'}elseif($NativeEffectCompression){'compression'}elseif($NativeEffectOutputProfiles){'profiles'}elseif($NativeEffectFolders){'folders'}elseif($NativeEffectPanelModes){'panel-modes'}elseif($NativeEffectSourceRevision){'source-revision'}elseif($NativeEffectMaskedSource){'masked-source'}elseif($NativeEffectProfileSidecars){'profile-sidecars'}elseif($NativeEffectRecipeRestart){'recipe-restart'}elseif($NativeEffectExport){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_MOVED_LOOK_BACKUP=$SavedLooksBackup
     $env:SPEKTRAFILM_EXPECTED_CONTROL_INVENTORY=Join-Path $root 'qa\panel-controls.json'
     $env:SPEKTRAFILM_SHOW_TOOL=if($ShowTool){'1'}else{$null}
@@ -731,6 +749,10 @@ try {
         }
     }
     if((Get-FileHash -LiteralPath $source).Hash -ne $sourceHash){throw 'Source catalog changed unexpectedly.'}
+    foreach ($profilePath in $originalProfileHashes.Keys) {
+        if ((Get-FileHash -LiteralPath $profilePath).Hash -ne $originalProfileHashes[$profilePath]) { throw 'A source catalog ICC sidecar changed unexpectedly.' }
+    }
+    if ($originalProfileHashes.Count) { Write-Output 'PASS original catalog ICC sidecars verified after the disposable export fixture.' }
     if($fixtureChart -and ((Get-FileHash -LiteralPath $fixtureChart).Hash -ne $chartHash -or
         (Get-FileHash -LiteralPath $chartSource.FullName).Hash -ne $chartHash)){throw 'Calibration DNG changed unexpectedly.'}
 } catch {

@@ -14,7 +14,8 @@ using System.Windows.Controls;
 
 public static partial class StartupHook
 {
-    private static async Task TestCalibratedChart(Assembly assembly, object panel, object spatial, object window, string chart)
+    private static async Task TestCalibratedChart(Assembly assembly, object panel, object spatial, object window, string chart,
+        Func<Task>? afterImport = null)
     {
         var directory = Path.Combine(folder, "Calibration");
         Check(Path.GetDirectoryName(chart) == directory && File.Exists(Path.Combine(directory, "reference.json")),
@@ -67,6 +68,11 @@ public static partial class StartupHook
         Call(spatial, "SetEnabled", false);
         var target = assembly.GetType("HostProfile", true)!.GetMethod("CaptureTarget", Flags)!.Invoke(null, new[] { window })!;
         Check(Equals(Prop(target, "SourcePath"), chart), "native development selects the imported calibration original");
+        if (afterImport is not null)
+        {
+            await afterImport();
+            return;
+        }
         var capture = assembly.GetType("HostImageSource", true)!.GetMethod("Capture", Flags)!;
         var linear = Enum.Parse(assembly.GetType("PreviewInputSpace", true)!, "LinearRec2020");
         var filmCurve = variantType.GetProperty("FilmCurve")!;

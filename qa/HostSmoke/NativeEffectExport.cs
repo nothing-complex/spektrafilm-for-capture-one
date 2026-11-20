@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -188,7 +189,8 @@ public static partial class StartupHook
     private static async Task TestNativeEffectExport(FieldInfo hookField, object hosted, object panel, object spatial, object window,
         string caseName, bool compareGrain = false, bool compareClone = false, bool compareCompression = false,
         bool compareFolders = false, bool comparePanelModes = false, bool compareProfiles = false,
-        bool changeSourceRevision = false, bool compareRecipeRestart = false, bool compareMaskedSource = false)
+        bool changeSourceRevision = false, bool compareRecipeRestart = false, bool compareMaskedSource = false,
+        bool compareProfileSidecars = false, bool compareLccSidecar = false)
     {
         var toggle = (CheckBox)Field(panel, "enableSpektraFilm")!;
         var inputEncoding = (string)Prop(((ComboBox)Field(spatial, "inputSpace")!).SelectedItem, "Id")!;
@@ -291,7 +293,7 @@ public static partial class StartupHook
                     (Func<Guid, bool>)(variant => Call(hosted, "WouldLoseSavedLook", variant) is true) }, null)!;
             var normal = Field(Field(bridge, "normal")!, "command")!;
             var previous = Field(Field(bridge, "previous")!, "command")!;
-            if (changeSourceRevision || compareRecipeRestart || compareMaskedSource)
+            if (changeSourceRevision || compareRecipeRestart || compareMaskedSource || compareProfileSidecars || compareLccSidecar)
             {
                 var profile = panel.GetType().Assembly.GetType("HostProfile", true)!;
                 var selection = profile.GetMethod("ReadSelection", Flags)!.Invoke(null, new[] { window })!;
@@ -312,7 +314,7 @@ public static partial class StartupHook
                 ? await RenderAfterNativeDevelopment()
                 : await Render("no-film-reference", ".tif", false);
             Value(0, 100);
-            if (changeSourceRevision || compareMaskedSource)
+            if (changeSourceRevision || compareMaskedSource || compareProfileSidecars || compareLccSidecar)
             {
                 await CheckSourceRevision(unprocessed);
                 return;
@@ -1480,10 +1482,33 @@ public static partial class StartupHook
                     Call(settings, "InitializeProcessCounters", highOnly);
                     CheckHighResolutionOnly(before, Revision());
                 }
+                void BumpHighResolutionCounter()
+                {
+                    var prior = Revision();
+                    Call(settings, "IncrementHighResCounter");
+                    CheckHighResolutionOnly(prior, Revision());
+                }
                 if (compareMaskedSource)
                 {
                     var unmasked = await Render("unmasked-source-reference", ".png", true);
                     await CheckMaskedSource(unmasked);
+                    return;
+                }
+                if (compareProfileSidecars)
+                {
+                    var inputProfile = Directory.EnumerateFiles(Path.Combine(folder, "ICC fixture inputs")).Single();
+                    var profileProperty = native.GetProperty("ColorProfile")!;
+                    var originalProfile = profileProperty.GetValue(variant);
+                    var cameraProfile = Activator.CreateInstance(profileProperty.PropertyType,
+                        "Spektrafilm fixture ICC", File.ReadAllBytes(inputProfile));
+                    profileProperty.SetValue(variant, cameraProfile);
+                    try { await CheckProfileSidecars(); }
+                    finally { profileProperty.SetValue(variant, originalProfile); }
+                    return;
+                }
+                if (compareLccSidecar)
+                {
+                    await CheckLensCastSidecar();
                     return;
                 }
                 var originalDestination = Path.Combine(folder, caseName + "-source-changed.tif");
@@ -1595,6 +1620,110 @@ public static partial class StartupHook
                 {
                     beforeDestinationApproval = null;
                     exposureProperty.SetValue(variant, initialExposure);
+                }
+
+                async Task CheckProfileSidecars()
+                {
+                    var profileReference = await Render("icc-sidecar-reference", ".png", true);
+                    var ids = LocalIccIds(variant).ToArray();
+                    var sourceProfile = native.GetProperty("ColorProfile")!.GetValue(variant)!;
+                    var active = ((IEnumerable)Call(variant, "GetVariantICCIds")!).Cast<object>().ToArray();
+                    File.WriteAllText(Path.Combine(folder, caseName + "-icc-resolution.json"), JsonSerializer.Serialize(new
+                    {
+                        localIds = ids.Select(value => new { fileName = Prop(value, "FileName"), undo = Prop(value, "UndoID") }),
+                        activeIds = active.Select(value => new { fileName = Prop(value, "FileName"), undo = Prop(value, "UndoID") }),
+                        activeIsLocal = Prop(sourceProfile, "isLocal"), activeByteCount = (Prop(sourceProfile, "rawData") as byte[])?.Length,
+                    }));
+                    var id = ids.Single();
+                    var sidecarName = (string)Prop(id, "FileName")!;
+                    var sidecarPath = Path.Combine(folder, "Adjustments", "ICC", sidecarName);
+                    byte[] ReadIcc() => (byte[])Prop(Call(variant, "GetICCSideCarGivenID", id)!, "rawData")!;
+                    var originalBytes = File.ReadAllBytes(Directory.EnumerateFiles(Path.Combine(folder, "ICC fixture inputs")).Single());
+                    Check(ReadIcc().SequenceEqual(originalBytes), "the native source resolves the actual copied ICC sidecar bytes");
+                    if (!File.Exists(sidecarPath))
+                        File.WriteAllBytes(sidecarPath, originalBytes);
+                    var changedBytes = WithDifferentCopyright(originalBytes);
+                    try
+                    {
+                        beforeDestinationApproval = BumpHighResolutionCounter;
+                        var approved = await Render("verified-icc-sidecar-update", ".png", true);
+                        Check(Difference(profileReference, approved).Mean < 8d / 65535,
+                            "an unchanged native ICC sidecar survives a counter-only revision update");
+
+                        var protectedFile = Path.Combine(folder, caseName + "-protected-icc-sidecar.png");
+                        var originalPng = File.ReadAllBytes(Path.Combine(folder, caseName + "-icc-sidecar-reference.png"));
+                        File.WriteAllBytes(protectedFile, originalPng);
+                        beforeDestinationApproval = () =>
+                        {
+                            var revision = Revision();
+                            File.WriteAllBytes(sidecarPath, changedBytes);
+                            Call(variant, "UnloadICCFromMemory", id);
+                            var currentId = LocalIccIds(variant).Single();
+                            Check(ReadIcc().SequenceEqual(changedBytes) && Equals(Prop(currentId, "FileName"), Prop(id, "FileName"))
+                                && Equals(Prop(currentId, "UndoID"), Prop(id, "UndoID")),
+                                "Capture One resolves the changed physical ICC bytes under the same sidecar ID");
+                            KeepOnlyHighResolutionChange(revision);
+                        };
+                        destination = protectedFile;
+                        job = null;
+                        ExecuteNativeExportCommand(previous);
+                        Check(job is not null && !await job.WaitAsync(TimeSpan.FromSeconds(45)),
+                            "a real ICC sidecar change rejects the approved source despite an unchanged sidecar ID");
+                        var failed = Call(Field(spatial, "exportJobs")!, "ReadLatest")!;
+                        Check(Prop(failed, "Stage")?.ToString() == "Failed" && File.ReadAllBytes(protectedFile).SequenceEqual(originalPng),
+                            "a changed native ICC sidecar cannot replace the existing approved PNG");
+                    }
+                    finally
+                    {
+                        beforeDestinationApproval = null;
+                        File.WriteAllBytes(sidecarPath, originalBytes);
+                        Call(variant, "UnloadICCFromMemory", id);
+                    }
+                    Check(ReadIcc().SequenceEqual(originalBytes), "the disposable native ICC sidecar is restored exactly");
+                    File.WriteAllText(Path.Combine(folder, caseName + "-native-sidecars.json"), JsonSerializer.Serialize(new
+                    {
+                        originalIccSha256 = Convert.ToHexString(SHA256.HashData(originalBytes)),
+                        changedIccSha256 = Convert.ToHexString(SHA256.HashData(changedBytes)), iccBytes = originalBytes.Length,
+                    }));
+                }
+
+                async Task CheckLensCastSidecar()
+                {
+                    var flatReference = await Render("uncorrected-flat-field", ".png", true);
+                    var createLcc = window.GetType().Assembly.GetType("P1.C1.Components.VariantProcessHelper", true)!
+                        .GetMethod("CreateLCC", BindingFlags.Static | Flags)!;
+                    object?[] arguments = [variant, Enum.ToObject(createLcc.GetParameters()[1].ParameterType, 0), null];
+                    var result = createLcc.Invoke(null, arguments)?.ToString();
+                    Check(result == "resOK" && arguments[2] is byte[] { Length: > 0 },
+                        $"Capture One generates native lens-cast correction data from the disposable RAW ({result})");
+                    var lccBytes = (byte[])arguments[2]!;
+                    var modelCore = AppDomain.CurrentDomain.GetAssemblies().Single(item => item.GetName().Name == "P1.AppCore");
+                    var profileType = modelCore.GetType("P1.ModelCoreWrapper.McLCCProfile", true)!;
+                    var lcc = Activator.CreateInstance(profileType, "Spektrafilm fixture LCC", lccBytes)!;
+                    var actionType = native.Assembly.GetType("P1.C1.Core.UndoSupport.SetLccAction", true)!;
+                    var action = Activator.CreateInstance(actionType, lcc, variant, settings, true, true)!;
+                    Call(action, "Do");
+                    try
+                    {
+                        var lccId = ((IEnumerable)Call(settings, "GetLCCIdsThroughLayers", false)!).Cast<object>().Single();
+                        var loadedLcc = (byte[])Prop(Call(variant, "GetLCCSideCarGivenID", lccId)!, "rawData")!;
+                        Check(lccBytes.SequenceEqual(loadedLcc), "the active native lens-cast sidecar matches Capture One’s generated bytes");
+                        var corrected = await Render("lcc-sidecar-reference", ".png", true);
+                        beforeDestinationApproval = BumpHighResolutionCounter;
+                        var approved = await Render("verified-lcc-sidecar-update", ".png", true);
+                        Check(Difference(corrected, approved).Mean < 8d / 65535 && Difference(flatReference, corrected).Mean > .001,
+                            "the verified LCC export preserves Capture One’s actual correction after a counter-only update");
+                    }
+                    finally
+                    {
+                        beforeDestinationApproval = null;
+                        Call(action, "Undo");
+                    }
+                    File.WriteAllText(Path.Combine(folder, caseName + "-native-sidecars.json"), JsonSerializer.Serialize(new
+                    {
+                        nativeLccSha256 = Convert.ToHexString(SHA256.HashData(lccBytes)),
+                        lccBytes = lccBytes.Length,
+                    }));
                 }
 
                 async Task CheckMaskedSource(BitmapSource unmasked)
@@ -1957,6 +2086,36 @@ public static partial class StartupHook
         }
         Check(hookField.GetValue(null) is not null && Prop(panel, "ExportBridgeStatus")?.ToString() == "Connected",
             "the real native Export bridge reconnects after the command test");
+    }
+
+    private static IEnumerable<object> LocalIccIds(object variant)
+    {
+        foreach (var id in ((IEnumerable)Call(variant, "GetVariantICCIds")!).Cast<object>())
+        {
+            var name = Prop(id, "FileName") as string;
+            if (!string.IsNullOrWhiteSpace(name) && name == Path.GetFileName(name)
+                && name.EndsWith(".icm", StringComparison.OrdinalIgnoreCase)
+                && Prop(Call(variant, "GetICCSideCarGivenID", id)!, "isLocal") is true)
+                yield return id;
+        }
+    }
+
+    private static byte[] WithDifferentCopyright(byte[] profile)
+    {
+        var replacement = (byte[])profile.Clone();
+        var tagCount = checked((int)BinaryPrimitives.ReadUInt32BigEndian(replacement.AsSpan(128, 4)));
+        for (var index = 0; index < tagCount; index++)
+        {
+            var tag = replacement.AsSpan(132 + 12 * index, 12);
+            if (!tag[..4].SequenceEqual("cprt"u8)) continue;
+            var offset = checked((int)BinaryPrimitives.ReadUInt32BigEndian(tag[4..]));
+            if (!replacement.AsSpan(offset, 4).SequenceEqual("text"u8) || replacement[offset + 8] is < 32 or > 126)
+                break;
+            replacement[offset + 8] = replacement[offset + 8] == (byte)'S' ? (byte)'T' : (byte)'S';
+            replacement.AsSpan(84, 16).Clear(); // A profile ID of zero means that no ID has been computed.
+            return replacement;
+        }
+        throw new InvalidOperationException("The disposable ICC fixture requires an ASCII copyright tag.");
     }
 
     private static void ExecuteNativeExportCommand(object command)
