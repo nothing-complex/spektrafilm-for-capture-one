@@ -33,18 +33,13 @@ internal static partial class Program
             var approved = OutputPathGuard.Approve(destination, original);
             using var stop = new CancellationTokenSource();
             var started = Stopwatch.GetTimestamp();
-            var work = Task.Run(() => SpektraExport.SaveApproved(approved, image, stop.Token));
-            long stageLength = 0;
-            while (!work.IsCompleted && Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(15))
-            {
-                foreach (var path in Directory.EnumerateFiles(folder, ".spektra-*.tmp"))
-                {
-                    try { stageLength = Math.Max(stageLength, new FileInfo(path).Length); }
-                    catch (IOException) { /* The encoder may have removed its temporary file. */ }
-                }
-                if (stageLength >= 1024 * 1024) break;
+            long bytesWritten = 0;
+            var work = Task.Run(() => SpektraExport.SaveApproved(approved, image, stop.Token,
+                reportWrite: count => Interlocked.Add(ref bytesWritten, count)));
+            while (!work.IsCompleted && Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(15)
+                && Interlocked.Read(ref bytesWritten) < 1024 * 1024)
                 Thread.Sleep(4);
-            }
+            var stageLength = Interlocked.Read(ref bytesWritten);
             var wasEncoding = !work.IsCompleted;
             var signaled = Stopwatch.GetTimestamp();
             stop.Cancel();

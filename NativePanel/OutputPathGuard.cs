@@ -55,7 +55,7 @@ internal static class OutputPathGuard
             {
                 stop.ThrowIfCancellationRequested();
                 Verify();
-            }, overwrite: existing is not null);
+            }, overwrite: existing is not null, discardOnProcessExit: true);
         }
 
         private void Verify()

@@ -824,7 +824,7 @@ internal sealed class SpatialPreview : IDisposable
                     var profileSetupMs = Stopwatch.GetElapsedTime(profileSetupStarted).TotalMilliseconds;
                     var writeStarted = Stopwatch.GetTimestamp();
                     SpektraExport.SaveApproved(approved, output, work.Token, recipe?.Metadata, deliveryProfile,
-                        recipe?.TiffCompression ?? TiffCompressOption.Zip);
+                        recipe?.TiffCompression ?? TiffCompressOption.Zip, work.ReportEncoderWrite);
                     StartupHook.Log("export.performance.v2", new
                     {
                         JobId = jobId,
@@ -842,6 +842,7 @@ internal sealed class SpatialPreview : IDisposable
                         BlendAndCropMs = blendAndCropMs,
                         IccProfileSetupMs = profileSetupMs,
                         TransformsDeliveryProfile = deliveryProfile.RequiresConversion,
+                        EncoderBytesWritten = work.EncoderBytesWritten,
                         // WIC can evaluate the bitmap transform during encoding.
                         EncodeVerifyAndCommitMs = Stopwatch.GetElapsedTime(writeStarted).TotalMilliseconds,
                         TotalMs = Stopwatch.GetElapsedTime(started).TotalMilliseconds,

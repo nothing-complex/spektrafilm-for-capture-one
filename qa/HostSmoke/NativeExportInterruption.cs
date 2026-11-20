@@ -21,6 +21,8 @@ public static partial class StartupHook
         var phase = File.ReadAllText(Path.Combine(folder, "phase.txt"));
         var evidence = Path.Combine(folder, "export-interruption.json");
         var target = Path.Combine(folder, "interrupted-export.tif");
+        var unrelatedStage = Path.Combine(folder, ".spektra-unrelated.tmp");
+        const string unrelatedText = "Unrelated disposable file";
         var jobs = Field(spatial, "exportJobs")!;
         var exposure = Field(panel, "exposure")!;
         var exposureValue = exposure.GetType().GetProperty("Value", Flags)!;
@@ -38,6 +40,7 @@ public static partial class StartupHook
         if (phase == "first")
         {
             Check(!File.Exists(evidence) && !File.Exists(target), "the hard-interruption test is using a new private output");
+            if (stage == "Encoding") File.WriteAllText(unrelatedStage, unrelatedText);
             ((CheckBox)Field(panel, "enableSpektraFilm")!).IsChecked = true;
             strengthValue.SetValue(strength, 0d);
             Check(await Save(target).WaitAsync(TimeSpan.FromSeconds(45)), "a full native high-depth reference is committed before interruption");
@@ -53,7 +56,11 @@ public static partial class StartupHook
                 if (Read() is { } current && Prop(current, "JobId") is Guid jobId && !Equals(jobId, previousJob)
                     && Equals(Prop(current, "Destination"), target) && Prop(current, "Stage")?.ToString() == stage)
                 {
-                    var stagedBytes = stage == "Encoding" ? SizeOfLargestStage() : 0;
+                    // While the encoder holds the staging handle exclusively,
+                    // external file metadata can lag behind confirmed writes.
+                    var active = Field(spatial, "exportWork");
+                    var stagedBytes = stage == "Encoding" && active is not null
+                        ? (long)Prop(active, "EncoderBytesWritten")! : 0;
                     if (stage != "Encoding" || stagedBytes >= 1024 * 1024)
                     {
                         using var process = Process.GetCurrentProcess();
@@ -90,7 +97,13 @@ public static partial class StartupHook
             && Equals(exposureValue.GetValue(exposure), interrupted.Exposure) && Equals(strengthValue.GetValue(strength), 100d),
             "abrupt export interruption preserves the acknowledged variant look and master switch");
 
-        var orphanBytes = SizeOfLargestStage();
+        var ownedStages = Directory.EnumerateFiles(folder, ".spektra-*.tmp")
+            .Where(path => !string.Equals(path, unrelatedStage, StringComparison.OrdinalIgnoreCase)).ToArray();
+        var orphanBytes = ownedStages.Select(path => new FileInfo(path).Length).DefaultIfEmpty().Max();
+        if (stage == "Encoding")
+            Check(interrupted.StagedBytes >= 1024 * 1024 && ownedStages.Length == 0
+                && File.ReadAllText(unrelatedStage) == unrelatedText,
+                "Windows released only the active Spektrafilm staging file after the process stopped mid-encoding");
         var retry = Path.Combine(folder, "explicit-retry.tif");
         Check(await Save(retry).WaitAsync(TimeSpan.FromSeconds(45)), "a fresh explicit export succeeds after interruption");
         var completed = Read()!;
@@ -107,12 +120,5 @@ public static partial class StartupHook
         File.WriteAllText(Path.Combine(folder, "export-interruption-restart.json"),
             JsonSerializer.Serialize(new { interrupted, orphanBytes, retryDigest }));
         File.WriteAllText(Path.Combine(folder, "restart.passed"), $"PASS {checks} hard interruption recovery checks for {stage}");
-
-        long SizeOfLargestStage() => Directory.EnumerateFiles(folder, ".spektra-*.tmp")
-            .Select(path =>
-            {
-                try { return new FileInfo(path).Length; }
-                catch (IOException) { return 0; }
-            }).DefaultIfEmpty().Max();
     }
 }

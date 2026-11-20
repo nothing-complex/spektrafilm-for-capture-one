@@ -60,11 +60,13 @@ internal static class SpektraExport
     }
 
     internal static void SaveApproved(OutputPathGuard.ApprovedDestination destination, BitmapSource image, CancellationToken stop,
-        ExportMetadata? metadata = null, ExportColorProfile? outputProfile = null, TiffCompressOption tiffCompression = TiffCompressOption.Zip) =>
-        SaveImage(destination.Path, image, stop, destination, metadata, outputProfile, tiffCompression);
+        ExportMetadata? metadata = null, ExportColorProfile? outputProfile = null, TiffCompressOption tiffCompression = TiffCompressOption.Zip,
+        Action<int>? reportWrite = null) =>
+        SaveImage(destination.Path, image, stop, destination, metadata, outputProfile, tiffCompression, reportWrite);
 
     private static void SaveImage(string path, BitmapSource image, CancellationToken stop, OutputPathGuard.ApprovedDestination? destination,
-        ExportMetadata? metadata = null, ExportColorProfile? outputProfile = null, TiffCompressOption tiffCompression = TiffCompressOption.Zip)
+        ExportMetadata? metadata = null, ExportColorProfile? outputProfile = null, TiffCompressOption tiffCompression = TiffCompressOption.Zip,
+        Action<int>? reportWrite = null)
     {
         stop.ThrowIfCancellationRequested();
         var format = PixelFormatFor(path);
@@ -92,7 +94,7 @@ internal static class SpektraExport
             stop.ThrowIfCancellationRequested();
             try
             {
-                encoder.Save(stop.CanBeCanceled ? new CancelableEncoderStream(stream, stop) : stream);
+                encoder.Save(stop.CanBeCanceled || reportWrite is not null ? new EncoderStream(stream, stop, reportWrite) : stream);
             }
             catch (Exception error) when (stop.IsCancellationRequested)
             {
@@ -133,7 +135,7 @@ internal static class SpektraExport
             _ => false,
         };
 
-    private sealed class CancelableEncoderStream(Stream inner, CancellationToken stop) : Stream
+    private sealed class EncoderStream(Stream inner, CancellationToken stop, Action<int>? reportWrite) : Stream
     {
         public override bool CanRead => inner.CanRead;
         public override bool CanSeek => inner.CanSeek;
@@ -160,12 +162,14 @@ internal static class SpektraExport
         {
             stop.ThrowIfCancellationRequested();
             inner.Write(buffer, offset, count);
+            reportWrite?.Invoke(count);
         }
 
         public override void Write(ReadOnlySpan<byte> buffer)
         {
             stop.ThrowIfCancellationRequested();
             inner.Write(buffer);
+            reportWrite?.Invoke(buffer.Length);
         }
     }
 }

@@ -882,11 +882,8 @@ public static partial class StartupHook
                 if (Call(jobs, "ReadLatest") is { } progress && !Equals(Prop(progress, "JobId"), previousId)
                     && Prop(progress, "Stage")?.ToString() == "Encoding")
                 {
-                    foreach (var path in Directory.EnumerateFiles(folder, ".spektra-*.tmp"))
-                    {
-                        try { stagedBytes = Math.Max(stagedBytes, new FileInfo(path).Length); }
-                        catch (IOException) { /* The write may have closed between enumeration and query. */ }
-                    }
+                    if (Field(spatial, "exportWork") is { } active)
+                        stagedBytes = (long)Prop(active, "EncoderBytesWritten")!;
                     if (stagedBytes >= 1024 * 1024) break;
                 }
                 await Task.WhenAny(writing, Task.Delay(20));

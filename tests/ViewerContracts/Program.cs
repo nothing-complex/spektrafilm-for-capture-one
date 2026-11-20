@@ -57,6 +57,11 @@ internal static partial class Program
             Console.WriteLine($"PASS: {assertions} native encoder cancellation checks.");
             return;
         }
+        if (args is ["--hold-guarded-export-stage", var stagingDirectory])
+        {
+            HoldGuardedExportStage(stagingDirectory);
+            return;
+        }
         if (args is ["--display-profile-patches", var alternateIcc, var patchReport])
         {
             MeasureWpfDisplayPatches(alternateIcc, patchReport);
@@ -89,6 +94,7 @@ internal static partial class Program
         TestLookStrengthDelivery();
         TestOutputProtection(folder);
         TestExportStorageFailures(folder);
+        TestCrashOwnedExportStage(folder);
         TestSectionPreferences(folder);
         TestScheduling().GetAwaiter().GetResult();
         TestNativeCallbackOwnership().GetAwaiter().GetResult();

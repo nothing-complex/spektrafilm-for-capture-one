@@ -1,4 +1,6 @@
 using System;
+using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Security.AccessControl;
@@ -9,6 +11,60 @@ using System.Windows.Media.Imaging;
 
 internal static partial class Program
 {
+    private const int InterruptedStageBytes = 1024 * 1024;
+
+    private static void TestCrashOwnedExportStage(string folder)
+    {
+        var directory = Directory.CreateDirectory(Path.Combine(folder, "storage-crash-" + Guid.NewGuid().ToString("N"))).FullName;
+        var original = Path.Combine(directory, "original.raw");
+        var destination = Path.Combine(directory, "existing.tif");
+        var unrelated = Path.Combine(directory, ".spektra-unrelated.tmp");
+        File.WriteAllText(original, "source");
+        File.WriteAllText(destination, "previous");
+        File.WriteAllText(unrelated, "unrelated");
+
+        var start = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false, CreateNoWindow = true };
+        if (Path.GetFileNameWithoutExtension(start.FileName).Equals("dotnet", StringComparison.OrdinalIgnoreCase))
+            start.ArgumentList.Add(typeof(Program).Assembly.Location);
+        start.ArgumentList.Add("--hold-guarded-export-stage");
+        start.ArgumentList.Add(directory);
+        using var child = Process.Start(start) ?? throw new InvalidOperationException("Could not start the export staging fixture.");
+        try
+        {
+            var ready = Path.Combine(directory, "ready");
+            Check(SpinWait.SpinUntil(() => child.HasExited || File.Exists(ready), TimeSpan.FromSeconds(15))
+                && !child.HasExited && File.Exists(ready), "a separate process reached the protected export writer");
+            var files = Directory.EnumerateFiles(directory, ".spektra-*.tmp").ToArray();
+            Check(files.Length == 2 && files.Contains(unrelated)
+                && File.ReadAllText(ready) == InterruptedStageBytes.ToString(CultureInfo.InvariantCulture),
+                "the child is holding a populated protected output stage");
+        }
+        finally
+        {
+            if (!child.HasExited) child.Kill();
+            Check(child.WaitForExit(10000), "the exact export staging process stopped");
+        }
+        Check(Directory.EnumerateFiles(directory, ".spektra-*.tmp").SequenceEqual(new[] { unrelated }),
+            "process termination removes the owned stage and preserves the unrelated temporary file");
+        Check(File.ReadAllText(original) == "source" && File.ReadAllText(destination) == "previous"
+            && File.ReadAllText(unrelated) == "unrelated", "process termination preserves the original, previous output and unrelated bytes");
+    }
+
+    private static void HoldGuardedExportStage(string directory)
+    {
+        var approved = OutputPathGuard.Approve(Path.Combine(directory, "existing.tif"), Path.Combine(directory, "original.raw"));
+        approved.Write(stream =>
+        {
+            stream.Write(new byte[InterruptedStageBytes]);
+            ((FileStream)stream).Flush(flushToDisk: true);
+            var marker = Path.Combine(directory, "ready.pending");
+            File.WriteAllText(marker, stream.Length.ToString(CultureInfo.InvariantCulture));
+            File.Move(marker, Path.Combine(directory, "ready"));
+            Thread.Sleep(TimeSpan.FromSeconds(25));
+            throw new TimeoutException("The test did not stop the staging process.");
+        }, CancellationToken.None);
+    }
+
     private static void TestExportStorageFailures(string folder)
     {
         var directory = Directory.CreateDirectory(Path.Combine(folder, "storage-failure-" + Guid.NewGuid().ToString("N")));

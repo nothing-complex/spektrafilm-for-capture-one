@@ -338,6 +338,15 @@ function Test-FixtureRawFiles([string] $root, $marker) {
         if ((Get-FileHash -LiteralPath $raw.FullName).Hash -ne $entry.Value) { throw 'A metadata fixture RAW fingerprint changed.' }
     }
 }
+function Assert-CurrentManagedBuild([string] $binary, [string] $projectDirectory, [string[]] $additionalSources) {
+    $assembly=Get-Item -LiteralPath $binary -ErrorAction SilentlyContinue
+    $inputs=@(Get-ChildItem -LiteralPath $projectDirectory -File |
+        Where-Object { $_.Extension -in '.cs','.csproj' })
+    foreach($inputFile in $additionalSources){ $inputs+=Get-Item -LiteralPath $inputFile }
+    if(!$assembly -or ($inputs | Where-Object { $_.LastWriteTimeUtc -gt $assembly.LastWriteTimeUtc } | Select-Object -First 1)){
+        throw "The Release build in '$projectDirectory' is missing or older than its source. Run dotnet build -c Release for that project."
+    }
+}
 $source=(Get-Item -LiteralPath $SourceCatalog).FullName
 if([IO.Path]::GetExtension($source) -ine '.cocatalogdb'){throw 'A catalog database is required.'}
 foreach($suffix in '-wal','-shm','-journal'){if(Test-Path -LiteralPath ($source+$suffix)){throw 'Source catalog has transaction sidecars; close it cleanly first.'}}
@@ -359,6 +368,12 @@ if ($PackagedRuntime) {
     [void](Test-ReleaseManifest $runtimeSource)
     $panelBuild=Join-Path $runtimeSource 'panel\NativePanel.dll'
     $rendererBuild=Join-Path $runtimeSource 'renderer'
+}
+if (!$PackagedRuntime -and !$DevelopmentLeaseFixtureDirectory) {
+    Assert-CurrentManagedBuild $panelBuild (Join-Path $root 'NativePanel') @((Join-Path $root 'capture-one-hosts.json'))
+}
+if (!$UpgradeFromPackage -and !$PSBoundParameters.ContainsKey('TestHookPath')) {
+    Assert-CurrentManagedBuild $TestHookPath $PSScriptRoot @()
 }
 if(!(Test-Path -LiteralPath (Join-Path $rendererBuild 'parameter-capabilities.json') -PathType Leaf)){
     throw 'Run Build-Windows.ps1 to build the renderer and generate its parameter capabilities before testing the host.'

@@ -1,11 +1,18 @@
 using System;
+using System.ComponentModel;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.Win32.SafeHandles;
 
 internal static class PanelFiles
 {
     internal const int MaxPresetBytes = 65536;
+    private const int FileDispositionInfo = 4;
+    private const uint CreateNew = 1;
+    private const uint NormalFile = 0x80;
+    private const uint ReadWriteDelete = 0xC0010000;
     private static readonly JsonSerializerOptions WriteOptions = new() { WriteIndented = true };
     private static readonly JsonSerializerOptions ReadOptions = new()
     {
@@ -63,19 +70,30 @@ internal static class PanelFiles
         return bytes;
     }
 
-    internal static void WriteAtomically(string path, Action<Stream> write, Action? beforeCommit = null, bool overwrite = true)
+    internal static void WriteAtomically(string path, Action<Stream> write, Action? beforeCommit = null,
+        bool overwrite = true, bool discardOnProcessExit = false)
     {
         var destination = Path.GetFullPath(path);
         var temp = Path.Combine(Path.GetDirectoryName(destination)!, $".spektra-{Guid.NewGuid():N}.tmp");
-        var staging = new FileStream(temp, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None);
+        var (staging, deletePending) = OpenStaging(temp, discardOnProcessExit);
         try
         {
             using (staging)
             {
                 write(staging);
                 staging.Flush(flushToDisk: true);
+                // Keep the temporary file owned by the open handle until all
+                // writes and the final destination validation have succeeded.
+                if (deletePending)
+                {
+                    beforeCommit?.Invoke();
+                    byte keep = 0;
+                    if (!SetFileInformationByHandle(staging.SafeFileHandle, FileDispositionInfo, ref keep, 1))
+                        throw new IOException("Could not release the completed Spektrafilm staging file.",
+                            new Win32Exception(Marshal.GetLastWin32Error()));
+                }
             }
-            beforeCommit?.Invoke();
+            if (!deletePending) beforeCommit?.Invoke();
             File.Move(temp, destination, overwrite);
         }
         catch (Exception error)
@@ -89,6 +107,30 @@ internal static class PanelFiles
             throw;
         }
     }
+
+    private static (FileStream Stream, bool DeletePending) OpenStaging(string path, bool discardOnProcessExit)
+    {
+        if (discardOnProcessExit && OperatingSystem.IsWindows())
+        {
+            var handle = CreateFileW(path, ReadWriteDelete, 0, IntPtr.Zero, CreateNew, NormalFile, IntPtr.Zero);
+            if (!handle.IsInvalid)
+            {
+                byte remove = 1;
+                var marked = SetFileInformationByHandle(handle, FileDispositionInfo, ref remove, 1);
+                try { return (new FileStream(handle, FileAccess.ReadWrite), marked); }
+                catch { handle.Dispose(); throw; }
+            }
+            handle.Dispose();
+        }
+        return (new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None), false);
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = true)]
+    private static extern SafeFileHandle CreateFileW(string path, uint access, uint share, IntPtr security, uint mode, uint flags, IntPtr template);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetFileInformationByHandle(SafeFileHandle handle, int infoClass, ref byte value, uint size);
 
     private static void RejectDuplicateProperties(JsonElement element)
     {
