@@ -8,6 +8,11 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
+internal sealed class RendererConnectionInterruptedException(IOException inner)
+    : IOException("The connection to the Spektrafilm renderer ended.", inner);
+
+internal sealed class RendererDeadlineException(string message) : TimeoutException(message);
+
 internal sealed class OpticalRenderer(bool export = false, bool nativePreview = false) : IDisposable, IAsyncDisposable
 {
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
@@ -174,7 +179,7 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
         {
             await StopAsync(abort: true).ConfigureAwait(false);
             var target = export ? "export" : nativePreview ? "native Viewer preview" : "preview";
-            throw new TimeoutException($"Spektrafilm did not finish the {target} in time.");
+            throw new RendererDeadlineException($"Spektrafilm did not finish the {target} in time.");
         }
         catch (Exception error) when (error is IOException or InvalidDataException or JsonException
             or UnauthorizedAccessException or OperationCanceledException or ObjectDisposedException or DecoderFallbackException)
@@ -183,6 +188,8 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
             // Disposing a worker can close its pipe before Windows completes
             // the pending I/O cancellation.
             stop.ThrowIfCancellationRequested();
+            if (error is IOException connection && error is not InvalidDataException)
+                throw new RendererConnectionInterruptedException(connection);
             throw;
         }
     }

@@ -1291,7 +1291,9 @@
       "status": "partial",
       "implemented": [
         "Final source no longer waits for optional draft; obsolete settled renders are cancelled and transport serializes requests.",
-        "A real navigation test reproduced a previous image still reporting painted after a switch. Viewer readiness now rechecks exact current attachment availability rather than relying on cached flag state. The revised licensed test passed 100 settled visits and 30 interleaved selections without any obsolete painted identity."
+        "A real navigation test reproduced a previous image still reporting painted after a switch. Viewer readiness now rechecks exact current attachment availability rather than relying on cached flag state. The revised licensed test passed 100 settled visits and 30 interleaved selections without any obsolete painted identity.",
+        "Typed worker transport interruptions and deadlines can trigger one delayed retry scoped to the selected variant, settings generation and native source revision. The worker must exit before the retry and the stale frame is discarded. Six deterministic scheduling checks cover the delay, exhaustion, source changes and lifetime reset.",
+        "Actual 4096 px licensed tests terminated the in-flight preview worker and recovered in 883 ms and 823 ms. The same developed RGB16 source and exact durable look bytes were reused without another edit. A separate two-termination case reached a terminal Viewer error with no extra worker or obsolete frame while native Export stayed connected. Full first/restart runs passed 294 and 298 assertions; 26 native layout checks also passed."
       ],
       "evidence_paths": [
         "NativePanel/RenderCoordination.cs",
@@ -1300,10 +1302,14 @@
         "tests/renderer",
         ".test-results/host-viewer-100-visits-current-paint-20261120/viewer-churn.json",
         "qa/HostSmoke/ViewerChurn.cs",
-        ".test-results/host-viewer-identity-guard-20261120/host-smoke.log"
+        ".test-results/host-viewer-identity-guard-20261120/host-smoke.log",
+        "qa/HostSmoke/ViewerWorkerRestart.cs",
+        ".test-results/contracts-viewer-worker-retry-20261120/ViewerContracts.log",
+        ".test-results/host-viewer-retry-native-final-20261120/host-smoke.log",
+        ".test-results/host-viewer-layout-regression-20261120/host-smoke.log"
       ],
       "remaining_work": [
-        "Implement the broader generation-aware latest-request scheduler, adaptive watchdog, retries and exhaustive out-of-order publication tests; no latency improvement claim."
+        "Extend the scheduling tests with a rapid 100-edit burst while live development runs, actual native proxy-pending and long deadline faults, and delayed completion across disabled, detached and export-owned contexts. The single transport retry and its exhausted fault are already verified in the licensed host."
       ],
       "original_acceptance_tests": [
         "Deterministic virtual clock and delayed fake renderer: latest settled request publishes; out-of-order final/draft completions never regress quality or variant.",

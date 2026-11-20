@@ -694,6 +694,15 @@ Evidence is under `.test-results/host-adaptive-watchdog-accessibility-20261120`.
 
 Repeat with `qa/HostSmoke/Run-HostSmoke.ps1 -ViewerChurn 100` using the disposable four-RAW catalog and `-NativeSettingsConfig`. Add `-ViewerNativeBaseline` for the no-plugin run. Evidence is under `.test-results/host-viewer-100-visits-current-paint-20261120`, `.test-results/host-native-only-viewer-baseline-20261120` and `.test-results/host-viewer-paired-live-20261120`.
 
+## Live Viewer worker recovery
+
+- [x] Retry a settled Viewer request once after transport interruption or a renderer deadline. The retry waits for the previous worker to exit, keeps the exact high-depth source, rechecks the variant and settings generation, and clears the stale preview. The failure stays local to the Viewer. Bad render settings and incompatible protocol replies still produce their normal errors.
+- [x] Kill the actual disposable licensed worker during a 4096 px film request. The restarted worker painted the exact committed edit from the same source in 883 ms on first launch and 823 ms after restart. Killing both the original and retry children left the Viewer in a terminal error with no obsolete frame or further worker, while native Export stayed connected. The exact saved bytes were unchanged by recovery.
+- [x] Pass 12,255 host-independent Viewer assertions, the full Windows and Vulkan contracts, 294 first-launch assertions, 298 restart assertions and 26 native layout assertions. Six deterministic retry tests exercise keyed delay, attempt exhaustion, source changes and reset.
+- [ ] Exercise actual long-running timeouts and proxy-pending recovery with the native app. Extend out-of-order stress to rapid live edits during source changes and export, and measure the effect of competing workloads.
+
+Evidence is under `.test-results/contracts-viewer-worker-retry-20261120`, `.test-results/host-viewer-retry-native-final-20261120` and `.test-results/host-viewer-layout-regression-20261120`.
+
 ## Tagged Windows package validation
 
 - [x] Require the full Windows contracts and a physical Vulkan smoke before creating a tagged non-development ZIP. Recheck the source digest after validation. The summary checksum is recorded in the package without test machine paths.

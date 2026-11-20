@@ -78,6 +78,7 @@ internal sealed class SpatialPreview : IDisposable
     private long lastDragChange;
     private HostImageSource.Frame? source;
     private HostImageSource.Revision? failedRevision;
+    private readonly PreviewRendererRetry<(Guid Variant, int Generation, HostImageSource.Revision Source)> rendererRetry = new();
     private byte[]? renderedPixels;
     private string[]? renderedArguments;
     private BitmapSource? sourceDisplay;
@@ -872,6 +873,7 @@ internal sealed class SpatialPreview : IDisposable
 
     private void ResetSource(bool keepDraftRenderer = false)
     {
+        rendererRetry.Reset();
         ResetDraft(keepRenderer: keepDraftRenderer);
         viewportQuality.Reset();
         source = null;
@@ -982,6 +984,8 @@ internal sealed class SpatialPreview : IDisposable
                 RenderMemoryBudget.SystemMemory.AvailableForNewAllocation, Environment.TickCount64))
                 RequestRefresh();
         }
+        var retryKey = (selectedVariant, inputRevision, revision);
+        if (rendererRetry.IsWaiting(retryKey, Environment.TickCount64)) return;
         var size = ViewerRenderSize;
         var nativeSize = size == "native";
         var longEdge = nativeSize ? 0 : int.Parse(size, CultureInfo.InvariantCulture);
@@ -1153,6 +1157,15 @@ internal sealed class SpatialPreview : IDisposable
         {
             status.Text = "Waiting for Capture One to build the source preview…";
             nextViewerCheck = Environment.TickCount64 + 1500;
+        }
+        catch (Exception error) when (settingsVersion == inputRevision && !job.IsCancellationRequested
+            && (error is RendererConnectionInterruptedException or RendererDeadlineException)
+            && rendererRetry.Schedule(retryKey, Environment.TickCount64))
+        {
+            ReleaseRenderer();
+            ClearFrame(error);
+            queued = true;
+            status.Text = "Restarting the Spektrafilm Viewer renderer…";
         }
         catch (Exception error) when (settingsVersion == inputRevision)
         {

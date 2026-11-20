@@ -33,6 +33,23 @@ internal static class RenderCoordination
     }
 }
 
+internal sealed class PreviewRendererRetry<TKey> where TKey : struct, IEquatable<TKey>
+{
+    private TKey? tried;
+    private long readyAt;
+
+    internal bool Schedule(TKey key, long now)
+    {
+        if (tried is { } previous && previous.Equals(key)) return false;
+        tried = key;
+        readyAt = now + 250;
+        return true;
+    }
+
+    internal bool IsWaiting(TKey key, long now) => now < readyAt && tried is { } previous && previous.Equals(key);
+    internal void Reset() => tried = null;
+}
+
 internal sealed class QueuedRenderRequest<TSource, TResult>(Func<TSource, TResult> render, Action release)
 {
     private Func<TSource, TResult>? callback = render;

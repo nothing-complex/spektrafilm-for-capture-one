@@ -684,6 +684,17 @@ internal static partial class Program
         var caught=false;
         try { await RenderCoordination.PreferFinalAsync(failed,_=>Task.CompletedTask,CancellationToken.None); } catch(IOException) {caught=true;}
         Check(caught,"Final source error was hidden");
+        var retry = new PreviewRendererRetry<(Guid, int, int)>();
+        var identityKey = (Guid.NewGuid(), 1, 7);
+        var laterEdit = (identityKey.Item1, 2, 7);
+        var changedSource = (identityKey.Item1, 2, 8);
+        Check(retry.Schedule(identityKey, 1000), "First transport error receives one retry");
+        Check(retry.IsWaiting(identityKey, 1249) && !retry.IsWaiting(identityKey, 1250), "Retry has a bounded delay");
+        Check(!retry.Schedule(identityKey, 9000), "A repeat error cannot queue another retry for the same frame");
+        Check(!retry.IsWaiting(laterEdit, 1010) && retry.Schedule(laterEdit, 1010), "A newer look bypasses the previous delay");
+        Check(!retry.IsWaiting(changedSource, 1030) && retry.Schedule(changedSource, 1030), "Changed native source can schedule independently");
+        retry.Reset();
+        Check(retry.Schedule(changedSource, 1050), "Detaching discards the old retry budget");
         Console.WriteLine("Scheduling: final-ready priority, draft cancellation, export identity and explicit cancel passed.");
     }
 

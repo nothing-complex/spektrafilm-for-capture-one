@@ -178,6 +178,7 @@ public static partial class StartupHook
             var space = Enum.ToObject(panelAssembly.GetType("PreviewInputSpace")!, 0);
             await TestNativeGeometry(host, profile, window, target!, space);
             await TestInputProfileReplacement(host, window, target!, spatial);
+            await TestViewerWorkerRestart(hosted, panel, spatial, store, variant);
             var snapshot = host.GetMethod("Capture", Flags)!.Invoke(null, new[] { window, target, space, false })!;
             object? lastFrame = null;
             foreach (var edge in new[] { 720, 1200 })
@@ -292,53 +293,6 @@ public static partial class StartupHook
             report = ReadLaunchHealth();
             Check(report.GetProperty("Phase").GetString() == "Ready" && report.GetProperty("Viewer").GetString() == "ProcessingError",
                 "real renderer failure appears separately from the available tool");
-
-            Environment.SetEnvironmentVariable("SPEKTRAFILM_ROOT", existing);
-            var expectedWorker = Path.Combine(existing, "renderer", "SpektraStillRenderer.exe");
-            var killed = false;
-            for (var attempt = 0; attempt < 3 && !killed; attempt++)
-            {
-                Call(spatial, "SetEnabled", false);
-                until = DateTime.UtcNow.AddSeconds(4);
-                while (Field(spatial, "pending") is not null && DateTime.UtcNow < until)
-                    await Task.Delay(20);
-                if (Field(spatial, "previewWorkersExited") is Task drained)
-                    await drained.WaitAsync(TimeSpan.FromSeconds(5));
-                Call(spatial, "SetEnabled", true);
-                until = DateTime.UtcNow.AddSeconds(10);
-                while (!killed && DateTime.UtcNow < until && Field(spatial, "frameCurrent") is false)
-                {
-                    if (Field(spatial, "renderingFinal") is true && Field(spatial, "renderer") is { } candidate
-                        && Field(candidate, "process") is Process worker)
-                    {
-                        try
-                        {
-                            worker.Refresh();
-                            if (!worker.HasExited && string.Equals(worker.MainModule?.FileName, expectedWorker, StringComparison.OrdinalIgnoreCase))
-                            {
-                                worker.Kill();
-                                killed = true;
-                            }
-                        }
-                        catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception)
-                        {
-                            // A canceled or completed candidate can exit while being inspected.
-                        }
-                    }
-                    if (!killed) await Task.Delay(10);
-                }
-            }
-            if (!killed)
-                throw new InvalidOperationException("Could not identify the current disposable Viewer worker.");
-
-            until = DateTime.UtcNow.AddSeconds(15);
-            while (Prop(spatial, "Health")!.ToString() != "ProcessingError" && DateTime.UtcNow < until)
-                await Task.Delay(100);
-            Call(hosted, "ReportLaunchHealth");
-            report = ReadLaunchHealth();
-            Check(report.GetProperty("Phase").GetString() == "Ready" && report.GetProperty("Export").GetString() == "Connected"
-                && report.GetProperty("Viewer").GetString() == "ProcessingError",
-                "terminating the actual in-flight Viewer process reports a rendering failure without losing Export or panel readiness");
         }
         finally
         {
