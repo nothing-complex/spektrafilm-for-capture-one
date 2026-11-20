@@ -421,6 +421,15 @@ def check_tiled_parity(exe, base):
         np.where(((x + y * 2) % 321) < 115, .07, .70),
         np.where((x % 329) < 198, .1, 1.0),
     ), axis=-1).astype(np.float32)
+    # The long Super 8 edge exercises the composed scatter and bounce support
+    # at large-image sampling while the narrow dimension keeps the probe small.
+    y, x = np.mgrid[:31, :12501]
+    halation_chart = np.stack((
+        np.where(x % 719 < 290, .05, .85),
+        np.where((x + y) % 611 < 260, .09, .91),
+        np.where(x % 513 < 142, .06, .75),
+        .15 + .82 * x / 12501,
+    ), axis=-1).astype(np.float32)
     cases = {
         "color": "--grain-model off",
         "8 mm halation/scatter": "--grain-model off --film-format 8 --halation-amount 1 --scatter-amount 0.5",
@@ -440,6 +449,7 @@ def check_tiled_parity(exe, base):
               for label, options in cases.items()]
     graphs.append(("stacked scanner kernels, full-width tiles", cases["stacked scanner kernels"],
                    np.ascontiguousarray(scanner_chart.transpose(1, 0, 2))))
+    graphs.append(("long Super 8 scatter and bounce", cases["8 mm halation/scatter"], halation_chart))
     for label, options, frame in graphs:
         pictures = []
         for mode in ("legacy", "tiled"):

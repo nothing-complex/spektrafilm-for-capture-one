@@ -1114,7 +1114,8 @@
         "Native confirmation commands in a visible Export dialog route through actual Spektrafilm TIFF/PNG output; cancel keeps the dialog open, success closes it, and Export with Previous Settings uses the same pipeline. Two broken closure shapes raise a persistent capability warning, preserve direct export availability and unwind on a clean reattach.",
         "The real Capture One Export command, its visible native confirmation, and Export with Previous Settings write the selected variant through the current film pipeline. Each of four licensed runs reopened 3000 by 2000 RGB48 TIFF and RGBA64 PNG with the exact Adobe RGB recipe profile. Across 41,238 sampled 16-bit RGB codes per run, the film look changed the RGB codes by a mean 11.66% of full scale and camera diffusion changed them a further 4.76%. The two native routes agreed within about one millionth of full-scale RGB on average. Each command accepted exactly one job. Switch-off delegated to the ordinary native Export dialog.",
         "A changed native callback name failed before any mutation. Detach restored each native callback exactly once, repeated detach preserved both invocation lists, and reattachment reported Connected. The exact audit.15 build and current source each passed 39 checks on first launch and restart.",
-        "Both native Export commands passed on DNG/sRGB, CR3/Adobe RGB, RAF/ProPhoto and NEF/Linear Rec.2020, all using the exact Adobe RGB recipe profile at 6.00–7.53 MP in RGB48 TIFF and RGBA64 PNG. Across 32 accepted outputs and 159 assertions each at first launch and restart, film changed mean RGB code by 6.23–11.66% of full scale and camera diffusion added 2.43–4.76%. Native command outputs differed by at most 1.21e-6 mean full-scale code."
+        "Both native Export commands passed on DNG/sRGB, CR3/Adobe RGB, RAF/ProPhoto and NEF/Linear Rec.2020, all using the exact Adobe RGB recipe profile at 6.00–7.53 MP in RGB48 TIFF and RGBA64 PNG. Across 32 accepted outputs and 159 assertions each at first launch and restart, film changed mean RGB code by 6.23–11.66% of full scale and camera diffusion added 2.43–4.76%. Native command outputs differed by at most 1.21e-6 mean full-scale code.",
+        "Both real native Export commands passed with film, camera diffusion, halation and scatter active together. Native TIFF and previous-settings PNG matched within 8.81e-7 mean full-scale RGB, retained exact Adobe RGB and reopened at 16 bits. Across four cameras and two launches the fixture passed 191 assertions each and accepted 40 outputs. Halation plus scatter alone added 0.095–0.892% mean full-scale RGB change."
       ],
       "evidence_paths": [
         "NativePanel/StartupHook.cs",
@@ -1127,7 +1128,9 @@
         ".test-results/host-native-effect-export-final-20261120/first-native-effect-export.json",
         ".test-results/host-source-native-effect-export-20261120/restart-native-effect-export.json",
         ".test-results/host-four-raw-native-effects-20261120/host-smoke.log",
-        ".test-results/host-four-raw-native-effects-20261120/restart-NEF-native-effect-export.json"
+        ".test-results/host-four-raw-native-effects-20261120/restart-NEF-native-effect-export.json",
+        ".test-results/host-composed-native-effects-20261120/host-smoke.log",
+        ".test-results/host-composed-native-effects-20261120/restart-DNG-native-effect-export.json"
       ],
       "remaining_work": [
         "Extend confirmation-stage diagnostics when the independent 16.7 compatibility work establishes a supported native adapter."
@@ -1216,7 +1219,8 @@
         "At 16,384 px on Standard 8, a 100 µm scanner unsharp sigma measured 41.81 µm with the current 256 px cap. The same setting measured 99.53 µm at 1,200 px. The ideal finite 3-sigma kernel predicts 98.66 µm at 16,384 px.",
         "A CPU centered-impulse prototype tests globally aligned tent reduction, reduced Gaussian convolution and linear reconstruction at four subpixel phases where the production cap clips. All 16 cases preserve mass and centroid within numerical noise, with at most 0.316% sigma error and 0.00184 normalized L1 error.",
         "A real 4097 by 33 Standard 8 Vulkan test combined glare, MTF blur and unsharp. The old capped planner underestimated the serial support, yielding a 0.03222 maximum RGB error across tiled boundaries, and MTF changed source alpha by up to 0.60313. The tile planner and scheduler now share the sum of actual finite scanner support. The MTF passes preserve alpha. All RGB samples match between full and tiled renders and alpha matches the input exactly. Full Windows contracts and Vulkan smoke passed.",
-        "The exact audit.16 worker matched full-frame results for scatter or halation alone on a 12,501 by 31 Super8 chart. Their composition differed by up to 0.000126 float RGB at a 512 px tile seam with exact alpha. The 100 MP layout comparison independently found maximum 0.0000341 and 15,264,000 affected 16-bit channel samples. The scatter resolve feeds the bounce pass, but both passes currently share a single 256 px halo in planning and per-pass dispatch."
+        "The exact audit.16 worker matched full-frame results for scatter or halation alone on a 12,501 by 31 Super8 chart. Their composition differed by up to 0.000126 float RGB at a 512 px tile seam with exact alpha. The 100 MP layout comparison independently found maximum 0.0000341 and 15,264,000 affected 16-bit channel samples. The scatter resolve feeds the bounce pass, but both passes currently share a single 256 px halo in planning and per-pass dispatch.",
+        "Scatter and bounce now use separate finite-support radii computed from the shader equations, global film pixel size and effective stock sigmas. The tile margin adds both supports and the active dispatch shrinks between them. The 12,501 by 31 Super 8 seam reproduction matches the full float reference exactly on NVIDIA and Intel. Twelve complete 100 MP frame comparisons match across corrected tile plans, and high-contrast packed tests agree exactly in three working encodings."
       ],
       "evidence_paths": [
         "qa/blur-support.py",
@@ -1226,10 +1230,14 @@
         ".test-results/scanner-composed-halo-baseline-20261120/old.json",
         ".test-results/contracts-scanner-composed-halo-20261120/renderer-smoke.log",
         ".test-results/rc04-halation-overlap-baseline-20261120.json",
-        ".test-results/adaptive-optical-tile-budget-20261120/float-parity-100mp.json"
+        ".test-results/adaptive-optical-tile-budget-20261120/float-parity-100mp.json",
+        ".test-results/composed-halation-final-20261120/layout-parity.json",
+        ".test-results/composed-halation-exact-20261120/intel-smoke.log",
+        ".test-results/composed-halation-final-20261120/adaptive-viewer-nvidia.log",
+        ".test-results/contracts-composed-halation-20261120/summary.json"
       ],
       "remaining_work": [
-        "Compute the composed finite support for scatter followed by halation and shrink the dispatch between the two passes. Compare against full-frame RGB16/float references and resolve the wide-halo budget before enabling adaptive export layouts.",
+        "Expand corrected finite-support coverage to further effect graphs and calibrate large working tiles. Keep the verified float geometry until arbitrary optical combinations and hardware pass; the physical blur radius cap remains independent.",
         "Extend the direct impulse/energy experiments to DIR, grain and other blur backends. The initial reports for those capped kernels are analytical.",
         "Add a Vulkan version of the phase-aligned reduction as an explicit appearance version, starting with scanner unsharp. Preserve old looks and validate boundary behavior and actual performance.",
         "Recompute the tile overlap for the planned multiscale implementation and remaining physical blur paths. The current scanner support is computed from each active finite pass.",
@@ -1517,7 +1525,8 @@
         "The licensed Adobe RGB recipe produced the exact embedded profile in 210 first-launch and 214 restart checks. ProPhoto and Linear Rec.2020 TIFF/PNG fixtures retained the actual converted RGB, alpha where applicable, DPI and ICC. Across three profiles, an independent ICC matrix/TRC reference had p95 Delta E 2000 of 0.031–0.159 and maximum 0.803. The normal direct export remains sRGB.",
         "The real Capture One Export command, its visible native confirmation, and Export with Previous Settings write the selected variant through the current film pipeline. Each of four licensed runs reopened 3000 by 2000 RGB48 TIFF and RGBA64 PNG with the exact Adobe RGB recipe profile. Across 41,238 sampled 16-bit RGB codes per run, the film look changed the RGB codes by a mean 11.66% of full scale and camera diffusion changed them a further 4.76%. The two native routes agreed within about one millionth of full-scale RGB on average. Each command accepted exactly one job. Switch-off delegated to the ordinary native Export dialog.",
         "Native TIFF delivery now retains the selected TIFF recipe’s lossless compression: Uncompressed, LZW or ZIP. After encoding, the file’s actual TIFF tag is verified alongside 16-bit pixels, ICC and orientation. The Windows tests round-tripped every sample using all three schemes. The licensed active ZIP recipe exported the film look and diffusion again.",
-        "Both native Export commands passed on DNG/sRGB, CR3/Adobe RGB, RAF/ProPhoto and NEF/Linear Rec.2020, all using the exact Adobe RGB recipe profile at 6.00–7.53 MP in RGB48 TIFF and RGBA64 PNG. Across 32 accepted outputs and 159 assertions each at first launch and restart, film changed mean RGB code by 6.23–11.66% of full scale and camera diffusion added 2.43–4.76%. Native command outputs differed by at most 1.21e-6 mean full-scale code."
+        "Both native Export commands passed on DNG/sRGB, CR3/Adobe RGB, RAF/ProPhoto and NEF/Linear Rec.2020, all using the exact Adobe RGB recipe profile at 6.00–7.53 MP in RGB48 TIFF and RGBA64 PNG. Across 32 accepted outputs and 159 assertions each at first launch and restart, film changed mean RGB code by 6.23–11.66% of full scale and camera diffusion added 2.43–4.76%. Native command outputs differed by at most 1.21e-6 mean full-scale code.",
+        "Both real native Export commands passed with film, camera diffusion, halation and scatter active together. Native TIFF and previous-settings PNG matched within 8.81e-7 mean full-scale RGB, retained exact Adobe RGB and reopened at 16 bits. Across four cameras and two launches the fixture passed 191 assertions each and accepted 40 outputs. Halation plus scatter alone added 0.095–0.892% mean full-scale RGB change."
       ],
       "evidence_paths": [
         "NativePanel/SpektraFilmTool.cs",
@@ -1536,7 +1545,9 @@
         ".test-results/host-recipe-compression-native-export-20261120/first-native-effect-export.json",
         ".test-results/contracts-structured-export-compression-20261120/ViewerContracts.log",
         ".test-results/host-four-raw-native-effects-20261120/host-smoke.log",
-        ".test-results/host-four-raw-native-effects-20261120/restart-NEF-native-effect-export.json"
+        ".test-results/host-four-raw-native-effects-20261120/restart-NEF-native-effect-export.json",
+        ".test-results/host-composed-native-effects-20261120/host-smoke.log",
+        ".test-results/host-composed-native-effects-20261120/restart-DNG-native-effect-export.json"
       ],
       "remaining_work": [
         "Compare selected RGB recipe output against additional native profile references. Exercise Uncompressed and LZW selections in the native dialog as well as their verified high-depth encoders. Native naming, tiling and other format and quality settings beyond the explicit 16-bit TIFF/PNG save policy remain open."
@@ -1736,7 +1747,8 @@
         "The standalone and licensed Viewer tests recovered from a Vulkan device-loss status substituted after real GPU completion. The worker rebuilt its backend and repainted the same source. Protocol 2 preserves the typed error, while legacy protocol 1 keeps its ordinary request-error semantics.",
         "The Vulkan tiled readback now gathers only the centre rows into tightly packed staging and copies them directly into the final image. Full optical halos remain on-device and packed validation still covers the working tile. Across the same 80-request RTX 3090 matrix, 100 MP optical readback fell from 9.38 GB to 1.60 GB for float and 2.34 GB to 0.40 GB for packed. Warm medians fell from 8.40 s to 5.95 s and 5.27 s to 4.81 s respectively. All four complete 100 MP reply hashes matched the prior binary. Windows contracts, eight full/tile graphs and padded-row half/float parity passed on physical NVIDIA and Intel.",
         "The worker now chooses larger packed Viewer tiles only on images at least 4096 px in each dimension, with an existing halo no greater than 256 px and reported dynamic budget for source plus estimated scratch. Float and wide-halo plans retain their previous geometry. At 100 MP on RTX 3090, the actual default packed plan moved from 800 to 28 tiles, with one warm hashed exposure change at 4.89 to 1.55 seconds. Simulated 6 and 4 GiB caps selected 104 and 800 tiles respectively. All 12 complete pixel reply hashes matched the explicit prior plan and warm packed sources were reused without upload.",
-        "The separate 33.6 MP high-contrast chart checked every packed channel for three input encodings. Each route reduced 272 tiles to 12 with at most one 8-bit RGB code difference and exact alpha. Standalone smoke passed on the NVIDIA and Intel physical adapters."
+        "The separate 33.6 MP high-contrast chart checked every packed channel for three input encodings. Each route reduced 272 tiles to 12 with at most one 8-bit RGB code difference and exact alpha. Standalone smoke passed on the NVIDIA and Intel physical adapters.",
+        "After correcting composed scatter and bounce support, the packed adaptive limit covers support up to 512 px. The 100 MP case measured a 431 px halo. Default packed rendering selected 54 tiles with a 2.00 s warm hashed reply; simulated 6 and 4 GiB selected 170 and 250 tiles. All complete replies matched the corrected layout reference byte for byte, while the float export policy stays on its corrected regular geometry."
       ],
       "evidence_paths": [
         "upstream-ofx/shaders/vulkan/SpektraFormatConvert.comp",
@@ -1762,7 +1774,10 @@
         ".test-results/adaptive-viewer-only-20261120/verified-layouts.json",
         ".test-results/contracts-adaptive-viewer-only-20261120/summary.json",
         ".test-results/adaptive-viewer-only-20261120/packed-chart.log",
-        ".test-results/adaptive-viewer-only-20261120/intel-smoke.log"
+        ".test-results/adaptive-viewer-only-20261120/intel-smoke.log",
+        ".test-results/composed-halation-final-20261120/layout-parity.json",
+        ".test-results/composed-halation-exact-20261120/intel-smoke.log",
+        ".test-results/composed-halation-final-20261120/adaptive-viewer-nvidia.log"
       ],
       "remaining_work": [
         "Explore GPU linear-strength blending and pre-transform source alpha for the enlarger. Both retain their existing exact fallback.",
@@ -2413,7 +2428,8 @@
         "The exact audit.15 worker completed all 16 renderer/transport cases and 80 requests at 24, 45, 61 and 100 MP on RTX 3090. Both colour-only and optical cases used packed Viewer and float image export. At 100 MP, warm p95 was 428 ms or 5.30 s in the Viewer and 2.20 s or 8.51 s for float export, from four warm requests per case. The optical export used 6.33 GiB peak worker commit and 3.09 GiB transient cache. Its 800 tiled results returned 9.38 GB of GPU readback for the 1.60 GB float reply, identifying tile overlap transfer as the main measured candidate for improvement. These timings exclude Capture One development, ICC conversion and file encoding.",
         "The optimized worker passed the paired 24–100 MP matrix. Four full 100 MP optics frame hashes matched across binaries. Production exports also recorded eight job-correlated native-to-file measurements across two licensed launches of a DNG with the active 6 MP TIFF recipe, optionally delivered as PNG.",
         "Both native Export commands passed on DNG/sRGB, CR3/Adobe RGB, RAF/ProPhoto and NEF/Linear Rec.2020, all using the exact Adobe RGB recipe profile at 6.00–7.53 MP in RGB48 TIFF and RGBA64 PNG. Across 32 accepted outputs and 159 assertions each at first launch and restart, film changed mean RGB code by 6.23–11.66% of full scale and camera diffusion added 2.43–4.76%. Native command outputs differed by at most 1.21e-6 mean full-scale code.",
-        "The worker now chooses larger packed Viewer tiles only on images at least 4096 px in each dimension, with an existing halo no greater than 256 px and reported dynamic budget for source plus estimated scratch. Float and wide-halo plans retain their previous geometry. At 100 MP on RTX 3090, the actual default packed plan moved from 800 to 28 tiles, with one warm hashed exposure change at 4.89 to 1.55 seconds. Simulated 6 and 4 GiB caps selected 104 and 800 tiles respectively. All 12 complete pixel reply hashes matched the explicit prior plan and warm packed sources were reused without upload."
+        "The worker now chooses larger packed Viewer tiles only on images at least 4096 px in each dimension, with an existing halo no greater than 256 px and reported dynamic budget for source plus estimated scratch. Float and wide-halo plans retain their previous geometry. At 100 MP on RTX 3090, the actual default packed plan moved from 800 to 28 tiles, with one warm hashed exposure change at 4.89 to 1.55 seconds. Simulated 6 and 4 GiB caps selected 104 and 800 tiles respectively. All 12 complete pixel reply hashes matched the explicit prior plan and warm packed sources were reused without upload.",
+        "Both real native Export commands passed with film, camera diffusion, halation and scatter active together. Native TIFF and previous-settings PNG matched within 8.81e-7 mean full-scale RGB, retained exact Adobe RGB and reopened at 16 bits. Across four cameras and two launches the fixture passed 191 assertions each and accepted 40 outputs. Halation plus scatter alone added 0.095–0.892% mean full-scale RGB change."
       ],
       "evidence_paths": [
         "tests",
@@ -2439,7 +2455,9 @@
         ".test-results/host-four-raw-native-effects-20261120/host-smoke.log",
         ".test-results/host-four-raw-native-effects-20261120/restart-NEF-native-effect-export.json",
         ".test-results/adaptive-viewer-only-20261120/verified-layouts.json",
-        ".test-results/contracts-adaptive-viewer-only-20261120/summary.json"
+        ".test-results/contracts-adaptive-viewer-only-20261120/summary.json",
+        ".test-results/host-composed-native-effects-20261120/host-smoke.log",
+        ".test-results/host-composed-native-effects-20261120/restart-DNG-native-effect-export.json"
       ],
       "remaining_work": [
         "Complete the end-to-end hardware and source-format matrix and choose release budgets. Native-to-file telemetry covers four RAWs at recipe sizes of 6.00–7.53 MP on the licensed RTX 3090 workstation.",

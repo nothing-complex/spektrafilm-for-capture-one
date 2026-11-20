@@ -1180,6 +1180,48 @@ constexpr uint32_t kDefaultVulkanTileHeight = 256u;
 float filmPixelSizeForLongEdge(const RenderParams &params, uint32_t longEdge);
 uint32_t scannerPostSupport(const RenderParams &params, float pixelSizeUm, bool glare, bool mtf, bool unsharp);
 
+bool usesHalationScatter(const RenderParams &params) {
+  return params.scatterAmount > 0.0f && params.scatterScale > 0.0f;
+}
+
+bool usesHalationBounce(const RenderParams &params) {
+  return params.halationAmount > 0.0f && params.halationScale > 0.0f &&
+    (params.halationStrengthR > 0.0f || params.halationStrengthG > 0.0f || params.halationStrengthB > 0.0f);
+}
+
+std::array<float, 3> halationBounceSigmas(const RenderParams &params, const ProfileCurveSet *curves) {
+  if (curves && curves->halationFirstSigmaUm) {
+    const float *sigma = curves->halationFirstSigmaUm;
+    return {sigma[0], sigma[1], sigma[2]};
+  }
+  return {params.halationFirstSigmaUmR, params.halationFirstSigmaUmG, params.halationFirstSigmaUmB};
+}
+
+struct HalationTileSupport {
+  uint32_t scatter = 0u;
+  uint32_t bounce = 0u;
+};
+
+HalationTileSupport halationTileSupport(
+  const RenderParams &params, float pixelSizeUm, const std::array<float, 3> &bounceSigmas,
+  bool scatter, bool bounce
+) {
+  // SpektraHalation.comp evaluates the largest RGB sigma of each separable pass.
+  const auto radius = [](float sigma) {
+    if (!(sigma > 1.0e-4f)) return 0u;
+    // Allow one pixel for CPU and shader rounding across the ceil threshold.
+    return static_cast<uint32_t>(std::min(std::ceil(3.0f * sigma) + 1.0f,
+      static_cast<float>(kVulkanSpatialEffectRadiusPx)));
+  };
+  const float pixelSize = std::max(pixelSizeUm, 1.0e-6f);
+  constexpr float largestScatterSigmaUm = 9.7f * 2.7684f;
+  const float largestBounceSigmaUm = std::max({bounceSigmas[0], bounceSigmas[1], bounceSigmas[2], 1.0e-6f});
+  return {
+    scatter ? radius(largestScatterSigmaUm * params.scatterScale / pixelSize) : 0u,
+    bounce ? radius(largestBounceSigmaUm * params.halationScale * std::sqrt(3.0f) / pixelSize) : 0u,
+  };
+}
+
 uint32_t estimateVulkanTileOverlap(const RenderParams &params, uint32_t longEdge) {
   uint32_t overlap = 0u;
   const bool finalOutput = params.renderOutput == RenderOutputMode::FinalPreview;
@@ -1200,15 +1242,13 @@ uint32_t estimateVulkanTileOverlap(const RenderParams &params, uint32_t longEdge
       params.cameraDiffusionSpatialScale > 0.0f) {
     overlap += kVulkanSpatialEffectRadiusPx;
   }
-  if (params.halationEnabled &&
-      params.process != ProcessMode::ProcessNegative &&
-      ((params.scatterAmount > 0.0f && params.scatterScale > 0.0f) ||
-       (params.halationAmount > 0.0f &&
-        params.halationScale > 0.0f &&
-        (params.halationStrengthR > 0.0f ||
-         params.halationStrengthG > 0.0f ||
-         params.halationStrengthB > 0.0f)))) {
-    overlap += kVulkanSpatialEffectRadiusPx;
+  if (params.halationEnabled && !finalProcessNegative &&
+      envFlagEnabledOrDefault("SPEKTRAFILM_VULKAN_HALATION_PASS", true)) {
+    const ProfileCurveSet *curves = filmProfileCurves(params.film);
+    if (!curves) curves = filmProfileCurves(static_cast<int32_t>(kSpektraDefaultFilmIndex));
+    const auto support = halationTileSupport(params, filmPixelSizeForLongEdge(params, longEdge),
+      halationBounceSigmas(params, curves), usesHalationScatter(params), usesHalationBounce(params));
+    overlap += support.scatter + support.bounce;
   }
   if (params.dirCouplersAmount > 0.0f &&
       params.process != ProcessMode::ProcessNegative &&
@@ -5045,15 +5085,8 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
     diffusionDownsampleByteCount * static_cast<VkDeviceSize>(std::max(diffusionGroupSize, 1u));
   const bool halationFeatureEnabled =
     envFlagEnabledOrDefault("SPEKTRAFILM_VULKAN_HALATION_PASS", true) && params.halationEnabled && !finalProcessNegative;
-  const bool halationScatterEnabled =
-    halationFeatureEnabled &&
-    params.scatterAmount > 0.0f &&
-    params.scatterScale > 0.0f;
-  const bool halationBounceEnabled =
-    halationFeatureEnabled &&
-    params.halationAmount > 0.0f &&
-    params.halationScale > 0.0f &&
-    (params.halationStrengthR > 0.0f || params.halationStrengthG > 0.0f || params.halationStrengthB > 0.0f);
+  const bool halationScatterEnabled = halationFeatureEnabled && usesHalationScatter(params);
+  const bool halationBounceEnabled = halationFeatureEnabled && usesHalationBounce(params);
   const bool halationBoostEnabled =
     halationFeatureEnabled &&
     params.halationBoostEv > 0.0f;
@@ -5107,8 +5140,9 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
   const uint32_t grainExtraPassCount =
     previewGrainPath ? 1u : ((productionGrainPath || grainSynthesisPath) ? 10u : 0u);
   const uint32_t cameraDiffusionRadius = cameraDiffusionPath ? kVulkanSpatialEffectRadiusPx : 0u;
-  const uint32_t halationRadius =
-    (halationScatterEnabled || halationBounceEnabled) ? kVulkanSpatialEffectRadiusPx : 0u;
+  const auto bounceSigmas = halationBounceSigmas(params, staticFilm.curves);
+  const auto halationSupport = halationTileSupport(params, filmPixelSizeUm, bounceSigmas,
+    halationScatterEnabled, halationBounceEnabled);
   const uint32_t dirRadius = dirBlurPath ? kVulkanSpatialEffectRadiusPx : 0u;
   const uint32_t grainRadius =
     (productionGrainPath || grainSynthesisPath) ? kVulkanGrainSpatialRadiusPx : 0u;
@@ -5400,14 +5434,6 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
       halationStrengthG = staticFilm.curves->halationStrength[1];
       halationStrengthB = staticFilm.curves->halationStrength[2];
     }
-    float halationFirstSigmaR = params.halationFirstSigmaUmR;
-    float halationFirstSigmaG = params.halationFirstSigmaUmG;
-    float halationFirstSigmaB = params.halationFirstSigmaUmB;
-    if (staticFilm.curves && staticFilm.curves->halationFirstSigmaUm) {
-      halationFirstSigmaR = staticFilm.curves->halationFirstSigmaUm[0];
-      halationFirstSigmaG = staticFilm.curves->halationFirstSigmaUm[1];
-      halationFirstSigmaB = staticFilm.curves->halationFirstSigmaUm[2];
-    }
     frameFloats[29] = filmPixelSizeUm;
     frameFloats[30] = params.scatterAmount;
     frameFloats[31] = params.scatterScale;
@@ -5416,9 +5442,9 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
     frameFloats[34] = halationStrengthR;
     frameFloats[35] = halationStrengthG;
     frameFloats[36] = halationStrengthB;
-    frameFloats[37] = halationFirstSigmaR;
-    frameFloats[38] = halationFirstSigmaG;
-    frameFloats[39] = halationFirstSigmaB;
+    frameFloats[37] = bounceSigmas[0];
+    frameFloats[38] = bounceSigmas[1];
+    frameFloats[39] = bounceSigmas[2];
     frameFloats[40] = scannerSigmaUmFromMtf50(params.scannerMtf50LpMm) / std::max(filmPixelSizeUm, 1.0e-6f);
     frameFloats[41] = std::max(params.scannerUnsharpRadiusUm, 0.0f) / std::max(filmPixelSizeUm, 1.0e-6f);
     frameFloats[42] = params.scannerUnsharpAmount;
@@ -6343,7 +6369,8 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
   };
   uint32_t remainingSpatialRadius =
     cameraDiffusionRadius +
-    halationRadius +
+    halationSupport.scatter +
+    halationSupport.bounce +
     dirRadius +
     grainRadius +
     printDiffusionRadius +
@@ -6577,6 +6604,7 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
           dispatchHalation(coreFrame.halationDescriptorSets[4], kHalationOpBlurYAccumulate, kHalationSigmaScatterTail, component);
         }
         dispatchHalation(coreFrame.halationDescriptorSets[5], kHalationOpScatterResolve, 0u, 0u);
+        consumeSpatialRadius(halationSupport.scatter);
       }
       if (halationBounceEnabled) {
         dispatchHalation(coreFrame.halationDescriptorSets[6], kHalationOpClear, 0u, 0u);
@@ -6585,10 +6613,10 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
           dispatchHalation(coreFrame.halationDescriptorSets[8], kHalationOpBlurYAccumulate, kHalationSigmaBounce, bounce);
         }
         dispatchHalation(coreFrame.halationDescriptorSets[9], kHalationOpBounceResolveLog, 0u, 0u);
+        consumeSpatialRadius(halationSupport.bounce);
       } else {
         dispatchHalation(coreFrame.halationDescriptorSets[9], kHalationOpRawToLog, 0u, 0u);
       }
-      consumeSpatialRadius(halationRadius);
     }
 
     pushConstants._pad0 = 0u;
@@ -7665,7 +7693,7 @@ bool VulkanRenderer::Impl::renderTiledBootstrap(
 #ifdef SPEKTRAFILM_STILL_RENDERER
   // Changing the tile seams can alter low float codes. Keep the exact export
   // tile plan and tune only the packed display path within supported overlap.
-  if (packedDisplay && backend && fullWidth >= 4096 && fullHeight >= 4096 && overlap <= kVulkanSpatialEffectRadiusPx &&
+  if (packedDisplay && backend && fullWidth >= 4096 && fullHeight >= 4096 && overlap <= 2u * kVulkanSpatialEffectRadiusPx &&
       envString("SPEKTRAFILM_VULKAN_TILE_WIDTH", "").empty() &&
       envString("SPEKTRAFILM_VULKAN_TILE_HEIGHT", "").empty()) {
     const uint64_t cached = transientAllocationBytes();

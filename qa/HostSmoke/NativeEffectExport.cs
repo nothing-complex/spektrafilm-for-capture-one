@@ -54,9 +54,11 @@ public static partial class StartupHook
         var diffusion = (ComboBox)choices["camera-diffusion-family"]!;
         var values = (IDictionary)Field(spatial, "values")!;
         var diffusionStrength = values["camera-diffusion-strength"]!;
+        var halation = values["halation-amount"]!;
+        var scatter = values["scatter-amount"]!;
         var priorEnabled = toggle.IsChecked;
         var priorDiffusion = diffusion.SelectedItem;
-        var changedSliders = new[] { strength, exposure, diffusionStrength }
+        var changedSliders = new[] { strength, exposure, diffusionStrength, halation, scatter }
             .Select(control => (Control: control, Property: control.GetType().GetProperty("Value", Flags)!, Before: Prop(control, "Value"))).ToArray();
         void Value(int index, double value) => changedSliders[index].Property.SetValue(changedSliders[index].Control, value);
         void Diffusion(string key) => diffusion.SelectedItem = diffusion.ItemsSource.Cast<object>().Single(item => Equals(Prop(item, "Id"), key));
@@ -116,6 +118,8 @@ public static partial class StartupHook
             toggle.IsChecked = true;
             Value(1, 1.15);
             Value(2, 1.25);
+            Value(3, 0);
+            Value(4, 0);
             Diffusion("off");
             Value(0, 0);
             var unprocessed = await Render("no-film-reference", ".tif", false);
@@ -123,15 +127,21 @@ public static partial class StartupHook
             var filmOnly = await Render("film-only", ".tif", false);
             Diffusion("pro_mist");
             var filmAndDiffusion = await Render("film-and-diffusion", ".tif", false);
+            Value(3, 1.5);
+            Value(4, .65);
+            var fullEffects = await Render("film-diffusion-halation-scatter", ".tif", false);
             var previousWithEffects = await Render("previous-with-effects", ".png", true);
 
             var filmDifference = Difference(unprocessed, filmOnly);
             var opticsDifference = Difference(filmOnly, filmAndDiffusion);
-            var commandDifference = Difference(filmAndDiffusion, previousWithEffects);
+            var halationScatterDifference = Difference(filmAndDiffusion, fullEffects);
+            var commandDifference = Difference(fullEffects, previousWithEffects);
             Check(filmDifference.Mean > .02 && filmDifference.ChangedFraction > .75,
                 $"the native Export file contains a measured film look (mean RGB change {filmDifference.Mean:P2})");
             Check(opticsDifference.Mean > .0001 && opticsDifference.ChangedFraction > .15,
                 $"changing only camera diffusion alters native Export pixels (mean RGB change {opticsDifference.Mean:P2})");
+            Check(halationScatterDifference.Mean > .0001 && halationScatterDifference.ChangedFraction > .1,
+                $"applying halation and scatter alters the native TIFF alongside the film look and diffusion (mean RGB change {halationScatterDifference.Mean:P2})");
             Check(commandDifference.Mean < 8d / 65535 && commandDifference.Maximum < .01,
                 "native Export TIFF and Export with Previous Settings PNG retain the same processed RGB16 image");
 
@@ -145,7 +155,7 @@ public static partial class StartupHook
                 native.Close();
                 return true;
             });
-            Check(clicked && routeCount == 4 && Prop(bridge, "Dialog") is null,
+            Check(clicked && routeCount == 5 && Prop(bridge, "Dialog") is null,
                 "the master switch delegates to the ordinary Capture One Export dialog without a Spektrafilm job");
             ((IDisposable)bridge).Dispose();
             ((IDisposable)bridge).Dispose();
@@ -154,7 +164,7 @@ public static partial class StartupHook
             File.WriteAllText(Path.Combine(folder, caseName + "-native-effect-export.json"), JsonSerializer.Serialize(new
             {
                 width = expectedWidth, height = expectedHeight, iccSha256 = iccSha, tiffCompression = compression.ToString(),
-                filmDifference, opticsDifference, commandDifference,
+                filmDifference, opticsDifference, halationScatterDifference, commandDifference,
                 nativeExportCallbacks = routeCount, masterOffDelegated = clicked, timings,
             }, new JsonSerializerOptions { WriteIndented = true }));
 
