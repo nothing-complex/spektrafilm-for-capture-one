@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -17,37 +16,11 @@ public static partial class StartupHook
     {
         if (!File.Exists(Path.Combine(folder, "Capture One user.config.before-proofing")))
             throw new InvalidOperationException("A verified Capture One preferences backup is required for the Viewer layout fixture.");
-        var document = Field(panel, "document")!;
-        var core = AppDomain.CurrentDomain.GetAssemblies().Single(assembly => assembly.GetName().Name == "P1.C1.Core");
         var app = AppDomain.CurrentDomain.GetAssemblies().Single(assembly => assembly.GetName().Name == "CaptureOne");
-        var provider = core.GetType("P1.C1.Core.Interfaces.ISelectedCollectionsProvider", true)!;
-        var collection = provider.GetProperty("PrimarySelectedCollection")!.GetValue(document)!;
-        var selection = provider.GetProperty("PrimarySelectedCollectionSelection")!.GetValue(document)!;
-        var target = core.GetType("P1.C1.Core.Selection.ISelection", true)!.GetProperty("SelectedVariants")!.GetValue(selection)!;
-        var selectionType = core.GetType("P1.C1.Core.Selection.IVariantSelection", true)!;
-        var selectOnly = selectionType.GetMethod("SelectOnly")!;
-        var selectPrimary = selectionType.GetMethod("SelectAndSetAsPrimary")!;
-        var variantType = core.GetType("P1.C1.Core.ICoreVariant", true)!;
-        var uuid = variantType.GetProperty("UUID")!;
-        Guid Identity(object item) => (Guid)uuid.GetValue(item)!;
+        var selection = new FixtureSelection(panel);
+        var candidates = selection.Variants;
         var selected = (Guid)Field(panel, "displayedVariant")!;
-        var candidates = ((IEnumerable)core.GetType("P1.C1.Core.ModelEntities.ISimpleCollection", true)!
-            .GetMethod("GetAllFilteredAndVisibleVariants")!.Invoke(collection, null)!).Cast<object>()
-            .OrderByDescending(item => Identity(item) == selected).Take(4).ToArray();
-        Check(candidates.Length == 4 && Identity(candidates[0]) == selected, "disposable catalog provides four real still-image targets");
-
-        void Select(int count, int primary)
-        {
-            var items = Array.CreateInstance(selectOnly.GetParameters()[0].ParameterType.GetElementType()!, count);
-            for (var index = 0; index < count; index++) items.SetValue(candidates[index], index);
-            selectOnly.Invoke(target, new object[] { items });
-            Call(panel, "SyncSelection");
-            if (!Equals(Field(panel, "displayedVariant"), Identity(candidates[primary])))
-            {
-                selectPrimary.Invoke(target, new[] { candidates[primary], (object)true });
-                Call(panel, "SyncSelection");
-            }
-        }
+        Check(candidates.Length == 4 && candidates[0] == selected, "disposable catalog provides four real still-image targets");
 
         var settingsType = app.GetType("P1.C1.ApplicationSettings", true)!;
         var settings = settingsType.GetProperty("Default", Flags)!.GetValue(null)!;
@@ -60,8 +33,8 @@ public static partial class StartupHook
 
         async Task RenderLayout(int count, int primary)
         {
-            Select(count, primary);
-            var expected = Identity(candidates[primary]);
+            var expected = candidates[primary];
+            selection.Select(expected, candidates[..count]);
             var started = Stopwatch.GetTimestamp();
             var lastSeen = "initializing";
             do
@@ -103,7 +76,7 @@ public static partial class StartupHook
                 var view = Field(node, "Viewer");
                 if (view is UIElement { IsVisible: true } && Prop(view, "Variant") is { } variant &&
                     Prop(view, "WpfViewer") is Visual painter)
-                    yield return (Identity(variant), painter);
+                    yield return (selection.Identity(variant), painter);
                 yield break;
             }
             for (var index = 0; index < VisualTreeHelper.GetChildrenCount(node); index++)
@@ -123,7 +96,7 @@ public static partial class StartupHook
         }
         finally
         {
-            Select(1, 0);
+            selection.Select(candidates[0], candidates[0]);
             toggle.IsChecked = originalToggle;
             onlyPrimary.SetValue(settings, wasOnlyPrimary);
         }

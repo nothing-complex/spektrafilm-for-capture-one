@@ -81,6 +81,11 @@ public static partial class StartupHook
             Check(Field(panel, "displayedVariant") is Guid, "selected image bound to panel");
             var variant = (Guid)Field(panel, "displayedVariant")!;
             var spatial = Field(panel, "opticalPreview")!;
+            if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_DURABLE_EDITS") == "1")
+            {
+                await TestDurableSliderEdits(panel, spatial, store);
+                return;
+            }
             if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_VIEWER_LAYOUTS") == "1")
             {
                 await TestViewerLayouts(panel, spatial, window);

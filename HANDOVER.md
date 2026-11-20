@@ -570,6 +570,15 @@ Evidence is under `.test-results/rc13-*-20261120.json`, `.test-results/gpu-packe
 
 Evidence is in `.test-results/audit6-package-verify-20261120/result.json`.
 
+## Native 10,000-edit durability fixture
+
+- [x] Exercise the real WPF exposure, print exposure and look strength events at their native step sizes across four RAW variants and 100 image visits. Reread each committed value after its synchronous acknowledgment.
+- [x] Force Capture One termination after the edits, then reopen the disposable catalog. Restore all final values, master switches and exact file hashes. The focused fixture passed 16 first-launch checks and 20 restart checks alongside 10,000 individual write checks.
+- [x] Measure the WPF event and durable acknowledgement together at p50 3.10 ms, p95 3.76 ms and p99 6.42 ms. The maximum was 97.24 ms. Viewer work was paused for this latency measurement.
+- [ ] Verify physical disk-full and OS crash boundaries. Evaluate journaling and compaction against this baseline while preserving per-movement acknowledgement.
+
+Evidence is under `.test-results/host-10000-restart-20261120`.
+
 ## Status maintenance
 
 `qa/AUDIT-FIX-STATUS.json` owns task IDs, status, implemented substeps, remaining acceptance work and evidence. This handover owns context, runtime identity and resume instructions. `.test-results/FINAL-RESULT.json` is the completed runtime delivery receipt; keep its runtime commit/package identity distinct from later documentation-only commits.
