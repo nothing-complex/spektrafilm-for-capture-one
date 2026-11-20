@@ -89,6 +89,11 @@ public static partial class StartupHook
             Check(Field(panel, "displayedVariant") is Guid, "selected image bound to panel");
             var variant = (Guid)Field(panel, "displayedVariant")!;
             var spatial = Field(panel, "opticalPreview")!;
+            if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_CALIBRATION") is { Length: > 0 } chart)
+            {
+                await TestCalibratedChart(panelAssembly, panel, spatial, window, chart);
+                return;
+            }
             if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_METADATA_FIXTURE") is { Length: > 0 } metadataFixture)
             {
                 TestExportRecipeMetadata(panelAssembly!, window, exportHook!, metadataFixture);

@@ -905,7 +905,8 @@
         "The packaged runtime passed 95 licensed RAW checks. The four cameras record their actual Capture One input profile names and ICC hashes: RicohGR3-Generic, NikonZ6-ProStandard, FujiXT4-Generic and CanonEOSR-ProStandard. The native exposure, white balance and highlights tests operate on copied variants and restore exact white balance multipliers as well as adjustment values.",
         "At the selected Linear Rec.2020 developed output, +1 EV produced median linear-luminance gains from 1.94 to 2.58 and −1 EV produced 0.316 to 0.369. Gains varied across each image’s interior midtones, verifying that these transfer-encoded-linear pixels retain Capture One’s developed-image tone behavior. White balance moves changed channel values and highlight recovery changed thousands of bright, finite pixels without changing alpha or canvas geometry.",
         "The exact audit.5 binaries passed 111 native RAW colour checks. Capture One’s bitmap and TIFF destinations were developed from the same captured settings for all four camera files. All 2,004,657 RGB16 channel codes were identical. Each native TIFF embedded the exact verified 664-byte Linear Rec.2020 profile.",
-        "The licensed Viewer detects input ICC replacement at idle, cancels stale work, drops derived pixels and rebuilds the source when the original profile is restored. Previously captured native development holds the profile stable while reading and rejects a changed ICC. The isolated ProPhoto fault fixture restored the original bytes and observed a fresh painted 16-bit frame in both launches. 287 first-launch, 291 restart and 115 RAW colour assertions passed on the final source."
+        "The licensed Viewer detects input ICC replacement at idle, cancels stale work, drops derived pixels and rebuilds the source when the original profile is restored. Previously captured native development holds the profile stable while reading and rejects a changed ICC. The isolated ProPhoto fault fixture restored the original bytes and observed a fresh painted 16-bit frame in both launches. 287 first-launch, 291 restart and 115 RAW colour assertions passed on the final source.",
+        "A generated Bayer DNG with independently verified sensor samples and black/white levels exercised the native default DNG Standard and Linear Response curves at 0 and +1 EV. The exact audit.14 source delivered 16-bit Linear Rec.2020 with the same ICC in all four cases. +1 EV measured 0.21 to 1.42 stops over usable neutral patches with DNG Standard and 0.08 to 1.61 stops with Linear Response. This measures retained Capture One development with a linear transfer. Twenty-three licensed assertions passed with the isolated source file and original catalog unchanged."
       ],
       "evidence_paths": [
         "NativePanel/HostImageSource.cs",
@@ -929,11 +930,14 @@
         ".test-results/host-native-tiff-exact-20261120/color-matrix/native-tiff-comparison.json",
         "qa/HostSmoke/InputProfileReplacement.cs",
         ".test-results/host-input-icc-guard-final-20261120/host-smoke.log",
-        ".test-results/host-color-matrix-profile-guard-20261120/host-smoke.log"
+        ".test-results/host-color-matrix-profile-guard-20261120/host-smoke.log",
+        "qa/color-calibration-chart.py",
+        "qa/HostSmoke/CalibratedChart.cs",
+        ".test-results/host-calibrated-all-images-20261120/calibrated-report.json"
       ],
       "remaining_work": [
         "Audit the pipeline-stage descriptor for all derived cache keys. The externally replaced source ICC is already tested with an open licensed document.",
-        "Measure earlier Capture One seams using a calibrated sensor chart. Keep the declared input as Capture One-developed RGB unless an earlier stage is independently verified."
+        "The synthetic sensor chart has now measured the native Standard and Linear Response routes. Identify and verify a pre-development native buffer if the supported host exposes one. The current input remains Capture One-developed RGB."
       ],
       "original_acceptance_tests": [
         "Camera profile/WB/highlight recovery and ICC source cases",

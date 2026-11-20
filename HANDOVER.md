@@ -411,7 +411,7 @@ Run `Run-HostSmoke.ps1 -ColorMatrix -SkipRestart` with the four-camera test cata
 - [x] Carry the exact captured ICC fingerprint, working encoding, native adjustment revision, selected variant and format on developed and derived draft frames. Use the captured identity when reusing Viewer sources and validating export snapshots.
 - [x] Pass 59 native colour checks across four RAW formats and four working profiles. All four camera fixtures reported the same exact ICC fingerprint for each encoding, and the four encodings had distinct fingerprints. The independent common-sRGB analysis still passed all twelve profile comparisons.
 - [x] Pass 12,547 host-independent assertions and 177 new-launch plus 182 restart checks in a copied Capture One catalog.
-- [ ] Measure a calibrated sensor chart before Capture One’s developed-image stage. External profile replacement, native exposure/white balance/highlights and same-stage TIFF parity have separate checkpoints below.
+- [ ] Verify a pre-development native buffer independently. Calibrated RAW input, native exposure/white balance/highlights, ICC replacement and same-stage TIFF parity have separate checkpoints below.
 
 Evidence is under `.test-results/host-frame-description-matrix-20261120` and `.test-results/host-frame-description-20261120`.
 
@@ -735,9 +735,10 @@ Evidence is under `.test-results/host-concurrent-exact-preference-restore-202611
 
 - [x] Validate the selected profile during live refresh and include its fingerprint in source reuse. Invalidate cached and in-flight work if it changes. A previously captured native development holds the verified profile read-only and fails if the underlying ICC no longer matches that snapshot.
 - [x] Make a byte-verified backup of a disposable ProPhoto profile, corrupt it without changing the selected input space, and observe both the stale-frame invalidation and stale-snapshot rejection. Restore the exact ICC and verify a fresh 16-bit image paints on its own. Detection took about 745 ms on both licensed launches. The complete runs passed 287 first-launch, 291 restart and 115 four-RAW colour assertions.
-- [ ] Measure a calibrated sensor chart at earlier native seams and cross-check all derived cache keys. The current source remains Capture One-developed RGB.
+- [x] Create a calibrated synthetic Bayer chart, verify all mosaic samples and black/white levels with independent LibRaw, and import it in the licensed disposable catalog. The host accepted the preview/SubIFD layout and added the exact variant to All Images. Native 16-bit output captured the same Linear Rec.2020 profile for two curves at 0 and +1 EV. Across usable neutral patches, +1 EV measured 0.21–1.42 stops with the default DNG Standard curve and 0.08–1.61 stops with Linear Response. The selected curve and transfer function both influence the developed pixels. The original chart and catalog hashes were verified. The licensed chart fixture passed 23 assertions. [Adobe DNG specification](https://helpx.adobe.com/camera-raw/desktop/dng-and-file-formats/digital-negative.html)
+- [ ] Cross-check all derived cache keys and identify a verified pre-development native buffer. The current source is Capture One-developed RGB.
 
-Evidence is under `.test-results/host-input-icc-guard-final-20261120` and `.test-results/host-color-matrix-profile-guard-20261120`.
+Evidence is under `.test-results/host-input-icc-guard-final-20261120`, `.test-results/host-color-matrix-profile-guard-20261120` and `.test-results/host-calibrated-all-images-20261120`. Run `qa/color-calibration-chart.py generate` with a new directory, NumPy, tifffile and rawpy, then pass the DNG to `Run-HostSmoke.ps1 -CalibrationChart`. Analyze the fixture’s `Calibration` directory with the same script.
 
 ## Status maintenance
 
