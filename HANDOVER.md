@@ -1479,9 +1479,18 @@ Repeat the native fixture with `Run-HostSmoke.ps1 -NativeOpticalAvailability`, t
 - [x] Preserve existing destination state. Distinct catalog paths keep separate saved looks. Multiple source paths and newer unarchived local looks require an explicit backup choice. Every approved recovery uses the existing verified restore and creates a new joint backup for the destination before launch.
 - [x] Pass 79 joint backup assertions each in Windows PowerShell 5.1 and PowerShell 7, including Unicode paths, independent copies, opt-out, old archive metadata, corrupt ZIP refusal and a remapped variant. A deeply nested initial fixture exceeded the Windows SQLite path limit. The fixture now uses a shorter app-data directory under its same isolated root.
 - [x] Run the actual launcher preparation with a known joint backup and then open the exact and natively updated disposable RAW copies. Both load 1.37 EV and paint using Capture One high-depth source development. Each passes 19 checks on initial launch and 19 after restart, with the original catalog bytes verified.
-- [ ] Recover cleanly from a process stopped during multi-directory publication. Carry newer unarchived looks when the original catalog path is gone. Extend reverted-catalog and separate Windows account coverage.
+- [ ] Carry newer unarchived looks when the original catalog path is gone. Extend reverted-catalog and separate Windows account coverage.
 
 Run `Run-HostSmoke.ps1 -SavedLooksBackup <backup> -DiscoverSavedLooks` with the closed fixture and verified native preferences path. For the updated catalog use `-SavedLooksFromUpdatedCatalog`. Evidence is in `.test-results/host-discovered-catalog-look-20261120`, `.test-results/host-discovered-updated-look-20261120` and the `catalog-discovery-final-ps51-20261120.log` and `catalog-discovery-final-ps7-20261120.log` receipts. This is a source checkpoint after audit.35.
+
+## Interrupted catalog restore
+
+- [x] Flush a receipt for the verified backup, destination database and prepared look scopes before the first public rename. Hold an exclusive transaction lease during publication. Retry verifies the same generation and the files already visible before finishing the remaining renames. A full restore publishes the database last. The launcher resumes an approved restore before backing up or opening the selected catalog.
+- [x] Force-stop the restore process after publishing the first saved-look scope, after both scopes and before the full database rename, and immediately after the full database rename. All three retries recover the exact original database and look bytes and rebase the pending edit once. A changed destination database or a changed published look blocks the retry and stays untouched. Both Windows PowerShell 5.1 and PowerShell 7 pass 96 assertions.
+- [x] The transactional restore of a real disposable RAW catalog passed 19 licensed Capture One 16.4 checks on first launch and 19 after restart. The selected look painted from high-depth native development, and the source catalog hash verified.
+- [ ] Validate abrupt OS or power loss, genuine disk exhaustion and cleanup of private staging created before a restore receipt exists.
+
+Evidence is in `.test-results/catalog-restore-resume-final-ps51-20261120.log`, `.test-results/catalog-restore-resume-final-ps7-20261120.log` and `.test-results/host-transactional-catalog-20261120`. The process interruption fixtures instrument only a disposable script copy and run all retries through the production script. This source checkpoint follows audit.35.
 
 ## Status maintenance
 

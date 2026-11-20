@@ -450,4 +450,108 @@ Assert ((Get-FileHash -LiteralPath $autoLook).Hash -eq $baseHash -and
     (Get-FileHash -LiteralPath $autoSource).Hash -eq $cloneHash -and
     (Get-FileHash -LiteralPath $clone).Hash -eq $cloneHash -and
     (Get-FileHash -LiteralPath $updated).Hash -eq $updatedHash) 'The exact and updated copies retain independent looks and leave both source and copied catalogs unchanged'
+
+# Pause a separate process at the real publication boundaries. The pause only
+# exists in the disposable script copy. The retry uses the unmodified entry point.
+$crashFixture = Join-Path $root 'crash'
+[void][IO.Directory]::CreateDirectory($crashFixture)
+Copy-Item -LiteralPath (Join-Path $repo 'CatalogIntegrity.ps1') -Destination $crashFixture
+$fixtureScript = Join-Path $crashFixture 'pause.ps1'
+$restorable = (Resolve-Path -LiteralPath $restorable).ProviderPath
+$instrumented = [IO.File]::ReadAllText($restore)
+$afterScope = '[IO.Directory]::Move($staging[$scope], $targets[$scope])'
+$afterCatalog = '[IO.File]::Move($stageCatalog, $destination)'
+Assert ($instrumented.Contains($afterScope) -and $instrumented.Contains($afterCatalog)) 'The interruption fixture found both production publication boundaries'
+$instrumented = $instrumented.Replace($afterScope, ($afterScope + '; ' + @'
+if (($env:SPEKTRA_TEST_RESTORE_STOP -eq 'looks' -and $scope -eq 'Variant looks') -or
+    ($env:SPEKTRA_TEST_RESTORE_STOP -eq 'before-db' -and $scope -eq 'Look recovery')) {
+    [IO.File]::WriteAllText($env:SPEKTRA_TEST_RESTORE_MARKER, $scope)
+    [Threading.Thread]::Sleep(120000)
+}
+'@))
+$instrumented = $instrumented.Replace($afterCatalog, ($afterCatalog + '; ' + @'
+if ($env:SPEKTRA_TEST_RESTORE_STOP -eq 'after-db') {
+    [IO.File]::WriteAllText($env:SPEKTRA_TEST_RESTORE_MARKER, 'catalog')
+    [Threading.Thread]::Sleep(120000)
+}
+'@))
+[IO.File]::WriteAllText($fixtureScript, $instrumented)
+
+foreach ($phase in @('looks', 'before-db', 'after-db')) {
+    $userData = Join-Path $crashFixture ($phase + '-data')
+    $database = Join-Path $crashFixture ($phase + '.cocatalogdb')
+    $catalogKey = Get-CatalogKey $database
+    $stateOnly = $phase -eq 'looks'
+    if ($stateOnly) { [IO.File]::Copy($restorable, $database) }
+    $marker = Join-Path $crashFixture ($phase + '.marker')
+    $start = New-Object Diagnostics.ProcessStartInfo
+    $start.FileName = [Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
+    $start.WorkingDirectory = $crashFixture
+    $start.UseShellExecute = $false
+    $start.CreateNoWindow = $true
+    $start.RedirectStandardError = $true
+    $start.EnvironmentVariables['SPEKTRA_TEST_RESTORE_STOP'] = $phase
+    $start.EnvironmentVariables['SPEKTRA_TEST_RESTORE_MARKER'] = $marker
+    $start.Arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $fixtureScript + '" -BackupDatabase "' +
+        $restorable + '" -DestinationDatabase "' + $database + '" -UserDataRoot "' + $userData + '" -Apply'
+    if ($stateOnly) { $start.Arguments += ' -SavedLooksOnly' }
+    $child = [Diagnostics.Process]::Start($start)
+    $receiptPath = Get-CatalogRestoreReceiptPath $userData $database
+    try {
+        $deadline = [DateTime]::UtcNow.AddSeconds(30)
+        while (!(Test-Path -LiteralPath $marker) -and !$child.WaitForExit(50) -and [DateTime]::UtcNow -lt $deadline) {}
+        if (!(Test-Path -LiteralPath $marker)) {
+            $errorText = if ($child.HasExited) { $child.StandardError.ReadToEnd() } else { 'Timed out before publication.' }
+            throw "Interruption fixture failed at $phase. $errorText"
+        }
+        Assert (!$child.HasExited -and (Test-Path -LiteralPath $receiptPath -PathType Leaf)) "$phase can stop only after a durable restore receipt exists"
+    } finally {
+        if (!$child.HasExited) { $child.Kill(); $child.WaitForExit() }
+        $child.Dispose()
+    }
+    $job = Read-CatalogRestoreReceipt $receiptPath
+    $publishedLook = Join-Path (Join-Path (Join-Path $userData 'Variant looks') $catalogKey) '11111111111111111111111111111111.json'
+    $publishedRecovery = Join-Path (Join-Path (Join-Path $userData 'Look recovery') $catalogKey) '11111111111111111111111111111111.pending.json'
+    Assert ($job.SavedLooksOnly -eq $stateOnly -and (Get-FileHash -LiteralPath $publishedLook).Hash -eq $baseHash -and
+        (Test-Path -LiteralPath $database) -eq ($phase -ne 'before-db') -and
+        (Test-Path -LiteralPath $publishedRecovery) -eq !$stateOnly) "$phase leaves only the planned parts visible at interruption"
+    $restoreArgs = @{BackupDatabase=$restorable; DestinationDatabase=$database; UserDataRoot=$userData; SavedLooksOnly=$stateOnly}
+    $preview = & $restore @restoreArgs
+    Assert (($preview -join ' ') -match 'resume the interrupted restore' -and (Test-Path -LiteralPath $receiptPath)) "$phase preview verifies the original backup without completing publication"
+
+    if ($stateOnly) {
+        $failure = $null
+        try { $null = Save-CatalogBackup $database } catch { $failure = $_.Exception.Message }
+        Assert ($failure -match 'Resume the interrupted catalog restore') 'The launcher cannot back up a partly published catalog'
+        $databaseBytes = [IO.File]::ReadAllBytes($database)
+        try {
+            [IO.File]::AppendAllText($database, 'external change')
+            $modified = (Get-FileHash -LiteralPath $database).Hash
+            $failure = $null
+            try { $null = & $restore @restoreArgs -Apply } catch { $failure = $_.Exception.Message }
+            Assert ($failure -match 'destination catalog changed' -and (Get-FileHash -LiteralPath $database).Hash -eq $modified -and
+                !(Test-Path -LiteralPath $publishedRecovery) -and (Test-Path -LiteralPath $receiptPath)) 'Resume refuses a catalog changed since the original approval'
+        } finally { [IO.File]::WriteAllBytes($database, $databaseBytes) }
+        $lookBytes = [IO.File]::ReadAllBytes($publishedLook)
+        try {
+            [IO.File]::AppendAllText($publishedLook, 'unrelated edit in the destination')
+            $modified = (Get-FileHash -LiteralPath $publishedLook).Hash
+            $failure = $null
+            try { $null = Prepare-SpektrafilmCatalog $database $restore -SkipRecovery } catch { $failure = $_.Exception.Message }
+            Assert ($failure -match 'Variant looks changed' -and (Get-FileHash -LiteralPath $publishedLook).Hash -eq $modified -and
+                !(Test-Path -LiteralPath $publishedRecovery) -and (Test-Path -LiteralPath $receiptPath)) 'Retry protects a changed published look and keeps the receipt'
+        } finally { [IO.File]::WriteAllBytes($publishedLook, $lookBytes) }
+        $prepared = Prepare-SpektrafilmCatalog $database $restore -SkipRecovery
+        $preparedManifest = Read-LookRecoveryManifest ($prepared + '.manifest.json')
+        Assert (@($preparedManifest.files).Count -eq 4) 'Launcher resumes the previously accepted looks before taking a complete backup'
+    } elseif ($phase -eq 'before-db') {
+        $null = & $restore @restoreArgs -Apply
+    } else {
+        $null = Prepare-SpektrafilmCatalog $database $restore -SkipRecovery
+    }
+    $resumedPending = [IO.File]::ReadAllText($publishedRecovery) | ConvertFrom-Json
+    Assert (!(Test-Path -LiteralPath $receiptPath) -and (Get-FileHash -LiteralPath $database).Hash -eq $originalHash -and
+        (Get-FileHash -LiteralPath $publishedLook).Hash -eq $baseHash -and $resumedPending.CatalogKey -eq $catalogKey -and
+        $resumedPending.Look.Look.Exposure -eq 2.2) "$phase resumes exactly once with the original database, looks and rebased pending edit"
+}
 Write-Output "PASS: $count joint backup assertions. Evidence: $root"

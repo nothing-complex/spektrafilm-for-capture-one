@@ -2281,7 +2281,8 @@
         "An explicit saved-look-only restore attaches an exact matching joint backup generation to an existing moved or copied database without rewriting it. Native launch and restart load the actual enabled 1.37 EV look and paint over Capture One high-depth RGB. Both pass 19 assertions and preserve the archived look bytes.",
         "The opt-in AllowUpdatedCatalog restore verifies native document identity and every saved variant's native image relationship under a database read lease. A disposable real database with an updated output counter restores the exact 1.37 EV look on launch and restart in 19 assertions each. Its input bytes, updated counter and verified backup survive.",
         "Launcher preparation discovers archived looks for a new path. It restores a sole byte-identical catalog match automatically, and uses the verified native document and per-variant image mapping after approval for a changed database. Older generations without document metadata can be indexed read-only. The existing Restore command still verifies every archive and database checksum. Copies use separate state keys and existing destination looks are protected. Divergent candidate paths and local source edits newer than the archived state require an explicit backup choice.",
-        "Pass 79 joint backup assertions each in Windows PowerShell 5.1 and PowerShell 7. The cases cover a renamed Unicode path, an updated catalog, an opt-out, older unindexed archives, remapped native variants, stale and corrupt backups, and two paths with the same database bytes and divergent film looks. Real launcher preparation recovers an enabled 1.37 EV look onto both exact and updated disposable RAW copies. Each licensed 16.4 fixture passes 19 checks on first launch and 19 after restart with native high-depth Viewer paint and an unchanged input catalog."
+        "Pass 79 joint backup assertions each in Windows PowerShell 5.1 and PowerShell 7. The cases cover a renamed Unicode path, an updated catalog, an opt-out, older unindexed archives, remapped native variants, stale and corrupt backups, and two paths with the same database bytes and divergent film looks. Real launcher preparation recovers an enabled 1.37 EV look onto both exact and updated disposable RAW copies. Each licensed 16.4 fixture passes 19 checks on first launch and 19 after restart with native high-depth Viewer paint and an unchanged input catalog.",
+        "Restore records a flushed per-catalog receipt with checksums before publishing state. The launcher finishes an approved interrupted restore before making a backup or opening the selected catalog. Two Windows shells pass 96 checks each, including a killed child process after publishing the look but before its pending edit, and refusal when the destination catalog or published look changes. A new licensed 16.4 fixture passes 19 checks on first launch and restart after using the transactional restore path on a real RAW catalog."
       ],
       "evidence_paths": [
         "Start-Spektrafilm.ps1",
@@ -2297,10 +2298,13 @@
         ".test-results/catalog-discovery-final-ps51-20261120.log",
         ".test-results/catalog-discovery-final-ps7-20261120.log",
         ".test-results/host-discovered-catalog-look-20261120",
-        ".test-results/host-discovered-updated-look-20261120"
+        ".test-results/host-discovered-updated-look-20261120",
+        ".test-results/catalog-restore-resume-final-ps51-20261120.log",
+        ".test-results/catalog-restore-resume-final-ps7-20261120.log",
+        ".test-results/host-transactional-catalog-20261120"
       ],
       "remaining_work": [
-        "Carry newer unarchived looks safely after a move, extend reverted-catalog coverage, verify portability with a second Windows account, and recover from an abrupt interruption during saved-look publication."
+        "Carry newer unarchived looks safely after a move, extend reverted-catalog coverage, verify portability with a second Windows account, and test physical power-loss recovery."
       ],
       "original_acceptance_tests": [
         "original/moved/renamed/case-alias/copied/reverted catalog, two clones diverging, read-only directory, separate Windows account, missing sidecar, rollback. Verify edited source catalog never changes during copy migration."
@@ -3052,7 +3056,8 @@
         "If publishing a companion fails, remove only parts published by that attempt and preserve prior complete generations. Frozen-clock rotation, blocked manifest publication and competing backups passed 42 assertions in both PowerShell 5.1 and 7.",
         "Created two real Capture One backup generations with the same timestamp, restored the latest one and matched both look files and the original catalog hash exactly.",
         "Restore just the saved look and recovery scopes against a closed, existing database that matches the verified joint backup. Keep a read lease while applying and flush rebased checkpoints before publication. Checkpoint rekeying, previous state, native grain, locked and stale SQLite refusals, read-only attributes, Windows path aliases, different generations and conflicting destinations pass in 54 assertions in each Windows shell.",
-        "The explicit updated-catalog fallback verifies document identity and each saved variant's link to its original native image. Both Windows shells pass 63 backup assertions, including no-write preview, exact recovery rebasing and refusal of other documents, remapped images, missing variants and duplicate variant mappings."
+        "The explicit updated-catalog fallback verifies document identity and each saved variant's link to its original native image. Both Windows shells pass 63 backup assertions, including no-write preview, exact recovery rebasing and refusal of other documents, remapped images, missing variants and duplicate variant mappings.",
+        "Restore publishes verified scopes and then the full database under a flushed, serialized transaction. Retry verifies the original backup, recorded destination database and each staged or published scope. The suite force-terminates a separate restore process after the first saved-look scope, before full database publication, and after full database publication. All three resume with exact database and look bytes and a rebased pending edit. Changes to the published look and to the destination database block resumption without being overwritten. Both Windows shells pass 96 checks."
       ],
       "evidence_paths": [
         "Start-Spektrafilm.ps1",
@@ -3070,7 +3075,9 @@
         ".test-results/catalog-identity-contracts-ps51-20261120",
         ".test-results/catalog-identity-contracts-ps7-20261120",
         ".test-results/host-updated-catalog-identity-20261120/host-smoke.log",
-        "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44628947791"
+        "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44628947791",
+        ".test-results/catalog-restore-resume-final-ps51-20261120.log",
+        ".test-results/catalog-restore-resume-final-ps7-20261120.log"
       ],
       "remaining_work": [
         "Test abrupt OS/power loss and disk-full during backup and restore. Verify locked/open and stale SQLite sidecar handling across the host matrix and portable catalog identity."

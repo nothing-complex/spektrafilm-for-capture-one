@@ -115,15 +115,60 @@ function Copy-VerifiedState($zip, $manifest, [string] $catalogKey, [hashtable] $
     }
 }
 
+function Get-RestoreScopeDigest([string] $path) {
+    if (!(Test-Path -LiteralPath $path)) { return $null }
+    $root = Get-PlainPath $path -AllowMissing
+    $pending = New-Object 'System.Collections.Generic.Queue[string]'
+    $entries = New-Object 'System.Collections.Generic.List[object]'
+    $pending.Enqueue($root)
+    while ($pending.Count -gt 0) {
+        $directory = $pending.Dequeue()
+        if (!(Test-Path -LiteralPath $directory -PathType Container)) {
+            throw "The restored state folder was replaced: $directory"
+        }
+        foreach ($entry in Get-ChildItem -LiteralPath $directory -Force) {
+            if ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+                throw "The restored state contains a linked entry: $($entry.FullName)"
+            }
+            $relative = $entry.FullName.Substring($root.Length + 1).Replace('\', '/')
+            $digest = if ($entry.PSIsContainer) { $pending.Enqueue($entry.FullName); 'directory' }
+                else { (Get-FileHash -LiteralPath $entry.FullName -Algorithm SHA256).Hash }
+            $entries.Add(@{path=$relative; sha256=$digest})
+        }
+    }
+    return Get-CatalogStateDigest $entries.ToArray()
+}
+
+function Publish-RestoreReceipt([string] $path, $job) {
+    $temp = $path + '.' + $job.Id + '.tmp'
+    $stream = [IO.File]::Open($temp, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+    try {
+        try {
+            $bytes = [Text.Encoding]::UTF8.GetBytes(($job | ConvertTo-Json -Compress -Depth 6))
+            $stream.Write($bytes, 0, $bytes.Length)
+            $stream.Flush($true)
+        } finally { $stream.Dispose() }
+        [IO.File]::Move($temp, $path)
+    } finally { if ([IO.File]::Exists($temp)) { [IO.File]::Delete($temp) } }
+}
+
 $backup = Get-PlainPath $BackupDatabase
 $destination = Get-PlainPath $DestinationDatabase -AllowMissing
 $dataRoot = Get-PlainPath $UserDataRoot -AllowMissing
 if ([IO.Path]::GetExtension($backup) -ine '.cocatalogdb' -or [IO.Path]::GetExtension($destination) -ine '.cocatalogdb') {
     throw 'Choose .cocatalogdb files for the backup and destination.'
 }
+$catalogKey = Get-CatalogKey $destination
+$receiptPath = Get-PlainPath (Get-CatalogRestoreReceiptPath $dataRoot $destination) -AllowMissing
+$job = Read-CatalogRestoreReceipt $receiptPath
+$resuming = $null -ne $job
+if ($resuming -and ($job.BackupDatabase -ine $backup -or $job.SavedLooksOnly -ne [bool]$SavedLooksOnly -or
+    $job.AllowUpdatedCatalog -ne [bool]$AllowUpdatedCatalog)) {
+    throw 'This catalog has an interrupted restore. Retry the original backup and restore options.'
+}
 if ($SavedLooksOnly) {
     if (!(Test-Path -LiteralPath $destination -PathType Leaf)) { throw 'Choose the existing catalog copy that matches the backup.' }
-} elseif (Test-Path -LiteralPath $destination) {
+} elseif (!$resuming -and (Test-Path -LiteralPath $destination)) {
     throw 'Choose a new catalog filename. Restore requires an unused destination.'
 }
 foreach ($suffix in '-wal', '-shm', '-journal') {
@@ -133,27 +178,39 @@ foreach ($suffix in '-wal', '-shm', '-journal') {
 }
 $manifest = Read-Manifest (Get-PlainPath ($backup + '.manifest.json'))
 $lookArchive = Get-PlainPath ($backup + '.spektrafilm.zip')
-$catalogKey = Get-CatalogKey $destination
+if ($resuming -and ($job.BackupHash -ne $manifest.catalogSha256 -or $job.ArchiveHash -ne $manifest.looksSha256)) {
+    throw 'The interrupted catalog restore requires its original verified backup generation.'
+}
 $scopes = @('Variant looks', 'Look recovery')
 $targets = @{}
+$staging = @{}
+$id = if ($resuming) { $job.Id } else { [Guid]::NewGuid().ToString('N') }
 foreach ($scope in $scopes) {
     $targets[$scope] = Get-PlainPath (Join-Path (Join-Path $dataRoot $scope) $catalogKey) -AllowMissing
-    if (Test-Path -LiteralPath $targets[$scope]) { throw 'Saved looks already exist for that catalog path. Choose a new destination.' }
+    if (!$resuming -and (Test-Path -LiteralPath $targets[$scope])) {
+        throw 'Saved looks already exist for that catalog path. Choose a new destination.'
+    }
+    $staging[$scope] = Get-PlainPath (Join-Path (Split-Path -Parent $targets[$scope]) ('.spektra-restore-' + $id)) -AllowMissing
 }
 
-$id = [Guid]::NewGuid().ToString('N')
-$staging = @{}
-$published = New-Object 'System.Collections.Generic.List[string]'
-$verified = $false
-$stageCatalog = if (!$SavedLooksOnly) { Join-Path (Split-Path -Parent $destination) ('.spektra-restore-' + $id + '.tmp') }
+$journalPublished = $resuming
+$stageCatalog = if (!$SavedLooksOnly) {
+    Get-PlainPath (Join-Path (Split-Path -Parent $destination) ('.spektra-restore-' + $id + '.tmp')) -AllowMissing
+}
 $existingCatalogStream = $null
 $verifyCatalogIdentity = $false
+$destinationHash = $manifest.catalogSha256
+$publishLease = $null
 $archiveStream = [IO.File]::Open($lookArchive, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
 try {
-    if ($SavedLooksOnly) {
-        # Keep the verified database at this path through publishing and rollback.
+    if ($SavedLooksOnly -or ($resuming -and (Test-Path -LiteralPath $destination))) {
+        # Keep existing catalog bytes stable through verification and publication.
         $existingCatalogStream = [IO.File]::Open($destination, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
-        if ((Get-FileHash -InputStream $existingCatalogStream -Algorithm SHA256).Hash -ne $manifest.catalogSha256) {
+        $destinationHash = (Get-FileHash -InputStream $existingCatalogStream -Algorithm SHA256).Hash
+        if ($resuming -and $destinationHash -ne $job.DestinationHash) {
+            throw 'The destination catalog changed after restore started. Existing files were preserved.'
+        }
+        if ($destinationHash -ne $manifest.catalogSha256) {
             if (!$AllowUpdatedCatalog) { throw 'The existing catalog bytes differ from this backup. Choose the matching backup generation.' }
             $verifyCatalogIdentity = $true
         }
@@ -181,7 +238,7 @@ try {
         $archiveStream.Position = 0
         $zip = New-Object IO.Compression.ZipArchive($archiveStream, [IO.Compression.ZipArchiveMode]::Read, $true)
         try {
-            if ($Apply) {
+            if ($Apply -and !$resuming) {
                 if (!$SavedLooksOnly) {
                     [IO.Directory]::CreateDirectory((Split-Path -Parent $destination)) | Out-Null
                     $databaseStream.Position = 0
@@ -189,46 +246,86 @@ try {
                     try { $databaseStream.CopyTo($file); $file.Flush($true) }
                     finally { $file.Dispose() }
                 }
-                foreach ($scope in $scopes) { $staging[$scope] = Join-Path (Split-Path -Parent $targets[$scope]) ('.spektra-restore-' + $id) }
             }
-            Copy-VerifiedState $zip $manifest $catalogKey $staging
+            $extract = if ($Apply -and !$resuming) { $staging } else { @{} }
+            Copy-VerifiedState $zip $manifest $catalogKey $extract
         } finally { $zip.Dispose() }
     } finally { $databaseStream.Dispose() }
     if (!$Apply) {
         Write-Output "Restore preview verified backup checksums for $(@($manifest.files).Count) saved-look and recovery files."
         if ($verifyCatalogIdentity) { Write-Output 'Verified the updated catalog identity and all saved variants.' }
         Write-Output "Destination: $destination"
-        if ($SavedLooksOnly) { Write-Output 'Run the same command with -Apply to restore saved looks for the verified catalog.' }
+        if ($resuming) { Write-Output 'Run the same command with -Apply to resume the interrupted restore.' }
+        elseif ($SavedLooksOnly) { Write-Output 'Run the same command with -Apply to restore saved looks for the verified catalog.' }
         else { Write-Output 'Run the same command with -Apply to restore into this new location.' }
         return
     }
-    if (!$SavedLooksOnly) { Confirm-CatalogIntegrity $stageCatalog }
-    elseif (!$verifyCatalogIdentity) { Confirm-CatalogIntegrity $destination }
+    if (!$resuming) {
+        if (!$SavedLooksOnly) { Confirm-CatalogIntegrity $stageCatalog }
+        elseif (!$verifyCatalogIdentity) { Confirm-CatalogIntegrity $destination }
+        $job = [ordered]@{
+            Version=1; Id=$id; CatalogKey=$catalogKey; BackupDatabase=$backup
+            BackupHash=$manifest.catalogSha256; ArchiveHash=$manifest.looksSha256; DestinationHash=$destinationHash
+            SavedLooksOnly=[bool]$SavedLooksOnly; AllowUpdatedCatalog=[bool]$AllowUpdatedCatalog; Scopes=@{}
+        }
+    }
+    [IO.Directory]::CreateDirectory((Split-Path -Parent $receiptPath)) | Out-Null
+    $leasePath = Get-PlainPath ($receiptPath + '.lock') -AllowMissing
+    $publishLease = [IO.File]::Open($leasePath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+    $current = Read-CatalogRestoreReceipt $receiptPath
+    if (($resuming -and (!$current -or $current.Id -ne $id)) -or (!$resuming -and $current)) {
+        throw 'Another process changed the restore transaction. Existing files were preserved.'
+    }
+    $moveScopes = New-Object 'System.Collections.Generic.List[string]'
     foreach ($scope in $scopes) {
-        if (!(Test-Path -LiteralPath $staging[$scope])) { continue }
+        $published = Get-RestoreScopeDigest $targets[$scope]
+        $staged = Get-RestoreScopeDigest $staging[$scope]
+        if (!$resuming) { $job.Scopes[$scope] = $staged }
+        $expected = if ($resuming) { $job.Scopes.$scope } else { $staged }
+        if ($published) {
+            if (!$resuming -or $staged -or $published -ne $expected) {
+                throw "The destination's $scope changed or already exists. Existing files were preserved."
+            }
+        } elseif ($staged -ne $expected) {
+            throw "The staged $scope no longer matches the verified restore. Existing files were preserved."
+        } elseif ($staged) { $moveScopes.Add($scope) }
+    }
+    if (!$SavedLooksOnly) {
+        if ($existingCatalogStream) {
+            if (Test-Path -LiteralPath $stageCatalog) { throw 'The staged and destination catalogs both exist. Existing files were preserved.' }
+        } elseif ((Test-Path -LiteralPath $destination) -or !(Test-Path -LiteralPath $stageCatalog -PathType Leaf) -or
+            ($resuming -and (Get-FileHash -LiteralPath $stageCatalog -Algorithm SHA256).Hash -ne $job.DestinationHash)) {
+            throw 'The staged or destination catalog changed. Existing files were preserved.'
+        }
+    }
+    if (!$resuming) {
+        Publish-RestoreReceipt $receiptPath $job
+        $journalPublished = $true
+    }
+    foreach ($scope in $moveScopes) {
         [IO.Directory]::Move($staging[$scope], $targets[$scope])
-        $published.Add($targets[$scope])
     }
     # A full restore publishes the database after its state is ready.
-    if (!$SavedLooksOnly) { [IO.File]::Move($stageCatalog, $destination) }
-    $verified = $true
+    if (!$SavedLooksOnly -and !$existingCatalogStream) { [IO.File]::Move($stageCatalog, $destination) }
+    [IO.File]::Delete($receiptPath)
     if ($SavedLooksOnly) { Write-Output "Restored saved looks for the verified catalog: $destination" }
     else { Write-Output "Restored verified catalog and saved looks: $destination" }
 } finally {
     try {
         $archiveStream.Dispose()
-        if ($stageCatalog -and (Test-Path -LiteralPath $stageCatalog -PathType Leaf)) { Remove-Item -LiteralPath $stageCatalog }
-        $cleanup = @($staging.Values)
-        if (!$verified) { $cleanup += @($published.ToArray()) }
-        foreach ($scratch in $cleanup) {
-            if (!(Test-Path -LiteralPath $scratch -PathType Container)) { continue }
-            $plain = Get-PlainPath $scratch -AllowMissing
-            $parent = Split-Path -Parent $plain
-            $intendedParents = @($scopes | ForEach-Object { Join-Path $dataRoot $_ })
-            if ($parent -notin $intendedParents -or (Split-Path -Leaf $plain) -notin @('.spektra-restore-' + $id, $catalogKey)) {
-                throw "Unexpected restore cleanup path: $plain"
+        if ($publishLease) { $publishLease.Dispose() }
+        if (!$journalPublished -and !(Test-Path -LiteralPath $receiptPath)) {
+            if ($stageCatalog -and (Test-Path -LiteralPath $stageCatalog -PathType Leaf)) { Remove-Item -LiteralPath $stageCatalog }
+            foreach ($scratch in $staging.Values) {
+                if (!(Test-Path -LiteralPath $scratch -PathType Container)) { continue }
+                $plain = Get-PlainPath $scratch -AllowMissing
+                $parent = Split-Path -Parent $plain
+                $intendedParents = @($scopes | ForEach-Object { Join-Path $dataRoot $_ })
+                if ($parent -notin $intendedParents -or (Split-Path -Leaf $plain) -ne ('.spektra-restore-' + $id)) {
+                    throw "Unexpected restore cleanup path: $plain"
+                }
+                Remove-Item -LiteralPath $plain -Recurse -Force
             }
-            Remove-Item -LiteralPath $plain -Recurse -Force
         }
     } finally { if ($existingCatalogStream) { $existingCatalogStream.Dispose() } }
 }

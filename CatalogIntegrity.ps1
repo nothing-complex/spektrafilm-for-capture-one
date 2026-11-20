@@ -12,6 +12,34 @@ function Get-CatalogStateDigest([object[]] $records) {
     finally { $sha.Dispose() }
 }
 
+function Get-CatalogRestoreReceiptPath([string] $dataRoot, [string] $catalog) {
+    Join-Path (Join-Path $dataRoot 'Catalog restores') ((Get-CatalogKey $catalog) + '.json')
+}
+
+function Read-CatalogRestoreReceipt([string] $path) {
+    if (!(Test-Path -LiteralPath $path)) { return }
+    $file = Get-Item -LiteralPath $path -Force
+    if ($file.PSIsContainer -or ($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $file.Length -gt 64KB) {
+        throw 'The interrupted catalog restore receipt is invalid.'
+    }
+    $receipt = [IO.File]::ReadAllText($file.FullName) | ConvertFrom-Json
+    if ($receipt.Version -ne 1 -or $receipt.Id -cnotmatch '^[0-9a-f]{32}$' -or
+        $receipt.CatalogKey -ne [IO.Path]::GetFileNameWithoutExtension($path) -or
+        $receipt.BackupDatabase -isnot [string] -or ![IO.Path]::IsPathRooted($receipt.BackupDatabase) -or
+        $receipt.BackupHash -notmatch '^[0-9A-F]{64}$' -or $receipt.ArchiveHash -notmatch '^[0-9A-F]{64}$' -or
+        $receipt.DestinationHash -notmatch '^[0-9A-F]{64}$' -or $receipt.SavedLooksOnly -isnot [bool] -or
+        $receipt.AllowUpdatedCatalog -isnot [bool] -or !$receipt.Scopes) {
+        throw 'The interrupted catalog restore receipt is invalid.'
+    }
+    foreach ($scope in @('Variant looks', 'Look recovery')) {
+        if (!$receipt.Scopes.PSObject.Properties[$scope] -or
+            ($null -ne $receipt.Scopes.$scope -and $receipt.Scopes.$scope -notmatch '^[0-9A-F]{64}$')) {
+            throw 'The interrupted catalog restore receipt has an invalid saved-look checksum.'
+        }
+    }
+    return $receipt
+}
+
 function Initialize-CatalogIntegrity {
     if (!('Spektrafilm.CatalogIntegrity' -as [type])) {
         Add-Type -TypeDefinition @'

@@ -120,6 +120,8 @@ For a moved or copied catalog, open its new location through the Spektrafilm lau
 
 Close and launch the original catalog through Spektrafilm once before copying it to capture its latest looks. If multiple catalog paths match or local looks have changed since the matching backup, choose a backup explicitly. Close Capture One, use `-SavedLooksOnly` with the existing destination and add `-AllowUpdatedCatalog` if the database has changed. The preview verifies that every saved variant still points to the same image. Add `-Apply` to restore the selected generation. The restore preserves any saved looks already at the destination.
 
+If a restore stops partway through, rerun the original command with `-Apply`. For an existing catalog, the Spektrafilm launcher can also resume the restore before it opens Capture One. Keep the original backup files together until the restore finishes. A retry checks any files already published and preserves them if they changed.
+
 To uninstall, close Capture One, delete the **Spektrafilm for Capture One** desktop shortcut, and remove the installation folder printed by the installer. Keep the saved looks and catalog backups under `%LOCALAPPDATA%\FilmToolsForCaptureOne` if you want to use them later. If you used portable mode, remove the extracted folder.
 
 ## Build from source

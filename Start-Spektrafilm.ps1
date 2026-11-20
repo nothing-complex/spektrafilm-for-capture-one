@@ -186,6 +186,8 @@ function New-LookBackup([string] $path, [string] $archive) {
 
 function Save-CatalogBackup([string] $path, [scriptblock] $Clock = { [DateTime]::UtcNow }) {
     Confirm-CatalogIsIdle $path
+    $restoreReceipt = Get-CatalogRestoreReceiptPath $userData $path
+    if (Test-Path -LiteralPath $restoreReceipt) { throw 'Resume the interrupted catalog restore before backing up this catalog.' }
     $key = (Get-CatalogKey $path).Substring(0, 20)
     $folder = Join-Path (Join-Path $userData 'Catalog backups') $key
     [System.IO.Directory]::CreateDirectory($folder) | Out-Null
@@ -206,6 +208,7 @@ function Save-CatalogBackup([string] $path, [scriptblock] $Clock = { [DateTime]:
         }
         try {
             Confirm-CatalogIsIdle $path
+            if (Test-Path -LiteralPath $restoreReceipt) { throw 'Resume the interrupted catalog restore before backing up this catalog.' }
             $header = New-Object byte[] 16
             if ($inputDb.Read($header, 0, $header.Length) -ne $header.Length -or
                 [Text.Encoding]::ASCII.GetString($header) -cne "SQLite format 3`0") {
@@ -419,9 +422,22 @@ function Restore-DiscoveredCatalogLooks {
 
 function Prepare-SpektrafilmCatalog([string] $path, [string] $restoreScript, [switch] $SkipRecovery,
     [switch] $AcceptUpdated, [switch] $AskAboutUpdated) {
+    $receipt = Get-CatalogRestoreReceiptPath $userData $path
+    $pending = Read-CatalogRestoreReceipt $receipt
+    if ($pending) {
+        Confirm-CatalogIsIdle $path
+        $options = @{
+            BackupDatabase=$pending.BackupDatabase; DestinationDatabase=$path; UserDataRoot=$userData
+            SavedLooksOnly=$pending.SavedLooksOnly; AllowUpdatedCatalog=$pending.AllowUpdatedCatalog
+        }
+        $null = & $restoreScript @options -Apply
+        Write-Host 'Resumed an interrupted Spektrafilm catalog restore.'
+    }
     $backup = Save-CatalogBackup $path
-    if (!$SkipRecovery -and (Restore-DiscoveredCatalogLooks $path $backup $restoreScript -AcceptUpdated:$AcceptUpdated -AskAboutUpdated:$AskAboutUpdated)) {
-        $backup = Save-CatalogBackup $path
+    if (!$SkipRecovery) {
+        $recovered = Restore-DiscoveredCatalogLooks $path $backup $restoreScript -AcceptUpdated:$AcceptUpdated -AskAboutUpdated:$AskAboutUpdated
+        if (Test-Path -LiteralPath $receipt) { throw 'The saved-look restore was interrupted. Close Capture One and launch Spektrafilm again to resume.' }
+        if ($recovered) { $backup = Save-CatalogBackup $path }
     }
     return $backup
 }
