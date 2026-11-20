@@ -1331,7 +1331,8 @@
         "Four 10,000-edit runs switched among 64 synthetic variants and reloaded their exact saved states. Median queue-plus-flush fell from 2.86–2.88 ms to 2.73–2.79 ms; p95 from 3.35–3.36 to 3.22–3.29 ms; p99 from 3.59–3.60 to 3.46–3.59 ms. Managed allocations fell from 18,605–18,614 to 13,705–13,713 bytes per edit.",
         "Independent process-kill fixtures verified both sides of the atomic replace. They loaded the exact previous bytes after termination following a flushed temporary write and the new bytes after a completed replace.",
         "A licensed Capture One fixture acknowledged and reread every one of 10,000 real WPF control changes across four RAW variants and 100 image visits, then forced process termination. The restarted panel restored all three last acknowledged values, the master switches and byte-identical look files.",
-        "With Viewer work paused to isolate persistence, the actual native WPF change plus acknowledgement measured p50 3.10 ms, p95 3.76 ms, p99 6.42 ms and a 97.24 ms maximum. Selection plus load measured p50 7.78 ms, p95 25.33 ms and p99 28.34 ms."
+        "With Viewer work paused to isolate persistence, the actual native WPF change plus acknowledgement measured p50 3.10 ms, p95 3.76 ms, p99 6.42 ms and a 97.24 ms maximum. Selection plus load measured p50 7.78 ms, p95 25.33 ms and p99 28.34 ms.",
+        "Repeated 10,000 licensed WPF writes after adding the verified previous generation. Every accepted edit matched the file and the latest state of all four RAW variants survived forced termination. The event/save p50 was 5.66 ms, p95 6.47 ms, p99 7.29 ms and maximum 24.54 ms with the Viewer worker paused. The previous save path had p95 3.76 ms."
       ],
       "evidence_paths": [
         "NativePanel/VariantLookStore.cs",
@@ -1348,7 +1349,8 @@
         "qa/HostSmoke/DurableSliderEdits.cs",
         ".test-results/host-10000-restart-20261120/edit-latency.json",
         ".test-results/host-10000-restart-20261120/last-acknowledged.json",
-        ".test-results/host-10000-restart-20261120/restart.passed"
+        ".test-results/host-10000-restart-20261120/restart.passed",
+        ".test-results/host-10000-edits-previous-generation-20261120/edit-latency.json"
       ],
       "remaining_work": [
         "Evaluate an ordered durable generation journal and background compaction against the measured WPF latency. Preserve every acknowledged edit and normal backup semantics. Measure live Viewer contention separately.",
@@ -2428,7 +2430,8 @@
         "The audit.5 ZIP from clean bbeae73 verified all 151 package and 19 critical runtime files, its production shortcut, actual GPU renderer, and a real version 3 preset in the licensed host.",
         "The audit.6 ZIP from clean fd7056d verified the installed 151-file package, 19 critical runtime hashes, scoped branded shortcut, CheckOnly, Windows CI and 24 GPU assertions. The exact package also passed 202 first-launch, 206 restart and 115 native RAW checks. The real saved preset matched the package's source, parameter and asset fingerprints.",
         "The audit.8 ZIP from clean 46894ed verified all 152 package files and 19 critical assets in the isolated install. The generated 137-option guide survived installation and altered bytes were rejected. The package passed 24 GPU, 208 first-launch, 212 restart and 115 RAW assertions.",
-        "The audit.9 ZIP from clean c0505c3 verifies the same 152 package and 19 critical runtime records plus the new ICC delivery. The installed package passed 24 managed GPU, 210 initial, 214 restart and 115 RAW checks. The regular installation remains ffc4819."
+        "The audit.9 ZIP from clean c0505c3 verifies the same 152 package and 19 critical runtime records plus the new ICC delivery. The installed package passed 24 managed GPU, 210 initial, 214 restart and 115 RAW checks. The regular installation remains ffc4819.",
+        "The clean 0.2.0-audit.10 ZIP installed in a separate fixture with verified tool resources and shortcut. 152 package entries and 19 runtime entries verified. 24 GPU, 265 first-launch, 269 restart and 115 native RAW assertions passed. Both Windows contracts runs for the package commit succeeded."
       ],
       "evidence_paths": [
         "ReleaseManifest.ps1",
@@ -2449,7 +2452,8 @@
         ".test-results/audit5-package-verify-20261120/result.json",
         ".test-results/audit6-package-verify-20261120/result.json",
         ".test-results/audit8-package-verify-20261120/result.json",
-        ".test-results/audit9-package-verify-20261120/result.json"
+        ".test-results/audit9-package-verify-20261120/result.json",
+        ".test-results/audit10-package-verify-20261120/result.json"
       ],
       "remaining_work": [],
       "original_acceptance_tests": [
@@ -3022,13 +3026,13 @@
     "original_test_catalog_hash_unchanged": true,
     "local_evidence_note": "Paths under .test-results/build/dist are ignored local artifacts and are not present in a public clone.",
     "latest_development_package": {
-      "version": "0.2.0-audit.9",
-      "archive": "dist/Spektrafilm-for-Capture-One-v0.2.0-audit.9-windows-x64.zip",
-      "sha256": "3c6c2fe02fcab955689cdc63c3256e41ccd32b6c97caeeae2cbfd826a94cd7e8",
+      "version": "0.2.0-audit.10",
+      "archive": "dist/Spektrafilm-for-Capture-One-v0.2.0-audit.10-windows-x64.zip",
+      "sha256": "496dc5465b8e3160c9e56f0e20b4d0db2544930762011901b1bd032cff9acfb5",
       "source": {
-        "commit": "c0505c30e494ec060184affb4b308effa6216b05",
+        "commit": "3702f35867155765cc7b3014afa776b746ba8b22",
         "dirty": false,
-        "treeDigest": "092006bc2acedda985a4c57f0233eab96df846015e2210db5de7c9008ef3ebbb"
+        "treeDigest": "dd5e1d93f9e33ed14a11abe583f6acd9839c4cdea3331bb9cb20e19f80afa372"
       },
       "verified_package_entries": 152,
       "verified_runtime_entries": 19,
@@ -3039,14 +3043,14 @@
       "version3_native_preset_verified": true,
       "isolated_install_and_checkonly": "passed",
       "exact_package_host_tests": {
-        "first_launch": 210,
-        "restart": 214,
+        "first_launch": 265,
+        "restart": 269,
         "raw_matrix": 115,
         "managed_gpu": 24
       },
-      "remote_windows_contracts": "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44662945600",
+      "remote_windows_contracts": "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44667871590",
       "normal_installed_revision": "ffc481988eb2e6e7ef7a1379486c4a8b2656ac81",
-      "receipt": ".test-results/audit9-package-verify-20261120/result.json"
+      "receipt": ".test-results/audit10-package-verify-20261120/result.json"
     }
   },
   "completed_milestones": [

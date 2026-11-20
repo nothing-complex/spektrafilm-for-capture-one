@@ -6,7 +6,7 @@ Updated 2026-11-20. The critical-fix batch is implemented, tested, installed loc
 
 1. Read this file, `AGENTS.md` and `qa/AUDIT-FIX-STATUS.json` before changing code. The JSON is the authoritative task-progress ledger; its `remaining_work` and original acceptance tests matter more than a short status label.
 2. Check `git status`, current branch and PR head. Do not discard existing edits or switch the installed build merely because this documentation has a newer commit.
-3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP identifies clean source `c0505c3`. Its verification used an isolated installation. The normal app stayed on `ffc4819`.
+3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP is `0.2.0-audit.10` from clean `3702f35`. Its verification used an isolated installation. The normal app stayed on `ffc4819`.
 4. Choose an unresolved task and an exact ownership boundary. Do not repeat the completed installation, crash test or old defect reproductions as if nothing had happened.
 5. Update task evidence and the delivery ledger at each completed milestone. Never mark a broad parent task complete because one mitigation shipped.
 
@@ -629,9 +629,11 @@ Evidence is under `.test-results/state-final-isolated-20261120` and `.test-resul
 - [x] On a corrupt or missing current look, show the previous verified values read-only and offer explicit restore. A future format or unavailable stock remains blocked. Explicit recovery keeps dated, hash-verified copies of the rejected bytes and refuses to overwrite a file that changed while confirmation was pending.
 - [x] In a licensed disposable catalog, create the older generation through an actual WPF slider edit. Test a future format, missing stock, malformed development dictionary, broken UTF-8 and an oversized payload. Actual restore reinstates the original saved values. First launch passed 265 assertions and forced restart passed 269.
 - [x] The Windows suite passed 243 state assertions, 43 joint backup/restore assertions and 12,245 Viewer assertions. The child-process tests check previous-generation recovery and the digest and variant checks reject corrupted backups.
-- [ ] Measure per-movement latency after adding verified previous generations. The 10,000-edit native measurement is in progress; per-movement latency and power-failure limits remain under `HS-01` and `HS-04`.
+- [x] Repeat 10,000 acknowledged writes and a forced restart across four RAW variants after adding the previous generation. P50 was 5.66 ms, p95 6.47 ms, p99 7.29 ms and the maximum was 24.54 ms with the Viewer paused. The separate earlier run had p95 3.76 ms.
+- [x] Install and verify `0.2.0-audit.10` from clean `3702f35`. The ZIP SHA-256 is `496dc5465b8e3160c9e56f0e20b4d0db2544930762011901b1bd032cff9acfb5`. All 152 package files and 19 critical runtime files verified. The isolated install passed 24 GPU, 265 first-launch, 269 restart and 115 native RAW assertions. [Windows Contracts](https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44667871590)
+- [ ] Measure concurrent Viewer work and total latency, and exercise true disk-full and power-failure limits under `HS-01` and `HS-04`.
 
-Evidence is under `.test-results/host-verified-previous-look-20261120` and `.test-results/contracts-previous-generation-20261120`.
+Evidence is under `.test-results/host-verified-previous-look-20261120`, `.test-results/contracts-previous-generation-20261120`, `.test-results/host-10000-edits-previous-generation-20261120` and `.test-results/audit10-package-verify-20261120`.
 
 ## Native floating window placement
 
