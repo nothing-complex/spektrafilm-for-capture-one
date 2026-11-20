@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -13,6 +14,7 @@ public static partial class StartupHook
     private static async Task TestNativeLookBatch(object panel, object store)
     {
         var phase = File.ReadAllText(Path.Combine(folder, "phase.txt"));
+        var crash = Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_LOOK_BATCH") == "crash";
         var selector = new FixtureSelection(panel);
         Check(selector.Variants.Length == 4, "native batch uses the four-RAW disposable catalog");
         var source = selector.Variants[0];
@@ -26,11 +28,17 @@ public static partial class StartupHook
         JsonNode? Saved(Guid variant) => Call(store, "Read", variant) is { } saved
             ? JsonSerializer.SerializeToNode(saved, saved.GetType()) : null;
         var expectedPath = Path.Combine(folder, "batch-expected.json");
+        void SaveExpected() => File.WriteAllText(expectedPath, new JsonObject(selector.Variants.Select(id =>
+            new System.Collections.Generic.KeyValuePair<string, JsonNode?>(id.ToString(), Saved(id)))).ToJsonString());
         if (phase == "restart")
         {
             var expected = JsonNode.Parse(File.ReadAllText(expectedPath))!.AsObject();
             foreach (var variant in selector.Variants)
                 Check(JsonNode.DeepEquals(expected[variant.ToString()], Saved(variant)), "restart retains the exact saved batch outcome for " + selector.Format(variant));
+            Check(progress.Visibility == Visibility.Visible
+                && progress.Text.Contains(crash ? "was interrupted" : "batch stopped", StringComparison.Ordinal)
+                && progress.Text.Contains("Saved 1 of 2 selected variants", StringComparison.Ordinal),
+                "the restarted native panel displays the exact persisted partial batch result");
             File.WriteAllText(Path.Combine(folder, phase + ".passed"), $"PASS {checks} native batch assertions");
             return;
         }
@@ -94,7 +102,19 @@ public static partial class StartupHook
         void CancelAfterFirst(object? sender, EventArgs args)
         {
             if (progress.Text.StartsWith("Applied copied settings to 1 of 2 changed", StringComparison.Ordinal))
+            {
+                if (crash)
+                {
+                    Check(new[] { first, second }.Count(id => JsonNode.DeepEquals(Saved(id)!["Look"], original["Look"])) == 1,
+                        "hard-stop fixture reached the boundary after exactly one real look write");
+                    SaveExpected();
+                    File.WriteAllText(Path.Combine(folder, phase + ".passed"), $"PASS {checks} native batch assertions before the hard stop");
+                    // The disposable host runner terminates this process while
+                    // the job is still active and before its next look write.
+                    Thread.Sleep(Timeout.Infinite);
+                }
                 cancel.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, cancel));
+            }
         }
         descriptor.AddValueChanged(progress, CancelAfterFirst);
         try { Check(await Apply(count => count == 2) == 1, "the real panel Stop action leaves exactly one committed look"); }
@@ -103,8 +123,7 @@ public static partial class StartupHook
             "the panel reports the stopped batch and clears the progress control");
         var exactlyOne = new[] { first, second }.Count(id => JsonNode.DeepEquals(Saved(id)!["Look"], original["Look"]));
         Check(exactlyOne == 1, "stopping a batch leaves later destinations untouched");
-        File.WriteAllText(expectedPath, new JsonObject(selector.Variants.Select(id =>
-            new System.Collections.Generic.KeyValuePair<string, JsonNode?>(id.ToString(), Saved(id)))).ToJsonString());
+        SaveExpected();
         File.WriteAllText(Path.Combine(folder, phase + ".passed"), $"PASS {checks} native batch assertions");
     }
 }

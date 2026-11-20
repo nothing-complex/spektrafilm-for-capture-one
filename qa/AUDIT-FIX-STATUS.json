@@ -2991,7 +2991,9 @@
         "Added explicit, panel-local Copy selected settings and Apply copied settings actions. Apply intersects the originally copied sections and the current checkbox choices and targets the captured primary native variant.",
         "Live WPF Copy and Apply between two variants preserved source look, destination master, optics and native Grain. A single named Capture One Undo restored the complete destination look. The 139 first-launch and 142 restart checks passed, with the source database unchanged.",
         "The opt-in Apply to selected variants action snapshots up to 1,000 native UUIDs before confirmation, validates selected sections against each saved baseline and commits each changed look using the existing atomic store. The panel reports progress and can stop before the next write. Changed baselines and pending saves are refused. Failed optional writes schedule no background retry. One named Capture One Undo and Redo cover the successfully saved group.",
-        "The licensed four-RAW fixture passed 25 launch and 19 restart assertions. It changed the selection after capture, preserved source and unselected looks, retained separate master settings, optics and grain, exercised real native Undo and Redo, and stopped with exactly one committed look. Restart matched all four serialized looks. A 281-assertion state campaign includes 1,000 durable target writes, group Undo and Redo, conflict refusal and optional-write failure."
+        "The licensed four-RAW fixture passed 25 launch and 19 restart assertions. It changed the selection after capture, preserved source and unselected looks, retained separate master settings, optics and grain, exercised real native Undo and Redo, and stopped with exactly one committed look. Restart matched all four serialized looks. A 281-assertion state campaign includes 1,000 durable target writes, group Undo and Redo, conflict refusal and optional-write failure.",
+        "A catalog-scoped batch journal makes each pre-write and committed receipt durable. Restart resolves an unfinished receipt against the exact before and after look digests. Unrecognized newer bytes stay intact and appear as uncertain. Reopening checks state without replaying writes. The 301-assertion state suite covers 1,000 receipts, process death before and after atomic publication, a torn final line, live writer exclusion and a Windows sharing violation that forces and verifies compensating group Undo.",
+        "The final licensed crash fixture passed 23 assertions before terminating the disposable Capture One process after one write and 20 after restarting. The panel's initial attachment shows one saved look out of two selected, with all four RAW looks matching the pre-crash snapshots and the source catalog unchanged."
       ],
       "evidence_paths": [
         "NativePanel/SpektraFilmTool.cs",
@@ -2999,14 +3001,16 @@
         "qa/HostSmoke/StartupHook.cs",
         ".test-results/host-selective-presets-ranges-20261119/host-smoke.log",
         "NativePanel/VariantLookBatch.cs",
+        "NativePanel/VariantLookBatchJournal.cs",
         "NativePanel/NativeLookBatchUndoAction.cs",
         "qa/HostSmoke/NativeLookBatch.cs",
         "tests/state/Program.cs",
         ".test-results/host-native-look-batch-final-20261120/host-smoke.log",
-        ".test-results/host-look-batch-inventory-20261120/panel-control-inventory.json"
+        ".test-results/host-look-batch-inventory-20261120/panel-control-inventory.json",
+        ".test-results/host-native-look-batch-crash-final-20261120/host-smoke.log"
       ],
       "remaining_work": [
-        "Add a durable batch operation journal and crash reconciliation with per-variant receipts. Individual files are durable immediately and the running panel knows the applied subset. The group Undo entry and stopped-job outcome are process-local. Exercise actual write failure during group Undo and the compensating rollback across the affected files.",
+        "Verify longer cross-catalog batch workflows and assess first-attach batch-history cost on slower storage. Group Undo uses Capture One’s current process history.",
         "Investigate explicit clone lineage and native adjustment copy/apply semantics. Use a verified API before carrying source looks automatically."
       ],
       "original_acceptance_tests": [

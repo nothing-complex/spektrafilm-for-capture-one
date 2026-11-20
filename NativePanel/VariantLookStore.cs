@@ -32,6 +32,7 @@ internal sealed class VariantLookStore
     private readonly Session session;
     private readonly Dictionary<Guid, BlockedLook> blocked;
     internal GrainReceiptStore GrainReceipts { get; }
+    internal VariantLookBatchJournal BatchHistory { get; }
     internal string CatalogIdentity => catalogKey;
     internal string? RecoveryNotice { get; private set; }
 
@@ -41,6 +42,8 @@ internal sealed class VariantLookStore
         directory = Path.Combine(Path.GetFullPath(root), catalogKey);
         recoveryDirectory = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(root))!, "Look recovery", catalogKey);
         GrainReceipts = new GrainReceiptStore(recoveryDirectory);
+        BatchHistory = new VariantLookBatchJournal(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(root))!, "Look batches", catalogKey),
+            variant => FileHash(GetPath(variant)));
         session = Sessions.GetOrAdd(directory, _ => new Session());
         blocked = session.Blocked;
     }
@@ -195,7 +198,7 @@ internal sealed class VariantLookStore
             throw new InvalidOperationException("A selected variant’s saved look changed. The newer look was kept.");
     }
 
-    internal void CommitBatchChange(Guid variant, VariantLook? expected, VariantLook replacement)
+    internal void CommitBatchChange(Guid variant, VariantLook? expected, VariantLook replacement, Action<string?, string>? prepare = null)
     {
         LookStateValidation.Validate(replacement);
         lock (session)
@@ -203,7 +206,9 @@ internal sealed class VariantLookStore
             RequireBatchBaseline(variant, expected);
             // A failed optional copy must not turn into a pending edit and
             // overwrite a user's later change when the normal watchdog runs.
-            Commit(variant, PrepareEdit(replacement, session.KnownHash.GetValueOrDefault(variant)));
+            var edit = PrepareEdit(replacement, session.KnownHash.GetValueOrDefault(variant));
+            prepare?.Invoke(edit.BaseHash, edit.Hash);
+            Commit(variant, edit);
         }
     }
 

@@ -47,6 +47,26 @@ if (args.Length != 0)
             args[4] == "before-replace" ? WaitForKill : null);
         WaitForKill();
     }
+    if (args[0] == "--batch-commit-boundary")
+    {
+        var at = args[4];
+        var prefix = Guid.Parse(args[6]);
+        using var batch = childStore.BatchHistory.Start(2);
+        childStore.CommitBatchChange(prefix, null, Sample(1), (before, after) => batch.Prepare(prefix, before, after));
+        batch.Committed(prefix);
+        childStore.CommitBatchChange(childVariant, Sample(.6), Sample(1.5), (before, after) =>
+        {
+            batch.Prepare(childVariant, before, after);
+            if (at == "before-replace") WaitForKill();
+        });
+        WaitForKill();
+
+        void WaitForKill()
+        {
+            File.WriteAllText(args[5], at);
+            Thread.Sleep(Timeout.Infinite);
+        }
+    }
     return 14;
 }
 
@@ -475,8 +495,23 @@ var batchChanges = batchIds.Select(id => VariantLookBatch.Prepare(batchStore, id
 Check("batch prepares 1,000 unique targets with their own unselected sections",
     batchChanges.Length == 1000 && batchChanges[0].After.Enabled == false && batchChanges[0].After.Grain == batchDisabled.Grain
     && batchChanges.Skip(1).All(change => change.SavedBefore is null && change.After.Enabled && change.After.Grain == batchDefaults.Grain));
-foreach (var change in batchChanges)
-    batchStore.CommitBatchChange(change.Variant, change.SavedBefore, change.After);
+using (var receipt = batchStore.BatchHistory.Start(batchIds.Length))
+{
+    foreach (var change in batchChanges)
+    {
+        batchStore.CommitBatchChange(change.Variant, change.SavedBefore, change.After,
+            (before, after) => receipt.Prepare(change.Variant, before, after));
+        receipt.Committed(change.Variant);
+    }
+    receipt.Finish(BatchResult.Completed);
+}
+Check("bounded journal reopens all 1,000 durable per-variant records", batchStore.BatchHistory.ReadLatest() is
+    { Result: BatchResult.Completed, Selected: 1000, Uncertain: null } complete && complete.Applied.SequenceEqual(batchIds));
+using (var stopped = batchStore.BatchHistory.Start(2))
+    stopped.Finish(BatchResult.Stopped);
+Check("latest receipt retains an explicit stop and keeps the earlier operation on disk",
+    batchStore.BatchHistory.ReadLatest() is { Result: BatchResult.Stopped, Selected: 2, Applied.Length: 0 }
+    && Directory.GetFiles(Path.Combine(scratch, "Look batches", batchStore.CatalogIdentity), "*.jsonl").Length == 2);
 Check("batch persists all 1,000 published looks", batchIds.All(id => batchStore.ReadForBatch(id)?.Look.Exposure == 1.37));
 Check("already applied sections plan no change",
     VariantLookBatch.Prepare(batchStore, batchIds[0], batchDefaults, batchPreset, LookSections.Film) is null);
@@ -486,6 +521,23 @@ Check("group Undo restores each target's prior effective look",
     && batchIds.Skip(1).All(id => VariantLookStore.Equivalent(batchStore.ReadForBatch(id), batchDefaults)));
 VariantLookBatch.Replay(batchStore, batchChanges, undo: false);
 Check("group Redo restores the same durable looks", batchIds.All(id => batchStore.ReadForBatch(id)?.Look.Exposure == 1.37));
+if (OperatingSystem.IsWindows())
+{
+    var revertSubset = batchChanges.Take(3).ToArray();
+    var blocked = StateFile(root, revertSubset[1].Variant);
+    var compensated = StateFile(root, revertSubset[2].Variant);
+    File.SetLastWriteTimeUtc(compensated, new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+    using var readLease = new FileStream(blocked, FileMode.Open, FileAccess.Read, FileShare.Read);
+    // Preflight can read this file. Windows denies replacing it after the
+    // first group member has already been undone.
+    bool interrupted = false;
+    try { VariantLookBatch.Replay(batchStore, revertSubset, undo: true); }
+    catch (Exception error) when (error is IOException or UnauthorizedAccessException) { interrupted = true; }
+    Check("a real Windows sharing violation interrupts group Undo", interrupted);
+    Check("group Undo compensates the already modified look after a partial disk failure",
+        revertSubset.All(change => VariantLookStore.Equivalent(batchStore.ReadForBatch(change.Variant), change.After))
+        && File.GetLastWriteTimeUtc(compensated).Year != 2020 && !batchStore.HasPending);
+}
 batchStore.Queue(batchIds[1], Sample(4));
 batchStore.Flush();
 Throws<InvalidOperationException>("batch Undo refuses a newer saved edit before touching the group",
@@ -507,6 +559,45 @@ try
     Check("failed batch commit schedules no delayed write", !batchStore.HasPending);
 }
 finally { Directory.Delete(blockedDestination); }
+
+foreach (var boundary in new[] { "before-replace", "after-replace" })
+{
+    var crashCatalog = Path.Combine(scratch, $"batch-{boundary}.cocatalogdb");
+    var crashStore = new VariantLookStore(root, crashCatalog);
+    var pending = Guid.NewGuid();
+    var prefix = Guid.NewGuid();
+    var marker = Path.Combine(scratch, $"batch-{boundary}.marker");
+    crashStore.Queue(pending, Sample(.6));
+    crashStore.Flush();
+    using var child = StartChild("--batch-commit-boundary", root, crashCatalog, pending.ToString(), boundary, marker, prefix.ToString());
+    try
+    {
+        Check("child reached batch " + boundary, SpinWait.SpinUntil(() => File.Exists(marker) || child.HasExited, TimeSpan.FromSeconds(15))
+            && File.Exists(marker) && !child.HasExited);
+        Throws<IOException>("live batch cannot be classified as interrupted", () => crashStore.BatchHistory.ReadLatest());
+        Throws<IOException>("a second batch cannot take ownership of the same catalog", () => crashStore.BatchHistory.Start(2));
+    }
+    finally
+    {
+        if (!child.HasExited) child.Kill();
+        Check("terminated batch process exited", child.WaitForExit(15000));
+    }
+    var current = boundary == "before-replace" ? .6 : 1.5;
+    var applied = boundary == "before-replace" ? new[] { prefix } : new[] { prefix, pending };
+    var match = crashStore.BatchHistory.ReadLatest();
+    Check("journal reconciles the exact saved prefix after " + boundary,
+        match is { Result: BatchResult.Interrupted, Selected: 2, Uncertain: null } && match.Applied.SequenceEqual(applied));
+    Check("reconciliation publishes no new looks", crashStore.Read(pending)?.Look.Exposure == current);
+    var historyPath = Directory.GetFiles(Path.Combine(scratch, "Look batches", crashStore.CatalogIdentity), "*.jsonl").Single();
+    File.AppendAllText(historyPath, "{\"Type\":2,\"broken");
+    Check("a torn final record retains the verified prefix", crashStore.BatchHistory.ReadLatest()?.Applied.SequenceEqual(applied) == true);
+    crashStore.Queue(pending, Sample(2.1));
+    crashStore.Flush();
+    Check("a changed unacknowledged look is uncertain and kept byte for byte",
+        crashStore.BatchHistory.ReadLatest() is { Result: BatchResult.Interrupted } uncertain
+            && uncertain.Uncertain == pending && uncertain.Applied.SequenceEqual(new[] { prefix })
+            && crashStore.Read(pending)?.Look.Exposure == 2.1);
+}
 
 var grainId = Guid.NewGuid();
 var grainOriginal = new GrainValues(1, 7, 30);

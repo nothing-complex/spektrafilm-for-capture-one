@@ -21,6 +21,7 @@ param(
     [switch] $ViewerNativeBaseline,
     [switch] $DurableSliderEdits,
     [switch] $NativeLookBatch,
+    [switch] $NativeLookBatchCrash,
     [string] $MetadataFixtureRoot,
     [switch] $SkipRestart,
     [switch] $CheckOrdinaryLaunch,
@@ -47,6 +48,7 @@ param(
     [string] $ResultsDirectory
 )
 $ErrorActionPreference='Stop'
+if ($NativeLookBatchCrash) { $NativeLookBatch=$true }
 if ($NativeLookBatch -and (!$NativeSettingsConfig -or $SkipRestart -or $PackagedRuntime -or $UpgradeFromPackage -or
     $CatalogIsolation -or $ConcurrentCatalogs -or $DurableSliderEdits -or $ViewerLayouts -or $ViewerChurn -or
     $ColorMatrix -or $NativeEffectExport -or $CheckOrdinaryLaunch)) {
@@ -609,7 +611,7 @@ try {
     $env:SPEKTRAFILM_HOST_FLOATING_WORKSPACE=if($FloatingWorkspaceLayout){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_NATIVE_WORKSPACE_SWITCH=if($NativeWorkspaceSwitch){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_DURABLE_EDITS=if($DurableSliderEdits){'1'}else{$null}
-    $env:SPEKTRAFILM_HOST_LOOK_BATCH=if($NativeLookBatch){'1'}else{$null}
+    $env:SPEKTRAFILM_HOST_LOOK_BATCH=if($NativeLookBatchCrash){'crash'}elseif($NativeLookBatch){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_METADATA_FIXTURE=$MetadataFixtureRoot
     $env:SPEKTRAFILM_HOST_VIEWER_CHURN=if($ViewerChurn){[string]$ViewerChurn}else{$null}
     $env:SPEKTRAFILM_HOST_VIEWER_CHURN_RESOLUTION=if($ViewerChurn){$ViewerChurnResolution}else{$null}

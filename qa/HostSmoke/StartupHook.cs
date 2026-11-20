@@ -127,7 +127,7 @@ public static partial class StartupHook
                 await TestDurableSliderEdits(panel, spatial, store);
                 return;
             }
-            if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_LOOK_BATCH") == "1")
+            if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_LOOK_BATCH") is "1" or "crash")
             {
                 await TestNativeLookBatch(panel, store);
                 return;

@@ -102,7 +102,7 @@ internal static class SpektraFilmTool
         private ContentControl Holder { get; }
         internal bool IsSpektraExportActive => !disposed && panel.IsSpektraExportActive;
         internal bool WouldLoseSavedLook(Guid variant) => !disposed && panel.WouldLoseSavedLook(variant);
-        internal void LoadControls() => panel.LoadStocks();
+        internal void LoadControls() => panel.InitializeControls();
         internal bool LookRecoveryPending => panel.HasPendingLookWrites || panel.AwaitingLookRead;
         internal void CheckSelectionAndSave()
         {
@@ -460,6 +460,7 @@ internal static class SpektraFilmTool
         private readonly TextBlock batchStatus = new() { TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed };
         private readonly Button cancelBatch = new() { Content = "Stop applying copied settings", Visibility = Visibility.Collapsed };
         private CancellationTokenSource? batchWork;
+        private bool batchStatusLoaded;
         private CancellationTokenSource? lutWork;
         private bool lutExporting;
         private readonly IUndoManager? nativeUndo;
@@ -585,9 +586,41 @@ internal static class SpektraFilmTool
             }
         }
 
-        private void OnLoaded(object sender, RoutedEventArgs args)
+        private void OnLoaded(object sender, RoutedEventArgs args) => InitializeControls();
+
+        internal void InitializeControls()
         {
-            if (!disposed) LoadStocks();
+            if (disposed) return;
+            LoadStocks();
+            LoadBatchStatus();
+        }
+
+        private void LoadBatchStatus()
+        {
+            if (batchStatusLoaded || batchWork is not null) return;
+            batchStatusLoaded = true;
+            try
+            {
+                if (looks.BatchHistory.ReadLatest() is not { Result: not BatchResult.Completed } previous)
+                    return;
+                var result = previous.Result switch
+                {
+                    BatchResult.Stopped => "The last Spektrafilm batch stopped.",
+                    BatchResult.Failed => "The last Spektrafilm batch stopped with an error.",
+                    _ => "The last Spektrafilm batch was interrupted.",
+                };
+                batchStatus.Text = $"{result} Saved {previous.Applied.Length:N0} of {previous.Selected:N0} selected variants.";
+                if (previous.Uncertain is not null)
+                    batchStatus.Text += " One look changed or could not be checked. Review it before applying again.";
+                batchStatus.Visibility = Visibility.Visible;
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException
+                or JsonException or System.Text.DecoderFallbackException)
+            {
+                StartupHook.Log("Could not read Spektrafilm batch history: " + error.GetBaseException().Message);
+                batchStatus.Text = "Spektrafilm could not read the previous batch outcome.";
+                batchStatus.Visibility = Visibility.Visible;
+            }
         }
 
         public Guid Id { get; } = Guid.NewGuid();
@@ -870,11 +903,15 @@ internal static class SpektraFilmTool
             var needsRefresh = false;
             string? failure = null;
             var confirmed = false;
+            var result = BatchResult.Completed;
+            VariantLookBatchJournal.Writer? journal = null;
             try
             {
                 confirmed = confirm(variants.Length);
                 if (!confirmed) return 0;
+                work.Token.ThrowIfCancellationRequested();
                 batchStatus.Visibility = cancelBatch.Visibility = Visibility.Visible;
+                journal = looks.BatchHistory.Start(variants.Length);
                 foreach (var variant in variants)
                 {
                     await Dispatcher.Yield(DispatcherPriority.Background);
@@ -892,25 +929,41 @@ internal static class SpektraFilmTool
                     work.Token.ThrowIfCancellationRequested();
                     // Do not merge a batch edit into an in-progress slider gesture.
                     UpdateHistoryGesture(false);
-                    looks.CommitBatchChange(change.Variant, change.SavedBefore, change.After);
+                    looks.CommitBatchChange(change.Variant, change.SavedBefore, change.After,
+                        (before, after) => journal.Prepare(change.Variant, before, after));
                     committed.Add(change);
-                    if (displayedVariant == change.Variant)
+                    needsRefresh = displayedVariant == change.Variant;
+                    journal.Committed(change.Variant);
+                    if (needsRefresh)
                     {
-                        needsRefresh = true;
                         OnHistoryChanged(change.Variant, null);
                         needsRefresh = false;
                     }
                     batchStatus.Text = $"Applied copied settings to {committed.Count:N0} of {prepared.Count:N0} changed variants…";
                 }
             }
-            catch (OperationCanceledException) when (work.IsCancellationRequested) { failure = "Stopped."; }
+            catch (OperationCanceledException) when (work.IsCancellationRequested)
+            {
+                result = BatchResult.Stopped;
+                failure = "Stopped.";
+            }
             catch (Exception error)
             {
+                result = BatchResult.Failed;
                 failure = error.GetBaseException().Message;
                 StartupHook.Log("Spektrafilm batch apply stopped: " + error);
             }
             finally
             {
+                if (journal is not null)
+                {
+                    try { using (journal) { journal.Finish(result); } }
+                    catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+                    {
+                        StartupHook.Log("Could not finish Spektrafilm batch history: " + error.GetBaseException().Message);
+                        failure += " Batch recovery history could not be completed.";
+                    }
+                }
                 batchWork = null;
                 if (committed.Count > 0 && !disposed)
                 {
@@ -932,6 +985,7 @@ internal static class SpektraFilmTool
                 }
                 if (!disposed && confirmed)
                 {
+                    batchStatus.Visibility = Visibility.Visible;
                     cancelBatch.Visibility = Visibility.Collapsed;
                     batchStatus.Text = $"Applied copied settings to {committed.Count:N0} of {variants.Length:N0} selected variants."
                         + (failure is null ? string.Empty : " " + failure);
