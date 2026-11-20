@@ -3027,7 +3027,8 @@
         "Four licensed launches passed 22, 25, 25 and 25 assertions. Opposite film exposure edits persisted independently. WPF drew the correct settled bitmap and native full-size RGB48 export produced the expected distinct output after both restarts. Original catalog and RAW hashes matched.",
         "An installed-assembly metadata probe identified ICaptureOneDocument identity and lifecycle, ISessionDocument folder selectors and DocumentManager's open-document enumeration without creating a session.",
         "Two byte-identical disposable catalogs opened in separate native windows using the actual File Open helper and native multiple-window mode. With the second catalog unapproved, three focus cycles withheld the first catalog’s Viewer and Export, maintained one look namespace, and resumed the exact original tool and saved look. Closing the second window preserved the approved look. The native fixture passed 26 assertions.",
-        "Native approved-window teardown stopped its running film worker, disposed its tool and Viewer and unbound Export without closing the other catalog. Native reopen in the same process created an independent replacement form, panel and Export bridge and painted the original exact saved look. Thirty-three assertions passed with the exact scoped settings restored."
+        "Native approved-window teardown stopped its running film worker, disposed its tool and Viewer and unbound Export without closing the other catalog. Native reopen in the same process created an independent replacement form, panel and Export bridge and painted the original exact saved look. Thirty-three assertions passed with the exact scoped settings restored.",
+        "The licensed application created a real disposable session, database, Capture folder and separate window. With that native Capture collection active, a copied RAW was noticed by Capture One and the SHA-256 of both input and copy remained identical. The unapproved session could neither paint nor export the catalog look or create a new look scope. Closing it restored that catalog's original Viewer and exact saved bytes. The final fixture passed 40 assertions and restored both recent lists and the scoped window preference."
       ],
       "evidence_paths": [
         "qa/HostSmoke/CatalogIsolation.cs",
@@ -3038,10 +3039,13 @@
         ".test-results/host-concurrent-exact-preference-restore-20261120/host-smoke.log",
         ".test-results/host-concurrent-exact-preference-restore-20261120/proof-settings-receipt.json",
         ".test-results/host-concurrent-close-reopen-final-20261120/host-smoke.log",
-        ".test-results/host-concurrent-close-reopen-final-20261120/proof-settings-receipt.json"
+        ".test-results/host-concurrent-close-reopen-final-20261120/proof-settings-receipt.json",
+        "qa/HostSmoke/NativeSessionIsolation.cs",
+        ".test-results/host-session-active-capture-folder-20261120/host-smoke.log",
+        ".test-results/host-session-active-capture-folder-20261120/proof-settings-receipt.json"
       ],
       "remaining_work": [
-        "Prove sessions and tether arrival before extending coverage. The verified concurrent case authorizes one catalog at a time and includes close and reopen. Other licensed host versions and a per-document registry remain open."
+        "Verify a physical tethered-camera arrival and implement the opt-in session or multi-document registry after a safe scoped backup policy is proved. Actual native session creation, independent window lifetime and a filesystem RAW arrival are already verified while the session remains unapproved."
       ],
       "original_acceptance_tests": [
         "Two disposable documents with same filenames/variant-like identities never share state or viewer/export output.",

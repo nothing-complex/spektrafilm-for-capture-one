@@ -144,6 +144,14 @@ public static partial class StartupHook
                 "reopening loads the exact original variant and durable film settings");
             Check(!secondWindow.IsDisposed && OpenDocuments().Contains(catalogB),
                 "the unapproved window remains independent across teardown and replacement");
+            if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_SESSION") is { Length: > 0 } sessionPath)
+            {
+                Call(manager, "CloseDocument", secondPath);
+                await WaitFor(() => !OpenDocuments().Any(document => Matches(document, secondPath)),
+                    "The second catalog did not close before the session fixture.");
+                await TestNativeSessionIsolation(assembly, manager, open, access, catalogA, replacement, reopenedPanel,
+                    reopenedViewer, lookPath, savedA, sessionPath);
+            }
         }
         finally
         {

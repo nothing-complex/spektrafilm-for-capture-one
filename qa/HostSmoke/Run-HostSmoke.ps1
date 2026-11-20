@@ -8,6 +8,7 @@ param(
     [Alias('ProofingSettingsConfig')][string] $NativeSettingsConfig,
     [switch] $CatalogIsolation,
     [switch] $ConcurrentCatalogs,
+    [switch] $SessionIsolation,
     [switch] $ViewerLayouts,
     [ValidateRange(0,200)][int] $ViewerChurn=0,
     [switch] $DurableSliderEdits,
@@ -37,6 +38,9 @@ if ($ConcurrentCatalogs) {
         throw 'The concurrent catalog fixture controls both disposable catalogs in one licensed launch.'
     }
     $SkipRestart=$true
+}
+if ($SessionIsolation -and !$ConcurrentCatalogs) {
+    throw 'Session isolation extends the dedicated concurrent-catalog fixture.'
 }
 if ($ViewerChurn) {
     if (!$NativeSettingsConfig -or $CatalogIsolation -or $ViewerLayouts -or $DurableSliderEdits -or $ColorMatrix -or $CheckOrdinaryLaunch -or $MetadataFixtureRoot) {
@@ -235,6 +239,12 @@ if($CatalogIsolation -or $ConcurrentCatalogs){
     Copy-Item -LiteralPath $source -Destination $catalog
 }
 if($ConcurrentCatalogs){$catalog=$fixtureCatalogs[0]}
+$sessionDatabase=$null
+if($SessionIsolation){
+    $sessionFolder=Join-Path $folder 'Session'
+    $sessionDatabase=Join-Path $sessionFolder 'Spektrafilm Session.cosessiondb'
+    $fixtureCatalogs+=@($sessionDatabase,$sessionFolder)
+}
 [IO.File]::WriteAllText((Join-Path $folder 'disposable-catalog.marker'),$sourceHash)
 if ($UpgradeFromPackage) {
     $priorPackage=(Resolve-Path -LiteralPath $UpgradeFromPackage).ProviderPath
@@ -242,12 +252,20 @@ if ($UpgradeFromPackage) {
     [void](Test-ReleaseManifest $priorPackage 'package-manifest.json')
     [void](Test-ReleaseManifest $runtimeSource 'package-manifest.json')
     . (Join-Path $PSScriptRoot 'InstalledUpgrade.ps1')
+    $upgradeError=$null
     try {
         Test-NativeInstalledUpgrade $priorPackage $runtimeSource $folder $catalog $CaptureOnePath
         if((Get-FileHash -LiteralPath $source).Hash -ne $sourceHash){throw 'Source catalog changed unexpectedly.'}
         Write-Output "Host test passed; source catalog unchanged. Evidence: $folder"
+    } catch {
+        $upgradeError=$_
+        throw
     } finally {
-        Restore-TestCatalogPreferences $profile $backup $fixtureCatalogs $folder
+        try { Restore-TestCatalogPreferences $profile $backup $fixtureCatalogs $folder }
+        catch {
+            if (!$upgradeError) { throw }
+            Write-Warning "The upgrade test and its recent catalog cleanup both failed. Preferences backup retained. $($_.Exception.Message)"
+        }
     }
     return
 }
@@ -264,7 +282,7 @@ $testHook=$TestHookPath
 if(!(Test-Path -LiteralPath $testHook)){throw 'Build qa/HostSmoke and NativePanel first.'}
 Copy-Item -LiteralPath $testHook -Destination $runtime
 $testHook=Join-Path $runtime 'HostSmoke.dll'
-$names=@('DOTNET_STARTUP_HOOKS','SPEKTRAFILM_ROOT','SPEKTRAFILM_CATALOG','SPEKTRAFILM_DATA_ROOT','SPEKTRAFILM_PANEL_LOG','SPEKTRAFILM_HOST_SMOKE','SPEKTRAFILM_LAUNCH_ID','SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX','SPEKTRAFILM_SHOW_TOOL','SPEKTRAFILM_HOST_PROOF_TEST','SPEKTRAFILM_HOST_CATALOG_ISOLATION','SPEKTRAFILM_HOST_VIEWER_LAYOUTS','SPEKTRAFILM_HOST_DURABLE_EDITS','SPEKTRAFILM_HOST_METADATA_FIXTURE','SPEKTRAFILM_HOST_VIEWER_CHURN','SPEKTRAFILM_HOST_OTHER_CATALOG')
+$names=@('DOTNET_STARTUP_HOOKS','SPEKTRAFILM_ROOT','SPEKTRAFILM_CATALOG','SPEKTRAFILM_DATA_ROOT','SPEKTRAFILM_PANEL_LOG','SPEKTRAFILM_HOST_SMOKE','SPEKTRAFILM_LAUNCH_ID','SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX','SPEKTRAFILM_SHOW_TOOL','SPEKTRAFILM_HOST_PROOF_TEST','SPEKTRAFILM_HOST_CATALOG_ISOLATION','SPEKTRAFILM_HOST_VIEWER_LAYOUTS','SPEKTRAFILM_HOST_DURABLE_EDITS','SPEKTRAFILM_HOST_METADATA_FIXTURE','SPEKTRAFILM_HOST_VIEWER_CHURN','SPEKTRAFILM_HOST_OTHER_CATALOG','SPEKTRAFILM_HOST_SESSION')
 $prior=@{}
 foreach($name in $names){$prior[$name]=[Environment]::GetEnvironmentVariable($name,'Process')}
 $testError=$null
@@ -284,6 +302,7 @@ try {
     $env:SPEKTRAFILM_HOST_METADATA_FIXTURE=$MetadataFixtureRoot
     $env:SPEKTRAFILM_HOST_VIEWER_CHURN=if($ViewerChurn){[string]$ViewerChurn}else{$null}
     $env:SPEKTRAFILM_HOST_OTHER_CATALOG=if($ConcurrentCatalogs){$fixtureCatalogs[1]}else{$null}
+    $env:SPEKTRAFILM_HOST_SESSION=$sessionDatabase
     $phases=if($CatalogIsolation){@('A-first','B-first','A-restart','B-restart')}elseif($SkipRestart -or $ViewerLayouts){@('first')}else{@('first','restart')}
     if (!$SkipRestart -and !$CatalogIsolation -and !$ViewerLayouts -and !$DurableSliderEdits) { [IO.File]::WriteAllText((Join-Path $folder 'verify-grain-restart.marker'), 'test only') }
     foreach($phase in $phases){
