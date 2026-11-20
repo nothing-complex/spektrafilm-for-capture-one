@@ -408,6 +408,8 @@ public static partial class StartupHook
     {
         var histogram = Field(spatial, "histogram")!;
         var section = (Expander)Prop(histogram, "Section")!;
+        var marking = (CheckBox)Field(histogram, "markHighlights")!;
+        var viewer = Field(spatial, "viewer")!;
         var comparison = (CheckBox)Field(spatial, "showSource")!;
         var palette = hook.GetField("owner", Flags)!.GetValue(null)!;
         var priorTab = Prop(palette, "Current");
@@ -438,6 +440,49 @@ public static partial class StartupHook
             Check(((int[])Prop(film, "Red")!).Sum() == pixels && ((int[])Prop(film, "Green")!).Sum() == pixels
                 && ((int[])Prop(film, "Blue")!).Sum() == pixels, "real film histogram channel counts match the view dimensions");
 
+            marking.IsChecked = true;
+            film = await WaitForHistogram();
+            var mask = (BitmapSource)Prop(film, "HighlightMask")!;
+            Check(ReferenceEquals(Field(viewer, "clippingSource"), displayed) && ReferenceEquals(Field(viewer, "clippingMask"), mask)
+                && mask.Format == PixelFormats.Indexed1 && mask.PixelWidth == displayed.PixelWidth && mask.PixelHeight == displayed.PixelHeight,
+                "real Viewer clipping mask is bound to the exact displayed film bitmap");
+
+            var attachment = Field(viewer, "attachment")!;
+            var geometry = Prop(attachment, "Geometry")!;
+            var painter = (Visual)Prop(attachment, "Painter")!;
+            var transform = (Matrix)Prop(geometry, "Transform")!;
+            var imageClip = (Rect)Prop(geometry, "Clip")!;
+            var dpi = VisualTreeHelper.GetDpi(painter);
+            var paintStarted = Stopwatch.GetTimestamp();
+            int imageIndex, maskIndex;
+            do
+            {
+                var images = ImageLayers(painter).ToArray();
+                imageIndex = Array.FindIndex(images, image => ReferenceEquals(image, displayed));
+                maskIndex = Array.FindIndex(images, image => ReferenceEquals(image, mask));
+                if (imageIndex >= 0 && maskIndex > imageIndex) break;
+                await Task.Delay(50);
+            } while (Stopwatch.GetElapsedTime(paintStarted) < TimeSpan.FromSeconds(5));
+            Check(imageIndex >= 0 && maskIndex > imageIndex, "native WPF paint recorded the clipping mask after the film image");
+            var coordinate = (
+                from x in new[] { displayed.PixelWidth / 2, displayed.PixelWidth / 4, displayed.PixelWidth * 3 / 4 }
+                from y in new[] { displayed.PixelHeight / 2, displayed.PixelHeight / 4, displayed.PixelHeight * 3 / 4 }
+                let physical = transform.Transform(new Point(x + .5, y + .5))
+                where imageClip.Contains(physical)
+                select (x, y, physical)).First();
+            var selected = Call(viewer, "ReadPixel", new Point(coordinate.physical.X / dpi.DpiScaleX, coordinate.physical.Y / dpi.DpiScaleY))!;
+            var expected = new byte[4];
+            displayed.CopyPixels(new Int32Rect(coordinate.x, coordinate.y, 1, 1), expected, 4, 0);
+            Check(ReferenceEquals(Prop(selected, "Frame"), displayed) && Equals(Prop(selected, "X"), coordinate.x)
+                && Equals(Prop(selected, "Y"), coordinate.y) && Equals(Prop(selected, "Red"), expected[2])
+                && Equals(Prop(selected, "Green"), expected[1]) && Equals(Prop(selected, "Blue"), expected[0]),
+                "picker inverts the actual native paint coordinates and returns the exact sRGB pixel");
+            Check(Call(viewer, "ReadPixel", new Point((imageClip.Right + 1) / dpi.DpiScaleX, imageClip.Y / dpi.DpiScaleY)) is null,
+                "picker rejects locations outside the native image clip");
+            Call(histogram, "SetSample", selected);
+            Check(((TextBlock)Field(histogram, "sample")!).Text.StartsWith($"sRGB · R {expected[2]} · G {expected[1]} · B {expected[0]}",
+                StringComparison.Ordinal), "real panel labels the picker values with their sRGB encoding");
+
             var graphic = (FrameworkElement)Field(histogram, "graph")!;
             var width = (int)Math.Ceiling(graphic.ActualWidth);
             var height = (int)Math.Ceiling(graphic.ActualHeight);
@@ -453,15 +498,35 @@ public static partial class StartupHook
             var unprocessed = await WaitForHistogram();
             Check(!ReferenceEquals(film, unprocessed) && !((int[])Prop(film, "Red")!).SequenceEqual((int[])Prop(unprocessed, "Red")!),
                 "Show source produces a fresh histogram from the actual source Viewer pixels");
+            Check(ReferenceEquals(Field(viewer, "clippingSource"), Field(spatial, "viewerFrame"))
+                && !ReferenceEquals(Field(viewer, "clippingSource"), displayed), "Show source refreshes the clipping overlay for the visible frame");
             section.IsExpanded = false;
-            Check(Prop(histogram, "Histogram") is null && File.Exists(Path.Combine(folder, "Panel preferences.json")),
-                "closing the histogram clears its result and saves layout only to the disposable preferences");
+            Check(Prop(histogram, "Histogram") is null && Field(viewer, "clippingMask") is null
+                && Field(viewer, "inspectionEnabled") is false && File.Exists(Path.Combine(folder, "Panel preferences.json")),
+                "closing the histogram clears analysis and saves layout only to the disposable preferences");
         }
         finally
         {
             section.IsExpanded = false;
+            marking.IsChecked = false;
             comparison.IsChecked = priorComparison;
             select.Invoke(null, new[] { palette, priorTab });
+        }
+    }
+
+    static System.Collections.Generic.IEnumerable<ImageSource> ImageLayers(Visual visual)
+    {
+        foreach (var image in FromDrawing(VisualTreeHelper.GetDrawing(visual))) yield return image;
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(visual); index++)
+            if (VisualTreeHelper.GetChild(visual, index) is Visual child)
+                foreach (var image in ImageLayers(child)) yield return image;
+
+        static System.Collections.Generic.IEnumerable<ImageSource> FromDrawing(Drawing? drawing)
+        {
+            if (drawing is ImageDrawing { ImageSource: { } image }) yield return image;
+            else if (drawing is DrawingGroup group)
+                foreach (var child in group.Children)
+                    foreach (var source in FromDrawing(child)) yield return source;
         }
     }
 

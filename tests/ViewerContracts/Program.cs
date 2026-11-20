@@ -135,6 +135,27 @@ internal static partial class Program
         Check(bins.Red[156] == 1 && bins.Green[169] == 1 && bins.Blue[177] == 1 && bins.Green[70] == 0,
             "partially transparent colour is counted and fully transparent colour is excluded");
         Check(bins.Red.Sum() == 6 && bins.Green.Sum() == 6 && bins.Blue.Sum() == 6, "histogram totals match the exact visible sample count");
+        Check(bins.HighlightMask is null, "an off-state clipping overlay allocates no mask");
+        var marked = ViewerHistogram.Read(image, CancellationToken.None, markHighlights: true);
+        var mask = marked.HighlightMask!;
+        var maskBytes = new byte[2];
+        mask.CopyPixels(maskBytes, 1, 0);
+        Check(mask.IsFrozen && mask.Format == PixelFormats.Indexed1 && maskBytes.SequenceEqual(new byte[] { 0xe0, 0x40 }),
+            "clipping mask uses one bit per pixel and excludes transparent or below-maximum patches");
+        var overlay = new FormatConvertedBitmap(mask, PixelFormats.Bgra32, null, 0);
+        var display = new byte[32];
+        overlay.CopyPixels(display, 16, 0);
+        Check(display[3] == 148 && display[15] == 0 && display[23] == 148 && display[31] == 0,
+            "clipping mask exposes exactly the clipped pixels as translucent marks");
+
+        var transform = new Matrix(-2, .25, .75, 3, 20, 10);
+        var coordinates = new ViewerGeometry(new System.Windows.Rect(12, 8, 10, 15), transform, 8);
+        Check(coordinates.TryMapPixel(transform.Transform(new System.Windows.Point(2.5, 1.5)), 4, 2, out var point)
+            && point == (2, 1), "pixel inspection inverts the exact mirrored and sheared Viewer transform");
+        Check(!coordinates.TryMapPixel(transform.Transform(new System.Windows.Point(.1, 2)), 4, 2, out _)
+            && !coordinates.TryMapPixel(new System.Windows.Point(22, 15), 4, 2, out _)
+            && !coordinates.TryMapPixel(new System.Windows.Point(double.NaN, 15), 4, 2, out _),
+            "pixel inspection rejects right/bottom edges, clipped and non-finite coordinates");
         using var stop = new CancellationTokenSource();
         stop.Cancel();
         try

@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
@@ -21,14 +22,19 @@ internal sealed class ViewerPreview : IDisposable
     private const string InactiveDocument = "Activate the selected catalog to resume the Spektrafilm preview.";
     private const string WaitingForGeometry = "Waiting for a visible image in the main Viewer.";
     private readonly object window;
+    private readonly byte[] sampleBytes = new byte[4];
     private Attachment? attachment;
     private DispatcherOperation? statusNotification;
+    private BitmapSource? clippingSource;
+    private BitmapSource? clippingMask;
+    private bool inspectionEnabled;
     private bool disposed;
 
     internal ViewerPreview(object window) => this.window = window;
     internal string? UnavailableReason { get; private set; }
     internal bool HasPainted => UnavailableReason is null && attachment is { HasDrawn: true };
     internal event Action? StatusChanged;
+    internal event Action<ViewerPixel?>? PixelChanged;
 
     internal double? ProjectedLongEdge(Guid variant) => attachment is { HasDrawn: true, PaintUnavailable: null } current
         && current.VariantId == variant ? current.ProjectedLongEdge : null;
@@ -90,6 +96,8 @@ internal sealed class ViewerPreview : IDisposable
             };
             attachment = attached;
             painter.Paint += Paint;
+            painter.AddHandler(UIElement.MouseMoveEvent, new MouseEventHandler(OnPointerMoved), handledEventsToo: true);
+            painter.MouseLeave += OnPointerLeft;
             view.Unloaded += OnViewUnloaded;
             var unavailable = Availability(attached) ?? attached.PaintUnavailable;
             SetStatus(unavailable);
@@ -117,6 +125,22 @@ internal sealed class ViewerPreview : IDisposable
         SetStatus(null);
     }
 
+    internal void InspectPixels(bool enabled)
+    {
+        inspectionEnabled = enabled;
+        if (!enabled) PixelChanged?.Invoke(null);
+    }
+
+    internal void ShowClipping(BitmapSource? source, BitmapSource? mask)
+    {
+        if (ReferenceEquals(clippingSource, source) && ReferenceEquals(clippingMask, mask))
+            return;
+        clippingSource = source;
+        clippingMask = mask;
+        if (attachment is { } current)
+            Invalidate(current.View);
+    }
+
     private void Detach()
     {
         var previous = attachment;
@@ -126,6 +150,9 @@ internal sealed class ViewerPreview : IDisposable
 
         previous.View.Unloaded -= OnViewUnloaded;
         previous.Painter.Paint -= Paint;
+        previous.Painter.RemoveHandler(UIElement.MouseMoveEvent, new MouseEventHandler(OnPointerMoved));
+        previous.Painter.MouseLeave -= OnPointerLeft;
+        if (inspectionEnabled) PixelChanged?.Invoke(null);
         try
         {
             Invalidate(previous.View);
@@ -149,6 +176,35 @@ internal sealed class ViewerPreview : IDisposable
         statusNotification?.Abort();
         statusNotification = null;
         StatusChanged = null;
+        PixelChanged = null;
+        clippingSource = clippingMask = null;
+    }
+
+    private void OnPointerMoved(object sender, MouseEventArgs args)
+    {
+        if (inspectionEnabled && attachment is { } current && ReferenceEquals(sender, current.Painter))
+            PixelChanged?.Invoke(ReadPixel(args.GetPosition(current.Painter)));
+    }
+
+    private void OnPointerLeft(object sender, MouseEventArgs args)
+    {
+        if (inspectionEnabled && ReferenceEquals(sender, attachment?.Painter))
+            PixelChanged?.Invoke(null);
+    }
+
+    internal ViewerPixel? ReadPixel(Point position)
+    {
+        if (UnavailableReason is not null || attachment is not { Geometry: { } geometry } current
+            || !ReferenceEquals(current.PaintedBitmap, current.Bitmap)
+            || current.Bitmap.Format != PixelFormats.Bgra32 || Availability(current) is not null)
+            return null;
+        var dpi = VisualTreeHelper.GetDpi(current.Painter);
+        var physical = new Point(position.X * dpi.DpiScaleX, position.Y * dpi.DpiScaleY);
+        var image = current.Bitmap;
+        if (!geometry.TryMapPixel(physical, image.PixelWidth, image.PixelHeight, out var pixel))
+            return null;
+        image.CopyPixels(new Int32Rect(pixel.X, pixel.Y, 1, 1), sampleBytes, 4, 0);
+        return sampleBytes[3] == 0 ? null : new ViewerPixel(image, pixel.X, pixel.Y, sampleBytes[2], sampleBytes[1], sampleBytes[0]);
     }
 
     private void Paint(PaintEventArgs args)
@@ -197,7 +253,10 @@ internal sealed class ViewerPreview : IDisposable
                 drawing.PushTransform(transform);
                 try
                 {
-                    drawing.DrawImage(current.Bitmap, new Rect(0, 0, width, height));
+                    var destination = new Rect(0, 0, width, height);
+                    drawing.DrawImage(current.Bitmap, destination);
+                    if (ReferenceEquals(current.Bitmap, clippingSource) && clippingMask is { } mask)
+                        drawing.DrawImage(mask, destination);
                 }
                 finally
                 {
@@ -216,6 +275,8 @@ internal sealed class ViewerPreview : IDisposable
             }
             current.PaintUnavailable = null;
             current.ProjectedLongEdge = geometry.ProjectedLongEdge;
+            current.Geometry = geometry;
+            current.PaintedBitmap = current.Bitmap;
             SetStatus(null);
         }
         catch (Exception error)
@@ -368,5 +429,9 @@ internal sealed class ViewerPreview : IDisposable
         internal double ProjectedLongEdge { get; set; }
         internal RectangleGeometry? Clip { get; set; }
         internal MatrixTransform? Transform { get; set; }
+        internal ViewerGeometry? Geometry { get; set; }
+        internal BitmapSource? PaintedBitmap { get; set; }
     }
 }
+
+internal readonly record struct ViewerPixel(BitmapSource Frame, int X, int Y, byte Red, byte Green, byte Blue);

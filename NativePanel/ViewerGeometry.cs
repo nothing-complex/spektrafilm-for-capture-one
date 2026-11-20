@@ -50,6 +50,28 @@ internal readonly record struct ViewerGeometry(Rect Clip, Matrix Transform, doub
         return true;
     }
 
+    internal bool TryMapPixel(System.Windows.Point physical, int width, int height, out (int X, int Y) pixel)
+    {
+        pixel = default;
+        if (!double.IsFinite(physical.X) || !double.IsFinite(physical.Y)
+            || physical.X < Clip.Left || physical.X >= Clip.Right || physical.Y < Clip.Top || physical.Y >= Clip.Bottom)
+            return false;
+        var inverse = Transform;
+        if (!inverse.HasInverse)
+            return false;
+        inverse.Invert();
+        var source = inverse.Transform(physical);
+        // Inverting a rotated or sheared transform can move an exact edge by
+        // a few floating-point bits. Keep the source rectangle half open.
+        const double edgeTolerance = 1e-8;
+        if (!double.IsFinite(source.X) || !double.IsFinite(source.Y)
+            || source.X < -edgeTolerance || source.X >= width - edgeTolerance
+            || source.Y < -edgeTolerance || source.Y >= height - edgeTolerance)
+            return false;
+        pixel = ((int)Math.Max(0, source.X), (int)Math.Max(0, source.Y));
+        return true;
+    }
+
     internal static Rectangle ScaleCrop(RectangleF crop, SizeF canvas, int width, int height)
     {
         var sx = (double)width / canvas.Width;

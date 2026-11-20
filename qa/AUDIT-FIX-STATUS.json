@@ -2226,7 +2226,10 @@
         "Add a clearly labeled sRGB Viewer histogram from the exact settled BGRA display frame. It counts visible channel codes and marks the count of pixels with any channel at 255. Transparency handling is explicit.",
         "The histogram recomputes on Show source, clears on stale or unavailable frames, scans only when the section is expanded and visible, and cancels superseded work. It processes one bitmap row at a time.",
         "Verified the exact displayed bitmap identity and complete RGB counts in the licensed host, a distinct histogram for Show source and the native panel layout. Captured first-launch and restart graph images from WPF.",
-        "Run 12,539 host-independent assertions and 174 first-launch plus 178 restart host assertions. A dedicated process data root kept both fixture looks and panel preferences in the disposable folder from startup. The original catalog hash was unchanged."
+        "Run 12,539 host-independent assertions and 174 first-launch plus 178 restart host assertions. A dedicated process data root kept both fixture looks and panel preferences in the disposable folder from startup. The original catalog hash was unchanged.",
+        "Expanding Viewer histogram enables a settled-preview sRGB pixel picker and optional one-bit clipping mask. The picker maps native WPF DIPs through physical DPI and the exact painted inverse affine transform. It ignores other variants, unpublished frames, transparent pixels and off-clip positions.",
+        "The mask counts/marks pixels with any visible channel at 255. The real Capture One WPF drawing order puts it after the film bitmap. It clears on collapse and switches to the exact source bitmap with Show source. The opt-in display overlay is independent of exports.",
+        "Passed 12,659 host-independent assertions and 183 first-launch plus 188 restart checks. A known-colour synthetic patch checks the mask bit layout and alpha. A live picker probe compares exact RGB against independently copied pixels in the actual settled Capture One frame."
       ],
       "evidence_paths": [
         "NativePanel/ViewerHistogram.cs",
@@ -2235,12 +2238,15 @@
         ".test-results/contracts-viewer-histogram-20261120/summary.json",
         ".test-results/host-viewer-histogram-20261120/host-smoke.log",
         ".test-results/host-viewer-histogram-20261120/viewer-histogram.png",
-        ".test-results/host-viewer-histogram-20261120/viewer-histogram-restart.png"
+        ".test-results/host-viewer-histogram-20261120/viewer-histogram-restart.png",
+        "NativePanel/ViewerGeometry.cs",
+        "NativePanel/ViewerPreview.cs",
+        ".test-results/contracts-viewer-analysis-edges-20261120/ViewerContracts.log",
+        ".test-results/host-viewer-analysis-painter-20261120/host-smoke.log"
       ],
       "remaining_work": [
-        "Add a sampled RGB readout and optional clipping overlay with verified pointer-to-image geometry at zoom and across DPI.",
-        "Verify native histogram, detail picker, focus mask, crop handles, brush and annotations against the processed overlay paint order. The panel histogram currently works from display pixels separately from native Capture One analysis.",
-        "Confirm profile-managed monitor/display parity with VE-10 before presenting numerical values outside sRGB Viewer codes."
+        "Inventory native analytic consumers and verify crop handle, mask brush, focus mask, native warning and annotation paint/input order in each supported mode. Keep processed analysis separated from native instruments unless a supported adapter can provide verified ownership.",
+        "Confirm DPI/monitor profile and proof behavior in VE-10. The panel reports the settled sRGB preview code values."
       ],
       "original_acceptance_tests": [
         "Patch chart where film crushes whites or changes hue; compare visible result and processed histogram/picker values.",

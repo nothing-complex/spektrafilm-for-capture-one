@@ -135,6 +135,9 @@ internal sealed class SpatialPreview : IDisposable
         this.exportJobs = exportJobs;
         viewer = new ViewerPreview(window);
         viewer.StatusChanged += UpdateViewerStatus;
+        viewer.PixelChanged += histogram.SetSample;
+        histogram.InspectionChanged += viewer.InspectPixels;
+        histogram.ClippingChanged += viewer.ShowClipping;
         var liveControls = new StackPanel();
         liveControls.Children.Add(status);
         var actions = new WrapPanel();

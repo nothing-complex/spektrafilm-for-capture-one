@@ -11,6 +11,8 @@ using System.Windows.Media.Imaging;
 internal sealed class ViewerHistogramControl : IDisposable
 {
     private readonly TextBlock detail = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) };
+    private readonly TextBlock sample = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) };
+    private readonly CheckBox markHighlights = new() { Content = "Mark clipped channels", Margin = new Thickness(0, 4, 0, 0) };
     private readonly HistogramGraph graph = new() { Height = 82, SnapsToDevicePixels = true };
     private BitmapSource? frame;
     private bool source;
@@ -24,14 +26,29 @@ internal sealed class ViewerHistogramControl : IDisposable
         AutomationProperties.SetName(graph, "sRGB Viewer red, green and blue histogram");
         content.Children.Add(graph);
         content.Children.Add(detail);
+        content.Children.Add(markHighlights);
+        content.Children.Add(sample);
+        AutomationProperties.SetName(sample, "Viewer sRGB pixel sample");
         Section = PanelPreferences.CreateSection("viewer-histogram", "Viewer histogram", content, 7);
         Section.Expanded += OnExpansion;
         Section.Collapsed += OnExpansion;
         Section.IsVisibleChanged += OnVisibility;
+        markHighlights.Checked += OnExpansion;
+        markHighlights.Unchecked += OnExpansion;
     }
 
     internal Expander Section { get; }
     internal ViewerHistogram? Histogram => graph.Bins;
+    internal event Action<bool>? InspectionChanged;
+    internal event Action<BitmapSource?, BitmapSource?>? ClippingChanged;
+
+    internal void SetSample(ViewerPixel? pixel)
+    {
+        var text = pixel is { } value && ReferenceEquals(frame, value.Frame)
+            ? $"sRGB · R {value.Red} · G {value.Green} · B {value.Blue} · ({value.X}, {value.Y})"
+            : "Move over the Viewer to read a pixel.";
+        if (sample.Text != text) sample.Text = text;
+    }
 
     internal void SetFrame(BitmapSource? image, bool showSource = false)
     {
@@ -44,7 +61,8 @@ internal sealed class ViewerHistogramControl : IDisposable
 
     private void OnExpansion(object sender, RoutedEventArgs args)
     {
-        if (ReferenceEquals(args.OriginalSource, Section)) Refresh();
+        if (ReferenceEquals(args.OriginalSource, Section) || ReferenceEquals(args.OriginalSource, markHighlights))
+            Refresh();
     }
 
     private void OnVisibility(object sender, DependencyPropertyChangedEventArgs args) => Refresh();
@@ -53,7 +71,11 @@ internal sealed class ViewerHistogramControl : IDisposable
     {
         cancellation?.Cancel();
         graph.Show(null);
-        if (disposed || !Section.IsVisible || !Section.IsExpanded)
+        ClippingChanged?.Invoke(null, null);
+        var inspecting = !disposed && Section.IsVisible && Section.IsExpanded;
+        InspectionChanged?.Invoke(inspecting);
+        SetSample(null);
+        if (!inspecting)
             return;
         if (frame is not { } image)
         {
@@ -63,19 +85,21 @@ internal sealed class ViewerHistogramControl : IDisposable
         detail.Text = "Reading Viewer pixels…";
         var work = new CancellationTokenSource();
         cancellation = work;
-        scan = ScanAsync(scan, image, source, work);
+        scan = ScanAsync(scan, image, source, markHighlights.IsChecked == true, work);
     }
 
-    private async Task ScanAsync(Task previous, BitmapSource image, bool showSource, CancellationTokenSource work)
+    private async Task ScanAsync(Task previous, BitmapSource image, bool showSource, bool showClipping, CancellationTokenSource work)
     {
         try
         {
             await previous;
-            var bins = await Task.Run(() => ViewerHistogram.Read(image, work.Token), work.Token);
+            var bins = await Task.Run(() => ViewerHistogram.Read(image, work.Token, showClipping), work.Token);
             work.Token.ThrowIfCancellationRequested();
             graph.Show(bins);
             var frameName = showSource ? "sRGB source" : "sRGB film preview";
             detail.Text = $"{frameName} · {bins.HighlightCount:N0} pixels with a channel at 255";
+            if (bins.HighlightMask is { } mask)
+                ClippingChanged?.Invoke(image, mask);
         }
         catch (OperationCanceledException) { }
         catch (Exception error)
@@ -96,6 +120,8 @@ internal sealed class ViewerHistogramControl : IDisposable
         Section.Expanded -= OnExpansion;
         Section.Collapsed -= OnExpansion;
         Section.IsVisibleChanged -= OnVisibility;
+        markHighlights.Checked -= OnExpansion;
+        markHighlights.Unchecked -= OnExpansion;
         cancellation?.Cancel();
         frame = null;
         graph.Show(null);

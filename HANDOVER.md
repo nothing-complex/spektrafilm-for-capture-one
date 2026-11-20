@@ -442,6 +442,15 @@ Evidence is under `.test-results/enlarger-before-20261120.json`, `.test-results/
 
 Evidence is under `.test-results/contracts-high-depth-final-20261120`, `.test-results/contracts-viewer-analysis-edges-20261120`, `.test-results/host-high-depth-final-20261120` and `.test-results/host-high-depth-matrix-20261120`. Use ViewerContracts with `--benchmark-rgb16 <report.json>` or `--benchmark-export-pixels <report.json>` for the CPU measurements.
 
+## Viewer pixel inspection and clipping overlay
+
+- [x] Sample the exact settled Viewer bitmap in sRGB using the inverse native paint transform and physical DPI. Bound the sample to its current image, clip and visible pixels.
+- [x] Draw the optional one-bit clipping mask after the correct frame. A real Capture One WPF drawing-tree check verifies the order. Switching to Show source updates the histogram, picker and mask. Closing the analysis section clears the overlay and stops work.
+- [x] Pass 12,659 host-independent assertions and 183 new-launch plus 188 restart checks. The original catalog hash was unchanged.
+- [ ] Verify native crop, mask, focus and annotation modes independently. Monitor proofing and native analytic service integration remain open.
+
+Evidence is under `.test-results/contracts-viewer-analysis-edges-20261120` and `.test-results/host-viewer-analysis-painter-20261120`.
+
 ## Status maintenance
 
 `qa/AUDIT-FIX-STATUS.json` owns task IDs, status, implemented substeps, remaining acceptance work and evidence. This handover owns context, runtime identity and resume instructions. `.test-results/FINAL-RESULT.json` is the completed runtime delivery receipt; keep its runtime commit/package identity distinct from later documentation-only commits.
