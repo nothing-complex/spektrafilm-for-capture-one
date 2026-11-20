@@ -1,12 +1,12 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 23 bounded primary fixes implemented and 47 partial items. It includes feasibility investigations and enhancements.
+Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The 70-item integration audit tracks 24 bounded primary fixes implemented and 46 partial items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
 1. Read this file, `AGENTS.md` and `qa/AUDIT-FIX-STATUS.json` before changing code. The JSON is the authoritative task-progress ledger; its `remaining_work` and original acceptance tests matter more than a short status label.
 2. Check `git status`, current branch and PR head. Do not discard existing edits or switch the installed build merely because this documentation has a newer commit.
-3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP is `0.2.0-audit.12` from clean `4e42336`. Its verification used an isolated installation. The normal app stayed on `ffc4819`.
+3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP is `0.2.0-audit.14` from clean `ffb5174`. Its verification used an isolated installation.
 4. Choose an unresolved task and an exact ownership boundary. Do not repeat the completed installation, crash test or old defect reproductions as if nothing had happened.
 5. Update task evidence and the delivery ledger at each completed milestone. Never mark a broad parent task complete because one mitigation shipped.
 
@@ -702,6 +702,14 @@ Repeat with `qa/HostSmoke/Run-HostSmoke.ps1 -ViewerChurn 100` using the disposab
 - [ ] Exercise actual long-running timeouts and proxy-pending recovery with the native app. Extend out-of-order stress to rapid live edits during source changes and export, and measure the effect of competing workloads.
 
 Evidence is under `.test-results/contracts-viewer-worker-retry-20261120`, `.test-results/host-viewer-retry-native-final-20261120` and `.test-results/host-viewer-layout-regression-20261120`.
+
+## Verified audit.14 development package
+
+- [x] Build clean `ffb5174`, extract the 153-file Windows ZIP and validate both package and 19-file runtime manifests. ZIP SHA-256 `df16f40db3a55c0cf1cae9fe4deeaa8e53261d009c9c013262108345c9b4be95`.
+- [x] Upgrade an isolated audit.13 install, verify CheckOnly retains its previous version and observe retirement only after licensed panel and native Export readiness. The exact installed runtime kept both legacy and external preset bytes. The regular user runtime is still `ffc4819`.
+- [x] Pass 294 first-launch, 298 restart, 115 RAW matrix, 27 native metadata and 28 managed physical Vulkan assertions on the exact extracted build. Public Windows 2022 and 2025 passed on its exact source. [Public CI](https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44680701028)
+
+The combined receipt is `.test-results/audit14-package-verify-20261120/result.json`. The verified development ZIP is under `dist/`; the package and source were checked independently.
 
 ## Tagged Windows package validation
 

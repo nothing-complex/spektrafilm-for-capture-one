@@ -3122,32 +3122,32 @@
     "original_test_catalog_hash_unchanged": true,
     "local_evidence_note": "Paths under .test-results/build/dist are ignored local artifacts and are not present in a public clone.",
     "latest_development_package": {
-      "version": "0.2.0-audit.12",
-      "archive": "dist/Spektrafilm-for-Capture-One-v0.2.0-audit.12-windows-x64.zip",
-      "sha256": "7ef25e54b275250594986c6f7c4bbf150e6e9bc58d0cffc5ba2be2f6bad38d69",
+      "version": "0.2.0-audit.14",
+      "archive": "dist/Spektrafilm-for-Capture-One-v0.2.0-audit.14-windows-x64.zip",
+      "sha256": "df16f40db3a55c0cf1cae9fe4deeaa8e53261d009c9c013262108345c9b4be95",
       "source": {
-        "commit": "4e4233615a6068267b7da5128863537f11b2165f",
+        "commit": "ffb51740404c7d6152285b9edf6fa4356f518a14",
         "dirty": false,
-        "treeDigest": "619af56a01a562eb2dc357f62231b09b2f63756e55ed55a4d07c70a462765cd9"
+        "treeDigest": "6fa2a19a51a267c81dcb7c9deed3af3d2e3759fdd3ea85b392baa6c099d0b808"
       },
-      "verified_package_entries": 152,
+      "verified_package_entries": 153,
       "verified_runtime_entries": 19,
       "renderer_protocol": 2,
-      "renderer_sha256": "5be162e8ef352e2d2a34275e997e5b6eb8edc28580d1aca89176d25da156cb08",
-      "asset_contract": "60663539aa44af8b2c4e0af1b34fa562d79335f4d8e14864a11bbc8d0173b1a5",
+      "renderer_sha256": "47ae010c3cbde41579e2e6b3c2ee6336496f3e2d1741d866827d14bde8c74e49",
+      "asset_contract": "7bc552c3a6db30572393c854bec69cb0f3621356484f80c5392b6a442894e710",
       "generated_capabilities_sha256": "725e1a82999543343b8faa1bfef128d1b49128c7de9ee66cb754564e4885eb4f",
       "version3_native_preset_verified": true,
       "isolated_install_and_checkonly": "passed",
       "exact_package_host_tests": {
-        "first_launch": 265,
-        "restart": 269,
+        "first_launch": 294,
+        "restart": 298,
         "raw_matrix": 115,
         "managed_gpu": 28,
         "native_metadata": 27
       },
-      "remote_windows_contracts": "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44671168038",
+      "remote_windows_contracts": "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44680701028",
       "normal_installed_revision": "ffc481988eb2e6e7ef7a1379486c4a8b2656ac81",
-      "receipt": ".test-results/audit12-package-verify-20261120/result.json"
+      "receipt": ".test-results/audit14-package-verify-20261120/result.json"
     }
   },
   "completed_milestones": [
