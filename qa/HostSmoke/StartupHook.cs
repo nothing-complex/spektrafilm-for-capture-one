@@ -18,7 +18,7 @@ using Microsoft.Win32;
 using Forms = System.Windows.Forms;
 
 // A separate, opt-in test startup hook. Never distributed in the product package.
-public static class StartupHook
+public static partial class StartupHook
 {
     const BindingFlags Flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
     static Forms.Timer? timer;
@@ -79,6 +79,13 @@ public static class StartupHook
             Check(Field(panel, "displayedVariant") is Guid, "selected image bound to panel");
             var variant = (Guid)Field(panel, "displayedVariant")!;
             var spatial = Field(panel, "opticalPreview")!;
+            if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX") == "1")
+            {
+                await RunColorMatrix(panelAssembly!, panel, window, spatial);
+                var phase = File.ReadAllText(Path.Combine(folder, "phase.txt"));
+                File.WriteAllText(Path.Combine(folder, phase + ".passed"), $"PASS {checks} native RAW colour assertions");
+                return;
+            }
             var exposure = Field(panel, "exposure")!;
             var toggle = (CheckBox)Field(panel, "enableSpektraFilm")!;
             await TestLaunchHealth(hosted, spatial, toggle);

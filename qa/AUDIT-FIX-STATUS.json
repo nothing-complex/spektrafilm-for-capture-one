@@ -861,16 +861,25 @@
       "priority": "P1",
       "status": "partial",
       "implemented": [
-        "Normal viewer input now stays high-depth at small resolutions; documentation distinguishes developed bounded output from raw scene-linear data."
+        "Normal viewer input now stays high-depth at small resolutions; documentation distinguishes developed bounded output from raw scene-linear data.",
+        "A licensed native RAW matrix exercised Canon CR3, Fujifilm RAF, Nikon NEF and Ricoh DNG in sRGB, Adobe RGB, ProPhoto RGB and Linear Rec.2020. All 16 cases used high-depth Capture One development with the same per-image geometry, converted to float32 and rendered a finite linear Rec.709 film result with exact alpha.",
+        "An independent Colour Science transform mapped each declared profile to common sRGB. Over comparable in-gamut regions, it lowered p95 error versus misreading the native codes as sRGB in every case. Adobe and ProPhoto p95 ranged 0.000685–0.008187. Linear Rec.2020 p95 ranged 0.006365–0.033348 across these files.",
+        "All source RAW checksums matched the pre-existing published sample list. The source catalog hash remained unchanged."
       ],
       "evidence_paths": [
         "NativePanel/HostImageSource.cs",
         "NativePanel/SpatialPreview.cs",
         "README.md",
-        "qa/HostSmoke"
+        "qa/HostSmoke",
+        "qa/HostSmoke/ColorMatrix.cs",
+        "qa/analyze-native-colour.py",
+        ".test-results/host-native-colour-matrix-20261120/host-smoke.log",
+        ".test-results/host-native-colour-matrix-20261120/color-matrix/common-srgb.json",
+        ".test-results/host-native-colour-matrix-20261120/color-matrix/source-checksums.txt"
       ],
       "remaining_work": [
-        "Implement immutable full frame descriptor and camera/WB/highlight/ramp parity; earlier scene-linear host seam remains unproven."
+        "Attach the immutable profile/range/variant/revision descriptor to developed frames and use it in source reuse keys.",
+        "Add calibrated exposure ramp, white balance, highlight recovery and same-stage native TIFF comparisons. Verify any earlier scene-linear host seam before adding a scene-linear or camera-log label."
       ],
       "original_acceptance_tests": [
         "Camera profile/WB/highlight recovery and ICC source cases",
@@ -1552,16 +1561,21 @@
       "id": "VE-09",
       "title": "Budget image buffers and preview caches by bytes and lifetime",
       "priority": "P2",
-      "status": "pending",
-      "implemented": [],
-      "evidence_paths": [],
+      "status": "partial",
+      "implemented": [
+        "The existing shared managed RAM model gates native development, worker transport and encoding by Windows physical and commit headroom. The Vulkan stage uses separate measured adapter headroom.",
+        "The existing Auto Viewer choice uses native projection and the same managed headroom. Viewer refresh retains one active source plus the bounded draft and display caches, and waits for workers to exit before accepting competing output work."
+      ],
+      "evidence_paths": [
+        "NativePanel/RenderMemoryBudget.cs",
+        "NativePanel/ViewportQuality.cs",
+        "NativePanel/SpatialPreview.cs",
+        ".test-results/contracts-grain-backup-policy-20261119/ViewerContracts.log",
+        ".test-results/host-auto-viewport-quality-20261120/host-smoke.log"
+      ],
       "remaining_work": [
-        "Inventory buffer owners across C1 bitmap, managed frame, pipe payload, worker cache and Vulkan images; record bytes/lifetime in diagnostics.",
-        "Add a shared memory budget with headroom for Capture One; source cache by document/variant/revision/color space, display cache by transform/quality.",
-        "Use pooled buffers only with explicit immutable leases and release barriers; no buffer reuse while async renderer still reads it.",
-        "Evict source display/float result when equivalent packed display suffices, while retaining warm caches that measurably help.",
-        "Evaluate shared-memory frame transport and GPU-resident handles only after baseline accounting and crash cleanup ownership are proven.",
-        "Provide Adaptive resolution using viewport demand and measured memory instead of always developing native dimensions."
+        "Measure retained managed, native and worker ownership through 100 switches and quantify 24/45/61MP at strength 0, 0.5 and 1.",
+        "Enforce cache byte budgets and explicit lifetime ownership beyond the current request-stage memory reservations. Evaluate any pooled or shared transport only after proving cancellation and process-exit release."
       ],
       "original_acceptance_tests": [
         "Allocation traces for 24/45/61MP at strength 0,0.5,1 and repeated switches; bound retained memory after GC/worker idle.",
@@ -2048,7 +2062,8 @@
       "status": "partial",
       "implemented": [
         "Tracked pure/GPU/host probes establish initial correctness evidence and retain explicit skipped prerequisites.",
-        "Windows worker benchmark saves per-request transport wall time, renderer stages and Vulkan allocations, working-set/commit samples, cold request versus reused-source edit percentiles, and renderer fingerprint in machine-readable JSON."
+        "Windows worker benchmark saves per-request transport wall time, renderer stages and Vulkan allocations, working-set/commit samples, cold request versus reused-source edit percentiles, and renderer fingerprint in machine-readable JSON.",
+        "Added an opt-in native RAW quality matrix for four actual cameras and four working spaces, with raw frame and independent colour metrics written as machine-readable evidence."
       ],
       "evidence_paths": [
         "tests",
@@ -2057,7 +2072,10 @@
         "Test-Windows.ps1",
         "qa/renderer-benchmark.py",
         ".test-results/renderer-benchmark-color-optics-20261119.json",
-        ".test-results/renderer-benchmark-grain-quality-20261119.json"
+        ".test-results/renderer-benchmark-grain-quality-20261119.json",
+        "qa/HostSmoke/ColorMatrix.cs",
+        "qa/analyze-native-colour.py",
+        ".test-results/host-native-colour-matrix-20261120/color-matrix/common-srgb.json"
       ],
       "remaining_work": [
         "No complete end-to-end hardware/source-format performance and quality acceptance matrix or release budgets yet.",
@@ -2729,8 +2747,8 @@
   "counts": {
     "total": 70,
     "implemented": 18,
-    "partial": 40,
-    "pending": 12
+    "partial": 41,
+    "pending": 11
   },
   "last_reconciled": "2026-11-20",
   "handover": "HANDOVER.md",

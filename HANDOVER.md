@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 18 bounded primary fixes implemented, 40 partial items and 12 pending items. It includes feasibility investigations and enhancements.
+Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 18 bounded primary fixes implemented, 41 partial items and 11 pending items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -397,6 +397,14 @@ Evidence is under `.test-results/host-viewer-histogram-20261120` and `.test-resu
 - [ ] Add resumable job descriptors, batch scheduling and full interruption coverage.
 
 Evidence is under `.test-results/host-export-progress-20261120` and `.test-results/contracts-export-progress-20261120`.
+
+## Native RAW working-colour matrix
+
+- [x] Use real CR3, RAF, NEF and DNG files in a copied catalog. Develop each in sRGB, Adobe RGB, ProPhoto RGB and Linear Rec.2020 at 16 bits, then render through Vulkan to linear Rec.709. All 16 cases preserve geometry and alpha within their camera fixture.
+- [x] Independently convert native buffers to sRGB with Colour Science. P95 absolute per-pixel channel difference in the within-range regions was 0.000685–0.008187 for Adobe and ProPhoto and 0.006365–0.033348 for Linear Rec.2020. Interpreting those encoded values directly as sRGB produced larger errors in every case.
+- [x] Pass 43 native assertions and match the four RAW checksums and original catalog hash. The matrix verifies Capture One-developed values and the film renderer seam. Monitor profiles, proofing and earlier sensor-domain data remain separate acceptance work.
+
+Run `Run-HostSmoke.ps1 -ColorMatrix -SkipRestart` with the four-camera test catalog, then `python qa/analyze-native-colour.py <results-directory>/color-matrix`. The local evidence is under `.test-results/host-native-colour-matrix-20261120`.
 
 ## Status maintenance
 
