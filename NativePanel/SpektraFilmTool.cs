@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -29,6 +30,7 @@ using P1.C1.Framework.Messaging;
 using P1.C1.ViewModels.Menu;
 using P1.C1.ViewModels.Notification;
 using P1.C1.ViewModels.Tools.InspectorTool;
+using P1.C1.ViewModels.Workspace;
 using P1.C1.WPF.Styles;
 
 internal static class SpektraFilmTool
@@ -73,6 +75,11 @@ internal static class SpektraFilmTool
         private DockableWindow? floating;
         private ScrollViewer? floatingScroll;
         private Rect? floatingBounds;
+        private double floatingScrollOffset;
+        private IWorkspaceManager? workspaceManager;
+        private DispatcherOperation? workspaceLayoutUpdate;
+        private string? workspaceKey;
+        private bool workspaceLayoutReady;
         private bool disposed;
 
         internal HostedTool(System.Windows.Forms.Form mainWindow, InspectorToolWpf tool, ICaptureOneDocument document)
@@ -84,6 +91,7 @@ internal static class SpektraFilmTool
             DockedContent = new UserControl { Content = Holder };
             if (PanelPreferences.Current.Floating is { IsValid: true } saved)
                 floatingBounds = new Rect(saved.Left, saved.Top, saved.Width, saved.Height);
+            floatingScrollOffset = PanelPreferences.Current.FloatingScrollOffset;
         }
 
         internal InspectorToolWpf Tool { get; }
@@ -109,7 +117,79 @@ internal static class SpektraFilmTool
                 .DoShowActionMenu(new PanelActionMenu(() => floating is null ? "Float Tool" : "Show Floating Tool", ShowFloating, panel))
                 .Build();
 
+        internal void BindWorkspaceLayout()
+        {
+            try
+            {
+                var program = mainWindow.GetType().Assembly.GetType("P1.C1.Program");
+                workspaceManager = program?.GetProperty("WorkspaceManager", BindingFlags.Public | BindingFlags.Static)
+                    ?.GetValue(null) as IWorkspaceManager;
+                if (workspaceManager is not null)
+                    workspaceManager.ActiveWorkspaceChanged += OnActiveWorkspaceChanged;
+                QueueWorkspaceLayout();
+            }
+            catch (Exception error)
+            {
+                StartupHook.Log("Spektrafilm could not read workspace placement: " + error.GetBaseException().Message);
+            }
+        }
+
+        private void OnActiveWorkspaceChanged(object? sender, WorkspaceManagerEventArgs args) => QueueWorkspaceLayout();
+
+        private void QueueWorkspaceLayout()
+        {
+            var dispatcher = DockedContent.Dispatcher;
+            if (disposed || dispatcher.HasShutdownStarted) return;
+            if (!dispatcher.CheckAccess())
+            {
+                _ = dispatcher.InvokeAsync(QueueWorkspaceLayout);
+                return;
+            }
+            if (workspaceLayoutUpdate?.Status != DispatcherOperationStatus.Pending)
+                workspaceLayoutUpdate = dispatcher.InvokeAsync(ApplyActiveWorkspaceLayout, DispatcherPriority.Loaded);
+        }
+
+        private void ApplyActiveWorkspaceLayout()
+        {
+            workspaceLayoutUpdate = null;
+            if (disposed) return;
+            try
+            {
+                var workspace = workspaceManager?.ActiveWorkspace;
+                var key = workspace is null ? null
+                    : workspace.SettingsType.ToString(CultureInfo.InvariantCulture) + "|" + workspace.Name;
+                ApplyWorkspaceLayout(key);
+            }
+            catch (Exception error)
+            {
+                StartupHook.Log("Spektrafilm could not restore workspace placement: " + error.GetBaseException().Message);
+            }
+        }
+
+        private void ApplyWorkspaceLayout(string? key)
+        {
+            if (workspaceLayoutReady && StringComparer.Ordinal.Equals(workspaceKey, key)) return;
+            if (floating is { } previous) CloseFloatingForDetach(previous);
+            workspaceKey = key;
+            workspaceLayoutReady = true;
+            var saved = PanelPreferences.Current.FloatingLayout(workspaceKey);
+            floatingBounds = saved.Placement is { IsValid: true } placement
+                ? new Rect(placement.Left, placement.Top, placement.Width, placement.Height) : null;
+            floatingScrollOffset = saved.ScrollOffset;
+            if (saved.Open) ShowFloatingWindow(activate: false);
+        }
+
         private void ShowFloating()
+        {
+            if (!workspaceLayoutReady)
+            {
+                workspaceLayoutUpdate?.Abort();
+                ApplyActiveWorkspaceLayout();
+            }
+            ShowFloatingWindow(activate: true);
+        }
+
+        private void ShowFloatingWindow(bool activate)
         {
             if (disposed)
                 return;
@@ -118,7 +198,7 @@ internal static class SpektraFilmTool
                 if (floating.WindowState == WindowState.Minimized)
                     floating.WindowState = WindowState.Normal;
                 FloatingWindowBounds.KeepVisible(new WindowInteropHelper(floating).Handle);
-                floating.Activate();
+                if (activate) floating.Activate();
                 return;
             }
 
@@ -131,8 +211,10 @@ internal static class SpektraFilmTool
                     HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
                 };
                 window = CreateFloatingWindow(scroll, panel);
+                window.ShowActivated = activate;
                 if (floatingBounds is { } bounds)
                 {
+                    window.SizeToContent = SizeToContent.Manual;
                     var desktop = new Rect(SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop,
                         SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
                     if (!desktop.IntersectsWith(bounds))
@@ -159,9 +241,10 @@ internal static class SpektraFilmTool
                 scroll.Content = panel;
                 window.Show();
                 FloatingWindowBounds.KeepVisible(new WindowInteropHelper(window).Handle);
-                var offset = PanelPreferences.Current.FloatingScrollOffset;
-                if (double.IsFinite(offset) && offset > 0)
-                    scroll.ScrollToVerticalOffset(offset);
+                if (double.IsFinite(floatingScrollOffset) && floatingScrollOffset > 0)
+                    scroll.ScrollToVerticalOffset(floatingScrollOffset);
+                if (activate && workspaceKey is not null)
+                    PanelPreferences.Update(data => data.WithFloatingLayout(workspaceKey, data.FloatingLayout(workspaceKey) with { Open = true }));
                 StartupHook.Log($"{StartupHook.ProductName} panel is floating.");
             }
             catch (Exception error)
@@ -221,7 +304,7 @@ internal static class SpektraFilmTool
         private void OnFloatingClosing(object? sender, System.ComponentModel.CancelEventArgs args)
         {
             if (!args.Cancel && sender is DockableWindow window && ReferenceEquals(window, floating))
-                SaveFloatingPlacement(window);
+                SaveFloatingPlacement(window, open: false);
         }
 
         private void OnFloatingClosed(object? sender, EventArgs args)
@@ -233,18 +316,23 @@ internal static class SpektraFilmTool
                 StartupHook.Log($"{StartupHook.ProductName} panel is docked.");
         }
 
-        private void SaveFloatingPlacement(DockableWindow window)
+        private void SaveFloatingPlacement(DockableWindow window, bool open)
         {
             var bounds = window.RestoreBounds;
-            if (bounds.IsEmpty) return;
             var placement = new FloatingPlacement(bounds.Left, bounds.Top, bounds.Width, bounds.Height);
-            if (!placement.IsValid) return;
-            floatingBounds = bounds;
-            var offset = floatingScroll?.VerticalOffset ?? 0;
-            PanelPreferences.Update(preferences => preferences with
-            {
-                Floating = placement, FloatingScrollOffset = double.IsFinite(offset) && offset >= 0 ? offset : 0,
-            });
+            if (placement.IsValid) floatingBounds = bounds;
+            var offset = floatingScroll?.VerticalOffset ?? floatingScrollOffset;
+            floatingScrollOffset = double.IsFinite(offset) && offset >= 0 ? offset : 0;
+            PanelPreferences.Update(preferences => preferences.WithFloatingLayout(workspaceKey,
+                new FloatingToolLayout(open, placement.IsValid ? placement : preferences.FloatingLayout(workspaceKey).Placement,
+                    floatingScrollOffset)));
+        }
+
+        private void CloseFloatingForDetach(DockableWindow window)
+        {
+            SaveFloatingPlacement(window, open: true);
+            RestoreDock(window);
+            window.Close();
         }
 
         private void RestoreDock(DockableWindow window)
@@ -277,13 +365,14 @@ internal static class SpektraFilmTool
             if (disposed)
                 return;
             disposed = true;
+            if (workspaceManager is not null)
+                workspaceManager.ActiveWorkspaceChanged -= OnActiveWorkspaceChanged;
+            workspaceManager = null;
+            workspaceLayoutUpdate?.Abort();
+            workspaceLayoutUpdate = null;
             panel.Dispose();
             if (floating is { } window)
-            {
-                SaveFloatingPlacement(window);
-                RestoreDock(window);
-                window.Close();
-            }
+                CloseFloatingForDetach(window);
             Holder.Content = null;
         }
     }

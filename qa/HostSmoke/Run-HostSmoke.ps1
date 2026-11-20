@@ -11,6 +11,7 @@ param(
     [switch] $ConcurrentCatalogs,
     [switch] $SessionIsolation,
     [switch] $ViewerLayouts,
+    [switch] $FloatingWorkspaceLayout,
     [ValidateRange(0,200)][int] $ViewerChurn=0,
     [ValidateSet('1200','2048','4096','native')][string] $ViewerChurnResolution='2048',
     [ValidateRange(0,600)][int] $ViewerTelemetrySeconds=0,
@@ -54,6 +55,14 @@ if ($NativeEffectGrain -and $NativeEffectExportMatrix) {
     throw 'The native grain comparison uses one RAW in its own effects Export fixture.'
 }
 if ($NativeEffectExportMatrix -or $NativeEffectGrain -or $isolatedEffects) { $NativeEffectExport=$true }
+if ($FloatingWorkspaceLayout -and (!$NativeSettingsConfig -or $SkipRestart -or $UpgradeFromPackage -or $ViewerLayouts -or
+    $NativeEffectExport -or $NativeExportInterruption -or $CatalogIsolation -or $ConcurrentCatalogs -or $SessionIsolation -or
+    $ViewerChurn -or $ViewerTelemetrySeconds -or $NativeLifetimeCycles -or $ViewerStress -or $PanelInventory -or
+    $SavedLooksBackup -or $DurableSliderEdits -or $MetadataFixtureRoot -or $CalibrationChart -or $ColorMatrix -or
+    $NativeSourceMutations -or $OriginalAvailabilityProbe -or $NativeDevelopmentDeadline -or
+    $DevelopmentLeaseFixtureDirectory -or $DeviceLossFixtureDirectory)) {
+    throw 'Floating workspace verification requires a separate disposable catalog, restart and native preferences backup.'
+}
 if ($NativeExportInterruption -and (!$NativeSettingsConfig -or $SkipRestart -or $NativeEffectExport -or $ColorMatrix -or
     $CatalogIsolation -or $ConcurrentCatalogs -or $SessionIsolation -or $ViewerLayouts -or $ViewerChurn -or
     $ViewerTelemetrySeconds -or $NativeLifetimeCycles -or $DurableSliderEdits -or $MetadataFixtureRoot -or
@@ -510,7 +519,7 @@ $names=@(
     'SPEKTRAFILM_HOST_VIEWER_STRESS','SPEKTRAFILM_HOST_PANEL_INVENTORY','SPEKTRAFILM_EXPECTED_CONTROL_INVENTORY',
     'SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT','SPEKTRAFILM_HOST_MOVED_LOOK_BACKUP',
     'SPEKTRAFILM_SHOW_TOOL','SPEKTRAFILM_HOST_PROOF_TEST','SPEKTRAFILM_HOST_CATALOG_ISOLATION',
-    'SPEKTRAFILM_HOST_VIEWER_LAYOUTS','SPEKTRAFILM_HOST_DURABLE_EDITS','SPEKTRAFILM_HOST_METADATA_FIXTURE',
+    'SPEKTRAFILM_HOST_VIEWER_LAYOUTS','SPEKTRAFILM_HOST_FLOATING_WORKSPACE','SPEKTRAFILM_HOST_DURABLE_EDITS','SPEKTRAFILM_HOST_METADATA_FIXTURE',
     'SPEKTRAFILM_HOST_VIEWER_CHURN','SPEKTRAFILM_HOST_VIEWER_CHURN_RESOLUTION','SPEKTRAFILM_HOST_VIEWER_TELEMETRY_SECONDS','SPEKTRAFILM_HOST_EXPORT_INTERRUPTION',
     'SPEKTRAFILM_HOST_NATIVE_VIEWER_BASELINE','SPEKTRAFILM_HOST_OTHER_CATALOG',
     'SPEKTRAFILM_HOST_NATIVE_LIFETIME',
@@ -537,6 +546,7 @@ try {
     $env:SPEKTRAFILM_HOST_PROOF_TEST=if($NativeSettingsConfig -and !$CatalogIsolation -and !$ViewerLayouts -and !$DurableSliderEdits -and !$MetadataFixtureRoot -and !$ViewerChurn -and !$ConcurrentCatalogs){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_CATALOG_ISOLATION=if($CatalogIsolation){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_VIEWER_LAYOUTS=if($ViewerLayouts){'1'}else{$null}
+    $env:SPEKTRAFILM_HOST_FLOATING_WORKSPACE=if($FloatingWorkspaceLayout){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_DURABLE_EDITS=if($DurableSliderEdits){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_METADATA_FIXTURE=$MetadataFixtureRoot
     $env:SPEKTRAFILM_HOST_VIEWER_CHURN=if($ViewerChurn){[string]$ViewerChurn}else{$null}

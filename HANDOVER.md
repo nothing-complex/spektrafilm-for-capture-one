@@ -1142,6 +1142,15 @@ Use `dotnet build -c Release` for both `NativePanel` and `qa/HostSmoke` before a
 - [x] Select actual RAW variants in the licensed Browser and verify the production bridge's routing decisions. With the primary off and secondary on, native batch preflight recognizes the saved look and requires a single variant. Selecting the secondary on its own enables export. Disabling both permits the native selection, and the last export receipt remains exact.
 - [x] The full four-RAW matrix still applies film, diffusion, halation and scatter through the real Export and Previous Settings commands. It passes 213 assertions per launch and saves 40 verified 16-bit controls and processed images. Evidence is in `.test-results/host-native-export-mixed-selection-20261120`. Applied batch processing remains a separate audit item.
 
+## Floating tool layout by native workspace
+
+- [x] Read the active workspace identity through the licensed host's workspace manager. Keep separate floating mode, bounds and vertical scroll for each workspace. A new workspace starts docked and can use the prior placement as a starting point. Explicit Dock Tool clears only that workspace's open state. Detach keeps the last floating mode.
+- [x] Reopen a saved owned Capture One window passively on the UI dispatcher. Keep the explicit Float Tool action able to activate it. A native auto-sized first window ignored programmatic height during the initial fixture. Restoring an explicitly saved size now switches to manual sizing so the saved height and scroll are usable.
+- [x] Use `-FloatingWorkspaceLayout` to compare a second simulated layout on the real window, then reopen the real Default workspace in a separate licensed process. The selected tool, owner, 366.4 by 300 DIP bounds and 96 DIP scroll survive. The passive window does not become foreground. Both process launches pass, with 22 and 19 assertions. The Windows Viewer and export suite passes 12,398 assertions.
+- [x] Pass 717 licensed lifecycle assertions across 100 measured attach, float, dock and detach cycles. All tracked retired windows, controls and hosted tools become collectible. Both native effects export commands still pass 104 hidden/floating layout checks in each launch. The full native suite passes 344 checks and 348 after restart.
+
+Evidence is in `.test-results/host-floating-workspace-{reopen-manual,lifetime,export,general}-20261120` and `.test-results/contracts-floating-workspace-20261120`. This source checkpoint follows audit.26. A native switch between two different built-in presets and mixed-DPI or RDP verification remain open.
+
 ## Status maintenance
 
 `qa/AUDIT-FIX-STATUS.json` owns task IDs, status, implemented substeps, remaining acceptance work and evidence. This handover owns context, runtime identity and resume instructions. `.test-results/FINAL-RESULT.json` is the completed runtime delivery receipt; keep its runtime commit/package identity distinct from later documentation-only commits.

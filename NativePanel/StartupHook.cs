@@ -271,6 +271,7 @@ internal static class StartupHook
         showToolOnLaunch = false;
         LogState($"Attached {ProductName} to the selected catalog as {id}.");
         AttachExport(form, hosted);
+        hosted.BindWorkspaceLayout();
         hosted.LoadControls();
     }
 

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text.Json.Serialization;
 using System.Windows;
 using System.Windows.Controls;
 
@@ -10,9 +11,27 @@ internal sealed record FloatingPlacement(double Left, double Top, double Width, 
         && double.IsFinite(Height) && Width is >= 200 and <= 5000 && Height is >= 100 and <= 10000;
 }
 
+internal sealed record FloatingToolLayout(bool Open, FloatingPlacement? Placement, double ScrollOffset);
+
 internal sealed record PanelPreferenceData(int Version = 1, string ViewerSize = "native", int DragSize = 1200,
     bool DraftSynthesis = false, FloatingPlacement? Floating = null, Dictionary<string, bool>? Sections = null,
-    double FloatingScrollOffset = 0);
+    double FloatingScrollOffset = 0,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Dictionary<string, FloatingToolLayout>? FloatingWorkspaces = null)
+{
+    internal FloatingToolLayout FloatingLayout(string? workspace) =>
+        workspace is not null && FloatingWorkspaces?.GetValueOrDefault(workspace) is { } saved
+            ? saved : new(false, Floating, FloatingScrollOffset);
+
+    internal PanelPreferenceData WithFloatingLayout(string? workspace, FloatingToolLayout layout)
+    {
+        var updated = this with { Floating = layout.Placement, FloatingScrollOffset = layout.ScrollOffset };
+        if (workspace is null || FloatingWorkspaces?.GetValueOrDefault(workspace) == layout) return updated;
+        var workspaces = FloatingWorkspaces is null ? new Dictionary<string, FloatingToolLayout>(StringComparer.Ordinal)
+            : new Dictionary<string, FloatingToolLayout>(FloatingWorkspaces, StringComparer.Ordinal);
+        workspaces[workspace] = layout;
+        return updated with { FloatingWorkspaces = workspaces };
+    }
+}
 
 internal static class PanelPreferences
 {

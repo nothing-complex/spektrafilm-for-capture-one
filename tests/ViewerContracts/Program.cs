@@ -375,6 +375,17 @@ internal static partial class Program
             "Child section did not restore independently of its title");
         Check(reopened.Current.FloatingScrollOffset == 314.25 && reopened.Current.ViewerSize == "1600"
             && reopened.Current.DragSize == 720 && reopened.Current.DraftSynthesis, "Layout persistence changed quality preferences");
+        Check(reopened.Current.FloatingLayout("1|Legacy") == new FloatingToolLayout(false, null, 314.25),
+            "legacy floating preferences supply placement or scroll without opening a window");
+        var floating = new FloatingToolLayout(true, new FloatingPlacement(20, 40, 370, 580), 42);
+        var docked = new FloatingToolLayout(false, new FloatingPlacement(-260, 75, 420, 640), 102);
+        reopened.Update(data => data.WithFloatingLayout("1|Color", floating));
+        reopened.Update(data => data.WithFloatingLayout("2|Color", docked));
+        var workspacePreferences = new PanelPreferenceStore(path, messages.Add).Current;
+        Check(workspacePreferences.FloatingLayout("1|Color") == floating && workspacePreferences.FloatingLayout("2|Color") == docked,
+            "different native workspace identities retain their own placement, scroll and floating mode across reload");
+        Check(workspacePreferences.FloatingLayout("3|Color") == docked && workspacePreferences.ViewerSize == "1600"
+            && workspacePreferences.Sections?["child"] == true, "a new workspace inherits docked defaults without changing other preferences");
         Check(messages.Count == 0, "Reading a compatible preference file reported an error");
         const string future = "{\"Version\":99,\"Unknown\":true}";
         File.WriteAllText(path, future);

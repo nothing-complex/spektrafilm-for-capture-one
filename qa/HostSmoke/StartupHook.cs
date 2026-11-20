@@ -89,6 +89,11 @@ public static partial class StartupHook
             Check(Field(panel, "displayedVariant") is Guid, "selected image bound to panel");
             var variant = (Guid)Field(panel, "displayedVariant")!;
             var spatial = Field(panel, "opticalPreview")!;
+            if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_FLOATING_WORKSPACE") == "1")
+            {
+                await TestFloatingWorkspaceLayout(hosted, panel);
+                return;
+            }
             if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_MOVED_LOOK_BACKUP") is { Length: > 0 } movedLookBackup)
             {
                 await TestMovedCatalogLook(panel, spatial, store, variant, movedLookBackup);

@@ -2309,7 +2309,8 @@
         "Stable section keys persist comparison-independent expand/collapse state. Nested events leave ancestor state intact. Floating scroll and bounds survive reopen; the isolated store test covers legacy and future preference data.",
         "Launcher and licensed fixtures can now bind one exact data directory for both saved looks and layout. Fixture section persistence was exercised without writing the ordinary panel preference file.",
         "The actual Capture One floating DockableWindow is fitted inside its current monitor work area without replacing the tool controls. Placement is stored before WPF destroys the native window. The same panel docked, reopened at the fitted position, and docked again on both licensed launches. Pure contracts also cover an oversized window, negative monitor coordinates and invalid work areas.",
-        "A licensed workspace test switches to an ordinary Capture One tab while the docked Spektrafilm controls are hidden, then opens the native floating window. The live Viewer keeps painting the look and both native Export commands produce the same processed image in each layout. The two launches restore the original selected tab and docked tool."
+        "A licensed workspace test switches to an ordinary Capture One tab while the docked Spektrafilm controls are hidden, then opens the native floating window. The live Viewer keeps painting the look and both native Export commands produce the same processed image in each layout. The two launches restore the original selected tab and docked tool.",
+        "Store open/docked mode, bounds and vertical scroll by the typed native workspace identity. Track workspace changes through its event and release the subscription and pending operation during teardown. Restore a saved floating DockableWindow without activation and use manual sizing for its saved height. A simulated second identity on the real window and a real Default workspace restart passed 22 and 19 assertions, retaining 366.4 by 300 DIP placement and 96 DIP scroll. Windows contracts passed 12,398 Viewer and export assertions. The licensed workspace change passed 717 lifecycle assertions across 100 cycles and 104 native effect and layout export assertions on each launch."
       ],
       "evidence_paths": [
         "NativePanel/PanelPreferences.cs",
@@ -2322,10 +2323,15 @@
         "qa/HostSmoke/FloatingHost.cs",
         ".test-results/contracts-floating-and-logs-20261120/ViewerContracts.log",
         ".test-results/host-floating-save-before-close-20261120/host-smoke.log",
-        ".test-results/host-native-export-hidden-and-floating-20261120/host-smoke.log"
+        ".test-results/host-native-export-hidden-and-floating-20261120/host-smoke.log",
+        ".test-results/host-floating-workspace-reopen-manual-20261120/host-smoke.log",
+        ".test-results/host-floating-workspace-lifetime-20261120/native-tool-lifetime.json",
+        ".test-results/host-floating-workspace-export-20261120/host-smoke.log",
+        ".test-results/host-floating-workspace-general-20261120/host-smoke.log",
+        ".test-results/contracts-floating-workspace-20261120/summary.json"
       ],
       "remaining_work": [
-        "Add workspace-specific docked/floating state and no-focus-steal startup restore. Exercise physical mixed-DPI monitors, display removal, RDP, narrow/wide panels and keyboard focus."
+        "Verify actual switches between distinct built-in or custom Capture One workspaces with scoped native settings backups. Exercise physical mixed-DPI monitors, display removal, RDP, narrow/wide panels and keyboard focus."
       ],
       "original_acceptance_tests": [
         "100/150/200% DPI, two monitors then one, RDP reconnect, close/reopen, panel narrow/wide, keyboard traversal and modeless focus."
