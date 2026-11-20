@@ -2058,7 +2058,7 @@
       "id": "RC-18",
       "title": "Fingerprint renderer scientific assets and negotiate capabilities",
       "priority": "P2",
-      "status": "partial",
+      "status": "implemented",
       "implemented": [
         "Protocol verifies parameter-header SHA and float layout; build/package manifests fingerprint runtime files and launcher validates them; LUT embeds parameter contract.",
         "Fresh complete source build/package at clean ffc4819 verified runtime/resources and host dependency hashes; extracted and installed checks passed.",
@@ -2069,7 +2069,8 @@
         "Version 3 portable presets can carry verified source, parameter and asset identities from a staged release. Version 2 output retains its prior JSON shape in a standalone developer layout. Pure tests cover invalid provenance and recoverability.",
         "Enabling reproducible MSVC linking fixed differing clean renderer binaries. Two clean rebuilds under the same toolchain produced the identical 0228f69acd84fd387b4785ad3b5a74503cfcd6100cfa1322588a3e16164298d7 renderer SHA-256.",
         "Pass 12,672 host-independent assertions, the real adjacent-asset Vulkan smoke and 186 new-launch plus 191 restart checks with the developer runtime.",
-        "The clean audit.5 ZIP contains the same renderer binary as both local reproducible builds. Its exact installed panel saved a version 3 preset carrying the same source and asset digests as the release manifest and the live Vulkan worker. Real packaged Viewer and export passed 186 initial and 191 restart checks."
+        "The clean audit.5 ZIP contains the same renderer binary as both local reproducible builds. Its exact installed panel saved a version 3 preset carrying the same source and asset digests as the release manifest and the live Vulkan worker. Real packaged Viewer and export passed 186 initial and 191 restart checks.",
+        "Normalize absolute source paths in the supported MSVC release compiler command and use reproducible linking. The ordinary audit build and two independent roots with separately located copies of the same generated scientific inputs all produced the identical renderer SHA-256 88fe9655cc789f2fb2e848e0b59972233f114d0778e5abf572cb84b497fbc111. The normalized worker passed full Vulkan smoke."
       ],
       "evidence_paths": [
         "NativePanel/OpticalRenderer.cs",
@@ -2095,12 +2096,11 @@
         ".test-results/audit5-package-verify-20261120/result.json",
         ".test-results/audit5-package-verify-20261120/Licensed catalog/verified-look.spektra.json",
         ".test-results/repro-alt-source-20261120/result.json",
-        ".test-results/renderer-noicf-20261120/result.json"
+        ".test-results/renderer-noicf-20261120/result.json",
+        ".test-results/runtime-compiled-path-repro-20261120/result.json",
+        ".test-results/renderer-path-normalized-smoke-20261120.log"
       ],
-      "remaining_work": [
-        "Native binaries from another extracted source path still had different bytes with the same MSVC and Vulkan SDK. Disabling identical-code folding did not fix it. Reproducible binary identity is currently established for repeated clean builds in the same source path.",
-        "Retain source-tree and scientific asset identities separately from binary identity. Add a cross-path reproducibility fix and verify supported compiler/SDK configurations."
-      ],
+      "remaining_work": [],
       "original_acceptance_tests": [
         "Deliberately outdated shader/curve/schema asset rejects clearly",
         "Current ICC pins verify",
@@ -2866,8 +2866,8 @@
   ],
   "counts": {
     "total": 70,
-    "implemented": 20,
-    "partial": 44,
+    "implemented": 21,
+    "partial": 43,
     "pending": 6
   },
   "last_reconciled": "2026-11-20",

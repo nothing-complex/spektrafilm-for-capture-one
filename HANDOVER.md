@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 20 bounded primary fixes implemented, 44 partial items and 6 pending items. It includes feasibility investigations and enhancements.
+Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 21 bounded primary fixes implemented, 43 partial items and 6 pending items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -477,7 +477,7 @@ Evidence is under `.test-results/host-native-camera-icc-20261120` and `.test-res
 - [x] Add optional verified source and renderer identities to version 3 presets and native LUT output. Retain the earlier version 2 file shape for source-only runs. Host tests exercised the real preset Save action in the source layout without changing the durable look.
 - [x] Pass 12,672 host-independent assertions, the real Vulkan smoke, and 186 first-launch plus 191 restart assertions on the disposable catalog.
 - [x] Verify the actual version 3 preset exported by the installed development ZIP. Its asset hash matched the real worker and its source identity matched the build manifest.
-- [ ] Resolve reproducibility across checkout paths. A fresh extracted source produced a different native binary with the same MSVC/Vulkan SDK. Disabling identical-code folding did not close the difference.
+- [x] Resolve reproducibility across checkout paths with MSVC source-path normalization. Two independent roots with separately placed scientific build data produced the same `88fe9655cc789f2fb2e848e0b59972233f114d0778e5abf572cb84b497fbc111` binary as the ordinary audit build. Full Vulkan smoke passed. This proof uses the same toolchain.
 
 Evidence is under `.test-results/contracts-runtime-provenance-final-20261120`, `.test-results/runtime-repro-link-20261120`, `.test-results/runtime-assets-real-20261120`, and `.test-results/host-runtime-provenance-dev-20261120`.
 
@@ -488,7 +488,7 @@ Evidence is under `.test-results/contracts-runtime-provenance-final-20261120`, `
 - [x] Pass 186 first-launch, 191 restart and 111 RAW colour checks in Capture One with the exact package. Its actual preset Save action writes version 3 with the same verified asset hash. [Windows Contracts](https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44650162887) passed for the packaged source.
 - [x] Confirm the regular installation still identifies `ffc4819`. The ZIP remains a local development package and the source is available in the draft PR.
 
-Evidence is under `.test-results/audit5-package-verify-20261120`. The alternate source and linker experiments are under `.test-results/repro-alt-source-20261120` and `.test-results/renderer-noicf-20261120`.
+Evidence is under `.test-results/audit5-package-verify-20261120`. The source-path fix was validated after packaging audit.5. Its evidence is under `.test-results/runtime-compiled-path-repro-20261120` and `.test-results/renderer-path-normalized-smoke-20261120.log`.
 
 ## Automatic exposure reuse
 

@@ -20,6 +20,12 @@ target_link_libraries(SpektraStillRenderer PRIVATE Vulkan::Vulkan)
 if(MSVC)
     set_property(TARGET SpektraStillRenderer PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
     target_link_options(SpektraStillRenderer PRIVATE "$<$<CONFIG:Release>:/Brepro>")
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+        file(REAL_PATH "${CMAKE_CURRENT_SOURCE_DIR}/.." SPEKTRA_SOURCE_ROOT)
+        file(TO_NATIVE_PATH "${SPEKTRA_SOURCE_ROOT}" SPEKTRA_NATIVE_SOURCE_ROOT)
+        # MSVC incorporates absolute source paths into anonymous-namespace symbols.
+        target_compile_options(SpektraStillRenderer PRIVATE "$<$<CONFIG:Release>:/d1trimfile:${SPEKTRA_NATIVE_SOURCE_ROOT}>")
+    endif()
 endif()
 
 add_custom_command(TARGET SpektraStillRenderer POST_BUILD
