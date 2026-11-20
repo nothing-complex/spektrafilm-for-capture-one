@@ -1,6 +1,8 @@
 using System;
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -220,6 +222,18 @@ public static partial class StartupHook
         var document = Field(panel, "document")!;
         var counterProperty = document.GetType().GetProperty("OutputCounter", Flags);
         var initialCounter = counterProperty?.GetValue(document);
+        var notifications = new ConcurrentQueue<(long At, string Source, string? Property)>();
+        INotifyPropertyChanged? variantEvents = null;
+        INotifyPropertyChanged? settingsEvents = null;
+        void VariantChanged(object? _, PropertyChangedEventArgs change) => RecordChange("Variant", change.PropertyName);
+        void SettingsChanged(object? _, PropertyChangedEventArgs change) => RecordChange("Settings", change.PropertyName);
+        void RecordChange(string source, string? property)
+        {
+            if (notifications.Count < 1024)
+                notifications.Enqueue((Stopwatch.GetTimestamp(), source, property));
+        }
+        var notificationStart = DateTimeOffset.UtcNow;
+        var notificationClock = Stopwatch.GetTimestamp();
         var originalNormal = Field(current, "normal")!;
         var originalPrevious = Field(current, "previous")!;
         var normalCommand = Field(originalNormal, "command")!;
@@ -277,6 +291,16 @@ public static partial class StartupHook
                     (Func<Guid, bool>)(variant => Call(hosted, "WouldLoseSavedLook", variant) is true) }, null)!;
             var normal = Field(Field(bridge, "normal")!, "command")!;
             var previous = Field(Field(bridge, "previous")!, "command")!;
+            if (changeSourceRevision || compareRecipeRestart)
+            {
+                var profile = panel.GetType().Assembly.GetType("HostProfile", true)!;
+                var selection = profile.GetMethod("ReadSelection", Flags)!.Invoke(null, new[] { window })!;
+                var nativeVariant = Prop(selection, "Variant")!;
+                variantEvents = (INotifyPropertyChanged)nativeVariant;
+                settingsEvents = (INotifyPropertyChanged)Prop(nativeVariant, "Settings")!;
+                variantEvents.PropertyChanged += VariantChanged;
+                settingsEvents.PropertyChanged += SettingsChanged;
+            }
             toggle.IsChecked = true;
             Value(1, 1.15);
             Value(2, 1.25);
@@ -1442,6 +1466,12 @@ public static partial class StartupHook
                 var initialExposure = (float)exposureProperty.GetValue(variant)!;
                 var readRevision = host.GetMethod("GetRevision", Flags)!;
                 object Revision() => readRevision.Invoke(null, new[] { window, (object)expectedVariant })!;
+                var settings = Prop(variant, "Settings")!;
+                void CheckHighResolutionOnly(object before, object after) => Check(
+                    Equals(Prop(before, "LowRes"), Prop(after, "LowRes"))
+                    && Equals(Prop(before, "Geometry"), Prop(after, "Geometry"))
+                    && Convert.ToInt64(Prop(after, "HighRes")) == Convert.ToInt64(Prop(before, "HighRes")) + 1,
+                    "the fixture presents only a high-resolution revision increment");
                 var originalDestination = Path.Combine(folder, caseName + "-source-changed.tif");
                 var originalFile = File.ReadAllBytes(Path.Combine(folder, caseName + "-no-film-reference.tif"));
                 File.WriteAllBytes(originalDestination, originalFile);
@@ -1501,6 +1531,54 @@ public static partial class StartupHook
                     var previousResult = await Render("previous-with-effects", ".png", true);
                     Check(Difference(reference, retried).Mean > .02 && Difference(retried, previousResult).Mean < 8d / 65535,
                         "the retried native TIFF and Previous Settings PNG have matching applied effects");
+
+                    beforeDestinationApproval = () =>
+                    {
+                        var logged = Revision();
+                        var priorState = (string)Prop(settings, "ModelCoreRepresentation")!;
+                        Call(settings, "IncrementHighResCounter");
+                        CheckHighResolutionOnly(logged, Revision());
+                        var nextState = (string)Prop(settings, "ModelCoreRepresentation")!;
+                        var beforeLines = priorState.Split('\n');
+                        var afterLines = nextState.Split('\n');
+                        var modelFieldsChanged = beforeLines.Zip(afterLines).Where(pair => pair.First != pair.Second)
+                            .Select(pair => System.Text.RegularExpressions.Regex.Match(pair.Second, "^\\s*\"([A-Za-z0-9_]+)\"\\s*:")
+                                .Groups[1].Value).Distinct(StringComparer.Ordinal).ToArray();
+                        File.WriteAllText(Path.Combine(folder, caseName + "-counter-model-evidence.json"), JsonSerializer.Serialize(new
+                        {
+                            identical = priorState == nextState, beforeLines = beforeLines.Length, afterLines = afterLines.Length,
+                            modelFieldsChanged, localLayers = (Prop(variant, "LocalAdjustmentsLayers") as IEnumerable)?.Cast<object>().Count(),
+                            lccSidecars = ((IEnumerable)native.GetMethod("GetSerializedLCCIds")!.Invoke(variant, null)!).Cast<object>().Count(),
+                            iccSidecars = ((IEnumerable)native.GetMethod("GetSerializedICCIds")!.Invoke(variant, null)!).Cast<object>().Count(),
+                        }));
+                    };
+                    var unchanged = await Render("verified-high-resolution-update", ".png", true);
+                    Check(Difference(previousResult, unchanged).Mean < 8d / 65535
+                        && File.ReadLines(Path.Combine(folder, "panel.log")).Any(line => line.Contains("export.source.verified.v1", StringComparison.Ordinal)),
+                        "an approved counter-only change completes after checking the native model identity");
+
+                    // Keep the new exposure but give it the same counter shape as
+                    // a native high-resolution cache update. The native model must distinguish it.
+                    beforeDestinationApproval = () =>
+                    {
+                        var before = Revision();
+                        var counters = Prop(settings, "VariantProcessCounters")!;
+                        exposureProperty.SetValue(variant, initialExposure + .75f);
+                        var highOnly = Activator.CreateInstance(counters.GetType(),
+                            Convert.ToInt64(Prop(before, "HighRes")) + 1, Prop(before, "LowRes")!, Prop(before, "Geometry")!)!;
+                        Call(settings, "InitializeProcessCounters", highOnly);
+                        CheckHighResolutionOnly(before, Revision());
+                    };
+                    destination = originalDestination;
+                    job = null;
+                    ExecuteNativeExportCommand(previous);
+                    Check(job is not null && !await job.WaitAsync(TimeSpan.FromSeconds(45)),
+                        "a pixel-changing edit with the same high-resolution-only counter shape fails the accepted export");
+                    var changed = Call(Field(spatial, "exportJobs")!, "ReadLatest")!;
+                    Check(Prop(changed, "Stage")?.ToString() == "Failed"
+                        && (Prop(changed, "Error") as string)?.Contains("before image development", StringComparison.Ordinal) == true
+                        && File.ReadAllBytes(originalDestination).SequenceEqual(originalFile),
+                        "the changed native model preserves the approved existing TIFF and reports verification failure");
                 }
                 finally
                 {
@@ -1514,6 +1592,7 @@ public static partial class StartupHook
                     return BitmapDecoder.Create(file, BitmapCreateOptions.PreservePixelFormat | BitmapCreateOptions.IgnoreColorProfile,
                         BitmapCacheOption.OnLoad).Frames[0];
                 }
+
             }
 
             async Task<BitmapSource> Render(string kind, string extension, bool usePrevious, bool closeAfterAcceptance = false,
@@ -1573,7 +1652,9 @@ public static partial class StartupHook
                             owner.Close();
                         }
                         return true;
-                    });
+                    }, () => job is { IsCompletedSuccessfully: true } && !job.Result
+                        ? Prop(Call(Field(spatial, "exportJobs")!, "ReadLatest")!, "Error") as string ?? "The accepted export returned false."
+                        : null);
                 }
                 if (closeAfterAcceptance)
                     Check(Prop(bridge, "Dialog") is null, "closing the actual export dialog releases its native confirmation binding");
@@ -1684,7 +1765,7 @@ public static partial class StartupHook
                 throw new TimeoutException("The export's structured timing event did not reach the panel log.");
             }
 
-            void ShowNativeDialog(Func<bool> interact)
+            void ShowNativeDialog(Func<bool> interact, Func<string?>? failureAfterHandling = null)
             {
                 var started = Stopwatch.GetTimestamp();
                 var handled = false;
@@ -1692,11 +1773,16 @@ public static partial class StartupHook
                 using var poll = new Forms.Timer { Interval = 40 };
                 poll.Tick += (_, _) =>
                 {
-                    if (handled && Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(50)) return;
                     try
                     {
                         if (Stopwatch.GetElapsedTime(started) >= TimeSpan.FromSeconds(50))
                             throw new TimeoutException("The real Capture One Export dialog did not finish.");
+                        if (handled)
+                        {
+                            if (failureAfterHandling?.Invoke() is { } error)
+                                throw new InvalidOperationException(error);
+                            return;
+                        }
                         handled = interact();
                     }
                     catch (Exception error)
@@ -1715,13 +1801,33 @@ public static partial class StartupHook
         }
         finally
         {
-            try { (bridge as IDisposable)?.Dispose(); }
+            try
+            {
+                if (variantEvents is not null)
+                    variantEvents.PropertyChanged -= VariantChanged;
+                if (settingsEvents is not null)
+                    settingsEvents.PropertyChanged -= SettingsChanged;
+                if (variantEvents is not null)
+                {
+                    var events = notifications.Select(entry => new
+                    {
+                        utc = notificationStart + Stopwatch.GetElapsedTime(notificationClock, entry.At),
+                        entry.Source,
+                        entry.Property,
+                    });
+                    File.WriteAllText(Path.Combine(folder, caseName + "-native-source-events.json"), JsonSerializer.Serialize(events));
+                }
+            }
             finally
             {
-                foreach (var slider in changedSliders) slider.Property.SetValue(slider.Control, slider.Before);
-                diffusion.SelectedItem = priorDiffusion;
-                toggle.IsChecked = priorEnabled;
-                hookField.DeclaringType!.GetMethod("AttachExport", Flags)!.Invoke(null, new[] { window, hosted });
+                try { (bridge as IDisposable)?.Dispose(); }
+                finally
+                {
+                    foreach (var slider in changedSliders) slider.Property.SetValue(slider.Control, slider.Before);
+                    diffusion.SelectedItem = priorDiffusion;
+                    toggle.IsChecked = priorEnabled;
+                    hookField.DeclaringType!.GetMethod("AttachExport", Flags)!.Invoke(null, new[] { window, hosted });
+                }
             }
         }
         Check(hookField.GetValue(null) is not null && Prop(panel, "ExportBridgeStatus")?.ToString() == "Connected",

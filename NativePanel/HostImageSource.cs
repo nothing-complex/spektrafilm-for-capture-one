@@ -1,9 +1,12 @@
 using System;
 using System.Drawing;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Security.Cryptography;
+using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Media.Imaging;
@@ -25,6 +28,11 @@ using P1.ModelCoreWrapper;
 
 internal static class HostImageSource
 {
+    private static readonly FieldInfo? VariantReaderLock = typeof(VariantSettings)
+        .GetField("m_ReaderLock", BindingFlags.Instance | BindingFlags.NonPublic);
+    private static readonly Regex HighResolutionCounterLine = new(
+        "^[ \\t]*\"highresProcessCounter\"[ \\t]*:[ \\t]*([0-9]+)[ \\t]*,?[ \\t]*\\r?$",
+        RegexOptions.Multiline | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
     private static readonly Lazy<Func<IGeometryTransformer, ICoreImage, IDestinationProcessingSettings, int, bool, ScaleCalc>> RecipeScale =
         new(() => NativeRecipeScale.Bind<IGeometryTransformer, ICoreImage, IDestinationProcessingSettings, ScaleCalc>(typeof(ScaleCalcHelpers)));
     private static readonly Lazy<Func<IDestinationProcessingSettings, FileFormat>> ReadRecipeFormat =
@@ -115,6 +123,12 @@ internal static class HostImageSource
         var revision = ReadRevision(variant);
         var settings = variant.GetICProcessSettings();
         CheckRevision(variant, target.VariantId, revision, forExport, "while capturing the image settings");
+        string? nativeIdentity = null;
+        if (forExport)
+        {
+            nativeIdentity = TryReadNativeIdentity(variant, revision);
+            CheckRevision(variant, target.VariantId, revision, true, "while capturing the image settings");
+        }
 
         var (profilePath, profileSha256) = ResolvePreviewProfile(inputSpace);
         var output = Utf8Marshaled_IC_MAX_PATH.Create(profilePath);
@@ -135,7 +149,7 @@ internal static class HostImageSource
         var host = StartupHook.VerifiedHost ?? throw new InvalidOperationException("The Capture One image source requires a verified host.");
         var description = new FrameSourceDescription(target.VariantId, target.SourceFormat, inputSpace, profileSha256, revision,
             host.FileVersion, host.AssemblySha256);
-        return new Snapshot(scheduler, selection.Document, variant, profilePath, settings, description, recipe);
+        return new Snapshot(scheduler, selection.Document, variant, profilePath, settings, description, recipe, nativeIdentity);
     }
 
     private static RecipeInfo? ReadRecipe(HostProfile.Selection selection, ref IC_ProcessSettings settings)
@@ -295,12 +309,19 @@ internal static class HostImageSource
     }
 
     private static void CheckRevision(ICoreVariant variant, Guid expectedVariant, NativeImageRevision expectedRevision,
-        bool forExport, string phase)
+        bool forExport, string phase, string? nativeIdentity = null)
     {
         var actualVariant = variant.UUID;
         var actualRevision = ReadRevision(variant);
         if (actualVariant == expectedVariant && actualRevision == expectedRevision)
             return;
+        if (forExport && nativeIdentity is not null && actualVariant == expectedVariant && actualRevision.HighRes > expectedRevision.HighRes
+            && actualRevision.LowRes == expectedRevision.LowRes && actualRevision.Geometry == expectedRevision.Geometry
+            && string.Equals(TryReadNativeIdentity(variant, actualRevision), nativeIdentity, StringComparison.Ordinal))
+        {
+            StartupHook.Log("export.source.verified.v1", new { Phase = phase, Expected = expectedRevision, Observed = actualRevision });
+            return;
+        }
         var message = actualVariant == expectedVariant ? "Capture One image settings changed" : "The Capture One source image changed";
         if (!forExport)
             throw new OperationCanceledException($"{message} {phase}.");
@@ -312,6 +333,38 @@ internal static class HostImageSource
             Observed = actualRevision,
         });
         throw new ExportSourceChangedException($"{message} {phase}. Try Export again.");
+    }
+
+    private static string? TryReadNativeIdentity(ICoreVariant variant, NativeImageRevision expectedRevision)
+    {
+        // The native representation is a model dump. Its coverage is established
+        // for the plain variant, with masks and sidecar buffers excluded here.
+        var settings = variant.Settings;
+        if (VariantReaderLock?.FieldType != typeof(object) || VariantReaderLock.GetValue(settings) is not { } readerLock
+            || !Monitor.TryEnter(readerLock))
+            return null;
+        string model;
+        try
+        {
+            if (ReadRevision(variant) != expectedRevision || variant.LocalAdjustmentsLayers?.Any() == true
+                || variant.GetSerializedLCCIds()?.Any() != false || variant.GetSerializedICCIds()?.Any() != false)
+                return null;
+            model = settings.ModelCoreRepresentation;
+            if (ReadRevision(variant) != expectedRevision)
+                return null;
+        }
+        finally { Monitor.Exit(readerLock); }
+
+        var counters = HighResolutionCounterLine.Matches(model);
+        if (counters.Count != 1)
+            return null;
+        var counter = counters[0].Groups[1];
+        if (!long.TryParse(counter.ValueSpan, NumberStyles.None, CultureInfo.InvariantCulture, out var value)
+            || value != expectedRevision.HighRes)
+            return null;
+        var normalizedModel = model.Remove(counter.Index, counter.Length);
+        return ReadRevision(variant) == expectedRevision
+            ? Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(normalizedModel))) : null;
     }
 
     private static PropertyInfo HostProperty(string name) =>
@@ -352,7 +405,7 @@ internal static class HostImageSource
     }
 
     internal sealed class Snapshot(ImageCoreScheduler scheduler, ICaptureOneDocument document, ICoreVariant variant,
-        string profilePath, IC_ProcessSettings settings, FrameSourceDescription description, RecipeInfo? recipe)
+        string profilePath, IC_ProcessSettings settings, FrameSourceDescription description, RecipeInfo? recipe, string? nativeIdentity)
     {
         internal NativeImageRevision AdjustmentKey => description.AdjustmentKey;
         internal FrameSourceDescription SourceIdentity => description;
@@ -397,7 +450,7 @@ internal static class HostImageSource
                 {
                     workToken.ThrowIfCancellationRequested();
                     CheckRevision(source, description.VariantId, description.AdjustmentKey, options.ForExport,
-                        "before image development");
+                        "before image development", nativeIdentity);
                     // A timed-out caller can return while the native callback still owns the profile pathname.
                     using var sourceProfile = new FileStream(profilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
                     if (!string.Equals(Convert.ToHexString(SHA256.HashData(sourceProfile)), description.ProfileSha256, StringComparison.Ordinal))
@@ -498,7 +551,7 @@ internal static class HostImageSource
             if (result != IC_Result.resOK)
                 throw new InvalidOperationException($"Capture One could not develop the {(options.ForExport ? "export source" : "preview")} ({result}).");
             CheckRevision(source, description.VariantId, description.AdjustmentKey, options.ForExport,
-                "during image development");
+                "during image development", nativeIdentity);
             var imageFrame = CopyPixels(bitmap, pixelLimit, token, options.Purpose, description);
             var pixelCrop = options.ForExport ? ViewerGeometry.ScaleCrop(crop, canvas, imageFrame.Width, imageFrame.Height)
                 : new Rectangle(0, 0, imageFrame.Width, imageFrame.Height);
