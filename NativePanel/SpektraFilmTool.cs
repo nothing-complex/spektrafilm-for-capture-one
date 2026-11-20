@@ -73,6 +73,7 @@ internal static class SpektraFilmTool
         private static readonly Uri CaptureOneStyle = new("pack://application:,,,/CaptureOne;component/WPF/Styles/DefaultStyle.xaml");
         private readonly System.Windows.Forms.Form mainWindow;
         private readonly LookPanel panel;
+        private NativeVariantCloneHook? cloneHook;
         private DockableWindow? floating;
         private ScrollViewer? floatingScroll;
         private HwndSource? floatingSource;
@@ -102,7 +103,17 @@ internal static class SpektraFilmTool
         private ContentControl Holder { get; }
         internal bool IsSpektraExportActive => !disposed && panel.IsSpektraExportActive;
         internal bool WouldLoseSavedLook(Guid variant) => !disposed && panel.WouldLoseSavedLook(variant);
-        internal void LoadControls() => panel.InitializeControls();
+        internal void LoadControls()
+        {
+            panel.InitializeControls();
+            if (cloneHook is not null || disposed) return;
+            try { cloneHook = new NativeVariantCloneHook(mainWindow, panel.Document, panel.CaptureCloneLook,
+                panel.SaveClonedLook, panel.ReportCloneStatus); }
+            catch (Exception error)
+            {
+                StartupHook.Log("Could not bind the native Clone command: " + error.GetBaseException().Message);
+            }
+        }
         internal bool LookRecoveryPending => panel.HasPendingLookWrites || panel.AwaitingLookRead;
         internal void CheckSelectionAndSave()
         {
@@ -401,10 +412,15 @@ internal static class SpektraFilmTool
             workspaceManager = null;
             workspaceLayoutUpdate?.Abort();
             workspaceLayoutUpdate = null;
-            panel.Dispose();
-            if (floating is { } window)
-                CloseFloatingForDetach(window);
-            Holder.Content = null;
+            try { cloneHook?.Dispose(); }
+            finally
+            {
+                cloneHook = null;
+                panel.Dispose();
+                if (floating is { } window)
+                    CloseFloatingForDetach(window);
+                Holder.Content = null;
+            }
         }
     }
 
@@ -995,6 +1011,29 @@ internal static class SpektraFilmTool
         }
 
         internal bool IsSpektraExportActive => SyncSelection() && IsSpektraFilmEnabled;
+        internal ICaptureOneDocument Document => document;
+
+        internal VariantLook? CaptureCloneLook(Guid variant)
+        {
+            if (disposed || !StocksReady || looks.ReadForBatch(variant) is not { } look)
+                return null;
+            ValidateLoadedSettings(look.Look, look.Optics);
+            ResolvePresetStocks(look.Look);
+            return look;
+        }
+
+        internal void SaveClonedLook(Guid variant, VariantLook look)
+        {
+            looks.CommitBatchChange(variant, expected: null, look);
+            OnHistoryChanged(variant, null);
+        }
+
+        internal void ReportCloneStatus(string message)
+        {
+            SyncSelection();
+            status.Text = message;
+        }
+
         internal bool WouldLoseSavedLook(Guid variant)
         {
             if (displayedVariant == variant && displayedLook is { Enabled: false } && !looks.IsBlocked(variant))

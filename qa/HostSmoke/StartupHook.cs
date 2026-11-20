@@ -87,6 +87,11 @@ public static partial class StartupHook
             Check(Equals(preferences.GetMethod("UserDataDirectory", Flags)!.Invoke(null, null), Path.GetFullPath(folder)),
                 "test looks and panel preferences use the disposable workspace directory from startup");
             var store = Field(panel, "looks")!;
+            if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_VARIANT_LINEAGE") == "1")
+            {
+                TestNativeVariantLineage(hosted, panel, window, store);
+                return;
+            }
             Call(panel, "SyncSelection");
             Check(Field(panel, "displayedVariant") is Guid, "selected image bound to panel");
             var variant = (Guid)Field(panel, "displayedVariant")!;

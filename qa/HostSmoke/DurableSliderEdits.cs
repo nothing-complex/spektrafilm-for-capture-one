@@ -137,9 +137,9 @@ public static partial class StartupHook
         private readonly Dictionary<Guid, object> variants;
         internal Guid[] Variants { get; }
 
-        internal FixtureSelection(object panel) : this(Field(panel, "document")!, panel) { }
+        internal FixtureSelection(object panel, int limit = 4) : this(Field(panel, "document")!, panel, limit) { }
 
-        internal FixtureSelection(object document, object? panel)
+        internal FixtureSelection(object document, object? panel, int limit = 4)
         {
             this.panel = panel;
             var core = AppDomain.CurrentDomain.GetAssemblies().Single(assembly => assembly.GetName().Name == "P1.C1.Core");
@@ -161,7 +161,7 @@ public static partial class StartupHook
                 .GetMethod("GetAllFilteredAndVisibleVariants")!.Invoke(collection, null)!;
             var initial = Selected();
             variants = available.Cast<object>().Select(item => (Id: Identity(item), Item: item))
-                .OrderByDescending(item => item.Id == initial).Take(4).ToDictionary(item => item.Id, item => item.Item);
+                .OrderByDescending(item => item.Id == initial).Take(limit).ToDictionary(item => item.Id, item => item.Item);
             Variants = variants.Keys.ToArray();
         }
 

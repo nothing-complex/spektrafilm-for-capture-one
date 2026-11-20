@@ -977,8 +977,8 @@ public static partial class StartupHook
                             "the actual clone inherits the applied Capture One grain values");
                         Check(!CanRestore(clone) && !restore.IsEnabled,
                             "the cloned variant cannot claim the original variant's native grain restore receipt");
-                        Check(Prop(opticalGrain.SelectedItem, "Id") is "off",
-                            "the independent cloned variant starts with its own default Spektrafilm optical grain");
+                        Check(Prop(opticalGrain.SelectedItem, "Id") is "production",
+                            "the independent cloned variant inherits the source Spektrafilm optical grain");
                     }
                     finally
                     {

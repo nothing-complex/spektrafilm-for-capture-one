@@ -2993,7 +2993,9 @@
         "The opt-in Apply to selected variants action snapshots up to 1,000 native UUIDs before confirmation, validates selected sections against each saved baseline and commits each changed look using the existing atomic store. The panel reports progress and can stop before the next write. Changed baselines and pending saves are refused. Failed optional writes schedule no background retry. One named Capture One Undo and Redo cover the successfully saved group.",
         "The licensed four-RAW fixture passed 25 launch and 19 restart assertions. It changed the selection after capture, preserved source and unselected looks, retained separate master settings, optics and grain, exercised real native Undo and Redo, and stopped with exactly one committed look. Restart matched all four serialized looks. A 281-assertion state campaign includes 1,000 durable target writes, group Undo and Redo, conflict refusal and optional-write failure.",
         "A catalog-scoped batch journal makes each pre-write and committed receipt durable. Restart resolves an unfinished receipt against the exact before and after look digests. Unrecognized newer bytes stay intact and appear as uncertain. Reopening checks state without replaying writes. The 301-assertion state suite covers 1,000 receipts, process death before and after atomic publication, a torn final line, live writer exclusion and a Windows sharing violation that forces and verifies compensating group Undo.",
-        "The final licensed crash fixture passed 23 assertions before terminating the disposable Capture One process after one write and 20 after restarting. The panel's initial attachment shows one saved look out of two selected, with all four RAW looks matching the pre-crash snapshots and the source catalog unchanged."
+        "The final licensed crash fixture passed 23 assertions before terminating the disposable Capture One process after one write and 20 after restarting. The panel's initial attachment shows one saved look out of two selected, with all four RAW looks matching the pre-crash snapshots and the source catalog unchanged.",
+        "The verified native Clone Variant callback inherits an exact saved look when the original command selects one newly created variant for an unambiguous matching RAW. It uses the host's own affected-variant selector and requires a new unused destination UUID. New Variant and Reset belong to their own native callbacks. Cloning several variants of one RAW reports ambiguity and keeps their independent looks.",
+        "Pass 24 licensed Clone, New Variant, Reset, same-RAW ambiguity and callback-detach assertions, then 22 after normal close and restart. Reopened native groups contain all eight exact original and newly created UUIDs, and each saved look or fresh default matches the fixture. An independent SQLite and file read confirmed eight IDs and the serialized looks in the preceding clean-close probe."
       ],
       "evidence_paths": [
         "NativePanel/SpektraFilmTool.cs",
@@ -3003,15 +3005,20 @@
         "NativePanel/VariantLookBatch.cs",
         "NativePanel/VariantLookBatchJournal.cs",
         "NativePanel/NativeLookBatchUndoAction.cs",
+        "NativePanel/NativeVariantCloneHook.cs",
         "qa/HostSmoke/NativeLookBatch.cs",
+        "qa/HostSmoke/NativeVariantLineage.cs",
         "tests/state/Program.cs",
         ".test-results/host-native-look-batch-final-20261120/host-smoke.log",
         ".test-results/host-look-batch-inventory-20261120/panel-control-inventory.json",
-        ".test-results/host-native-look-batch-crash-final-20261120/host-smoke.log"
+        ".test-results/host-native-look-batch-crash-final-20261120/host-smoke.log",
+        ".test-results/clone-command-discovery/native-command-trace.txt",
+        ".test-results/host-native-variant-lineage-final-20261120/host-smoke.log",
+        ".test-results/host-native-variant-lineage-clean-20261120/independent-reopen-state.json"
       ],
       "remaining_work": [
         "Verify longer cross-catalog batch workflows and assess first-attach batch-history cost on slower storage. Group Undo uses Capture One’s current process history.",
-        "Investigate explicit clone lineage and native adjustment copy/apply semantics. Use a verified API before carrying source looks automatically."
+        "Find an authoritative source-to-clone pair for several selected variants of the same RAW, and probe native adjustment clipboard selection semantics. Capture One owns the transaction that publishes newly created variant IDs to its catalog, and abrupt termination before that transaction can leave a durable look whose clone never reached the catalog."
       ],
       "original_acceptance_tests": [
         "clone versus reset/new variant semantics, selection changes mid-operation, 1,000-image apply, differing enable flags, error/rollback, native copy excludes unchecked sections, undo consistency."
@@ -3031,7 +3038,7 @@
         "Apply and Restore are explicit operations available while the Spektrafilm master is off. Moving staged controls does not modify native output. Restore leaves staged controls intact so the look keeps the same saved values.",
         "Tested real WPF actions, native Undo and Redo, external native changes, disabled-master behavior and receipt availability after process termination/restart. Full suites passed 146 first-launch and 150 restart checks with the source catalog unchanged.",
         "The audit.19 package passed 99 licensed checks per launch for grain, including 20 accepted ICC-tagged TIFF/PNG outputs over two launches. Staging native grain had negligible pixel effect. Native and optical grain changed the exported pixels independently, and both remained visible together. Both native commands delivered the combined RGB16 treatment with mean channel difference at most 1.12e-6 of full scale.",
-        "The real Clone Variant command inherited native grain in a new variant of the same private RAW. The clone had its own default optical grain and no source restore receipt. Returning to the source kept its original optical look and Restore action. Four private RAW hashes matched through 104 licensed checks. Exact-value outside edits remain the separate HS-08 revision-identification issue."
+        "An earlier baseline Clone Variant inherited native grain in a new variant of the same private RAW, with default optical grain and no source restore receipt. All four private RAW hashes matched through 104 licensed checks. The current clone integration passes 119 licensed checks and inherits the source optical grain while keeping the Restore receipt exclusive to the source. Both native export commands continue to deliver matched 16-bit combined effects. Exact-value outside edits remain the separate HS-08 revision-identification issue."
       ],
       "evidence_paths": [
         "NativePanel/NativeGrain.cs",
@@ -3041,7 +3048,8 @@
         "qa/HostSmoke/NativeEffectExport.cs",
         ".test-results/host-native-grain-effects-20261120/first-native-effect-export.json",
         ".test-results/host-native-grain-effects-20261120/restart-native-effect-export.json",
-        ".test-results/host-native-clone-tuple-final-20261120/host-smoke.log"
+        ".test-results/host-native-clone-tuple-final-20261120/host-smoke.log",
+        ".test-results/host-native-clone-grain-effects-20261120/host-smoke.log"
       ],
       "remaining_work": [],
       "original_acceptance_tests": [

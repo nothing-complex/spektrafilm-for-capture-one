@@ -314,7 +314,7 @@ internal sealed class ExportHook : IDisposable
     private static PropertyInfo FindProperty(object target, string name) =>
         target.GetType().GetProperty(name, Instance) ?? throw new MissingMemberException(target.GetType().FullName, name);
 
-    private sealed class CommandBinding : IDisposable
+    internal sealed class CommandBinding : IDisposable
     {
         private static readonly FieldInfo Callbacks = typeof(EditMultipleCommand).GetField("OnExecuteMultiple", Instance)
             ?? throw new MissingFieldException(typeof(EditMultipleCommand).FullName, "OnExecuteMultiple");

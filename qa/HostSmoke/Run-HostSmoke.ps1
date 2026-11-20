@@ -22,6 +22,7 @@ param(
     [switch] $DurableSliderEdits,
     [switch] $NativeLookBatch,
     [switch] $NativeLookBatchCrash,
+    [switch] $NativeVariantLineage,
     [string] $MetadataFixtureRoot,
     [switch] $SkipRestart,
     [switch] $CheckOrdinaryLaunch,
@@ -49,6 +50,11 @@ param(
 )
 $ErrorActionPreference='Stop'
 if ($NativeLookBatchCrash) { $NativeLookBatch=$true }
+if ($NativeVariantLineage -and (!$NativeSettingsConfig -or $SkipRestart -or $PackagedRuntime -or $UpgradeFromPackage -or
+    $CatalogIsolation -or $ConcurrentCatalogs -or $DurableSliderEdits -or $NativeLookBatch -or $ViewerChurn -or
+    $ViewerLayouts -or $ColorMatrix -or $NativeEffectExport -or $CheckOrdinaryLaunch)) {
+    throw 'Native variant lineage needs its own disposable launch and restart with a verified preferences backup.'
+}
 if ($NativeLookBatch -and (!$NativeSettingsConfig -or $SkipRestart -or $PackagedRuntime -or $UpgradeFromPackage -or
     $CatalogIsolation -or $ConcurrentCatalogs -or $DurableSliderEdits -or $ViewerLayouts -or $ViewerChurn -or
     $ColorMatrix -or $NativeEffectExport -or $CheckOrdinaryLaunch)) {
@@ -580,7 +586,7 @@ $names=@(
     'SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT','SPEKTRAFILM_HOST_MOVED_LOOK_BACKUP',
     'SPEKTRAFILM_SHOW_TOOL','SPEKTRAFILM_HOST_PROOF_TEST','SPEKTRAFILM_HOST_CATALOG_ISOLATION',
     'SPEKTRAFILM_HOST_VIEWER_LAYOUTS','SPEKTRAFILM_HOST_FLOATING_WORKSPACE','SPEKTRAFILM_HOST_NATIVE_WORKSPACE_SWITCH',
-    'SPEKTRAFILM_HOST_DURABLE_EDITS','SPEKTRAFILM_HOST_LOOK_BATCH','SPEKTRAFILM_HOST_METADATA_FIXTURE',
+    'SPEKTRAFILM_HOST_DURABLE_EDITS','SPEKTRAFILM_HOST_LOOK_BATCH','SPEKTRAFILM_HOST_VARIANT_LINEAGE','SPEKTRAFILM_HOST_METADATA_FIXTURE',
     'SPEKTRAFILM_HOST_VIEWER_CHURN','SPEKTRAFILM_HOST_VIEWER_CHURN_RESOLUTION','SPEKTRAFILM_HOST_VIEWER_TELEMETRY_SECONDS','SPEKTRAFILM_HOST_EXPORT_INTERRUPTION',
     'SPEKTRAFILM_HOST_NATIVE_VIEWER_BASELINE','SPEKTRAFILM_HOST_OTHER_CATALOG',
     'SPEKTRAFILM_HOST_NATIVE_LIFETIME',
@@ -612,6 +618,7 @@ try {
     $env:SPEKTRAFILM_HOST_NATIVE_WORKSPACE_SWITCH=if($NativeWorkspaceSwitch){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_DURABLE_EDITS=if($DurableSliderEdits){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_LOOK_BATCH=if($NativeLookBatchCrash){'crash'}elseif($NativeLookBatch){'1'}else{$null}
+    $env:SPEKTRAFILM_HOST_VARIANT_LINEAGE=if($NativeVariantLineage){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_METADATA_FIXTURE=$MetadataFixtureRoot
     $env:SPEKTRAFILM_HOST_VIEWER_CHURN=if($ViewerChurn){[string]$ViewerChurn}else{$null}
     $env:SPEKTRAFILM_HOST_VIEWER_CHURN_RESOLUTION=if($ViewerChurn){$ViewerChurnResolution}else{$null}
@@ -656,6 +663,13 @@ try {
                 $process.Refresh()
             }
             Get-Content -LiteralPath $result
+            if ($NativeVariantLineage -and $phase -eq 'first' -and !$process.HasExited) {
+                # Capture One owns persistence of the newly created native
+                # variants. Let it finish its normal catalog close.
+                if (!$process.CloseMainWindow() -or !$process.WaitForExit(20000) -or $process.ExitCode -ne 0) {
+                    throw 'Capture One did not finish a clean close of the disposable clone catalog.'
+                }
+            }
         } finally {
             # Deliberate crash/restart test of this newly launched disposable process.
             # No pre-existing Capture One process can reach this branch.
