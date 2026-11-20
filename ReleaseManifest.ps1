@@ -43,7 +43,7 @@ function Find-CaptureOneHost($Profiles, [string] $Version, [string] $Architectur
         Select-Object -First 1
 }
 
-function New-ReleaseCapabilityMarkdown([string] $Root, [string] $ParameterContract) {
+function New-ReleaseCapabilityMarkdown([string] $Root, [string] $ParameterContract, [string] $PanelInventoryPath) {
     $hosts = @(Get-CaptureOneHostProfiles $Root)
     $relative = 'renderer/parameter-capabilities.json'
     if ((Get-ReleaseFileRecord $Root $relative).bytes -gt 256KB) { throw 'Renderer capability description is too large.' }
@@ -108,6 +108,65 @@ function New-ReleaseCapabilityMarkdown([string] $Root, [string] $ParameterContra
             default { throw "Unknown renderer option type for $key." }
         }
         $lines.Add(('| `--{0}` | {1} | {2} | {3} |' -f $key, $parameter.kind, $default, $range))
+    }
+    if ($PanelInventoryPath) {
+        $inventory = Get-Item -LiteralPath $PanelInventoryPath -ErrorAction Stop
+        if ($inventory.PSIsContainer -or ($inventory.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $inventory.Length -gt 128KB) {
+            throw 'The Capture One control inventory must be a small regular file.'
+        }
+        $parsedInventory = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($inventory.FullName))
+        $controls = @($parsedInventory)
+        if ($controls.Count -lt 1 -or $controls.Count -gt 300) { throw 'Invalid Capture One control inventory size.' }
+        $descriptions = @{
+            'color-delivery'='Linear-light look blending'
+            'diagnostics'='Copy support information'
+            'floating-tool'='Capture One floating tool'
+            'look-state'='Per-variant saved look'
+            'lut-export'='Film colour LUT'
+            'native-export'='High-depth image export'
+            'native-grain'='Capture One Grain'
+            'optical-controls'='Optical channel override'
+            'presets'='Portable or copied presets'
+            'stock-favourites'='Stock favourites'
+            'unavailable'='Unavailable in the current renderer'
+            'viewer-analysis'='Settled Viewer histogram and clipping'
+            'viewer-overlay'='Live Viewer or developed source'
+            'viewer-quality'='Local Viewer performance preference'
+            'workspace-layout'='Panel section expansion'
+        }
+        $previousRows = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        $lines.AddRange([string[]]@(
+            '',
+            '## Capture One panel controls',
+            '',
+            'This inventory comes from the verified native panel. A renderer option can be shared by more than one control. Some controls only appear when a compatible image, look, or operation is active.',
+            '',
+            '| Section | Control | Type | Capability |',
+            '| --- | --- | --- | --- |'
+        ))
+        foreach ($control in $controls) {
+            if ($control.Section -isnot [string] -or $control.Label -isnot [string] -or
+                [string]::IsNullOrWhiteSpace($control.Section) -or [string]::IsNullOrWhiteSpace($control.Label) -or
+                $control.Section.Length -gt 240 -or $control.Label.Length -gt 160 -or
+                $control.Section -match '[\r\n|<>`]' -or $control.Label -match '[\r\n|<>`]' -or
+                $control.Kind -cnotin @('button','menu','section','select','slider','toggle') -or
+                !$previousRows.Add("$($control.Section)|$($control.Label)")) {
+                throw 'Invalid or duplicate Capture One control entry.'
+            }
+            if ($control.Capability -ceq 'vulkan') {
+                if ($control.Option -isnot [string] -or !$seen.Contains($control.Option)) {
+                    throw "Unknown renderer option for Capture One control $($control.Label)."
+                }
+                $feature = '`--{0}`' -f $control.Option
+            } else {
+                if ($control.Capability -isnot [string] -or !$descriptions.ContainsKey($control.Capability) -or
+                    ($null -ne $control.Option -and ($control.Capability -cne 'optical-controls' -or $control.Option -cnotmatch '^custom-[a-z0-9-]+$'))) {
+                    throw "Unknown capability for Capture One control $($control.Label)."
+                }
+                $feature = $descriptions[$control.Capability]
+            }
+            $lines.Add(('| {0} | {1} | {2} | {3} |' -f $control.Section, $control.Label, $control.Kind, $feature))
+        }
     }
     return ($lines -join "`n") + "`n"
 }

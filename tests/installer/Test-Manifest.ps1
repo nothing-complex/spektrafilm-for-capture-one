@@ -94,6 +94,35 @@ Assert-Rejected {New-ReleaseCapabilityMarkdown $root ('a'*64)} 'Documented defau
 $docDescription.parameters[2].choices=@('srgb','unsupported|cell')
 Save-DocDescription
 Assert-Rejected {New-ReleaseCapabilityMarkdown $root ('a'*64)} 'Invalid Markdown option contents'
+$docDescription.parameters[2].choices=@('srgb','adobe_rgb')
+Save-DocDescription
+$controlFile = Join-Path $root 'panel-controls.json'
+$mapped = @{Section='Tool';Label='Film exposure';Kind='slider';Capability='vulkan';Option='exposure'}
+$local = @{Section='Tool';Label='Viewer resolution';Kind='select';Capability='viewer-quality';Option=$null}
+$disabled = @{Section='Tool / Film';Label='Developer exhaustion';Kind='slider';Capability='unavailable';Option=$null}
+function Save-DocControls([object[]] $rows) {
+    [IO.File]::WriteAllText($controlFile,(ConvertTo-Json -InputObject $rows -Depth 4))
+}
+Save-DocControls @($mapped,$local,$disabled)
+$withControls = New-ReleaseCapabilityMarkdown $root ('a'*64) $controlFile
+if (!$withControls.Contains('| Tool | Film exposure | slider | `--exposure` |') -or
+    !$withControls.Contains('| Tool | Viewer resolution | select | Local Viewer performance preference |') -or
+    !$withControls.Contains('| Tool / Film | Developer exhaustion | slider | Unavailable in the current renderer |')) {
+    throw 'FAIL: generated Capture One control documentation did not identify each capability correctly.'
+}
+$count++
+Save-DocControls @($mapped,$mapped)
+Assert-Rejected {New-ReleaseCapabilityMarkdown $root ('a'*64) $controlFile} 'Repeated native control'
+$mapped.Option='unavailable-option'
+Save-DocControls @($mapped)
+Assert-Rejected {New-ReleaseCapabilityMarkdown $root ('a'*64) $controlFile} 'Native control names a missing worker option'
+$local.Label='Unsafe | cell'
+Save-DocControls @($local)
+Assert-Rejected {New-ReleaseCapabilityMarkdown $root ('a'*64) $controlFile} 'Invalid native control Markdown contents'
+$local.Label='Viewer resolution'
+$local.Capability='unknown'
+Save-DocControls @($local)
+Assert-Rejected {New-ReleaseCapabilityMarkdown $root ('a'*64) $controlFile} 'Unknown native capability'
 $peFixture = Join-Path $root 'synthetic-pe.exe'
 $pe = New-Object byte[] 128
 $pe[0] = 0x4d

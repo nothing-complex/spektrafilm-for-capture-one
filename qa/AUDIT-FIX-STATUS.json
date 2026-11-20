@@ -3003,7 +3003,9 @@
         "The packaging script generates and hashes CAPABILITIES.md from the verified host list and renderer parameter contract. The generator produced 137 entries from the current runtime and passed invariant locale, mismatched revision and malformed-choice regressions.",
         "The audit.7 extracted package included the generated report and rejected altered bytes. Its installer omitted the new optional file. The installer allowlist now includes the report and a 30-assertion upgrade fixture verifies that pre-existing user notes at the same path are preserved.",
         "Audit.8 ships and installs the verified 137-option table. Regenerating it from installed manifests produced the same text. Changing the file in the extracted fixture made package integrity validation fail.",
-        "GitHub's current latest release resolves to v0.1.1. Its actual Windows ZIP and checksum asset names match the README and published tag, with both URLs verified through release metadata."
+        "GitHub's current latest release resolves to v0.1.1. Its actual Windows ZIP and checksum asset names match the README and published tag, with both URLs verified through release metadata.",
+        "A licensed capture of the native panel generated 196 declared controls, sections and menu entries, including 136 controls mapped to compiled worker options. A second native launch matches the tracked inventory exactly and verifies the developer exhaustion control is disabled with a reason. CAPABILITIES.md generation rejects unknown renderer options, unknown local capabilities, duplicate identities and invalid table cells. Thirty-one manifest assertions passed under Windows PowerShell 5.1.",
+        "The Viewer Save Preview PNG now uses the same window-owner-aware dialog pattern as image export. Both licensed runs saved the settled 2048 px Viewer image, reopened exact dimensions, colour context and the sampled BGRA pixel, and re-enabled the command. All Windows and Vulkan contracts passed."
       ],
       "evidence_paths": [
         "README.md",
@@ -3018,10 +3020,15 @@
         "tests/installer/Test-Manifest.ps1",
         ".test-results/audit-capabilities-generated-20261120.md",
         ".test-results/audit8-package-verify-20261120/result.json",
-        "https://github.com/nothing-complex/spektrafilm-for-capture-one/releases/tag/v0.1.1"
+        "https://github.com/nothing-complex/spektrafilm-for-capture-one/releases/tag/v0.1.1",
+        "qa/panel-controls.json",
+        "qa/HostSmoke/PanelControlInventory.cs",
+        ".test-results/host-panel-inventory-verified-20261120/host-smoke.log",
+        ".test-results/host-native-preview-png-final-20261120/host-smoke.log",
+        ".test-results/contracts-panel-control-caps-final-20261120/summary.json"
       ],
       "remaining_work": [
-        "Add generated mapping from every visible panel control to its declared capability. Recheck published links when a newer release exists."
+        "Verify the structural inventory in an exact extracted development package and exercise the remaining conditional commands individually. Recheck published links when a newer release exists."
       ],
       "original_acceptance_tests": [
         "Every visible enabled control has declared capability and a non-error execution test or is visibly unavailable.",

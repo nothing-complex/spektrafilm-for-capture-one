@@ -64,7 +64,7 @@ Choose a 33- or 65-point LUT from **Presets and LUT export**. The LUT uses the s
 
 The bundled renderer describes its supported settings in `renderer/parameter-capabilities.json`. The panel checks that description before loading its controls. Hanatos 2026 is offered when the renderer includes the calibrated film data. The Windows still workflow exposes Print Simulation and Scan Film, including scan inversion.
 
-Each new Windows ZIP includes a generated `CAPABILITIES.md` with its verified Capture One hosts, worker settings, value ranges and defaults. The package manifest records the document's checksum.
+Each new Windows ZIP includes a generated `CAPABILITIES.md` with the verified Capture One hosts, worker settings, value ranges and defaults, and an inventory of the native panel controls. The package manifest records the document's checksum.
 
 ### Optional Python reference runtime
 

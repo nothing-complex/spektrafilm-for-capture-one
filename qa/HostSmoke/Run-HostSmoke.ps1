@@ -20,6 +20,7 @@ param(
     [switch] $ColorMatrix,
     [switch] $NativeSourceMutations,
     [switch] $ViewerStress,
+    [switch] $PanelInventory,
     [string] $CalibrationChart,
     [string] $ResultsDirectory
 )
@@ -33,6 +34,14 @@ if ($ViewerStress -and (!$NativeSettingsConfig -or $ColorMatrix -or $CatalogIsol
     $SessionIsolation -or $ViewerLayouts -or $ViewerChurn -or $DurableSliderEdits -or $MetadataFixtureRoot -or
     $CheckOrdinaryLaunch -or $CalibrationChart -or $UpgradeFromPackage)) {
     throw 'The Viewer stress fixture is a separate launch and requires a native preferences backup.'
+}
+if ($PanelInventory) {
+    if (!$NativeSettingsConfig -or $CatalogIsolation -or $ConcurrentCatalogs -or $ViewerLayouts -or $ViewerChurn -or
+        $DurableSliderEdits -or $MetadataFixtureRoot -or $ColorMatrix -or $ViewerStress -or $CheckOrdinaryLaunch -or
+        $CalibrationChart -or $UpgradeFromPackage) {
+        throw 'The panel inventory fixture is a separate launch and requires a native preferences backup.'
+    }
+    $SkipRestart=$true
 }
 if ($UpgradeFromPackage -and (!$PackagedRuntime -or !$NativeSettingsConfig -or $CatalogIsolation -or $ConcurrentCatalogs -or
     $ViewerLayouts -or $ViewerChurn -or $DurableSliderEdits -or $MetadataFixtureRoot -or $ColorMatrix -or $CheckOrdinaryLaunch)) {
@@ -323,7 +332,15 @@ $testHook=$TestHookPath
 if(!(Test-Path -LiteralPath $testHook)){throw 'Build qa/HostSmoke and NativePanel first.'}
 Copy-Item -LiteralPath $testHook -Destination $runtime
 $testHook=Join-Path $runtime 'HostSmoke.dll'
-$names=@('DOTNET_STARTUP_HOOKS','SPEKTRAFILM_ROOT','SPEKTRAFILM_CATALOG','SPEKTRAFILM_DATA_ROOT','SPEKTRAFILM_PANEL_LOG','SPEKTRAFILM_HOST_SMOKE','SPEKTRAFILM_LAUNCH_ID','SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX','SPEKTRAFILM_SHOW_TOOL','SPEKTRAFILM_HOST_PROOF_TEST','SPEKTRAFILM_HOST_CATALOG_ISOLATION','SPEKTRAFILM_HOST_VIEWER_LAYOUTS','SPEKTRAFILM_HOST_DURABLE_EDITS','SPEKTRAFILM_HOST_METADATA_FIXTURE','SPEKTRAFILM_HOST_VIEWER_CHURN','SPEKTRAFILM_HOST_NATIVE_VIEWER_BASELINE','SPEKTRAFILM_HOST_OTHER_CATALOG','SPEKTRAFILM_HOST_SESSION','SPEKTRAFILM_HOST_CALIBRATION')
+$names=@(
+    'DOTNET_STARTUP_HOOKS','SPEKTRAFILM_ROOT','SPEKTRAFILM_CATALOG','SPEKTRAFILM_DATA_ROOT',
+    'SPEKTRAFILM_PANEL_LOG','SPEKTRAFILM_HOST_SMOKE','SPEKTRAFILM_LAUNCH_ID','SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX',
+    'SPEKTRAFILM_HOST_VIEWER_STRESS','SPEKTRAFILM_HOST_PANEL_INVENTORY','SPEKTRAFILM_EXPECTED_CONTROL_INVENTORY',
+    'SPEKTRAFILM_SHOW_TOOL','SPEKTRAFILM_HOST_PROOF_TEST','SPEKTRAFILM_HOST_CATALOG_ISOLATION',
+    'SPEKTRAFILM_HOST_VIEWER_LAYOUTS','SPEKTRAFILM_HOST_DURABLE_EDITS','SPEKTRAFILM_HOST_METADATA_FIXTURE',
+    'SPEKTRAFILM_HOST_VIEWER_CHURN','SPEKTRAFILM_HOST_NATIVE_VIEWER_BASELINE','SPEKTRAFILM_HOST_OTHER_CATALOG',
+    'SPEKTRAFILM_HOST_SESSION','SPEKTRAFILM_HOST_CALIBRATION'
+)
 $prior=@{}
 foreach($name in $names){$prior[$name]=[Environment]::GetEnvironmentVariable($name,'Process')}
 $testError=$null
@@ -336,6 +353,8 @@ try {
     $env:SPEKTRAFILM_HOST_SMOKE=$folder
     $env:SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX=if($NativeSourceMutations){'source-mutations'}elseif($ColorMatrix){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_VIEWER_STRESS=if($ViewerStress){'1'}else{$null}
+    $env:SPEKTRAFILM_HOST_PANEL_INVENTORY=if($PanelInventory){'1'}else{$null}
+    $env:SPEKTRAFILM_EXPECTED_CONTROL_INVENTORY=Join-Path $root 'qa\panel-controls.json'
     $env:SPEKTRAFILM_SHOW_TOOL=if($ShowTool){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_PROOF_TEST=if($NativeSettingsConfig -and !$CatalogIsolation -and !$ViewerLayouts -and !$DurableSliderEdits -and !$MetadataFixtureRoot -and !$ViewerChurn -and !$ConcurrentCatalogs){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_CATALOG_ISOLATION=if($CatalogIsolation){'1'}else{$null}

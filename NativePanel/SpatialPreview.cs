@@ -1385,7 +1385,9 @@ internal sealed class SpatialPreview : IDisposable
         savePreview.IsEnabled = viewerFrame is not null && frameCurrent && !saveInProgress && viewer.UnavailableReason is null;
     }
 
-    private async Task SavePreviewAsync()
+    private Task SavePreviewAsync() => SavePreviewWithDestinationAsync(ChooseExportDestination);
+
+    private async Task SavePreviewWithDestinationAsync(Func<SaveFileDialog, Window?, string?> chooseDestination)
     {
         if (disposed || !frameCurrent || viewerFrame is not { } frame || saveInProgress)
             return;
@@ -1402,11 +1404,12 @@ internal sealed class SpatialPreview : IDisposable
                 AddExtension = true,
                 DefaultExt = ".png",
             };
-            if (picker.ShowDialog() != true)
+            var destination = chooseDestination(picker, Window.GetWindow(savePreview));
+            if (destination is null)
                 return;
 
             stop.ThrowIfCancellationRequested();
-            var approved = OutputPathGuard.Approve(picker.FileName, target.SourcePath);
+            var approved = OutputPathGuard.Approve(destination, target.SourcePath);
             saveInProgress = true;
             savePreview.IsEnabled = false;
             await Task.Run(() => approved.Write(stream =>
@@ -1446,6 +1449,18 @@ internal sealed class SpatialPreview : IDisposable
         return string.Join(' ', settings);
     }
 
+    internal static IReadOnlyList<(string StateKey, string WorkerKey)> DevelopmentRendererParameters { get; } = Array.AsReadOnly(new[]
+    {
+        ("film_gamma", "film-gamma"), ("film_push_pull", "film-push-pull"), ("print_gamma", "print-gamma"),
+        ("print_push_pull", "print-push-pull"), ("negative_bleach_bypass", "negative-bleach-bypass"),
+        ("print_bleach_bypass", "print-bleach-bypass"), ("negative_leuco_cyan", "negative-leuco-cyan"),
+        ("print_shadows", "print-shadow-shape"), ("print_highlights", "print-highlight-shape"),
+        ("cyan_filter", "cyan-filter"), ("magenta_filter", "magenta-filter"), ("yellow_filter", "yellow-filter"),
+        ("preflash_exposure", "preflash"), ("preflash_magenta", "preflash-magenta"), ("preflash_yellow", "preflash-yellow"),
+        ("uv_cutoff", "uv-cutoff"), ("ir_cutoff", "ir-cutoff"), ("dir_amount", "dir-amount"),
+        ("dir_same_layer", "dir-same-layer"), ("dir_interlayer", "dir-interlayer"),
+    });
+
     internal string[] RendererOptions(LookSettings look, string inputColor, string outputColor, bool export = false, bool draft = false)
     {
         if (look.Mode is "process_negative" or "process_negatives")
@@ -1467,17 +1482,7 @@ internal sealed class SpatialPreview : IDisposable
         Set("film-push-pull-mode", look.FilmPushPullMode);
         Numeric("film-exposure", look.Exposure);
         Numeric("print-exposure", look.PrintExposure);
-        foreach (var (sourceKey, rendererKey) in new[]
-        {
-            ("film_gamma", "film-gamma"), ("film_push_pull", "film-push-pull"), ("print_gamma", "print-gamma"),
-            ("print_push_pull", "print-push-pull"), ("negative_bleach_bypass", "negative-bleach-bypass"),
-            ("print_bleach_bypass", "print-bleach-bypass"), ("negative_leuco_cyan", "negative-leuco-cyan"),
-            ("print_shadows", "print-shadow-shape"), ("print_highlights", "print-highlight-shape"),
-            ("cyan_filter", "cyan-filter"), ("magenta_filter", "magenta-filter"), ("yellow_filter", "yellow-filter"),
-            ("preflash_exposure", "preflash"), ("preflash_magenta", "preflash-magenta"), ("preflash_yellow", "preflash-yellow"),
-            ("uv_cutoff", "uv-cutoff"), ("ir_cutoff", "ir-cutoff"), ("dir_amount", "dir-amount"),
-            ("dir_same_layer", "dir-same-layer"), ("dir_interlayer", "dir-interlayer"),
-        })
+        foreach (var (sourceKey, rendererKey) in DevelopmentRendererParameters)
         {
             if (look.Development.TryGetValue(sourceKey, out var value))
                 Numeric(rendererKey, value);

@@ -77,7 +77,7 @@ try {
         "Corresponding source and build instructions"
         $sourceUrl
     ) | Set-Content -LiteralPath (Join-Path $package 'SOURCE.txt') -Encoding ascii
-    $capabilities = New-ReleaseCapabilityMarkdown $package $build.parameterContract
+    $capabilities = New-ReleaseCapabilityMarkdown $package $build.parameterContract (Join-Path $root 'qa\panel-controls.json')
     [IO.File]::WriteAllText((Join-Path $package 'CAPABILITIES.md'), $capabilities, [Text.UTF8Encoding]::new($false))
     $packageManifest = [ordered]@{
         schemaVersion=1; kind='package'; version=$Version; development=[bool]$Development

@@ -145,6 +145,12 @@ public static partial class StartupHook
                 File.WriteAllText(Path.Combine(folder, phase + ".passed"), $"PASS {checks} native Viewer stress assertions");
                 return;
             }
+            if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_PANEL_INVENTORY") == "1")
+            {
+                SavePanelControlInventory(panel, spatial);
+                File.WriteAllText(Path.Combine(folder, "first.passed"), $"PASS {checks} native control inventory assertions");
+                return;
+            }
             var exposure = Field(panel, "exposure")!;
             var toggle = (CheckBox)Field(panel, "enableSpektraFilm")!;
             await TestLaunchHealth(hosted, spatial, toggle);
@@ -416,9 +422,36 @@ public static partial class StartupHook
             Check(Math.Max((int)Prop(manual, "Width")!, (int)Prop(manual, "Height")!) == 2048 && (int)Prop(manual, "BitDepth")! == 16,
                 "manual quality applies its exact high-depth resolution after Auto");
             await TestNativePresentationMotion(spatial, view, variant, manual);
+            await TestSaveViewerPng(spatial);
             Check(ReferenceEquals(savedPreferences, preferences.GetValue(null)), "fixture quality changes leave the user's stored preference unchanged");
         }
         finally { Select(previous); }
+    }
+
+    private static async Task TestSaveViewerPng(object spatial)
+    {
+        var visible = (BitmapSource)Field(spatial, "viewerFrame")!;
+        var button = (Button)Field(spatial, "savePreview")!;
+        var path = Path.Combine(folder, "viewer-preview-" + Guid.NewGuid().ToString("N") + ".png");
+        Check(button.IsEnabled, "the settled Viewer exposes its preview PNG command");
+        var offersPng = false;
+        await (Task)Call(spatial, "SavePreviewWithDestinationAsync", (Func<SaveFileDialog, Window?, string?>)((picker, _) =>
+        {
+            offersPng = picker.Filter == "PNG image|*.png" && picker.DefaultExt.TrimStart('.') == "png";
+            return path;
+        }))!;
+        Check(offersPng, "the preview PNG command declares its own display-image format");
+        using var input = File.OpenRead(path);
+        var png = new PngBitmapDecoder(input, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad).Frames.Single();
+        Check(png.PixelWidth == visible.PixelWidth && png.PixelHeight == visible.PixelHeight && png.ColorContexts?.Count == 1,
+            "saved Viewer PNG retains the displayed dimensions and embeds a colour profile");
+        var pixel = new Int32Rect(visible.PixelWidth / 3, visible.PixelHeight / 3, 1, 1);
+        var original = new byte[4];
+        var saved = new byte[4];
+        visible.CopyPixels(pixel, original, 4, 0);
+        new FormatConvertedBitmap(png, PixelFormats.Bgra32, null, 0).CopyPixels(pixel, saved, 4, 0);
+        Check(original.SequenceEqual(saved) && button.IsEnabled,
+            "saved Viewer PNG reopens with the exact displayed BGRA sample and the command is available again");
     }
 
     static async Task TestSpectralReconstruction(object panel, object spatial, object store, Guid variant)

@@ -760,6 +760,15 @@ Evidence is under `.test-results/host-input-icc-guard-final-20261120`, `.test-re
 
 Evidence is in `.test-results/host-viewer-grain-conditional-20261120`, `.test-results/contracts-grain-transaction-20261120` and `.test-results/swiftshader-differential-20261120/intel-full-smoke.log`.
 
+## Native control inventory and Viewer PNG
+
+- [x] Inventory 196 actual native controls, sections and menu entries. Validate the 136 controls that emit renderer options against the exact compiled description. Keep managed controls and unavailable developer exhaustion explicit. The licensed repeat matched `qa/panel-controls.json` exactly. Use `Run-HostSmoke.ps1 -PanelInventory` with a disposable catalog and native settings backup after intentional control changes.
+- [x] Generate the package's capability table from the recorded panel inventory and verified worker description. Fail generation on an unknown capability, unknown worker option, duplicate control or malformed Markdown cell. Thirty-one Windows PowerShell 5.1 manifest assertions and all Windows and Vulkan contracts passed.
+- [x] Use the panel's window owner when saving the displayed Viewer PNG. Both licensed Viewer stress launches passed 37 checks. The output reopened with the displayed dimensions, one colour context and the identical sampled BGRA pixel. A fixture initially treated a dotless file extension as an error and entered the production error dialog. The exact disposable process was terminated, its test-only catalog entry was removed using the verified backup and the corrected fixture passed both launches.
+- [ ] Verify the exact extracted package and finish conditional host command coverage.
+
+Evidence is under `.test-results/host-panel-inventory-verified-20261120`, `.test-results/host-native-preview-png-final-20261120` and `.test-results/contracts-panel-control-caps-final-20261120`.
+
 ## Status maintenance
 
 `qa/AUDIT-FIX-STATUS.json` owns task IDs, status, implemented substeps, remaining acceptance work and evidence. This handover owns context, runtime identity and resume instructions. `.test-results/FINAL-RESULT.json` is the completed runtime delivery receipt; keep its runtime commit/package identity distinct from later documentation-only commits.
