@@ -6,7 +6,7 @@ Updated 2026-11-20. The critical-fix batch is implemented, tested, installed loc
 
 1. Read this file, `AGENTS.md` and `qa/AUDIT-FIX-STATUS.json` before changing code. The JSON is the authoritative task-progress ledger; its `remaining_work` and original acceptance tests matter more than a short status label.
 2. Check `git status`, current branch and PR head. Do not discard existing edits or switch the installed build merely because this documentation has a newer commit.
-3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP is `0.2.0-audit.30` from clean `f68de28`. The exact package passes native four-RAW export, stacked camera and print diffusion, three output profiles, the full licensed host suite, physical Vulkan and a private upgrade. Audit.29 also passed the updated-catalog, workspace, and interruption campaigns.
+3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP is `0.2.0-audit.31` from clean `c48b8a8`. The exact package passes native four-RAW effects export, stacked camera and print diffusion, three output profiles, 10,000 durable slider movements with hard restart, the full licensed host suite, physical Vulkan and a private upgrade. Audit.29 retains the updated-catalog, workspace and export interruption campaigns.
 4. Choose an unresolved task and an exact ownership boundary. Do not repeat the completed installation, crash test or old defect reproductions as if nothing had happened.
 5. Update task evidence and the delivery ledger at each completed milestone. Never mark a broad parent task complete because one mitigation shipped.
 
@@ -999,6 +999,16 @@ The combined receipt is `.test-results/audit29-package-verify-20261120/result.js
 - [x] Pass 348 and 352 full native assertions, including the production storage-failure close confirmation, and pass 32 managed physical Vulkan checks. The private upgrade from audit.29 holds its prior runtime until the licensed panel and native Export are ready.
 
 The exact package receipt is `.test-results/audit30-package-verify-20261120/result.json`. The licensed fixture results are in `.test-results/host-audit30-*-20261120`. The installer receipt is `D:/Library AI testing/sf-audit30-ready-20261120/installed-upgrade-receipt.json`. Audit.29 retains the separate workspace, crash recovery and recipe naming receipts.
+
+## Development package audit.31
+
+- [x] Build clean `c48b8a845da7b4c62e37d279d0fbd77e89a7eb12`. Verify 153 package entries, 19 critical entries, and the exact renderer that passed the physical heap accounting comparison. ZIP SHA-256 is `4e404b9795917f4aca9efab6474716cec4a2db963eb50f0902d1e008f8ccb316`. [Windows 2022 and 2025 checks](https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44765205234)
+- [x] Pass 222 four-RAW native effects and isolated-save checks, plus 129 stacked-optics and three-profile checks on each launch. The campaigns write 68 verified 16-bit files. Both real native commands show the expected saved-look loading warning before accepting an output job.
+- [x] The independent decoder compares 156,601,728 RGB16 codes per comparison and measures at most 7.09e-7 mean full-scale difference between the two native commands. Adding print diffusion changes mean RGB by 1.244% while both native routes agree within 4.47e-7. The largest sampled colour difference across three selected ICC profiles is 0.885 Delta E 2000.
+- [x] Pass 348 and 352 general licensed checks and 32 managed physical Vulkan checks.
+- [x] Read all 10,000 acknowledged slider writes over 100 visits across four RAW variants. A hard stop and restart restore the final values, master switches and exact saved bytes. The packaged run records a 5.47 ms p95 slider event and save time with the Viewer paused. The private audit.30 to audit.31 upgrade holds the prior runtime until Capture One reports that the panel and native Export are ready.
+
+The verified receipt is `.test-results/audit31-package-verify-20261120/result.json`. Per-run evidence is in `.test-results/host-audit31-*-20261120`. The exact private upgrade receipt is `D:/Library AI testing/sf-audit31-ready-20261120/installed-upgrade-receipt.json`.
 
 ## Accepted export dialog and storage failure
 

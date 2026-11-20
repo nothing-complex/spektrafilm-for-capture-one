@@ -3536,51 +3536,65 @@
     "original_test_catalog_hash_unchanged": true,
     "local_evidence_note": "Paths under .test-results/build/dist are ignored local artifacts and are not present in a public clone.",
     "latest_development_package": {
-      "version": "0.2.0-audit.30",
-      "archive": "dist/Spektrafilm-for-Capture-One-v0.2.0-audit.30-windows-x64.zip",
-      "sha256": "0a5c47d40d376cabab0a1df07cdb61028718cef8614293db879beda096e9710c",
+      "version": "0.2.0-audit.31",
+      "archive": "dist/Spektrafilm-for-Capture-One-v0.2.0-audit.31-windows-x64.zip",
+      "sha256": "4e404b9795917f4aca9efab6474716cec4a2db963eb50f0902d1e008f8ccb316",
       "source": {
-        "commit": "f68de282af2086578997abee84303be5a5037a02",
+        "commit": "c48b8a845da7b4c62e37d279d0fbd77e89a7eb12",
         "dirty": false,
-        "treeDigest": "5af7bf8af2a0537bfbabc44e59d3857746c6b1aed3248c25f2afd8deb2a09ccb"
+        "treeDigest": "35e9f0b49c6302df03130a641dc59701a82a33b2332650a9e5d0e562a2226a21"
       },
       "verified_package_entries": 153,
       "verified_runtime_entries": 19,
       "renderer_protocol": 2,
-      "renderer_sha256": "21e95f581c824fe677cbdcbc02662aca0248b893a96680f020880acb09d8fff3",
-      "panel_sha256": "ab9d2484e47ecf5c8cf9d035c7b5d5c5f9e91e9f4bed4c962677f0470798a77d",
-      "asset_contract": "aa0445cc5800c27e162a861dfdf2ebca74755338debebe72fa958e636e1b1bb3",
+      "renderer_sha256": "90c7f039ad666ace92929c380255c83b4aa59053a94c6c358ffb71653b05a74b",
+      "panel_sha256": "9d65ea135b9649899bba2c31a6a33556c9a130cd48731e3d2ef00502007ad475",
+      "asset_contract": "43461d249d3bb20c915225be812327779933c283fee38fb14e4a7c4cc38c51e8",
       "generated_capabilities_sha256": "ca685935a18f9884b0c86f85c9d3f54c5c81927c44c9838c932f7a0fe5ed6876",
       "tested_host": "16.4.6.2414 Windows x64",
-      "isolated_install_and_checkonly": "passed audit.29 to audit.30 with real native readiness, preserved user files and exact installed capability report",
+      "isolated_install_and_checkonly": "passed audit.30 to audit.31 with real native readiness, preserved user files and exact installed capability report",
       "exact_package_host_tests": {
         "first_launch": 348,
         "restart": 352,
         "managed_gpu": 32,
-        "native_effect_export_first": 215,
-        "native_effect_export_restart": 215,
+        "native_effect_export_first": 222,
+        "native_effect_export_restart": 222,
         "native_effect_files": 40,
         "native_output_profiles_and_print_diffusion_first": 129,
         "native_output_profiles_and_print_diffusion_restart": 129,
-        "native_output_profiles_and_print_diffusion_files": 28
+        "native_output_profiles_and_print_diffusion_files": 28,
+        "durable_edits_first": 16,
+        "durable_edits_restart": 20
       },
       "independent_rgb16_codes_per_comparison": 156601728,
-      "independent_native_command_maximum_mean_full_scale": 7.4398243517035e-07,
+      "independent_native_command_maximum_mean_full_scale": 7.081949424819647e-07,
       "independent_output_profiles": {
         "cases": 12,
         "pixelsPerComparison": 122694,
         "maximumDeltaE2000": 0.8843581422641011,
-        "maximumP95DeltaE2000": 0.3632041523053638
+        "maximumP95DeltaE2000": 0.363221321450593
       },
       "independent_print_diffusion": {
         "cases": 2,
         "codesPerComparison": 18000000,
-        "maximumCommandMeanFullScale": 4.6199740596627755e-07,
-        "minimumPrintEffectMeanFullScale": 0.012439364275238845
+        "maximumCommandMeanFullScale": 4.4699015793087666e-07,
+        "minimumPrintEffectMeanFullScale": 0.01243935976958877
       },
-      "remote_windows_contracts": "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44758626678",
+      "remote_windows_contracts": "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44765205234",
       "normal_installed_revision": "ffc481988eb2e6e7ef7a1379486c4a8b2656ac81",
-      "receipt": ".test-results/audit30-package-verify-20261120/result.json"
+      "receipt": ".test-results/audit31-package-verify-20261120/result.json",
+      "crash_durability": {
+        "edits": 10000,
+        "variants": 4,
+        "imageVisits": 100,
+        "latency": {
+          "P50": 4.7032,
+          "P95": 5.4653,
+          "P99": 6.1237,
+          "Max": 36.2635
+        },
+        "receipt": ".test-results/host-audit31-durability-20261120/edit-latency.json"
+      }
     }
   },
   "completed_milestones": [
