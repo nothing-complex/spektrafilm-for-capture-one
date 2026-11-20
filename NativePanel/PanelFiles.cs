@@ -67,20 +67,26 @@ internal static class PanelFiles
     {
         var destination = Path.GetFullPath(path);
         var temp = Path.Combine(Path.GetDirectoryName(destination)!, $".spektra-{Guid.NewGuid():N}.tmp");
+        var staging = new FileStream(temp, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None);
         try
         {
-            using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
+            using (staging)
             {
-                write(stream);
-                stream.Flush(flushToDisk: true);
+                write(staging);
+                staging.Flush(flushToDisk: true);
             }
             beforeCommit?.Invoke();
             File.Move(temp, destination, overwrite);
         }
-        finally
+        catch (Exception error)
         {
-            if (File.Exists(temp))
-                File.Delete(temp);
+            try { File.Delete(temp); }
+            catch (Exception cleanupError) when (cleanupError is IOException or UnauthorizedAccessException)
+            {
+                // A denied cleanup must not replace the original write or cancellation error.
+                error.Data["StagingCleanupError"] = cleanupError.Message;
+            }
+            throw;
         }
     }
 

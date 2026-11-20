@@ -856,13 +856,15 @@ internal sealed class SpatialPreview : IDisposable
                 }
             }
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException error)
         {
+            ReportStagingCleanup(error);
             Advance(ExportStage.Canceled, "Spektrafilm export canceled.");
             return false;
         }
         catch (Exception error)
         {
+            ReportStagingCleanup(error);
             StartupHook.Log("Spektrafilm export failed: " + error);
             var message = error.GetBaseException().Message;
             Advance(ExportStage.Failed, message, error: message);
@@ -872,6 +874,12 @@ internal sealed class SpatialPreview : IDisposable
             else
                 MessageBox.Show(message, "Could not export with Spektrafilm", MessageBoxButton.OK, MessageBoxImage.Error);
             return false;
+        }
+
+        static void ReportStagingCleanup(Exception error)
+        {
+            if (error.Data["StagingCleanupError"] is string cleanupError)
+                StartupHook.Log("Could not remove the temporary Spektrafilm export: " + cleanupError);
         }
 
         void Advance(ExportStage stage, string message, int width = 0, int height = 0, string? error = null)

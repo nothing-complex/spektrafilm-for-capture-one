@@ -1190,13 +1190,15 @@
       "id": "HS-15",
       "title": "Incomplete explicit lifetime boundary for host and preview subscriptions",
       "priority": "P2",
-      "status": "partial",
+      "status": "implemented",
       "implemented": [
         "SpatialPreview has explicit disposal that stops/unsubscribes timer and viewer events and cancels owned work; LookPanel delegates disposal.",
         "Added partial construction rollback, ApplicationExit timer cleanup, owned/cancelable selection DispatcherOperation, life-bound preview file writes, and ensured tab cleanup even when another disposer fails. Real-host canceled close and detach covered pending callback and export cancellation.",
         "Native development slots now belong to queued callbacks until abandoned or to executing callbacks until actual native return. New jobs cannot enter during physical cancellation drain.",
         "A separately compiled licensed fault fixture paused after real high-depth native bitmap development. The caller timed out at three seconds while its callback still owned the scheduler slot. The old source opened its private ICC for writing prematurely; callback ownership retained the lock until the callback actually returned. The next licensed operation developed the same verified RGB16 profile, with identical private ICC bytes. Production source regressions passed 135 RAW, 58/58 native effects Export, and 317/321 general host assertions.",
-        "The injected late native result was discarded during real detach and during a switch between two actual Capture One catalog windows. The 26-check detach fixture retained both resources until the old callback finished, with no post-disposal paint. The 35-check concurrent fixture retained the old source identity and painted nothing in the unapproved catalog; reactivating and reopening the approved catalog loaded the exact durable look. The licensed stall uses a plugin-owned pause after actual native processing."
+        "The injected late native result was discarded during real detach and during a switch between two actual Capture One catalog windows. The 26-check detach fixture retained both resources until the old callback finished, with no post-disposal paint. The 35-check concurrent fixture retained the old source identity and painted nothing in the unapproved catalog; reactivating and reopening the approved catalog loaded the exact durable look. The licensed stall uses a plugin-owned pause after actual native processing.",
+        "Two licensed runs each repeated 100 attach/detach/float cycles. The mixed run verified both redock and detach while floating, aborting queued selection callbacks. Every tested window handle closed, all 300 weak references were collected per run, and GDI resource counts stayed at 378. The mixed run passed 717 checks and recorded USER handles, total handles and private and managed memory baselines.",
+        "A 39-check licensed test closed the actual approved form during the native bitmap callback of an accepted export with another catalog still open. Close canceled the export, preserved the prior output and saved look, then the callback released the scheduler slot. The retired Viewer worker exited and reopening attached a new tool and repainted the saved film look. The full licensed suite separately confirmed canceled close kept the tool and accepted work alive."
       ],
       "evidence_paths": [
         "NativePanel/SpatialPreview.cs",
@@ -1212,11 +1214,13 @@
         ".test-results/host-development-lease-full-20261120/host-smoke.log",
         ".test-results/host-development-lease-detach-20261120/host-smoke.log",
         ".test-results/host-development-lease-inactive-20261120/host-smoke.log",
-        ".test-results/host-development-lease-inactive-20261120/proof-settings-receipt.json"
+        ".test-results/host-development-lease-inactive-20261120/proof-settings-receipt.json",
+        "qa/HostSmoke/NativeLifetimeSoak.cs",
+        ".test-results/host-native-lifetime-baseline-20261120/native-tool-lifetime.json",
+        ".test-results/host-native-lifetime-mixed-20261120/native-tool-lifetime.json",
+        ".test-results/host-native-form-close-export-20261120/host-smoke.log"
       ],
-      "remaining_work": [
-        "Physical form close and high-cycle attach/detach/float leak baselines. Inject actual running host cancellation stages and verify weak references/handles."
-      ],
+      "remaining_work": [],
       "original_acceptance_tests": [
         "100 attach/detach/float cycles, close during render/export/load, canceled host close, weak references become collectible, no orphan workers or dispatcher callbacks",
         "NativePanel handle/memory baseline."
@@ -3217,7 +3221,8 @@
         "Each accepted export has its own receipt. Tests prove a late completion cannot replace the newer job, malformed history stays preserved and unavailable progress storage does not change an authorized output transaction.",
         "The licensed host observed actual film and encoding stages during a 6000 × 4000 RGB48 export. The completed receipt matched the exact path and dimensions. Detach canceled an accepted export without replacing its previous file, and restart reloaded the canceled state.",
         "The native Export label now follows the real GPU stages during rendering. Updates are guarded by the same accepted job and cannot overwrite final delivery or cancellation status.",
-        "Cancellation is checked during actual WIC staging writes. The 24 MP portable TIFF and PNG encodes returned in 2.56–2.86 ms and 0.76–0.96 ms in four trials each, versus earlier 1.81 and 2.62 seconds. The licensed WPF Cancel export action stopped actual TIFF writes in 5.16–5.60 ms on both launches. It preserved the exact previous destination, removed the staging file and recorded Canceled. The complete licensed suite passed 321 and 325 assertions."
+        "Cancellation is checked during actual WIC staging writes. The 24 MP portable TIFF and PNG encodes returned in 2.56–2.86 ms and 0.76–0.96 ms in four trials each, versus earlier 1.81 and 2.62 seconds. The licensed WPF Cancel export action stopped actual TIFF writes in 5.16–5.60 ms on both launches. It preserved the exact previous destination, removed the staging file and recorded Canceled. The complete licensed suite passed 321 and 325 assertions.",
+        "Real Windows ACL denial at staging creation and denial during rename over a read-only file preserved the previously exported and original bytes. A denied staging cleanup no longer replaces the original cancellation or write error. The licensed physical form close canceled a job accepted before native bitmap return and left its earlier destination byte-identical."
       ],
       "evidence_paths": [
         "NativePanel/SpatialPreview.cs",
@@ -3231,11 +3236,14 @@
         ".test-results/native-encoder-cancel-before-20261120/encoder-cancellation.json",
         ".test-results/native-encoder-cancel-repeat-3-20261120/encoder-cancellation.json",
         ".test-results/host-interruptible-encoder-full-20261120/first-encoder-cancellation.json",
-        ".test-results/host-interruptible-encoder-full-20261120/restart-encoder-cancellation.json"
+        ".test-results/host-interruptible-encoder-full-20261120/restart-encoder-cancellation.json",
+        "NativePanel/PanelFiles.cs",
+        "tests/ViewerContracts/ExportStorageFailures.cs",
+        ".test-results/host-native-form-close-export-20261120/host-smoke.log"
       ],
       "remaining_work": [
         "Add resumable authorized descriptors and an explicit batch queue with per-image isolation. Current receipts preserve progress and outcome for a single accepted export.",
-        "Run hard interruption, denied access and actual disk-full probes for native, GPU and encoding stages. The real encoding cancellation is now verified. Move lingering modal errors to nonmodal completion where the host supports it."
+        "Run hard interruption and actual disk-full probes for native, GPU and encoding stages. Initial access-denial contracts verify WIC staging creation and final rename. Verify the native front end for denied access and move lingering modal errors to nonmodal completion where the host supports it."
       ],
       "original_acceptance_tests": [
         "Close dialog during each stage: documented continuation/cancellation and no dangling native command.",
@@ -3295,8 +3303,8 @@
   ],
   "counts": {
     "total": 70,
-    "implemented": 30,
-    "partial": 40,
+    "implemented": 31,
+    "partial": 39,
     "pending": 0
   },
   "last_reconciled": "2026-11-20",

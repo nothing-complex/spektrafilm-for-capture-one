@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The 70-item integration audit tracks 30 bounded primary fixes implemented and 40 partial items. It includes feasibility investigations and enhancements.
+Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The 70-item integration audit tracks 31 bounded primary fixes implemented and 39 partial items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -669,6 +669,15 @@ Evidence is under `.test-results/cooperative-vulkan-runtime-20261120`, `.test-re
 - [x] Use the real Cancel export button while the licensed 24 MP TIFF writes staging data. Both launches preserved the previous TIFF's full SHA-256, removed the staging file and wrote a canceled job receipt. The two measured returns were 5.16 and 5.60 ms. The full first-launch and restart suites passed 321 and 325 assertions. The independent four-RAW native effects Export matrix passed 191 assertions on each launch.
 
 Run `dotnet run --project tests/ViewerContracts/ViewerContracts.csproj -c Release -- --cancel-file-encoding <new-results-directory>` to repeat the actual codec test. Evidence is under `.test-results/native-encoder-cancel-before-20261120`, `.test-results/native-encoder-cancel-after-20261120`, `.test-results/native-encoder-cancel-repeat-1-20261120` through repeat 3, `.test-results/contracts-interruptible-encoder-20261120` and `.test-results/host-interruptible-encoder-full-20261120`.
+
+## Native lifetime and export storage failures
+
+- [x] Run two separate 100-cycle float, close and detach soaks using Capture One's actual floating tool windows and normal watchdog. The first cycle style redocked before detach. The second alternated redocking and detaching while floating. Every retiring HWND was destroyed and all 300 tracked window, panel and tool references became collectible in each run. The second run aborted every queued selection callback. Its GDI count held at 378, USER handles went from 279 to 266, and total process handles went from 2,376 to 2,232. Host private bytes rose by 114 MiB after warmup, and post-GC managed bytes rose by about 3.2 MiB. The two runs passed 447 and 717 checks. [Windows GUI resource counts](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getguiresources)
+- [x] Close the actual approved catalog form while an accepted recipe export is in the native bitmap callback and a second catalog remains open. The closed form canceled the job. The callback held the scheduler slot after ImageCore returned until the fixture released it. The previous TIFF bytes and saved look were preserved, the job recorded Canceled, the retired Viewer process exited, and reopening attached a new native tool and painted the saved look. Thirty-nine licensed checks passed. Separate licensed tests covered a canceled close and late Viewer development.
+- [x] Use a real Windows directory deny rule to stop staging creation and a real read-only file to stop final publication. The output transaction keeps the original and previous TIFF exact in both cases. A denied temporary-file cleanup preserves the original cancellation and records the secondary failure. The fixture removes only its own temporary ACL rule and test file. Actual disk-full and crash recovery remain under VE-13.
+- [x] Recheck licensed native metadata after the TIFF encoder signature gained compression. All 27 assertions passed in a fresh catalog with private RAW copies. TIFF and PNG reopened with exact 16-bit samples, ICC, native selected keyword policy and geometry. Source RAW and catalog hashes matched.
+
+Run `qa/HostSmoke/Run-HostSmoke.ps1 -NativeLifetimeCycles 100` with the exact settings backup for the soak, or `-ConcurrentCatalogs -DevelopmentLeaseFixtureDirectory <isolated-runtime>` for actual form closure during the controlled bitmap return. Full Windows and Vulkan contracts also passed, including 12,281 Viewer and 255 state checks. Evidence is under `.test-results/host-native-lifetime-baseline-20261120`, `.test-results/host-native-lifetime-mixed-20261120`, `.test-results/host-native-form-close-export-20261120`, `.test-results/contracts-atomic-storage-20261120` and `.test-results/host-native-metadata-atomic-20261120`.
 
 ## Installer linked paths and failed rollback
 

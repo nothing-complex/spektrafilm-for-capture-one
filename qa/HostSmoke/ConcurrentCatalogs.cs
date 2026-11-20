@@ -6,7 +6,9 @@ using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows;
 using System.Windows.Controls;
+using Microsoft.Win32;
 using Forms = System.Windows.Forms;
 
 public static partial class StartupHook
@@ -111,11 +113,10 @@ public static partial class StartupHook
             Check(workerProbe is not null, "the approved window has a live renderer to check during teardown");
             var exportField = hook.GetField("exportHook", Flags)!;
             var originalExport = exportField.GetValue(null);
-            _ = Call(manager, "SetActiveDocument", catalogB);
-            secondWindow.BringToFront();
-            secondWindow.Activate();
-            await WaitFor(() => ReferenceEquals(Active(), catalogB), "The second document was not active for approved-window teardown.");
-            ((Forms.Form)firstWindow).Close();
+            if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_DEVELOPMENT_LEASE") == "1")
+                await CloseWithAcceptedExport(catalogB, secondWindow);
+            else
+                await CloseFirstForm(catalogB, secondWindow);
             await WaitFor(() => ((Forms.Form)firstWindow).IsDisposed && !OpenDocuments().Any(document => Matches(document, firstPath)),
                 "Native close did not remove the approved document window.");
             await WaitFor(() => hookField.GetValue(null) is null && Field(spatial, "disposed") is true
@@ -172,6 +173,58 @@ public static partial class StartupHook
             "Closing the second catalog did not leave the first actual document active.");
         Check(File.ReadAllBytes(lookPath).SequenceEqual(savedA), "closing a different native catalog preserves the approved saved look");
         File.WriteAllText(Path.Combine(folder, "first.passed"), $"PASS {checks} concurrent native catalog assertions");
+
+        async Task CloseFirstForm(object catalogB, Forms.Form secondWindow)
+        {
+            _ = Call(manager, "SetActiveDocument", catalogB);
+            secondWindow.BringToFront();
+            secondWindow.Activate();
+            await WaitFor(() => ReferenceEquals(Active(), catalogB), "The second document was not active for approved-window teardown.");
+            ((Forms.Form)firstWindow).Close();
+        }
+
+        async Task CloseWithAcceptedExport(object catalogB, Forms.Form secondWindow)
+        {
+            var native = assembly.GetType("HostImageSource", true)!;
+            var entered = (ManualResetEventSlim)native.GetField("DevelopmentLeaseEntered", Flags)!.GetValue(null)!;
+            var release = (ManualResetEventSlim)native.GetField("DevelopmentLeaseContinue", Flags)!.GetValue(null)!;
+            var slot = (SemaphoreSlim)native.GetField("SchedulerSlot", Flags)!.GetValue(null)!;
+            var armed = native.GetField("developmentLeaseArmed", Flags)!;
+            var destination = Path.Combine(folder, "approved-window-close.tif");
+            byte[] prior = { 16, 4, 6, 24, 14 };
+            File.WriteAllBytes(destination, prior);
+            entered.Reset();
+            release.Reset();
+            Task<bool> export;
+            try
+            {
+                armed.SetValue(null, 1);
+                export = (Task<bool>)Call(spatial, "ExportWithDestinationAsync", true, null,
+                    (Func<SaveFileDialog, Window?, string?>)((_, _) => destination))!;
+                await WaitFor(() => entered.IsSet || export.IsCompleted, "The accepted export never reached native bitmap development.");
+                var operation = Field(spatial, "exportWork");
+                var receipt = Call(Field(spatial, "exportJobs")!, "ReadLatest");
+                Check(entered.IsSet && !export.IsCompleted && slot.CurrentCount == 0 && operation is not null
+                    && receipt is not null && Equals(Prop(receipt, "Destination"), destination)
+                    && Prop(receipt, "Stage")?.ToString() == "DevelopingSource",
+                    "the active approved window has an accepted export paused after native bitmap processing");
+                var token = (CancellationToken)Prop(operation!, "Token")!;
+                await CloseFirstForm(catalogB, secondWindow);
+                Check(token.IsCancellationRequested && slot.CurrentCount == 0 && Field(spatial, "disposed") is true,
+                    "physical native form close cancels the accepted export while the running bitmap callback still owns its slot");
+            }
+            finally
+            {
+                armed.SetValue(null, 0);
+                release.Set();
+            }
+            Check(!await export.WaitAsync(TimeSpan.FromSeconds(12)), "the accepted export stops when its native form closes");
+            await WaitFor(() => slot.CurrentCount == 1, "The native development slot remained busy after form close.");
+            var canceled = Call(Field(spatial, "exportJobs")!, "ReadLatest")!;
+            Check(Prop(canceled, "Stage")?.ToString() == "Canceled" && Equals(Prop(canceled, "Destination"), destination)
+                && File.ReadAllBytes(destination).SequenceEqual(prior) && !Directory.EnumerateFiles(folder, ".spektra-*.tmp").Any(),
+                "the canceled native export preserves the prior destination and leaves no staging file");
+        }
 
         async Task SwitchDuringLateDevelopment(object catalogB, Forms.Form secondWindow)
         {

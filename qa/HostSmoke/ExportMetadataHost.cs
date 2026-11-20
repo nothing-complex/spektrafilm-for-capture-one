@@ -146,7 +146,7 @@ public static partial class StartupHook
             var image = BitmapSource.Create(3, 2, 300, 180, format, null, pixels, stride);
             var output = Path.Combine(folder, "native-recipe-metadata" + extension);
             var destination = approved.Invoke(null, new[] { output, sourcePath })!;
-            save.Invoke(null, new[] { destination, image, (object)CancellationToken.None, metadata, null });
+            save.Invoke(null, new[] { destination, image, (object)CancellationToken.None, metadata, null, TiffCompressOption.Zip });
             var bytes = File.ReadAllBytes(output);
             Check(bytes.AsSpan().IndexOf(System.Text.Encoding.UTF8.GetBytes(packet)) >= 0,
                 "exact native recipe metadata snapshot reopens in " + extension);

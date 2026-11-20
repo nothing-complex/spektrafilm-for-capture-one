@@ -11,6 +11,7 @@ param(
     [switch] $SessionIsolation,
     [switch] $ViewerLayouts,
     [ValidateRange(0,200)][int] $ViewerChurn=0,
+    [ValidateRange(0,200)][int] $NativeLifetimeCycles=0,
     [switch] $ViewerNativeBaseline,
     [switch] $DurableSliderEdits,
     [string] $MetadataFixtureRoot,
@@ -32,6 +33,16 @@ param(
 )
 $ErrorActionPreference='Stop'
 if ($NativeEffectExportMatrix) { $NativeEffectExport=$true }
+if ($NativeLifetimeCycles) {
+    if (!$NativeSettingsConfig -or $UpgradeFromPackage -or $CatalogIsolation -or $ConcurrentCatalogs -or $SessionIsolation -or
+        $ViewerLayouts -or $ViewerChurn -or $DurableSliderEdits -or $MetadataFixtureRoot -or $CheckOrdinaryLaunch -or
+        $ColorMatrix -or $NativeSourceMutations -or $ViewerStress -or $PanelInventory -or $NativeEffectExport -or
+        $OriginalAvailabilityProbe -or $NativeDevelopmentDeadline -or $DevelopmentLeaseFixtureDirectory -or
+        $DeviceLossFixtureDirectory -or $CalibrationChart) {
+        throw 'The native tool lifetime fixture requires its own disposable launch and native preferences backup.'
+    }
+    $SkipRestart=$true
+}
 if ($DevelopmentLeaseFixtureDirectory) {
     if (!$NativeSettingsConfig -or $PackagedRuntime -or $UpgradeFromPackage -or $NativeDevelopmentDeadline -or
         $DeviceLossFixtureDirectory -or $NativeEffectExport -or $ColorMatrix -or $NativeSourceMutations -or $CatalogIsolation -or
@@ -404,6 +415,7 @@ $names=@(
     'SPEKTRAFILM_SHOW_TOOL','SPEKTRAFILM_HOST_PROOF_TEST','SPEKTRAFILM_HOST_CATALOG_ISOLATION',
     'SPEKTRAFILM_HOST_VIEWER_LAYOUTS','SPEKTRAFILM_HOST_DURABLE_EDITS','SPEKTRAFILM_HOST_METADATA_FIXTURE',
     'SPEKTRAFILM_HOST_VIEWER_CHURN','SPEKTRAFILM_HOST_NATIVE_VIEWER_BASELINE','SPEKTRAFILM_HOST_OTHER_CATALOG',
+    'SPEKTRAFILM_HOST_NATIVE_LIFETIME',
     'SPEKTRAFILM_HOST_SESSION','SPEKTRAFILM_HOST_CALIBRATION','SPEKTRAFILM_HOST_ORIGINAL_AVAILABILITY_PROBE',
     'SPEKTRAFILM_HOST_NATIVE_DEVELOPMENT_DEADLINE','SPEKTRAFILM_HOST_DEVICE_LOSS','SPEKTRAFILM_HOST_DEVELOPMENT_LEASE'
 )
@@ -429,6 +441,7 @@ try {
     $env:SPEKTRAFILM_HOST_DURABLE_EDITS=if($DurableSliderEdits){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_METADATA_FIXTURE=$MetadataFixtureRoot
     $env:SPEKTRAFILM_HOST_VIEWER_CHURN=if($ViewerChurn){[string]$ViewerChurn}else{$null}
+    $env:SPEKTRAFILM_HOST_NATIVE_LIFETIME=if($NativeLifetimeCycles){[string]$NativeLifetimeCycles}else{$null}
     $env:SPEKTRAFILM_HOST_NATIVE_VIEWER_BASELINE=if($ViewerNativeBaseline){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_OTHER_CATALOG=if($ConcurrentCatalogs){$fixtureCatalogs[1]}else{$null}
     $env:SPEKTRAFILM_HOST_SESSION=$sessionDatabase
@@ -456,7 +469,7 @@ try {
                 $ready=Wait-SpektrafilmPanel $process $status $env:SPEKTRAFILM_LAUNCH_ID 90
                 $ready | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $folder ($phase+'.ready.json'))
             }
-            $deadline=[DateTime]::UtcNow.AddMinutes($(if($ViewerChurn){10}elseif($NativeDevelopmentDeadline){6}else{4}))
+            $deadline=[DateTime]::UtcNow.AddMinutes($(if($ViewerChurn -or $NativeLifetimeCycles){10}elseif($NativeDevelopmentDeadline){6}else{4}))
             $result=Join-Path $folder ($phase+'.passed')
             $failure=Join-Path $folder 'failed.txt'
             while(!(Test-Path -LiteralPath $result)){

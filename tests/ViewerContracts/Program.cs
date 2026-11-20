@@ -56,7 +56,7 @@ internal static partial class Program
             Console.WriteLine($"PASS: {assertions} native encoder cancellation checks.");
             return;
         }
-        var folder = args.Length > 0 ? args[0] : Path.Combine(Path.GetTempPath(), "Spektrafilm-viewer-contracts-" + Guid.NewGuid().ToString("N"));
+        var folder = args.Length > 0 ? Path.GetFullPath(args[0]) : Path.Combine(Path.GetTempPath(), "Spektrafilm-viewer-contracts-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(folder);
         TestGeometry();
         TestDpiAndCropGeometry();
@@ -80,6 +80,7 @@ internal static partial class Program
         TestColorPrecision();
         TestLookStrengthDelivery();
         TestOutputProtection(folder);
+        TestExportStorageFailures(folder);
         TestSectionPreferences(folder);
         TestScheduling().GetAwaiter().GetResult();
         TestNativeCallbackOwnership().GetAwaiter().GetResult();

@@ -89,6 +89,12 @@ public static partial class StartupHook
             Check(Field(panel, "displayedVariant") is Guid, "selected image bound to panel");
             var variant = (Guid)Field(panel, "displayedVariant")!;
             var spatial = Field(panel, "opticalPreview")!;
+            if (int.TryParse(Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_NATIVE_LIFETIME"), out var cycles)
+                && cycles is > 0 and <= 200)
+            {
+                await TestNativeLifetimeSoak(hook, (FrameworkElement)panel, cycles);
+                return;
+            }
             if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_CALIBRATION") is { Length: > 0 } chart)
             {
                 await TestCalibratedChart(panelAssembly, panel, spatial, window, chart);
