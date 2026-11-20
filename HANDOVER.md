@@ -624,6 +624,10 @@ Evidence is under `.test-results/host-recipe-icc-final-20261120`, `.test-results
 
 Evidence is under `.test-results/state-final-isolated-20261120` and `.test-results/host-protected-look-formats-20261120`. The standalone `--measure-diagnostic-log` probe wrote its receipt to `.test-results/panel-log-ten-minute-20261120/measurement.json`.
 
+- [x] Show which export route applies to the current variant, including master off, 0% Look strength and an unavailable look. Retain separate status for failed Export binding, Viewer processing and saved-look durability. Their typed diagnostic events contain state or exception type fields.
+- [x] Exercise actual missing command callbacks, an absent copied Viewer worker and a real file sharing violation on a slider save. Verify the read retry, independent recovery checkpoint, simultaneous Viewer and save warnings, native export reconnection and the exact edited look after recovery. Pass 47 checks in `.test-results/host-support-capability-faults-20261120`. The source catalog stays unchanged.
+- [ ] Run the native Copy support details menu round trip with an empty or text clipboard. The fixture skipped that operation after detecting existing rich clipboard data. Windows denied creation of a named private clipboard station and returned `ERROR_BUSY` when the probe tried to attach to an existing noninteractive desktop from a fresh STA thread. Use `Run-HostSmoke.ps1 -NativeSupportDiagnostics` with the backed-up native preferences when a suitable interactive clipboard is available. [Windows station clipboard ownership](https://learn.microsoft.com/en-us/windows/win32/winstation/window-stations)
+
 ## Verified previous look recovery
 
 - [x] Separate default, valid, recovered, unsupported, corrupt and retryable read outcomes. Normal saves retain the exact prior valid bytes with a variant identity and SHA-256. The new generation is included in joint catalog backup and restore.

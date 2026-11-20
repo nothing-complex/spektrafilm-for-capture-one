@@ -228,6 +228,11 @@ public static partial class StartupHook
             }
             var exposure = Field(panel, "exposure")!;
             var toggle = (CheckBox)Field(panel, "enableSpektraFilm")!;
+            if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_SUPPORT_DIAGNOSTICS") == "1")
+            {
+                await TestNativeSupportDiagnostics(hookField, exportHook!, hosted, panel, window, spatial, store, variant, exposure, toggle);
+                return;
+            }
             await TestLaunchHealth(hosted, spatial, toggle);
             await TestAdaptiveWatchdog(hook!, panel, variant);
             await TestFloatingWorkArea(panelAssembly!, hosted, panel);

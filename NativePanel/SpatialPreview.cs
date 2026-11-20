@@ -1332,6 +1332,7 @@ internal sealed class SpatialPreview : IDisposable
             failedSize = size;
             ClearFrame(error);
             retryViewer.Visibility = Visibility.Visible;
+            StartupHook.Log("viewer.processing-failed.v1", new { ErrorKind = error.GetBaseException().GetType().Name });
         }
         catch (Exception) when (settingsVersion != inputRevision) { }
         finally

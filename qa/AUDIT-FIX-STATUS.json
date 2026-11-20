@@ -1774,7 +1774,9 @@
         "A 600-second contention test submitted 148,608 records to each of two local async loggers. The writable logger dropped none and retained two files under 1 MiB each. The locked logger dropped all records and recovered cleanly on exit. The pair of enqueue calls took p99 0.0036 ms and at most 0.4652 ms.",
         "Structured event data is optional and serialized by the existing bounded background pump. One event identifies accepted export timing without source or destination paths. Invalid or oversize details are discarded without ending the pump. Portable tests confirm valid structured events still arrive after both errors.",
         "A native Retry Viewer action is shown after a terminal frame-processing error. The real WPF control restored the saved look after automatic recovery was exhausted, with Export connection preserved.",
-        "The explicitly copied report includes the Viewer encoding, active Recipe Proofing and an optional display ICC fingerprint. The licensed fixture checks the nested allow-list and the actual proof toggle. Display paths stay out of the report."
+        "The explicitly copied report includes the Viewer encoding, active Recipe Proofing and an optional display ICC fingerprint. The licensed fixture checks the nested allow-list and the actual proof toggle. Display paths stay out of the report.",
+        "The panel identifies the native Export route for the current variant, including master off, zero look strength and an unavailable saved look. Native export binding, look durability and terminal Viewer processing failures emit separate typed events with allow-listed fields.",
+        "The disposable licensed host passes 47 checks covering missing native callbacks, an unavailable saved-look read, a real sharing failure during a slider save, an absent Viewer worker, separate simultaneous warnings, and recovery of the exact saved edit. The source catalog verifies. The clipboard fixture sees rich data in the interactive clipboard and leaves it intact. The updated 16.4 and 16.7 reference builds still match across all 563 compiled host references."
       ],
       "evidence_paths": [
         "NativePanel/SpektraFilmTool.cs",
@@ -1787,10 +1789,14 @@
         ".test-results/panel-log-ten-minute-20261120/measurement.json",
         ".test-results/contracts-structured-export-compression-20261120/StateContracts.log",
         ".test-results/host-viewer-manual-retry-20261120/host-smoke.log",
-        ".test-results/host-display-profile-support-20261120/support-details.json"
+        ".test-results/host-display-profile-support-20261120/support-details.json",
+        "qa/HostSmoke/NativeSupportDiagnostics.cs",
+        ".test-results/host-support-capability-faults-20261120/host-smoke.log",
+        ".test-results/host-support-capability-faults-20261120/panel.log",
+        ".test-results/host67-contracts/reference-drift-support-diagnostics.json"
       ],
       "remaining_work": [
-        "Add per-capability native fault scenarios, exercise the user clipboard flow and extend structured event IDs beyond accepted export timings. Ten-minute native interaction telemetry is tracked under VE-17."
+        "Verify the actual Windows clipboard round trip from the native support menu on an empty or plain-text clipboard. The live fixture protects richer existing clipboard data. Ten-minute native interaction telemetry is tracked under VE-17."
       ],
       "original_acceptance_tests": [
         "fault injection by capability, user can identify degraded feature without opening logs, export visibly reports whether it will contain Spektrafilm, persisted-save error remains prominent."

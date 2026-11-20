@@ -474,6 +474,7 @@ internal static class SpektraFilmTool
         private readonly CancellationTokenSource lifetime = new();
         private readonly Button cancelLut = new() { Content = "Cancel LUT export", Visibility = Visibility.Collapsed };
         private readonly TextBlock batchStatus = new() { TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed };
+        private readonly TextBlock exportRouteStatus = new() { TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed };
         private readonly Button cancelBatch = new() { Content = "Stop applying copied settings", Visibility = Visibility.Collapsed };
         private CancellationTokenSource? batchWork;
         private bool batchStatusLoaded;
@@ -519,6 +520,7 @@ internal static class SpektraFilmTool
             recoverSavedLook.Visibility = Visibility.Collapsed;
             layout.Children.Add(recoverSavedLook);
             layout.Children.Add(exportBridgeStatus);
+            layout.Children.Add(exportRouteStatus);
             cancelLut.Click += (_, _) => lutWork?.Cancel();
             layout.Children.Add(cancelLut);
             layout.Children.Add(batchStatus);
@@ -546,6 +548,11 @@ internal static class SpektraFilmTool
             printExposure = AddSlider(controls, "Print exposure", -5, 5, 0, 0.1, "EV");
             printExposure.ToolTip = "More light on the print stock makes the result darker.";
             strength = AddSlider(controls, "Look strength", 0, 100, 100, 1, "%");
+            strength.ValueChanged += (_, _) =>
+            {
+                if (!settingValues)
+                    UpdateExportRouteStatus();
+            };
             var exports = new ExportJobJournal(Path.Combine(PanelPreferences.UserDataDirectory(), "Export jobs", looks.CatalogIdentity), StartupHook.Log);
             opticalPreview = SpatialPreview.BuildForPanel(window, CurrentSettings, UseSelectedLook, exports);
             layout.Children.Insert(3, opticalPreview.ExportControls);
@@ -664,6 +671,8 @@ internal static class SpektraFilmTool
 
         internal void SetExportBridgeStatus(ExportBridgeState state, string? detail)
         {
+            if (ExportBridgeStatus != state)
+                StartupHook.Log("native-export.bridge.v1", new { State = state.ToString() });
             ExportBridgeStatus = state;
             exportBridgeStatus.Text = state switch
             {
@@ -672,6 +681,7 @@ internal static class SpektraFilmTool
                 _ => string.Empty,
             };
             exportBridgeStatus.Visibility = exportBridgeStatus.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+            UpdateExportRouteStatus();
         }
 
         private void OnEnabledChanged()
@@ -698,7 +708,25 @@ internal static class SpektraFilmTool
             fileControls.IsEnabled = enableSpektraFilm.IsEnabled;
             exportButtons.IsEnabled = enabled && StocksReady;
             opticalPreview.SetEnabled(enabled);
+            UpdateExportRouteStatus();
             RefreshNativeGrain(force: false);
+        }
+
+        private void UpdateExportRouteStatus()
+        {
+            var text = SupportExportRoute(SupportStorageState()) switch
+            {
+                "Spektrafilm" when strength.Value <= 0 => "Capture One Export uses 16-bit output. Look strength is 0%.",
+                "Spektrafilm" => "Capture One Export includes Spektrafilm for this variant.",
+                "CaptureOne" => "Capture One Export uses the native adjustments for this variant.",
+                "LookUnavailable" => "Reload or recover this look before exporting this variant.",
+                // The bridge warning already advertises the panel export for UsePanel.
+                _ => string.Empty,
+            };
+            if (exportRouteStatus.Text == text)
+                return;
+            exportRouteStatus.Text = text;
+            exportRouteStatus.Visibility = text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
         }
 
         public void Dispose()
@@ -1052,7 +1080,7 @@ internal static class SpektraFilmTool
                 Clipboard.SetText(BuildSupportDetails());
                 status.Text = "Support details copied.";
             }
-            catch (System.Runtime.InteropServices.COMException)
+            catch (System.Runtime.InteropServices.ExternalException)
             {
                 status.Text = "The clipboard is busy. Use Copy support details again.";
             }
@@ -1403,8 +1431,12 @@ internal static class SpektraFilmTool
                 if (variant is { } edited) looks.FlushVariant(edited);
                 else looks.Flush();
                 if (!looks.HasPending && retryLookReadAt is null
-                    && (displayedVariant is not { } selected || !looks.IsBlocked(selected)))
+                    && (displayedVariant is not { } selected || !looks.IsBlocked(selected))
+                    && saveError.Visibility == Visibility.Visible)
+                {
                     saveError.Visibility = Visibility.Collapsed;
+                    StartupHook.Log("look.storage.v1", new { State = SupportStorageState(), Warning = false });
+                }
             }
             catch (Exception error)
             {
@@ -1418,9 +1450,13 @@ internal static class SpektraFilmTool
         {
             if (looks.HasPending || AwaitingLookRead) StartupHook.EnsureRecoveryWatchdog();
             if (saveError.Visibility != Visibility.Visible || saveError.Text != message)
+            {
                 StartupHook.Log(message);
+                StartupHook.Log("look.storage.v1", new { State = SupportStorageState(), Warning = true });
+            }
             saveError.Text = message;
             saveError.Visibility = Visibility.Visible;
+            UpdateExportRouteStatus();
         }
 
         private Task TryRecoverSelectedLook()
