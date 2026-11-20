@@ -451,7 +451,8 @@ var nativeValues = new[] { 1, 2, 3 };
 var closedScopes = 0;
 var nativeSteps = Enumerable.Range(0, 3).Select(index => new NativeAdjustmentTransaction.Step(
     "control " + index, () => nativeValues[index] += 10, () => nativeValues[index] = index + 1)).ToArray();
-NativeAdjustmentTransaction.Execute(nativeSteps, () => closedScopes++);
+static void UnexpectedCompensation(Action _) => throw new InvalidOperationException("Undo compensation was not expected.");
+NativeAdjustmentTransaction.Execute(nativeSteps, () => closedScopes++, UnexpectedCompensation);
 Check("native transaction applies all fields", nativeValues.SequenceEqual(new[] { 11, 12, 13 }));
 Check("native transaction closes successful undo group once", closedScopes == 1);
 nativeValues = new[] { 1, 2, 3 };
@@ -460,7 +461,8 @@ var failingSteps = Enumerable.Range(0, 3).Select(index => new NativeAdjustmentTr
     "control " + index,
     () => { nativeValues[index] += 10; if (index == 1) throw new IOException("setter mutated then failed"); },
     () => { nativeValues[index] = index + 1; restorationOrder.Add(index); })).ToArray();
-Throws<IOException>("native setter failure preserved", () => NativeAdjustmentTransaction.Execute(failingSteps, () => closedScopes++));
+Throws<IOException>("native setter failure preserved", () => NativeAdjustmentTransaction.Execute(
+    failingSteps, () => closedScopes++, UnexpectedCompensation));
 Check("native partial mutation fully rolled back", nativeValues.SequenceEqual(new[] { 1, 2, 3 }));
 Check("native rollback includes failing setter in reverse order", restorationOrder.SequenceEqual(new[] { 1, 0 }));
 Check("native failure closes undo group once", closedScopes == 2);
@@ -471,7 +473,8 @@ var rollbackFailure = new NativeAdjustmentTransaction.Step[]
 };
 try
 {
-    NativeAdjustmentTransaction.Execute(rollbackFailure, () => { closedScopes++; throw new IOException("undo close failed"); });
+    NativeAdjustmentTransaction.Execute(rollbackFailure, () => { closedScopes++; throw new IOException("undo close failed"); },
+        UnexpectedCompensation);
     throw new Exception("Expected aggregate native error");
 }
 catch (AggregateException error)
@@ -480,10 +483,54 @@ catch (AggregateException error)
     Check("native rollback continues after one restoration fails", nativeValues[0] == 1);
     Check("native scope closed once even after rollback failure", closedScopes == 3);
 }
+nativeValues = new[] { 1, 2, 3 };
+var compensationRuns = 0;
 Throws<IOException>("native scope error is surfaced after successful setters", () => NativeAdjustmentTransaction.Execute(nativeSteps,
-    () => { closedScopes++; throw new IOException("undo close failed after success"); }));
-Check("native close error cannot skip executed changes", nativeValues[0] == 11);
+    () => { closedScopes++; throw new IOException("undo close failed after success"); }, restore => { compensationRuns++; restore(); }));
+Check("native close error restores executed changes in its compensation scope", nativeValues.SequenceEqual(new[] { 1, 2, 3 }) && compensationRuns == 1);
 Check("native close error closes only once", closedScopes == 4);
+for (var failingIndex = 0; failingIndex < nativeValues.Length; failingIndex++)
+{
+    var inject = failingIndex;
+    var applied = new List<int>();
+    var restored = new List<int>();
+    var setterFaults = Enumerable.Range(0, nativeValues.Length).Select(index => new NativeAdjustmentTransaction.Step(
+        "setter " + index, () =>
+        {
+            applied.Add(index);
+            nativeValues[index] += 10;
+            if (index == inject) throw new IOException("injected partial setter");
+        }, () =>
+        {
+            restored.Add(index);
+            nativeValues[index] = index + 1;
+        })).ToArray();
+    Throws<IOException>($"native setter {inject} fault preserved", () =>
+        NativeAdjustmentTransaction.Execute(setterFaults, () => { }, UnexpectedCompensation));
+    Check($"native setter {inject} fault restores all touched values in reverse order", nativeValues.SequenceEqual(new[] { 1, 2, 3 })
+        && applied.SequenceEqual(Enumerable.Range(0, inject + 1)) && restored.SequenceEqual(applied.AsEnumerable().Reverse()));
+}
+var selectionChecks = 0;
+var untouched = nativeValues.ToArray();
+Throws<OperationCanceledException>("selection change during native setters cancels transaction", () =>
+    NativeAdjustmentTransaction.Execute(nativeSteps, () => { }, UnexpectedCompensation,
+        () => { if (++selectionChecks == 2) throw new OperationCanceledException("selection changed"); }));
+Check("selection change restores captured variant and skips later setters", selectionChecks == 2 && nativeValues.SequenceEqual(untouched));
+Throws<InvalidOperationException>("post-set native value mismatch cancels transaction", () =>
+    NativeAdjustmentTransaction.Execute(nativeSteps, () => { }, UnexpectedCompensation,
+        verifyApplied: () => throw new InvalidOperationException("native value rejected")));
+Check("post-set verification restores all native values before closing", nativeValues.SequenceEqual(untouched));
+try
+{
+    NativeAdjustmentTransaction.Execute(nativeSteps, () => throw new IOException("native undo close failed"),
+        restore => { restore(); throw new IOException("compensation close failed"); });
+    throw new Exception("Expected aggregate native undo failure");
+}
+catch (AggregateException error)
+{
+    Check("compensating scope error preserves both undo failures after restoring values",
+        error.InnerExceptions.Count == 2 && nativeValues.SequenceEqual(untouched));
+}
 await PanelLogContracts.RunAsync(scratch, Check);
 Console.WriteLine($"PASS: {assertions} state/recovery assertions, including separate-process recovery. Fixtures: {scratch}");
 return 0;

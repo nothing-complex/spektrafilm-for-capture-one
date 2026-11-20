@@ -990,7 +990,8 @@
       "implemented": [
         "HELLO and METRICS expose bounded protocol/float/contract data and Vulkan timings, uploads and allocations; synthetic GPU/LUT and no-GPU suites exist.",
         "Windows worker benchmark saves per-request transport wall time, renderer stages and Vulkan allocations, working-set/commit samples, cold request versus reused-source edit percentiles, and renderer fingerprint in machine-readable JSON.",
-        "Actual Vulkan parity compares full and multi-tile pixels across color, 8 mm halation/scatter, 35 mm diffusion, 70 mm DIR, metering/grain/scanner, and enlarger. Worst code difference was 1.79e-7 on this GPU, with independently checked alpha."
+        "Actual Vulkan parity compares full and multi-tile pixels across color, 8 mm halation/scatter, 35 mm diffusion, 70 mm DIR, metering/grain/scanner, and enlarger. Worst code difference was 1.79e-7 on this GPU, with independently checked alpha.",
+        "The exact audit.14 worker passed the full standalone Vulkan smoke suite on isolated physical Intel integrated graphics, including packed/scalar parity, float stability, all seven multi-tile cases and the 128 MiB pressure fixture. Intel tile parity worst difference was 1.20e-7."
       ],
       "evidence_paths": [
         "ofx-still-renderer/main.cpp",
@@ -1001,7 +1002,8 @@
         ".test-results/renderer-benchmark-color-optics-20261119.json",
         ".test-results/renderer-benchmark-grain-quality-20261119.json",
         "ofx-still-renderer/smoke.py",
-        ".test-results/gpu-tiled-parity-20261119.log"
+        ".test-results/gpu-tiled-parity-20261119.log",
+        ".test-results/swiftshader-differential-20261120/intel-full-smoke.log"
       ],
       "remaining_work": [
         "Add frame/build/settings identity to diagnostics, structured whole-pipeline telemetry, quality oracles, tiled parity and hardware p50/p95/memory budgets.",
@@ -1304,7 +1306,8 @@
         "Final source no longer waits for optional draft; obsolete settled renders are cancelled and transport serializes requests.",
         "A real navigation test reproduced a previous image still reporting painted after a switch. Viewer readiness now rechecks exact current attachment availability rather than relying on cached flag state. The revised licensed test passed 100 settled visits and 30 interleaved selections without any obsolete painted identity.",
         "Typed worker transport interruptions and deadlines can trigger one delayed retry scoped to the selected variant, settings generation and native source revision. The worker must exit before the retry and the stale frame is discarded. Six deterministic scheduling checks cover the delay, exhaustion, source changes and lifetime reset.",
-        "Actual 4096 px licensed tests terminated the in-flight preview worker and recovered in 883 ms and 823 ms. The same developed RGB16 source and exact durable look bytes were reused without another edit. A separate two-termination case reached a terminal Viewer error with no extra worker or obsolete frame while native Export stayed connected. Full first/restart runs passed 294 and 298 assertions; 26 native layout checks also passed."
+        "Actual 4096 px licensed tests terminated the in-flight preview worker and recovered in 883 ms and 823 ms. The same developed RGB16 source and exact durable look bytes were reused without another edit. A separate two-termination case reached a terminal Viewer error with no extra worker or obsolete frame while native Export stayed connected. Full first/restart runs passed 294 and 298 assertions; 26 native layout checks also passed.",
+        "The licensed first and restart runs sent 100 rapid exposure changes while a real 4096 px final request was active. Each burst coalesced to one completed final render on the surviving worker, reused the same RGB16 source, and published the last persisted value. No subsequent final or draft work remained after the quiet window. The same runs passed the one-retry and exhausted-retry cases, and all 306 first-launch and 310 restart assertions."
       ],
       "evidence_paths": [
         "NativePanel/RenderCoordination.cs",
@@ -1317,10 +1320,11 @@
         "qa/HostSmoke/ViewerWorkerRestart.cs",
         ".test-results/contracts-viewer-worker-retry-20261120/ViewerContracts.log",
         ".test-results/host-viewer-retry-native-final-20261120/host-smoke.log",
-        ".test-results/host-viewer-layout-regression-20261120/host-smoke.log"
+        ".test-results/host-viewer-layout-regression-20261120/host-smoke.log",
+        ".test-results/host-viewer-grain-conditional-20261120/host-smoke.log"
       ],
       "remaining_work": [
-        "Extend the scheduling tests with a rapid 100-edit burst while live development runs, actual native proxy-pending and long deadline faults, and delayed completion across disabled, detached and export-owned contexts. The single transport retry and its exhausted fault are already verified in the licensed host."
+        "Exercise actual native proxy-pending and long deadline faults, and delayed completion across disabled, detached and export-owned contexts. The 100-edit burst, single transport retry and exhausted retry have licensed coverage."
       ],
       "original_acceptance_tests": [
         "Deterministic virtual clock and delayed fake renderer: latest settled request publishes; out-of-order final/draft completions never regress quality or variant.",
@@ -1669,7 +1673,8 @@
         "Five full-frame/tiled cases across four input spaces and the enlarger fallback matched their scalar references exactly. The 24 MP preview and 24 MP float export each matched the previous renderer byte for byte. The managed GPU suite passed 23 assertions including real cancellation and fresh worker admission.",
         "A 21-render-per-size synthetic benchmark on the RTX 3090 measured warm worker p95 10.13 to 2.37 ms at 1200×800, 110.23 to 26.63 ms at 4095×2731 and 304.46 to 56.30 ms at 6000×4000. The 24 MP readback changed from 384,000,000 to 96,000,004 bytes; the existing pipe output remains 96,000,000 bytes.",
         "Enlarger crop keeps the existing CPU packer because it needs the original pre-transform alpha. Partial-strength and export requests continue to use full float readback. The real Capture One launch and forced-restart suite passed 202 and 206 assertions.",
-        "Ran the exact audit.14 worker with isolated NVIDIA system, physical Intel integrated and SwiftShader CPU Vulkan ICDs. Four nontrivial graphs per path preserved alpha exactly, matched their own scalar display packing, and reduced each 65 by 47 GPU readback from 48,880 to 12,224 bytes. The largest RGB differences from NVIDIA were 9.47e-7 for Intel and 6.70e-6 for SwiftShader in float sRGB, and one packed code for each."
+        "Ran the exact audit.14 worker with isolated NVIDIA system, physical Intel integrated and SwiftShader CPU Vulkan ICDs. Four nontrivial graphs per path preserved alpha exactly, matched their own scalar display packing, and reduced each 65 by 47 GPU readback from 48,880 to 12,224 bytes. The largest RGB differences from NVIDIA were 9.47e-7 for Intel and 6.70e-6 for SwiftShader in float sRGB, and one packed code for each.",
+        "The exact audit.14 worker passed the full standalone Vulkan smoke suite on isolated physical Intel integrated graphics, including packed/scalar parity, float stability, all seven multi-tile cases and the 128 MiB pressure fixture. Intel tile parity worst difference was 1.20e-7."
       ],
       "evidence_paths": [
         "upstream-ofx/shaders/vulkan/SpektraFormatConvert.comp",
@@ -1682,7 +1687,8 @@
         ".test-results/host-gpu-packed-20261120",
         "qa/vulkan-adapter-parity.py",
         ".test-results/swiftshader-differential-20261120/packed-and-float-parity.json",
-        ".test-results/swiftshader-differential-20261120/intel-packed-and-float-parity.json"
+        ".test-results/swiftshader-differential-20261120/intel-packed-and-float-parity.json",
+        ".test-results/swiftshader-differential-20261120/intel-full-smoke.log"
       ],
       "remaining_work": [
         "Explore GPU linear-strength blending and pre-transform source alpha for the enlarger. Both retain their existing exact fallback.",
@@ -1863,7 +1869,8 @@
         "Native exposure, highlight and white balance settings each changed the immutable source revision on CR3, RAF, NEF and DNG. Reopened snapshots confirm the resulting pixels changed while dimensions and alpha stayed stable.",
         "Existing native rotate, mirror and keystone fixtures verify correct fresh developed pixels. The Viewer reuses the exact source variant, working space, capture dimensions and native revision. Pure tests show pan translation alone keeps projected source resolution stable.",
         "With manual 2048 selection in the real host, native zoom from a 2934 px to 6000 px projection, pan by -1466 and +1022 px, and Fit restoration retained the exact 16-bit source, bitmap and worker sequence. The fresh and restart tests passed 214 and 218 assertions.",
-        "A 96-assertion licensed source mutation matrix changed and restored exposure, asymmetric crop, Capture One Grain and active lens distortion across DNG, NEF, RAF and CR3. All used fresh RGB16 source identities and matched independent native developments within measured repeatability. Crop changes only the geometry counter, with mean full-canvas sample difference at most 4.13e-7. Lens correction changes that same counter and changes the full-canvas pixels, so the counter alone cannot identify presentation-only crop changes."
+        "A 96-assertion licensed source mutation matrix changed and restored exposure, asymmetric crop, Capture One Grain and active lens distortion across DNG, NEF, RAF and CR3. All used fresh RGB16 source identities and matched independent native developments within measured repeatability. Crop changes only the geometry counter, with mean full-canvas sample difference at most 4.13e-7. Lens correction changes that same counter and changes the full-canvas pixels, so the counter alone cannot identify presentation-only crop changes.",
+        "Both licensed launches limited the real WPF Viewer only within the fixture, measuring a 796 px projection and 900 px native RGB16 source. Restoring the viewport and zooming to 100% demanded a 6000 px projection and a new 4096 px native source. At that tier, native pan shifted the overlay without changing the source or rendered bitmap. Manual 2048 remained exact and the original native geometry was restored."
       ],
       "evidence_paths": [
         "NativePanel/HostImageSource.cs",
@@ -1873,10 +1880,11 @@
         "qa/HostSmoke/ViewerMotion.cs",
         ".test-results/host-viewer-native-motion-final-20261120/host-smoke.log",
         "qa/HostSmoke/NativeSourceMutations.cs",
-        ".test-results/host-native-source-mutations-final-20261120/native-source-mutations.json"
+        ".test-results/host-native-source-mutations-final-20261120/native-source-mutations.json",
+        ".test-results/host-viewer-grain-conditional-20261120/host-smoke.log"
       ],
       "remaining_work": [
-        "Verify explicit native Auto resolution tier transitions and optical alignment during crop in the actual Viewer. Record presentation and monitor/proof dependencies separately from native revision.",
+        "Verify optical alignment during crop and sensitive spatial effects in the actual Viewer. Record presentation and monitor/proof dependencies separately from native revision.",
         "Keep conservative geometry-counter invalidation until a verified host signal can distinguish crop from lens distortion and other pixel-affecting changes."
       ],
       "original_acceptance_tests": [
@@ -2312,7 +2320,8 @@
         "Windows worker benchmark saves per-request transport wall time, renderer stages and Vulkan allocations, working-set/commit samples, cold request versus reused-source edit percentiles, and renderer fingerprint in machine-readable JSON.",
         "Added an opt-in native RAW quality matrix for four actual cameras and four working spaces, with raw frame and independent colour metrics written as machine-readable evidence.",
         "Four real RAW cameras passed same-stage native TIFF/bitmap RGB16 parity and embedded ICC checks using the audited package. The agreed exact sample count is 2,004,657 channel codes.",
-        "The licensed 2048 px navigation matrix now records 100 visits, four RAW formats, three strengths, 30 interleaved selections, verified exact frame ownership, per-visit timing and memory snapshots. The same selection schedule with no plugin loaded supplies a native Viewer and memory baseline on this RTX 3090."
+        "The licensed 2048 px navigation matrix now records 100 visits, four RAW formats, three strengths, 30 interleaved selections, verified exact frame ownership, per-visit timing and memory snapshots. The same selection schedule with no plugin loaded supplies a native Viewer and memory baseline on this RTX 3090.",
+        "The exact audit.14 worker passed the full standalone Vulkan smoke suite on isolated physical Intel integrated graphics, including packed/scalar parity, float stability, all seven multi-tile cases and the 128 MiB pressure fixture. Intel tile parity worst difference was 1.20e-7."
       ],
       "evidence_paths": [
         "tests",
@@ -2328,7 +2337,8 @@
         ".test-results/host-native-tiff-exact-20261120/color-matrix/native-tiff-comparison.json",
         ".test-results/host-viewer-100-visits-current-paint-20261120/viewer-churn.json",
         ".test-results/host-native-only-viewer-baseline-20261120/viewer-native-baseline.json",
-        ".test-results/host-viewer-paired-live-20261120/viewer-churn.json"
+        ".test-results/host-viewer-paired-live-20261120/viewer-churn.json",
+        ".test-results/swiftshader-differential-20261120/intel-full-smoke.log"
       ],
       "remaining_work": [
         "No complete end-to-end hardware/source-format performance and quality acceptance matrix or release budgets yet.",
@@ -2725,7 +2735,8 @@
         "Added optional Auto Viewer resolution up to 4096 px, selected from actual native physical image corners and known process memory headroom. The preference stays global; Native and each manual cap keep their exact semantics.",
         "Hold size through small zoom changes and transient geometry loss. A stable zoom can increase the cap; sustained reduction or memory pressure can reduce it. Pan translation does not change the projected long edge. Reset the automatic estimate on image changes.",
         "Host-independent tests cover threshold jitter, DPI/zoom geometry, memory pressure, navigation and restoration. Real Capture One projected 2934 physical px and selected a 4096 px 16-bit RAW source. Switching to manual 2048 produced exactly 2048 px without modifying the stored preference.",
-        "Passed 12,513 public local assertions and 149 first-launch plus 153 restart assertions. The source catalog hash stayed unchanged."
+        "Passed 12,513 public local assertions and 149 first-launch plus 153 restart assertions. The source catalog hash stayed unchanged.",
+        "Both licensed launches limited the real WPF Viewer only within the fixture, measuring a 796 px projection and 900 px native RGB16 source. Restoring the viewport and zooming to 100% demanded a 6000 px projection and a new 4096 px native source. At that tier, native pan shifted the overlay without changing the source or rendered bitmap. Manual 2048 remained exact and the original native geometry was restored."
       ],
       "evidence_paths": [
         "NativePanel/ViewportQuality.cs",
@@ -2733,12 +2744,13 @@
         "NativePanel/ViewerGeometry.cs",
         "tests/ViewerContracts/Program.cs",
         ".test-results/host-auto-viewport-quality-20261120/host-smoke.log",
-        ".test-results/contracts-auto-viewport-quality-20261120/summary.json"
+        ".test-results/contracts-auto-viewport-quality-20261120/summary.json",
+        ".test-results/host-viewer-grain-conditional-20261120/host-smoke.log"
       ],
       "remaining_work": [
-        "Measure actual resize, DPI switch, rapid zoom and drag latency across GPUs and physical monitors, then use measured latency to tune optional quality presets and pressure hysteresis.",
+        "Measure mixed-DPI and monitor movement, rapid zoom and drag latency across GPUs, then use measured latency to tune optional quality presets and pressure hysteresis. Native resize and zoom tier transitions have licensed coverage.",
         "Investigate 1:1 regional refinement using full coordinate mapping and exact grain/halation overlap. Auto currently caps full-image preview and native resolution remains available explicitly.",
-        "Verify pan and zoom have no unnecessary source redevelopment on the native host. Publish pan/zoom, P95 drag, memory and seam criteria together with the renderer matrix."
+        "Publish a complete end-to-end pan, zoom, p95 drag, memory and seam matrix. Stable native pan and manual zoom retain the same developed source and bitmap in both licensed runs."
       ],
       "original_acceptance_tests": [
         "Auto does not oscillate between sizes or overwrite manual selection; DPI/zoom/window moves adjust correctly.",
@@ -2867,17 +2879,21 @@
       "status": "partial",
       "implemented": [
         "Native grain validates property shapes, rolls back partial setter failures and verifies actual receipt after success/failure.",
-        "A durable receipt is written before native setters, read back after applying and checked against the same native values before restore. Restart and conflicting native edit passed."
+        "A durable receipt is written before native setters, read back after applying and checked against the same native values before restore. Restart and conflicting native edit passed.",
+        "Native Grain binds the undo group to the captured approved document. Guards recheck the intended native variant before each setter and verify the full native value tuple before closing. A failed group close attempts compensating restoration through the same document manager in a no-undo scope. Real disposable native setters, a real mid-step selection swap and compensation after an injected close error verified actual values, untouched second variant, and receipt and pre-existing Undo history in the no-undo fixture."
       ],
       "evidence_paths": [
         "NativePanel/NativeGrain.cs",
         "NativePanel/NativeAdjustmentTransaction.cs",
         "tests/state/Program.cs",
         ".test-results/host-final/host-smoke.log",
-        ".test-results/host-grain-receipt-20261119/host-smoke.log"
+        ".test-results/host-grain-receipt-20261119/host-smoke.log",
+        "qa/HostSmoke/NativeGrainFaults.cs",
+        ".test-results/host-viewer-grain-conditional-20261120/host-smoke.log",
+        ".test-results/contracts-grain-transaction-20261120/summary.json"
       ],
       "remaining_work": [
-        "Inject host setter and EndScope failures and changed-selection races; inspect native undo history after failure."
+        "Confirm failed production KeepAll history cannot leave an Undo entry if EndScope records the group before throwing. Exact native value compensation and the separately scoped no-undo fixture are verified."
       ],
       "original_acceptance_tests": [
         "injected failure at each setter and EndScope",

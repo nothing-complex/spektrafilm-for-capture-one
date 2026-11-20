@@ -1,7 +1,10 @@
 using System;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Controls;
 
@@ -34,13 +37,23 @@ public static partial class StartupHook
         }
         async Task<int> TerminateRunningChild(Func<int, bool> match)
         {
-            await WaitFor(() => Field(spatial, "renderingFinal") is true && Worker() is { HasExited: false } current && match(current.Id),
-                "Did not catch the running film render before completion.");
-            using var worker = Process.GetProcessById(Worker()!.Id);
-            if (!string.Equals(worker.MainModule?.FileName, expectedWorker, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException("The running renderer does not belong to the disposable launcher.");
-            worker.Kill();
-            return worker.Id;
+            var terminated = 0;
+            await WaitFor(() =>
+            {
+                if (Field(spatial, "renderingFinal") is not true || Worker() is not { HasExited: false } child || !match(child.Id))
+                    return false;
+                // A just-started Windows worker may not expose its main module yet.
+                // Confirm the exact image on the same Process instance before terminating it.
+                var image = child.MainModule?.FileName;
+                if (string.IsNullOrEmpty(image)) return false;
+                if (!string.Equals(image, expectedWorker, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("The running renderer is outside the disposable launcher: " + image);
+                var pid = child.Id;
+                child.Kill();
+                terminated = pid;
+                return true;
+            }, "Did not catch the running film render with a verified executable path before completion.");
+            return terminated;
         }
         void CheckReady(string description, params string[] viewerStates)
         {
@@ -58,6 +71,59 @@ public static partial class StartupHook
                 && Field(spatial, "pending") is null && Prop(viewer, "HasPainted") is true && Worker() is { HasExited: false };
             await WaitFor(Settled, "The Viewer did not prime its 4096-pixel worker.");
             var before = Field(spatial, "source")!;
+            var drag = (ComboBox)Field(spatial, "dragPreviewSize")!;
+            var previousDragSize = drag.SelectedItem;
+            var exposureValue = exposure.GetType().GetProperty("Value", Flags)!;
+            var testEdit = priorExposure < 7.5 ? priorExposure + .23 : priorExposure - .23;
+            var burstStarted = Stopwatch.GetTimestamp();
+            var warmWorker = Field(spatial, "renderer")!;
+            async Task<int> Sequence(object renderer)
+            {
+                var metrics = await (Task<JsonElement?>)Call(renderer, "ReadDiagnosticsAsync", CancellationToken.None)!;
+                return metrics!.Value.GetProperty("renderSequence").GetInt32();
+            }
+            var initialSequence = await Sequence(warmWorker);
+            var latest = testEdit;
+            try
+            {
+                drag.SelectedItem = drag.ItemsSource.Cast<object>().Single(item => Prop(item, "LongEdge") is 720);
+                exposureValue.SetValue(exposure, testEdit);
+                await WaitFor(() => Field(spatial, "renderingFinal") is true && Worker() is { HasExited: false },
+                    "The live worker did not begin the render before the drag burst.");
+                Call(spatial, "BeginSliderDrag");
+                try
+                {
+                    for (var edit = 1; edit <= 100; edit++)
+                    {
+                        latest = Math.Round(-2 + edit * .037, 3);
+                        exposureValue.SetValue(exposure, latest);
+                        if (edit % 4 == 0) await Task.Delay(1);
+                    }
+                    Check(Field(spatial, "dragging") is true && Field(spatial, "queued") is true
+                        && Field(spatial, "frameCurrent") is false,
+                        "100 rapid slider changes coalesce into one queued final request without claiming an obsolete frame is current");
+                }
+                finally { Call(spatial, "EndSliderDrag"); }
+                await WaitFor(Settled, "The Viewer did not publish the latest high-depth frame after 100 slider changes.");
+                var arguments = (string[])Field(spatial, "renderedArguments")!;
+                var exposureIndex = Array.IndexOf(arguments, "--film-exposure");
+                var saved = Prop(Prop(Call(store, "Read", variant)!, "Look")!, "Exposure");
+                Check(exposureIndex >= 0 && double.Parse(arguments[exposureIndex + 1], CultureInfo.InvariantCulture) == latest
+                    && Equals(saved, latest) && ReferenceEquals(Field(spatial, "source"), before),
+                    "the burst settles the final durable slider value on the same immutable 16-bit source");
+                var afterWorker = Field(spatial, "renderer")!;
+                var afterSequence = await Sequence(afterWorker);
+                var renders = ReferenceEquals(afterWorker, warmWorker) ? afterSequence - initialSequence : afterSequence;
+                await Task.Delay(300);
+                Check(renders is >= 1 and <= 3 && await Sequence(afterWorker) == afterSequence
+                    && Field(spatial, "pending") is null && Field(spatial, "pendingDraft") is null && Field(spatial, "queued") is false,
+                    "the slider burst completes at most three final renders and leaves no obsolete work behind");
+                File.AppendAllText(Path.Combine(folder, "host-smoke.log"),
+                    $"100 native slider edits settled in {Stopwatch.GetElapsedTime(burstStarted).TotalMilliseconds:F1} ms, " +
+                    $"including the quiet check, with {renders} completed final render(s) on the surviving worker.{Environment.NewLine}");
+            }
+            finally { drag.SelectedItem = previousDragSize; }
+            await WaitFor(Settled, "The Viewer did not settle after restoring the drag preference.");
             var priorFrame = Field(spatial, "viewerFrame")!;
             var firstWorker = Worker()!.Id;
 

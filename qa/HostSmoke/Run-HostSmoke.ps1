@@ -19,6 +19,7 @@ param(
     [switch] $ShowTool,
     [switch] $ColorMatrix,
     [switch] $NativeSourceMutations,
+    [switch] $ViewerStress,
     [string] $CalibrationChart,
     [string] $ResultsDirectory
 )
@@ -27,6 +28,11 @@ if ($NativeSourceMutations) {
     if (!$NativeSettingsConfig) { throw 'The native source mutation matrix requires a verified preferences backup.' }
     $ColorMatrix=$true
     $SkipRestart=$true
+}
+if ($ViewerStress -and (!$NativeSettingsConfig -or $ColorMatrix -or $CatalogIsolation -or $ConcurrentCatalogs -or
+    $SessionIsolation -or $ViewerLayouts -or $ViewerChurn -or $DurableSliderEdits -or $MetadataFixtureRoot -or
+    $CheckOrdinaryLaunch -or $CalibrationChart -or $UpgradeFromPackage)) {
+    throw 'The Viewer stress fixture is a separate launch and requires a native preferences backup.'
 }
 if ($UpgradeFromPackage -and (!$PackagedRuntime -or !$NativeSettingsConfig -or $CatalogIsolation -or $ConcurrentCatalogs -or
     $ViewerLayouts -or $ViewerChurn -or $DurableSliderEdits -or $MetadataFixtureRoot -or $ColorMatrix -or $CheckOrdinaryLaunch)) {
@@ -329,6 +335,7 @@ try {
     $env:SPEKTRAFILM_PANEL_LOG=Join-Path $folder 'panel.log'
     $env:SPEKTRAFILM_HOST_SMOKE=$folder
     $env:SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX=if($NativeSourceMutations){'source-mutations'}elseif($ColorMatrix){'1'}else{$null}
+    $env:SPEKTRAFILM_HOST_VIEWER_STRESS=if($ViewerStress){'1'}else{$null}
     $env:SPEKTRAFILM_SHOW_TOOL=if($ShowTool){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_PROOF_TEST=if($NativeSettingsConfig -and !$CatalogIsolation -and !$ViewerLayouts -and !$DurableSliderEdits -and !$MetadataFixtureRoot -and !$ViewerChurn -and !$ConcurrentCatalogs){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_CATALOG_ISOLATION=if($CatalogIsolation){'1'}else{$null}

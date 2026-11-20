@@ -136,6 +136,15 @@ public static partial class StartupHook
                 await TestNativeSourceMutations(panelAssembly!, panel, spatial, window);
                 return;
             }
+            if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_VIEWER_STRESS") == "1")
+            {
+                ((CheckBox)Field(panel, "enableSpektraFilm")!).IsChecked = true;
+                await TestViewportQuality(spatial, variant);
+                await TestViewerWorkerRestart(hosted, panel, spatial, store, variant);
+                var phase = File.ReadAllText(Path.Combine(folder, "phase.txt"));
+                File.WriteAllText(Path.Combine(folder, phase + ".passed"), $"PASS {checks} native Viewer stress assertions");
+                return;
+            }
             var exposure = Field(panel, "exposure")!;
             var toggle = (CheckBox)Field(panel, "enableSpektraFilm")!;
             await TestLaunchHealth(hosted, spatial, toggle);
@@ -226,6 +235,7 @@ public static partial class StartupHook
             var grain = panelAssembly.GetType("NativeGrain")!;
             TestNativeUndoCapability(Field(panel, "document")!);
             TestNativeGrain(grain, window, panel, store, variant, toggle, restart);
+            TestNativeGrainFaultBoundaries(grain, window, panel, store, variant);
             var recipe = host.GetMethod("ActiveRecipe", Flags)!.Invoke(null, new[] { window });
             File.AppendAllText(Path.Combine(folder,"host-smoke.log"), "RECIPE " + recipe + Environment.NewLine);
             await TestRecipeExport(panel, spatial, recipe!, variant, toggle);
@@ -286,6 +296,8 @@ public static partial class StartupHook
         // Disable the live Viewer before swapping the fixture resource root. The
         // regular installation is outside this path and no file is replaced.
         Call(spatial, "SetEnabled", false);
+        using var drain = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        await (Task)Call(spatial, "DrainPreviewWorkersAsync", drain.Token)!;
         Call(hosted, "ReportLaunchHealth");
         Check(ReadLaunchHealth().GetProperty("Viewer").GetString() == "Disabled",
             "disabled Viewer still reports a ready native tool");
@@ -398,6 +410,7 @@ public static partial class StartupHook
             var automaticEdge = Math.Max((int)Prop(automatic, "Width")!, (int)Prop(automatic, "Height")!);
             Check(automaticEdge is >= 720 and <= 4096 && (int)Prop(automatic, "BitDepth")! == 16,
                 $"auto uses the actual {projection:F0} px Viewer geometry and settles at {automaticEdge} px high-depth source");
+            await TestNativeAutoQualityMotion(spatial, view, variant);
             Select(options.Single(item => Prop(item, "Id") is "2048"));
             var manual = await WaitForSource(() => Field(spatial, "sourceSize") is "2048");
             Check(Math.Max((int)Prop(manual, "Width")!, (int)Prop(manual, "Height")!) == 2048 && (int)Prop(manual, "BitDepth")! == 16,
