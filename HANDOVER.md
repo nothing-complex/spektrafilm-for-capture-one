@@ -6,7 +6,7 @@ Updated 2026-11-20. The critical-fix batch is implemented, tested, installed loc
 
 1. Read this file, `AGENTS.md` and `qa/AUDIT-FIX-STATUS.json` before changing code. The JSON is the authoritative task-progress ledger; its `remaining_work` and original acceptance tests matter more than a short status label.
 2. Check `git status`, current branch and PR head. Do not discard existing edits or switch the installed build merely because this documentation has a newer commit.
-3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP is `0.2.0-audit.21` from clean `ce24f86`. The extracted package passed native effects export, grain export, Viewer paint telemetry, the full host suite and a private upgrade.
+3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP is `0.2.0-audit.22` from clean `6e6c6a9`. The extracted package passed both native effects export campaigns, the full licensed host suite, physical Vulkan checks and a private upgrade.
 4. Choose an unresolved task and an exact ownership boundary. Do not repeat the completed installation, crash test or old defect reproductions as if nothing had happened.
 5. Update task evidence and the delivery ledger at each completed milestone. Never mark a broad parent task complete because one mitigation shipped.
 
@@ -908,6 +908,15 @@ The combined receipt is `.test-results/audit20-package-verify-20261120/result.js
 - [x] Upgrade privately from audit.20 to audit.21. The previous version remained available until the exact new licensed host reported Ready with Export Connected. The installed capability report, custom file and external look kept their verified bytes. The regular installation remains `ffc4819`.
 
 The combined receipt is `.test-results/audit21-package-verify-20261120/result.json`. Use `.test-results/host-audit21-native-effects-20261120`, `.test-results/host-audit21-native-grain-20261120`, `.test-results/host-audit21-native-full-20261120` or `.test-results/host-audit21-native-viewer-20261120` for the individual runs. The upgrade receipt is at `D:/Library AI testing/sf-audit21-ready-20261120/installed-upgrade-receipt.json`.
+
+## Development package audit.22
+
+- [x] Build clean `6e6c6a9008b87da6112e65552592570f1d37023a` and verify 153 package entries, 19 critical runtime entries and regenerated capability bytes. The ZIP SHA-256 is `981f80b23206295fb5f15c60fd5dffd1ab6818adf40952963289c17a3d50acd5`. The worker is the exact binary verified on both physical adapters with the paired large Viewer sources. [Windows 2022 and 2025 checks](https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44724568528)
+- [x] Pass 191 native effects checks and 110 grain checks at both launch and restart. The exact package produced 40 effects-matrix files and 22 additional accepted files in the independent grain and failed-destination retry fixture. Both native commands apply effects and deliver 16-bit TIFF or PNG with the native recipe's selected ICC and dimensions.
+- [x] Pass 341 first-launch and 345 restart general host assertions plus 32 managed checks on the physical GPU. The native Viewer suite exercises the 4096 px enlarger round trip and renderer recovery.
+- [x] Upgrade privately from audit.21 to audit.22. The previous runtime remained available until Capture One 16.4.6.2414 reported Ready and native Export Connected. The private upgrade preserved its external preset and custom file.
+
+The combined receipt is `.test-results/audit22-package-verify-20261120/result.json`. Individual runs are in `.test-results/host-audit22-native-effects-20261120`, `.test-results/host-audit22-native-grain-20261120` and `.test-results/host-audit22-native-full-20261120`. The upgrade receipt is at `D:/Library AI testing/sf-audit22-ready-20261120/installed-upgrade-receipt.json`.
 
 ## Accepted export dialog and storage failure
 
