@@ -3213,7 +3213,7 @@
       ],
       "remaining_work": [
         "Finish admission across separate host processes and reclaim idle resident GPU buffers under pressure. Collect a synchronized, unheld p50/p95 comparison using the managed scheduler across more GPUs, parent memory, tile allocations and cancellation stages.",
-        "The current candidate passes the full native effects suite on first launch, then cancels the film-only export after Viewer drain on restart, before any export GPU request. Identify the underlying native cancellation and verify the targeted restart condition."
+        "The earlier candidate canceled the second export after Viewer drain on restart, before any export GPU request. The current source distinguishes stale snapshots from user cancellation and passes targeted same-dialog retry on launch and restart. If the original unforced symptom recurs, use the new source-change diagnostic and receipt to establish its cause."
       ],
       "original_acceptance_tests": [
         "Instrument fake and real workers: maximum active high-cost jobs conforms to budget; warmup is lowest priority.",
@@ -3455,7 +3455,8 @@
         "A rapid Export with Previous Settings after an already-closed dialog exposed a window between output completion and cleanup of the old bridge task. The bridge now observes the actual task and closed window before admitting the next command. It still blocks nested destination picking and in-flight jobs, and an older continuation cannot release a newer task. The native grain suite passes 110 assertions per launch and the four-RAW effects matrix passes 191 per launch.",
         "An accepted export failure uses Capture One's Windows notification presenter when both its native dialog and panel status are hidden. A clean message directs the user to the detailed durable result. Two licensed layout runs each pass 104 assertions and preserve protected TIFF bytes on failure. The optional clearly labelled test submission was accepted by the actual Capture One presenter.",
         "Newly created approved output staging uses Windows delete disposition until the writer has verified, flushed and revalidated the destination. Stopping its process during real encoding removes exactly the owned stage. The licensed fixture observed 1,325,155 completed WIC write bytes, preserved the previous TIFF, unrelated temporary file and saved 1.37 EV look, passed 17/22 assertions and reopened the explicitly retried 24 MP RGB48 film result. Host-independent checks include a separate terminated writer and active 24 MP TIFF/PNG cancellation. Real native commands passed 114 effects and grain assertions on both launches, and the general suite passed 344/348.",
-        "Inject the Windows disk-full HRESULT after writing protected staging bytes. The transaction preserves the exact original exception, source and prior output, and removes its owned partial file. The combined Viewer and export suite passes 12,406 checks. This exercises the failure path using an injected write error."
+        "Inject the Windows disk-full HRESULT after writing protected staging bytes. The transaction preserves the exact original exception, source and prior output, and removes its owned partial file. The combined Viewer and export suite passes 12,406 checks. This exercises the failure path using an injected write error.",
+        "Record a changed Capture One source snapshot as a failed export with reason and explicit retry. A signaled export token records a cancellation. Forty licensed checks on launch and forty on restart cover a native exposure change after snapshot capture, byte-exact preservation of the approved existing TIFF, same-dialog retry, matching film and optics in RGB48 TIFF and RGBA64 PNG, and the exact recipe ICC. Only the low-resolution revision counter increased during the injected exposure edit, and all nine recipe files verified after both launches."
       ],
       "evidence_paths": [
         "NativePanel/SpatialPreview.cs",
@@ -3490,7 +3491,10 @@
         ".test-results/host-native-crash-owned-full-20261120/host-smoke.log",
         ".test-results/contracts-crash-owned-export-encoder-counter-20261120/summary.json",
         ".test-results/encoder-crash-owned-20261120/encoder-cancellation.json",
-        ".test-results/contracts-updated-identity-native-export-20261120/ViewerContracts.log"
+        ".test-results/contracts-updated-identity-native-export-20261120/ViewerContracts.log",
+        "NativePanel/HostImageSource.cs",
+        ".test-results/host-export-source-revision-20261120/host-smoke.log",
+        ".test-results/host-export-source-revision-20261120/panel.log"
       ],
       "remaining_work": [
         "Add resumable authorized descriptors and an explicit batch queue with per-image isolation. Current receipts preserve progress and outcome for a single accepted export.",

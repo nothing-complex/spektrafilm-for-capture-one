@@ -183,7 +183,8 @@ public static partial class StartupHook
 
     private static async Task TestNativeEffectExport(FieldInfo hookField, object hosted, object panel, object spatial, object window,
         string caseName, bool compareGrain = false, bool compareClone = false, bool compareCompression = false,
-        bool compareFolders = false, bool comparePanelModes = false, bool compareProfiles = false)
+        bool compareFolders = false, bool comparePanelModes = false, bool compareProfiles = false,
+        bool changeSourceRevision = false)
     {
         var toggle = (CheckBox)Field(panel, "enableSpektraFilm")!;
         var inputEncoding = (string)Prop(((ComboBox)Field(spatial, "inputSpace")!).SelectedItem, "Id")!;
@@ -237,6 +238,7 @@ public static partial class StartupHook
         Task<bool>? job = null;
         string? offeredFilename = null;
         string? offeredDirectory = null;
+        Action? beforeDestinationApproval = null;
         Task<bool> Route()
         {
             routeCount++;
@@ -246,6 +248,7 @@ public static partial class StartupHook
                 {
                     offeredFilename = picker.FileName;
                     offeredDirectory = picker.InitialDirectory;
+                    beforeDestinationApproval?.Invoke();
                     return destination;
                 }))!;
             return job;
@@ -278,6 +281,11 @@ public static partial class StartupHook
             Value(0, 0);
             var unprocessed = await Render("no-film-reference", ".tif", false);
             Value(0, 100);
+            if (changeSourceRevision)
+            {
+                await CheckSourceRevision(unprocessed);
+                return;
+            }
             var filmOnly = await Render("film-only", ".tif", false);
             Diffusion("pro_mist");
             var filmAndDiffusion = await Render("film-and-diffusion", ".tif", false);
@@ -981,6 +989,94 @@ public static partial class StartupHook
                     Check(ImageVariants().Contains(clone) && CanRestore(expectedVariant)
                         && applied.Equals(ReadGrain()) && Prop(opticalGrain.SelectedItem, "Id") is "production",
                         "reselecting the source preserves its independent optical look and native grain restore action");
+                }
+            }
+
+            async Task CheckSourceRevision(BitmapSource reference)
+            {
+                Diffusion("pro_mist");
+                Value(3, 1.5);
+                Value(4, .65);
+                var hostProfile = panel.GetType().Assembly.GetType("HostProfile", true)!;
+                var selection = hostProfile.GetMethod("ReadSelection", Flags)!.Invoke(null, new[] { window })!;
+                var variant = Prop(selection, "Variant")!;
+                var native = AppDomain.CurrentDomain.GetAssemblies().Single(item => item.GetName().Name == "P1.C1.Core")
+                    .GetType("P1.C1.Core.ICoreVariant", true)!;
+                var exposureProperty = native.GetProperty("Exposure")!;
+                var initialExposure = (float)exposureProperty.GetValue(variant)!;
+                var readRevision = host.GetMethod("GetRevision", Flags)!;
+                object Revision() => readRevision.Invoke(null, new[] { window, (object)expectedVariant })!;
+                var originalDestination = Path.Combine(folder, caseName + "-source-changed.tif");
+                var originalFile = File.ReadAllBytes(Path.Combine(folder, caseName + "-no-film-reference.tif"));
+                File.WriteAllBytes(originalDestination, originalFile);
+                var retryDestination = Path.Combine(folder, caseName + "-source-retry.tif");
+                var confirmations = 0;
+                destination = originalDestination;
+                job = null;
+                beforeDestinationApproval = () =>
+                {
+                    var prior = Revision();
+                    exposureProperty.SetValue(variant, initialExposure + .5f);
+                    Check(!Equals(prior, Revision()), "the fixture changes the actual Capture One revision after snapshot capture");
+                    beforeDestinationApproval = null;
+                };
+                try
+                {
+                    ShowNativeDialog(() =>
+                    {
+                        if (Prop(bridge, "Dialog") is not Window { IsVisible: true } owner || owner.DataContext is not { } model
+                            || Prop(model, "ExportCommand") is not ICommand confirm || !confirm.CanExecute(null))
+                            return false;
+                        if (confirmations == 0)
+                        {
+                            confirmations++;
+                            confirm.Execute(null);
+                            return false;
+                        }
+                        if (job is not { IsCompleted: true } || Prop(bridge, "Busy") is true)
+                            return false;
+                        Check(job.GetAwaiter().GetResult() is false, "a changed native snapshot fails the accepted export");
+                        var failed = Call(Field(spatial, "exportJobs")!, "ReadLatest")!;
+                        Check(Prop(failed, "Stage")?.ToString() == "Failed"
+                            && Prop(failed, "Error") is string reason && reason.Contains("before image development", StringComparison.Ordinal)
+                            && reason.Contains("Try Export again", StringComparison.Ordinal),
+                            "the receipt reports a source change and an explicit retry");
+                        Check(owner.Title.EndsWith(" · Export failed", StringComparison.Ordinal)
+                            && File.ReadAllBytes(originalDestination).SequenceEqual(originalFile),
+                            "the same native dialog offers retry and the approved existing file stays byte exact");
+                        exposureProperty.SetValue(variant, initialExposure);
+                        destination = retryDestination;
+                        confirmations++;
+                        confirm.Execute(null);
+                        return true;
+                    });
+                    Check(confirmations == 2 && job is not null && await job.WaitAsync(TimeSpan.FromSeconds(45)),
+                        "confirming again in the same native dialog renders the newly approved snapshot");
+                    var retried = ReadFrame(retryDestination);
+                    Check(retried.Format == PixelFormats.Rgb48 && retried.PixelWidth == expectedWidth && retried.PixelHeight == expectedHeight,
+                        "the retry produces a full recipe-size 16-bit TIFF");
+                    using var icc = retried.ColorContexts!.Single().OpenProfileStream();
+                    Check(Convert.ToHexString(SHA256.HashData(icc)) == iccSha, "the retried file retains the exact recipe ICC");
+                    var accepted = Call(Field(spatial, "exportJobs")!, "ReadLatest")!;
+                    var timing = await WaitForTiming((Guid)Prop(accepted, "JobId")!);
+                    Check(Prop(accepted, "Stage")?.ToString() == "Completed"
+                        && timing.GetProperty("FilmRenderAndTransportMs").GetDouble() > 0,
+                        "the fresh native export receipt completes actual Spektrafilm rendering");
+                    var previousResult = await Render("previous-with-effects", ".png", true);
+                    Check(Difference(reference, retried).Mean > .02 && Difference(retried, previousResult).Mean < 8d / 65535,
+                        "the retried native TIFF and Previous Settings PNG have matching applied effects");
+                }
+                finally
+                {
+                    beforeDestinationApproval = null;
+                    exposureProperty.SetValue(variant, initialExposure);
+                }
+
+                static BitmapFrame ReadFrame(string path)
+                {
+                    using var file = File.OpenRead(path);
+                    return BitmapDecoder.Create(file, BitmapCreateOptions.PreservePixelFormat | BitmapCreateOptions.IgnoreColorProfile,
+                        BitmapCacheOption.OnLoad).Frames[0];
                 }
             }
 

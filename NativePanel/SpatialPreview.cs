@@ -737,6 +737,7 @@ internal sealed class SpatialPreview : IDisposable
             return false;
         }
         ExportReceipt? receipt = null;
+        CancellationToken exportToken = default;
         try
         {
             var look = getSettings() ?? throw new InvalidOperationException("Wait for the Spektrafilm controls to finish loading.");
@@ -744,7 +745,7 @@ internal sealed class SpatialPreview : IDisposable
             var input = (InputChoice)inputSpace.SelectedItem;
             var encoding = ((Choice)outputSpace.SelectedItem).Id;
             var args = look.Strength > 0 ? RendererOptions(look, input.Id, encoding, export: true) : Array.Empty<string>();
-            var snapshot = HostImageSource.Capture(window, target,
+            var snapshot = HostImageSource.CaptureForExport(window, target,
                 input.Space, captureRecipe: useRecipeSize);
             var recipe = snapshot.Recipe;
             var deliveryProfile = ExportColorProfile.ForRecipe(recipe?.ColorProfileName, recipe?.ColorProfilePath);
@@ -769,6 +770,7 @@ internal sealed class SpatialPreview : IDisposable
             // The save dialog pumps UI events. Reserve the captured request before
             // opening it so a second export or a selection change cannot retarget it.
             using var work = new ExportOperation(target.VariantId);
+            exportToken = work.Token;
             exportWork = work;
             try
             {
@@ -885,7 +887,7 @@ internal sealed class SpatialPreview : IDisposable
                 }
             }
         }
-        catch (OperationCanceledException error)
+        catch (OperationCanceledException error) when (exportToken.IsCancellationRequested)
         {
             ReportStagingCleanup(error);
             Advance(ExportStage.Canceled, "Spektrafilm export canceled.");

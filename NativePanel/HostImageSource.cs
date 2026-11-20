@@ -48,6 +48,7 @@ internal static class HostImageSource
     internal sealed record Frame(int Width, int Height, byte[] FloatBytes, int BitDepth, FrameDescription? Description = null);
     internal sealed record ExportFrame(Frame Image, Rectangle Crop);
     internal sealed class DevelopmentDeadlineException(string message) : TimeoutException(message);
+    internal sealed class ExportSourceChangedException(string message) : InvalidOperationException(message);
     internal sealed record RecipeInfo(string Name, string FormatId, string ColorProfileName, string ColorProfilePath,
         string CropMode, string RootFolderMode, string CustomRootFolder, string Subfolder, string Filename,
         string Suffix, int TiffBits, int JpegQuality, int Width, int Height, double Scale, bool IgnoreCrop,
@@ -76,9 +77,17 @@ internal static class HostImageSource
     }
 
     internal static Snapshot Capture(object window, HostProfile.Target target,
-        PreviewInputSpace inputSpace = PreviewInputSpace.Srgb, bool captureRecipe = false)
+        PreviewInputSpace inputSpace = PreviewInputSpace.Srgb, bool captureRecipe = false) =>
+        CaptureSnapshot(window, target, inputSpace, captureRecipe, forExport: false);
+
+    internal static Snapshot CaptureForExport(object window, HostProfile.Target target,
+        PreviewInputSpace inputSpace, bool captureRecipe) =>
+        CaptureSnapshot(window, target, inputSpace, captureRecipe, forExport: true);
+
+    private static Snapshot CaptureSnapshot(object window, HostProfile.Target target,
+        PreviewInputSpace inputSpace, bool captureRecipe, bool forExport)
     {
-        var selection = RequireSelection(window, target.VariantId);
+        var selection = RequireSelection(window, target.VariantId, forExport);
         var variant = selection.Variant;
         var image = variant.CoreImage;
         if (image is null || !image.IsFileAvailable || !image.IsICProcessable || image.IsMovie || image.IsCorrupt)
@@ -86,8 +95,7 @@ internal static class HostImageSource
 
         var revision = ReadRevision(variant);
         var settings = variant.GetICProcessSettings();
-        if (ReadRevision(variant) != revision)
-            throw new OperationCanceledException("Capture One settings changed while acquiring the preview source.");
+        CheckRevision(variant, target.VariantId, revision, forExport, "while capturing the image settings");
 
         var (profilePath, profileSha256) = ResolvePreviewProfile(inputSpace);
         var output = Utf8Marshaled_IC_MAX_PATH.Create(profilePath);
@@ -225,18 +233,41 @@ internal static class HostImageSource
             Software: StartupHook.ProductName);
     }
 
-    private static HostProfile.Selection RequireSelection(object window, Guid variantId)
+    private static HostProfile.Selection RequireSelection(object window, Guid variantId, bool forExport = false)
     {
         var selection = HostProfile.ReadSelection(window);
-        return selection.Variant.UUID == variantId
-            ? selection
-            : throw new OperationCanceledException("The selected Capture One image changed.");
+        if (selection.Variant.UUID == variantId)
+            return selection;
+        const string message = "The selected Capture One image changed.";
+        if (forExport)
+            throw new ExportSourceChangedException(message + " Try Export again.");
+        throw new OperationCanceledException(message);
     }
 
     private static NativeImageRevision ReadRevision(ICoreVariant variant)
     {
         var counters = variant.Settings.VariantProcessCounters;
         return new NativeImageRevision(counters.HighResCounter, counters.LowResCounter, counters.SyncCounter);
+    }
+
+    private static void CheckRevision(ICoreVariant variant, Guid expectedVariant, NativeImageRevision expectedRevision,
+        bool forExport, string phase)
+    {
+        var actualVariant = variant.UUID;
+        var actualRevision = ReadRevision(variant);
+        if (actualVariant == expectedVariant && actualRevision == expectedRevision)
+            return;
+        var message = actualVariant == expectedVariant ? "Capture One image settings changed" : "The Capture One source image changed";
+        if (!forExport)
+            throw new OperationCanceledException($"{message} {phase}.");
+        StartupHook.Log("export.source.changed.v1", new
+        {
+            Phase = phase,
+            VariantMatches = actualVariant == expectedVariant,
+            Expected = expectedRevision,
+            Observed = actualRevision,
+        });
+        throw new ExportSourceChangedException($"{message} {phase}. Try Export again.");
     }
 
     private static PropertyInfo HostProperty(string name) =>
@@ -321,8 +352,8 @@ internal static class HostImageSource
                 var request = new QueuedRenderRequest<ICoreVariant, ExportFrame>(source =>
                 {
                     workToken.ThrowIfCancellationRequested();
-                    if (source.UUID != description.VariantId || ReadRevision(source) != description.AdjustmentKey)
-                        throw new OperationCanceledException("Capture One settings changed before the image could render.");
+                    CheckRevision(source, description.VariantId, description.AdjustmentKey, options.ForExport,
+                        "before image development");
                     // A timed-out caller can return while the native callback still owns the profile pathname.
                     using var sourceProfile = new FileStream(profilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
                     if (!string.Equals(Convert.ToHexString(SHA256.HashData(sourceProfile)), description.ProfileSha256, StringComparison.Ordinal))
@@ -422,8 +453,8 @@ internal static class HostImageSource
             token.ThrowIfCancellationRequested();
             if (result != IC_Result.resOK)
                 throw new InvalidOperationException($"Capture One could not develop the {(options.ForExport ? "export source" : "preview")} ({result}).");
-            if (ReadRevision(source) != description.AdjustmentKey)
-                throw new OperationCanceledException("Capture One settings changed during image development.");
+            CheckRevision(source, description.VariantId, description.AdjustmentKey, options.ForExport,
+                "during image development");
             var imageFrame = CopyPixels(bitmap, pixelLimit, token, options.Purpose, description);
             var pixelCrop = options.ForExport ? ViewerGeometry.ScaleCrop(crop, canvas, imageFrame.Width, imageFrame.Height)
                 : new Rectangle(0, 0, imageFrame.Width, imageFrame.Height);
