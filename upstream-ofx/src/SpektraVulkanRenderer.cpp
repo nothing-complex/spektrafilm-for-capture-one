@@ -2896,6 +2896,13 @@ struct VulkanRenderer::Impl {
   bool halationGroupedTail = false;
   bool scannerMps = false;
   std::recursive_mutex renderMutex;
+  VulkanRenderer::CancellationProbe cancellationProbe = nullptr;
+  const void *cancellationContext = nullptr;
+
+  bool cancellationRequested() const noexcept {
+    return cancellationProbe && cancellationProbe(cancellationContext);
+  }
+
   std::shared_ptr<VulkanSharedBackend> backend;
   uint32_t queueIndex = 0;
   uint64_t transientCachedBytes = 0;
@@ -7199,6 +7206,10 @@ bool VulkanRenderer::Impl::computeHalationBoostMilestone(
   float globalMaxRaw = 0.0f;
   for (uint32_t tileY = 0u; tileY < tileRows; ++tileY) {
     for (uint32_t tileX = 0u; tileX < tileColumns; ++tileX) {
+      if (cancellationRequested()) {
+        lastError = "Vulkan render canceled at a halation milestone boundary.";
+        return false;
+      }
       const int32_t tileX0 = window.x1 + static_cast<int32_t>(tileX * centerTileWidth);
       const int32_t tileY0 = window.y1 + static_cast<int32_t>(tileY * centerTileHeight);
       const int32_t tileX1 = std::min(window.x2, tileX0 + static_cast<int32_t>(centerTileWidth));
@@ -7733,6 +7744,11 @@ bool VulkanRenderer::Impl::renderTiledBootstrap(
   uint32_t tileIndex = 0u;
   for (uint32_t tileY = 0u; tileY < tileRows; ++tileY) {
     for (uint32_t tileX = 0u; tileX < tileColumns; ++tileX, ++tileIndex) {
+      if (cancellationRequested()) {
+        lastError = "Vulkan render canceled at a tile boundary.";
+        updateSharedDiagnostics();
+        return false;
+      }
       const int32_t centerX0 = window.x1 + static_cast<int32_t>(tileX * centerTileWidth);
       const int32_t centerY0 = window.y1 + static_cast<int32_t>(tileY * centerTileHeight);
       const int32_t centerX1 = std::min(window.x2, centerX0 + static_cast<int32_t>(centerTileWidth));
@@ -7952,6 +7968,13 @@ VulkanMemoryBudget VulkanRenderer::availableDeviceLocalMemory() const {
   }
   std::lock_guard<std::recursive_mutex> lock(impl_->renderMutex);
   return impl_->backend->availableDeviceLocalMemory(impl_->diagnostics.transientCachedBytes);
+}
+
+void VulkanRenderer::setCancellationProbe(CancellationProbe probe, const void *context) {
+  if (!impl_) return;
+  std::lock_guard<std::recursive_mutex> lock(impl_->renderMutex);
+  impl_->cancellationProbe = probe;
+  impl_->cancellationContext = context;
 }
 
 bool VulkanRenderer::render(

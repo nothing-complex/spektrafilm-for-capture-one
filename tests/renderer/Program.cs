@@ -114,6 +114,46 @@ internal static class Program
                 await renderer.RenderAsync(1, 1, Pixels(1), [], default);
                 Check(File.ReadAllLines(Path.Combine(root, "renderer", "trace.txt")).Count(l => l.Contains("HELLO")) == 2, $"cancel restarts and renegotiates after {scenario}");
             }
+            foreach (var scenario in new[] { "cooperative", "cooperative-late-reply", "cooperative-stuck" })
+            {
+                var root = Setup(scratch, scenario);
+                await using var renderer = new OpticalRenderer(nativePreview: true);
+                using var cancel = new CancellationTokenSource();
+                var pixels = Pixels(2);
+                var render = renderer.RenderAsync(2, 1, pixels, [], cancel.Token);
+                await WaitForRequest(root, render);
+                var started = Stopwatch.GetTimestamp();
+                cancel.Cancel();
+                await Throws<OperationCanceledException>(() => render.WaitAsync(TimeSpan.FromSeconds(5)));
+                Check(Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(4), "bounded cancellation latency in " + scenario);
+                File.WriteAllText(Path.Combine(root, "renderer", "scenario.txt"), "valid");
+                var verified = await renderer.RenderAsync(2, 1, pixels, [], default);
+                var trace = File.ReadAllLines(Path.Combine(root, "renderer", "trace.txt"));
+                Check(verified.SequenceEqual(pixels) && trace.Count(l => l.Contains(" FRAME ")) == 2,
+                    "canceled frame cannot become the reused source in " + scenario);
+                Check(trace.Count(l => l.Contains(":HELLO")) == (scenario == "cooperative-stuck" ? 2 : 1),
+                    "worker survives aligned reply and restarts on a stuck request in " + scenario);
+            }
+            foreach (var scenario in new[] { "cooperative-progress", "cooperative-progress-backwards" })
+            {
+                var root = Setup(scratch, scenario);
+                var stages = new List<RendererStage>();
+                await using var renderer = new OpticalRenderer { ReportProgress = stages.Add };
+                if (scenario == "cooperative-progress")
+                {
+                    await renderer.RenderAsync(1, 1, Pixels(1), [], default);
+                    Check(stages.SequenceEqual(new[] { RendererStage.SourceAccepted, RendererStage.Vulkan, RendererStage.Sending }),
+                        "numbered, optional renderer stages do not alter final response bytes");
+                }
+                else
+                {
+                    await Throws<InvalidDataException>(() => renderer.RenderAsync(1, 1, Pixels(1), [], default));
+                    File.WriteAllText(Path.Combine(root, "renderer", "scenario.txt"), "valid");
+                    await renderer.RenderAsync(1, 1, Pixels(1), [], default);
+                    Check(File.ReadAllLines(Path.Combine(root, "renderer", "trace.txt")).Count(l => l.Contains(":HELLO")) == 2,
+                        "backwards renderer progress rejects the request and restarts the stream");
+                }
+            }
             {
                 var root = Setup(scratch, "valid");
                 string PathInRenderer(string name) => Path.Combine(root, "renderer", name);
@@ -264,6 +304,45 @@ internal static class Program
         finally { Environment.SetEnvironmentVariable("SPEKTRAFILM_ROOT", previous); }
     }
 
+    private static async Task CheckGpuCancellation(string[] options)
+    {
+        var stages = new List<RendererStage>();
+        TaskCompletionSource? rendering = null;
+        await using var renderer = new OpticalRenderer(nativePreview: true)
+        {
+            ReportProgress = stage =>
+            {
+                stages.Add(stage);
+                if (stage == RendererStage.Vulkan) rendering?.TrySetResult();
+            },
+        };
+        var pixels = Pixels(64);
+        var pristine = await renderer.RenderAsync(8, 8, pixels, options, default, displayPixels: true);
+        Check(stages.SequenceEqual(Enum.GetValues<RendererStage>()), "actual Vulkan worker reports five truthful bounded stages");
+        var child = typeof(OpticalRenderer).GetField("process", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        int Pid() => ((Process)child.GetValue(renderer)!).Id;
+        var process = Pid();
+        stages.Clear();
+        rendering = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var stop = new CancellationTokenSource();
+        var width = 1920;
+        var height = 1280;
+        var frame = Pixels(width * height);
+        var active = renderer.RenderAsync(width, height, frame, [.. options, "--halation-amount", "1", "--halation-boost", "2"],
+            stop.Token, displayPixels: true);
+        await rendering.Task.WaitAsync(TimeSpan.FromSeconds(12));
+        var started = Stopwatch.GetTimestamp();
+        stop.Cancel();
+        await Throws<OperationCanceledException>(() => active.WaitAsync(TimeSpan.FromSeconds(10)));
+        var cancelMs = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        Check(child.GetValue(renderer) is Process survived && survived.Id == process && !survived.HasExited,
+            "actual canceled Vulkan request retains its warm worker after bounded acknowledgement");
+        rendering = null;
+        var recovered = await renderer.RenderAsync(8, 8, pixels, options, default, displayPixels: true);
+        Check(recovered.SequenceEqual(pristine) && Pid() == process, "the next actual Vulkan request matches the uncanceled pixels in the same process");
+        Console.WriteLine(FormattableString.Invariant($"Physical Vulkan cancellation acknowledged after {cancelMs:F2} ms, warm worker retained."));
+    }
+
     private static async Task WaitForRequest(string root, Task render)
     {
         var marker = Path.Combine(root, "renderer", "request-received");
@@ -338,9 +417,10 @@ internal static class Program
                 await Throws<OperationCanceledException>(() => pending.WaitAsync(TimeSpan.FromSeconds(10)));
                 var recovered = await renderer.RenderAsync(8, 8, source, options, default, displayPixels: true);
                 metrics = await renderer.ReadDiagnosticsAsync(default);
-                Check(recovered.SequenceEqual(packed) && metrics?.GetProperty("renderSequence").GetInt32() == 1,
-                    "a canceled packed Vulkan request discards worker state and admits a fresh frame");
+                Check(recovered.SequenceEqual(packed) && metrics?.GetProperty("renderSequence").GetInt32() is >= 1,
+                    "a canceled packed Vulkan request admits an exact fresh frame");
             }
+            await CheckGpuCancellation(options);
             Environment.SetEnvironmentVariable("SPEKTRAFILM_VULKAN_COPY_PASS", "1");
             using (var renderer = new OpticalRenderer(nativePreview: true))
             {
@@ -529,7 +609,10 @@ internal static class Program
                 const string resourceKey = "SPEKTRAFILM_RESOURCE_DIR";
                 if (!string.Equals(Environment.GetEnvironmentVariable(resourceKey), Environment.CurrentDirectory, StringComparison.OrdinalIgnoreCase)
                     || Environment.GetEnvironmentVariables().Keys.Cast<string>().Any(n => n.StartsWith("SPEKTRAFILM_", StringComparison.OrdinalIgnoreCase)
-                        && !n.Equals(resourceKey, StringComparison.OrdinalIgnoreCase) || n == "DOTNET_STARTUP_HOOKS"))
+                        && !n.Equals(resourceKey, StringComparison.OrdinalIgnoreCase)
+                        && n is not ("SPEKTRAFILM_REQUEST_CANCEL_EVENT" or "SPEKTRAFILM_REQUEST_PROGRESS") || n == "DOTNET_STARTUP_HOOKS")
+                    || (Environment.GetEnvironmentVariable("SPEKTRAFILM_REQUEST_CANCEL_EVENT") is { } eventName
+                        && !eventName.StartsWith(@"Local\Spektrafilm.Request.", StringComparison.Ordinal)))
                     File.AppendAllText("trace.txt", "ENV_BAD\n");
                 var json = scenario switch
                 {
@@ -543,6 +626,9 @@ internal static class Program
                         maxSide = scenario == "limited-dimensions" ? 1 : 16384,
                         maxPixels = scenario switch { "bad-limits" => 0, "limited-dimensions" => 1, _ => 100_000_000 },
                         packedDisplay = scenario != "no-packed",
+                        requestCancellation = scenario.StartsWith("cooperative", StringComparison.Ordinal),
+                        frameProgress = scenario.StartsWith("cooperative-progress", StringComparison.Ordinal)
+                            && Environment.GetEnvironmentVariable("SPEKTRAFILM_REQUEST_PROGRESS") == "1",
                         parameterContract = scenario == "bad-contract" ? new string('z', 64) : Contract }),
                 };
                 Reply(output, 0, Encoding.UTF8.GetBytes(json)); continue;
@@ -566,6 +652,24 @@ internal static class Program
             {
                 pixels = new byte[int.Parse(tokens[3]) * int.Parse(tokens[4]) * 16];
                 input.ReadExactly(pixels);
+            }
+            if (scenario.StartsWith("cooperative-progress", StringComparison.Ordinal))
+            {
+                var stages = scenario.EndsWith("backwards", StringComparison.Ordinal) ? new byte[] { 3, 2 } : new byte[] { 1, 3, 5 };
+                foreach (var stage in stages) Reply(output, RendererProtocol.Progress, [stage], request: request);
+                Reply(output, 0, pixels, request: request);
+                continue;
+            }
+            if (scenario.StartsWith("cooperative", StringComparison.Ordinal))
+            {
+                if (!OperatingSystem.IsWindows()) return;
+                using var eventHandle = EventWaitHandle.OpenExisting(Environment.GetEnvironmentVariable("SPEKTRAFILM_REQUEST_CANCEL_EVENT")!);
+                File.WriteAllText("request-received", "");
+                if (!eventHandle.WaitOne(TimeSpan.FromSeconds(10))) return;
+                if (scenario == "cooperative-stuck") { Thread.Sleep(10000); return; }
+                if (scenario == "cooperative") Reply(output, RendererProtocol.Canceled, [], request: request);
+                else Reply(output, 0, pixels, request: request);
+                continue;
             }
             if (scenario == "hang-reply")
             {

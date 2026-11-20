@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Buffers.Binary;
 using System.Diagnostics;
 using System.IO;
@@ -12,6 +13,7 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     private static readonly byte[] Hello = Encoding.ASCII.GetBytes(FormattableString.Invariant($"HELLO {RendererProtocol.Version}\n"));
     private Process? process;
+    private EventWaitHandle? requestCancellation;
     private WeakReference<byte[]>? source;
     private readonly SemaphoreSlim requests = new(1, 1);
     private readonly CancellationTokenSource lifetime = new();
@@ -21,8 +23,12 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
     private bool negotiated;
     private int negotiatedMaxEdge, negotiatedMaxPixels;
     private bool negotiatedPackedDisplay;
+    private bool negotiatedCancellation;
+    private bool negotiatedProgress;
+    private static readonly TimeSpan CancellationGrace = TimeSpan.FromMilliseconds(600);
     private int sourceWidth, sourceHeight;
     private ulong requestSequence;
+    internal Action<RendererStage>? ReportProgress { get; init; }
     internal string? ParameterContract { get; private set; }
     internal string? AssetContract { get; private set; }
 
@@ -73,8 +79,12 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
     {
         stop.ThrowIfCancellationRequested();
         var renderer = GetProcess();
+        var signal = requestCancellation;
+        var timeout = export || nativePreview ? TimeSpan.FromMinutes(8) : TimeSpan.FromSeconds(20);
+        var started = Stopwatch.GetTimestamp();
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stop);
-        deadline.CancelAfter(export || nativePreview ? TimeSpan.FromMinutes(8) : TimeSpan.FromSeconds(20));
+        deadline.CancelAfter(timeout);
+        var synchronizedCancellation = false;
         var token = deadline.Token;
         var input = renderer.StandardInput.BaseStream;
         var output = renderer.StandardOutput.BaseStream;
@@ -92,26 +102,65 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
                 throw new InvalidOperationException("This renderer build cannot process the requested dimensions. Use a matching build or choose a smaller output.");
             if (displayPixels && !negotiatedPackedDisplay)
                 throw new InvalidOperationException("This renderer build does not support packed Viewer pixels.");
+            if (negotiatedCancellation) signal?.Reset();
             await input.WriteAsync(header, token).ConfigureAwait(false);
             if (newSource)
                 await input.WriteAsync(rgba, token).ConfigureAwait(false);
             await input.FlushAsync(token).ConfigureAwait(false);
-            var (code, size) = await ReadReplyAsync(output, request, token).ConfigureAwait(false);
+            // Upload owns the main pipe until the entire binary frame has been sent.
+            // Only after that point can a canceled request safely keep the worker.
+            using var replyDeadline = negotiatedCancellation && signal is not null
+                ? CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token) : null;
+            if (replyDeadline is not null)
+                replyDeadline.CancelAfter(TimeSpan.FromTicks(Math.Max(0, (timeout - Stopwatch.GetElapsedTime(started)).Ticks)));
+            using var cancel = replyDeadline is null ? default : stop.Register(() =>
+            {
+                try { signal!.Set(); }
+                catch (Exception error) when (error is ObjectDisposedException or IOException or UnauthorizedAccessException)
+                { /* The bounded timeout still stops this worker when the signal is unavailable. */ }
+                replyDeadline.CancelAfter(CancellationGrace);
+            });
+            var replyToken = replyDeadline?.Token ?? token;
+            var (code, size) = await ReadRenderReplyAsync(output, request, replyToken).ConfigureAwait(false);
+            if (code == RendererProtocol.Canceled && size == 0 && negotiatedCancellation && stop.IsCancellationRequested)
+            {
+                source = null;
+                synchronizedCancellation = true;
+                stop.ThrowIfCancellationRequested();
+            }
             if (code is 1 or 2 && size is >= 1 and <= 4096)
             {
                 var error = new byte[size];
-                await output.ReadExactlyAsync(error, token).ConfigureAwait(false);
+                await output.ReadExactlyAsync(error, replyToken).ConfigureAwait(false);
                 var message = StrictUtf8.GetString(error);
                 if (code == 2)
                     throw new InvalidDataException("The optical renderer lost request synchronization: " + message);
                 source = null;
+                if (stop.IsCancellationRequested)
+                {
+                    synchronizedCancellation = true;
+                    stop.ThrowIfCancellationRequested();
+                }
                 throw new InvalidOperationException(message);
             }
             if (code != 0 || size != (displayPixels ? rgba.Length / sizeof(float) : rgba.Length))
                 throw new InvalidDataException("The optical renderer returned an invalid frame.");
 
+            if (stop.IsCancellationRequested)
+            {
+                await DiscardReplyAsync(output, size, replyToken).ConfigureAwait(false);
+                source = null;
+                synchronizedCancellation = true;
+                stop.ThrowIfCancellationRequested();
+            }
             var pixels = GC.AllocateUninitializedArray<byte>(size);
-            await output.ReadExactlyAsync(pixels, token).ConfigureAwait(false);
+            await output.ReadExactlyAsync(pixels, replyToken).ConfigureAwait(false);
+            if (stop.IsCancellationRequested)
+            {
+                source = null;
+                synchronizedCancellation = true;
+                stop.ThrowIfCancellationRequested();
+            }
             if (newSource)
             {
                 source = new WeakReference<byte[]>(rgba);
@@ -120,6 +169,7 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
             }
             return pixels;
         }
+        catch (OperationCanceledException) when (synchronizedCancellation) { throw; }
         catch (OperationCanceledException) when (!stop.IsCancellationRequested)
         {
             await StopAsync(abort: true).ConfigureAwait(false);
@@ -134,6 +184,42 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
             // the pending I/O cancellation.
             stop.ThrowIfCancellationRequested();
             throw;
+        }
+    }
+
+    private static async Task DiscardReplyAsync(Stream output, int length, CancellationToken stop)
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(64 * 1024);
+        try
+        {
+            while (length > 0)
+            {
+                var block = Math.Min(length, buffer.Length);
+                await output.ReadExactlyAsync(buffer.AsMemory(0, block), stop).ConfigureAwait(false);
+                length -= block;
+            }
+        }
+        finally { ArrayPool<byte>.Shared.Return(buffer); }
+    }
+
+    private async Task<(int Code, int Size)> ReadRenderReplyAsync(Stream output, ulong request, CancellationToken stop)
+    {
+        RendererStage previous = 0;
+        byte[]? payload = null;
+        while (true)
+        {
+            var reply = await ReadReplyAsync(output, request, stop).ConfigureAwait(false);
+            if (reply.Code != RendererProtocol.Progress) return reply;
+            if (!negotiatedProgress || reply.Size != 1)
+                throw new InvalidDataException("The renderer returned unexpected progress.");
+            payload ??= new byte[1];
+            await output.ReadExactlyAsync(payload, stop).ConfigureAwait(false);
+            var stage = (RendererStage)payload[0];
+            if (stage <= previous || stage > RendererStage.Sending)
+                throw new InvalidDataException("Renderer progress moved backwards or used an unsupported stage.");
+            previous = stage;
+            try { ReportProgress?.Invoke(stage); }
+            catch (Exception error) { StartupHook.Log("Renderer progress observer: " + error.GetBaseException().Message); }
         }
     }
 
@@ -180,6 +266,10 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
         negotiatedMaxEdge = maxSide;
         negotiatedMaxPixels = maxPixels;
         negotiatedPackedDisplay = packed.ValueKind == JsonValueKind.True;
+        negotiatedCancellation = value.TryGetProperty("requestCancellation", out var cancellation)
+            && cancellation.ValueKind == JsonValueKind.True && requestCancellation is not null;
+        negotiatedProgress = negotiatedCancellation && ReportProgress is not null
+            && value.TryGetProperty("frameProgress", out var progress) && progress.ValueKind == JsonValueKind.True;
         negotiated = true;
     }
 
@@ -262,7 +352,7 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
                 return process;
             if (process is { } exited)
             {
-                ClearProcess();
+                ClearProcess()?.Dispose();
                 exited.Dispose();
             }
 
@@ -281,7 +371,12 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
             // directory. The still bridge owns the files beside this executable.
             start.Environment["SPEKTRAFILM_RESOURCE_DIR"] = start.WorkingDirectory;
             start.ArgumentList.Add(export ? "--export-stream" : nativePreview ? "--native-preview-stream" : "--stream");
-            var child = Process.Start(start) ?? throw new IOException("Could not start the optical renderer.");
+            var cancellation = CreateCancellationEvent(start);
+            if (cancellation is not null && ReportProgress is not null) start.Environment["SPEKTRAFILM_REQUEST_PROGRESS"] = "1";
+            Process child;
+            try { child = Process.Start(start) ?? throw new IOException("Could not start the optical renderer."); }
+            catch { cancellation?.Dispose(); throw; }
+            requestCancellation = cancellation;
             child.ErrorDataReceived += (_, args) =>
             {
                 if (!string.IsNullOrEmpty(args.Data))
@@ -291,6 +386,27 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
             process = child;
             return child;
         }
+    }
+
+    private static EventWaitHandle? CreateCancellationEvent(ProcessStartInfo start)
+    {
+        if (!OperatingSystem.IsWindows()) return null;
+        try
+        {
+            var name = @"Local\Spektrafilm.Request." + Guid.NewGuid().ToString("N");
+            var signal = new EventWaitHandle(false, EventResetMode.ManualReset, name, out var created);
+            if (created)
+            {
+                start.Environment["SPEKTRAFILM_REQUEST_CANCEL_EVENT"] = name;
+                return signal;
+            }
+            signal.Dispose();
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            StartupHook.Log("Cooperative renderer cancellation is unavailable. A canceled render will restart the worker.");
+        }
+        return null;
     }
 
     public void Dispose() => _ = ObserveDisposalAsync(DisposeCore());
@@ -316,22 +432,30 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
         {
             if (process is not { } child)
                 return shutdown;
-            ClearProcess();
+            var cancellation = ClearProcess();
             // Process exit is the resource boundary. Killing a worker only
             // requests termination and does not guarantee GPU resources are free.
-            shutdown = Task.Run(() => CloseWorker(child, abort));
+            shutdown = Task.Run(() =>
+            {
+                using (cancellation) CloseWorker(child, abort);
+            });
             return shutdown;
         }
     }
 
-    private void ClearProcess()
+    private EventWaitHandle? ClearProcess()
     {
+        var cancellation = requestCancellation;
+        requestCancellation = null;
         process = null;
         source = null;
         sourceWidth = sourceHeight = 0;
         negotiated = false;
+        negotiatedCancellation = false;
+        negotiatedProgress = false;
         ParameterContract = null;
         AssetContract = null;
+        return cancellation;
     }
 
     private static async Task ObserveDisposalAsync(Task completion)

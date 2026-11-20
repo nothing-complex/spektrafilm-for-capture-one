@@ -650,6 +650,15 @@ Evidence is under `.test-results/host-floating-save-before-close-20261120` and `
 
 To repeat, run `python qa/prepare-metadata-fixture.py <closed-catalog> <RAW-samples> <new-fixture-root>`, then launch `qa/HostSmoke/Run-HostSmoke.ps1` with the generated catalog, `-MetadataFixtureRoot` and the exact `-NativeSettingsConfig`. Evidence is under `.test-results/host-native-metadata-policy-20261120` and `.test-results/contracts-native-keyword-metadata-20261120`.
 
+## Vulkan worker cancellation and Export progress
+
+- [x] Negotiate a per-worker Windows event and a numbered cancellation reply. Samples can stop before or between GPU tiles and after full-frame work. Drain a complete late reply without publishing it. A broken or stalled connection falls back to bounded shutdown before retry. [Windows named event API](https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-openeventa)
+- [x] Expose validated progress for source, preparation, Vulkan, verification and readback. The export label honors the current accepted job. Optional messages leave the ordinary live Viewer transport unchanged.
+- [x] Pass 157 managed worker checks, including blocked upload, delayed output, stale-reply drainage, timeout and invalid stage order. On the RTX 3090, 27 checks passed and an in-flight full-frame cancellation returned in 26.65 ms while keeping the same worker. Ten independent 24-tile trials had median 0.56 ms and maximum 1.75 ms from signal to reply, with each recovered frame matching its baseline hash. Licensed Capture One passed 265 and 269 first-launch and restart assertions.
+- [ ] Inject physical Vulkan device loss and repeat on slower hardware. An already submitted full-frame GPU command must finish before graceful acknowledgment. The process watchdog bounds an unresponsive child. [Vulkan fence behavior](https://docs.vulkan.org/refpages/latest/refpages/source/vkWaitForFences.html)
+
+Evidence is under `.test-results/cooperative-vulkan-runtime-20261120`, `.test-results/contracts-cooperative-progress-20261120` and `.test-results/host-cooperative-renderer-20261120`. Use `qa/renderer-cancel-probe.py` to repeat the independent tiled trials.
+
 ## Status maintenance
 
 `qa/AUDIT-FIX-STATUS.json` owns task IDs, status, implemented substeps, remaining acceptance work and evidence. This handover owns context, runtime identity and resume instructions. `.test-results/FINAL-RESULT.json` is the completed runtime delivery receipt; keep its runtime commit/package identity distinct from later documentation-only commits.

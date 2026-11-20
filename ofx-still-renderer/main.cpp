@@ -24,7 +24,38 @@
 #include <string_view>
 #include <vector>
 
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+
 namespace {
+
+struct RenderCanceled {};
+
+enum class WorkerStage : uint8_t { SourceAccepted = 1, Preparing, Vulkan, Verifying, Sending };
+void writeProgress(std::optional<uint64_t> request, WorkerStage stage);
+
+
+class RequestCancellation final {
+public:
+    RequestCancellation() {
+        char name[128]{};
+        size_t length = 0;
+        if (getenv_s(&length, name, sizeof(name), "SPEKTRAFILM_REQUEST_CANCEL_EVENT") == 0 && length > 1)
+            signal_ = OpenEventA(SYNCHRONIZE, FALSE, name);
+    }
+    ~RequestCancellation() { if (signal_) CloseHandle(signal_); }
+    RequestCancellation(const RequestCancellation &) = delete;
+    RequestCancellation &operator=(const RequestCancellation &) = delete;
+    bool available() const noexcept { return signal_ != nullptr; }
+    bool requested() const noexcept { return signal_ && WaitForSingleObject(signal_, 0) == WAIT_OBJECT_0; }
+    void check() const { if (requested()) throw RenderCanceled{}; }
+    static bool poll(const void *stop) noexcept { return static_cast<const RequestCancellation *>(stop)->requested(); }
+
+private:
+    HANDLE signal_ = nullptr;
+};
 
 using namespace spektrafilm;
 
@@ -480,7 +511,8 @@ void describeParameters() {
 
 // The public Vulkan renderer uses this transform for film coordinates but does
 // not resample the source. Match upstream's spektrafilm_enlarger_resample Metal pass.
-std::vector<float> resampleEnlarger(const std::vector<float> &frame, int width, int height, const RenderParams &params) {
+std::vector<float> resampleEnlarger(const std::vector<float> &frame, int width, int height, const RenderParams &params,
+                                    const RequestCancellation *stop) {
     std::vector<float> enlarged(frame.size());
     const float invScale = 1 / params.enlargerScale;
     const float offsetX = params.enlargerOffsetXPercent * 0.01f * invScale;
@@ -492,6 +524,7 @@ std::vector<float> resampleEnlarger(const std::vector<float> &frame, int width, 
     };
 
     for (int y = 0; y < height; ++y) {
+        if (stop) stop->check();
         const float v = 0.5f + ((y + 0.5f) / height - 0.5f) * invScale + offsetY;
         for (int x = 0; x < width; ++x) {
             const float u = 0.5f + ((x + 0.5f) / width - 0.5f) * invScale + offsetX;
@@ -615,10 +648,16 @@ void skipFrame(FrameSize size) {
     checkFrameLength(expected);
 }
 
-bool hasFinitePixels(const InputFrame &frame) {
-    return std::all_of(frame.pixels.begin(), frame.pixels.end(), [](float component) {
-        return std::isfinite(component);
-    });
+bool hasFinitePixels(const std::vector<float> &pixels, const RequestCancellation *stop = nullptr) {
+    constexpr size_t block = 64 * 1024;
+    for (size_t index = 0; index < pixels.size(); index += block) {
+        if (stop) stop->check();
+        const auto first = pixels.begin() + index;
+        const auto end = first + std::min(block, pixels.size() - index);
+        if (!std::all_of(first, end, [](float component) { return std::isfinite(component); }))
+            return false;
+    }
+    return true;
 }
 
 std::unique_ptr<Renderer> startRenderer() {
@@ -676,7 +715,9 @@ FrameMemoryPlan planGpuMemory(Renderer &renderer, FrameSize size, RenderParams &
 }
 
 FrameMetrics renderFrame(Renderer &renderer, const InputFrame &input, RenderParams params, std::vector<float> &output,
-                         EnlargerCache *cache = nullptr, std::vector<uint32_t> *display = nullptr) {
+                         EnlargerCache *cache = nullptr, std::vector<uint32_t> *display = nullptr,
+                         const RequestCancellation *stop = nullptr, std::optional<uint64_t> progress = std::nullopt) {
+    if (stop) stop->check();
     FrameMetrics metrics{planGpuMemory(renderer, input.size, params)};
     const auto width = input.size.width;
     const auto height = input.size.height;
@@ -691,7 +732,7 @@ FrameMetrics renderFrame(Renderer &renderer, const InputFrame &input, RenderPara
         } else {
             if (cache) cache->clear();
             const auto start = std::chrono::steady_clock::now();
-            enlarged = resampleEnlarger(input.pixels, width, height, params);
+            enlarged = resampleEnlarger(input.pixels, width, height, params, stop);
             metrics.enlargerMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
             if (cache && bytes <= EnlargerCache::maxBytes) {
                 cache->pixels = std::move(enlarged);
@@ -725,10 +766,15 @@ FrameMetrics renderFrame(Renderer &renderer, const InputFrame &input, RenderPara
         destination.data = output.data();
     }
     const RenderWindow frame{0, 0, width, height};
-    if (!renderer.render(source, destination, frame, params, 0.0))
-        throw std::runtime_error(renderer.lastError());
-    for (const float component : output)
-        if (!std::isfinite(component)) throw std::runtime_error("Renderer produced a non-finite pixel.");
+    if (stop) stop->check();
+    if (auto *vulkan = dynamic_cast<VulkanRenderer *>(&renderer))
+        vulkan->setCancellationProbe(stop ? &RequestCancellation::poll : nullptr, stop);
+    writeProgress(progress, WorkerStage::Vulkan);
+    const bool rendered = renderer.render(source, destination, frame, params, 0.0);
+    if (stop) stop->check();
+    if (!rendered) throw std::runtime_error(renderer.lastError());
+    writeProgress(progress, WorkerStage::Verifying);
+    if (!hasFinitePixels(output, stop)) throw std::runtime_error("Renderer produced a non-finite pixel.");
     return metrics;
 }
 
@@ -738,7 +784,7 @@ void process(int argc, char **argv) {
     const auto params = readParameters(std::vector<std::string>(argv + 3, argv + argc));
     enableBinaryPipes();
     const auto input = readFrame(readFrameSize(argv[1], argv[2], kPreviewLimit));
-    if (!hasFinitePixels(input)) throw std::invalid_argument("Invalid input pixel.");
+    if (!hasFinitePixels(input.pixels)) throw std::invalid_argument("Invalid input pixel.");
     const auto renderer = startRenderer();
     std::vector<float> output;
     renderFrame(*renderer, input, params, output);
@@ -789,6 +835,12 @@ void writeReply(uint32_t status, const char *data, uint32_t length, std::optiona
     flushReply();
 }
 
+void writeProgress(std::optional<uint64_t> request, WorkerStage stage) {
+    if (!request) return;
+    const char value = static_cast<char>(stage);
+    writeReply(4, &value, sizeof(value), request);
+}
+
 __m128i displayPixel(const float *rendered, const float *source) {
     const auto zero = _mm_setzero_ps();
     const auto one = _mm_set1_ps(1.0f);
@@ -837,7 +889,7 @@ void writeError(std::string_view message, std::optional<uint64_t> request = std:
     writeReply(fatal && request ? 2 : 1, message.data(), static_cast<uint32_t>(message.size()), request);
 }
 
-void writeCapabilities(const FrameLimit &limit, int protocol) {
+void writeCapabilities(const FrameLimit &limit, int protocol, bool cancelAvailable, bool progressAvailable) {
     std::ostringstream json;
     json << "{\"protocol\":" << protocol
          << ",\"floatChannels\":4,\"floatBits\":32,\"littleEndian\":true,\"parameterContract\":\""
@@ -846,7 +898,9 @@ void writeCapabilities(const FrameLimit &limit, int protocol) {
          << ",\"packedDisplay\":" << (&limit == &kNativePreviewLimit ? "true" : "false")
          << ",\"metricsSchema\":1";
     if (protocol == kProtocolVersion)
-        json << ",\"requestHeaderBytes\":16,\"floatLayout\":\"rgba32f\",\"packedLayout\":\"bgra8\"";
+        json << ",\"requestHeaderBytes\":16,\"floatLayout\":\"rgba32f\",\"packedLayout\":\"bgra8\",\"requestCancellation\":"
+             << (cancelAvailable ? "true" : "false")
+             << ",\"frameProgress\":" << (progressAvailable ? "true" : "false");
     json << '}';
     const auto text = json.str();
     writeReply(0, text.data(), static_cast<uint32_t>(text.size()));
@@ -903,6 +957,12 @@ void configureLargeFrame(RenderParams &params, FrameSize size, bool nativePrevie
 
 void processStream(const FrameLimit &limit) {
     enableBinaryPipes();
+    const RequestCancellation cancellation;
+    char wantProgress[2]{};
+    size_t progressLength = 0;
+    const bool progressEnabled = cancellation.available() &&
+        getenv_s(&progressLength, wantProgress, sizeof(wantProgress), "SPEKTRAFILM_REQUEST_PROGRESS") == 0 &&
+        progressLength == 2 && wantProgress[0] == '1';
     std::unique_ptr<Renderer> renderer;
     InputFrame input{};
     std::vector<float> output;
@@ -942,7 +1002,7 @@ void processStream(const FrameLimit &limit) {
                     continue;
                 }
                 versioned = version == "2";
-                writeCapabilities(limit, versioned ? kProtocolVersion : 1);
+                writeCapabilities(limit, versioned ? kProtocolVersion : 1, cancellation.available(), progressEnabled);
                 continue;
             }
             if (verb == "METRICS") {
@@ -992,37 +1052,52 @@ void processStream(const FrameLimit &limit) {
                 continue;
             }
 
+            const RequestCancellation *stop = versioned && cancellation.available() ? &cancellation : nullptr;
+            const auto progress = progressEnabled ? request : std::nullopt;
             InputFrame replacement{};
-            if (replacesInput) {
-                replacement = readFrame(size);
-                if (!hasFinitePixels(replacement)) {
-                    writeError("Invalid input pixel.", request);
-                    continue;
+            if (replacesInput) replacement = readFrame(size); // Always consume the complete protocol payload.
+            try {
+                if (stop) stop->check();
+                writeProgress(progress, WorkerStage::SourceAccepted);
+                if (replacesInput) {
+                    if (!hasFinitePixels(replacement.pixels, stop)) {
+                        writeError("Invalid input pixel.", request);
+                        continue;
+                    }
+                    if (nativePreview) replacement.revision = ++enlarger.sequence;
                 }
-                if (nativePreview) replacement.revision = ++enlarger.sequence;
-            }
-            if (replacesInput || !renderedArguments || args != *renderedArguments || (!packedPreview && !packedOutput.empty())) {
-                renderedArguments.reset();
-                try {
+                if (replacesInput || !renderedArguments || args != *renderedArguments || (!packedPreview && !packedOutput.empty())) {
+                    renderedArguments.reset();
+                    writeProgress(progress, WorkerStage::Preparing);
                     if (!renderer) renderer = startRenderer();
-                    // Enlarger resampling changes the renderer's alpha plane. Its
-                    // Viewer still uses the original alpha, supplied by the CPU packer.
+                    // Transformed alpha uses the original source through the CPU packer.
                     const bool packOnGpu = packedPreview && copyExperimentLength == 0 &&
                         std::abs(params.enlargerScale - 1.0f) <= 1.0e-6f;
                     if (!packOnGpu && !packedOutput.empty()) std::vector<uint32_t>().swap(packedOutput);
                     metrics = renderFrame(*renderer, replacesInput ? replacement : input, params, output,
-                                          nativePreview ? &enlarger : nullptr, packOnGpu ? &packedOutput : nullptr);
+                                          nativePreview ? &enlarger : nullptr, packOnGpu ? &packedOutput : nullptr, stop, progress);
+                    if (stop) stop->check();
                     ++renderSequence;
-                } catch (const std::exception &error) {
-                    renderer.reset();
-                    enlarger.clear();
-                    metrics = {};
-                    writeError(error.what(), request);
-                    continue;
+                    if (replacesInput) input = std::move(replacement);
+                    if (nativePreview) renderedArguments = std::move(args);
                 }
-                if (replacesInput) input = std::move(replacement);
-                if (nativePreview) renderedArguments = std::move(args);
+                if (stop) stop->check();
+            } catch (const RenderCanceled &) {
+                // A cancelled source or partially rendered frame is never eligible for reuse.
+                // A subsequent FRAME can still keep this worker's loaded Vulkan resources.
+                renderedArguments.reset();
+                enlarger.clear();
+                metrics = {};
+                writeReply(3, nullptr, 0, request);
+                continue;
+            } catch (const std::exception &error) {
+                renderer.reset();
+                enlarger.clear();
+                metrics = {};
+                writeError(error.what(), request);
+                continue;
             }
+            writeProgress(progress, WorkerStage::Sending);
             if (packedPreview && !packedOutput.empty()) {
                 writeReply(0, reinterpret_cast<const char *>(packedOutput.data()),
                            static_cast<uint32_t>(packedOutput.size() * sizeof(uint32_t)), request);

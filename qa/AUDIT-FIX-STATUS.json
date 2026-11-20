@@ -1225,17 +1225,28 @@
       "implemented": [
         "Cancellation now safely aborts the child and resets its stream/cache; fake-worker mid-request and queued cancellation pass.",
         "Renderer cancellation now waits for verified child termination. Async disposal covers idle shutdown and active abort without starting a replacement while an earlier child is shutting down.",
-        "Protocol 2 assigns monotonic request IDs and validates every frame and metrics response. Fake-worker tests confirm process termination and clean recovery on cancellation inside upload and reply body, including a canceled queued request while the active request finishes."
+        "Protocol 2 assigns monotonic request IDs and validates every frame and metrics response. Fake-worker tests confirm process termination and clean recovery on cancellation inside upload and reply body, including a canceled queued request while the active request finishes.",
+        "The Windows panel and renderer negotiate a per-worker cancellation signal and exact numbered replies. Complete uploads can stop during CPU preparation, between Vulkan tiles and after full-frame work. An acknowledged cancellation or fully drained late result preserves the warm worker. An interrupted upload, misaligned reply or unresponsive worker is shut down before retry.",
+        "An opt-in progress stream emits bounded, strictly increasing source, preparation, Vulkan, verification and readback stages for the active request. The native export label uses live worker stages for the current accepted job. Old protocol-compatible workers keep the previous cancellation fallback.",
+        "The renderer client passed 157 checks, with explicit stopped upload/reply, synchronized cancellation, stale output drainage, stuck-worker timeout and invalid progress cases. Physical Vulkan passed 27 checks, including a 26.65 ms in-flight acknowledgment with the same PID. Ten independent 24-tile Vulkan requests acknowledged cancellation at p50 0.56 ms after the signal and matched the original SHA-256 on each next render in the same worker. Licensed runs passed 265 and 269 assertions."
       ],
       "evidence_paths": [
         "NativePanel/OpticalRenderer.cs",
         "tests/renderer/Program.cs",
         "tests/renderer/Program.cs",
         ".test-results/contracts-renderer-drain-20261119/summary.json",
-        ".test-results/contracts-numbered-renderer-final-20261120/RendererContracts.log"
+        ".test-results/contracts-numbered-renderer-final-20261120/RendererContracts.log",
+        "NativePanel/RendererProtocol.cs",
+        "NativePanel/SpatialPreview.cs",
+        "upstream-ofx/src/SpektraVulkanRenderer.cpp",
+        "qa/renderer-cancel-probe.py",
+        ".test-results/cooperative-vulkan-runtime-20261120/gpu.log",
+        ".test-results/cooperative-vulkan-runtime-20261120/tile-cancel.json",
+        ".test-results/host-cooperative-renderer-20261120/host-smoke.log",
+        ".test-results/contracts-cooperative-progress-20261120/RendererContracts.log"
       ],
       "remaining_work": [
-        "Cooperative pass/tile cancellation, request IDs, progress channel and bounded warm restart policy are still absent."
+        "Inject actual Vulkan device loss and measure bounded waiting/fallback on additional hardware. A submitted full-frame command still completes before graceful cancellation can acknowledge it. Native export cancellation guards publication, and interruption handling remains covered separately under VE-13."
       ],
       "original_acceptance_tests": [
         "Cancel at upload/GPU/readback/file write",
@@ -1712,7 +1723,8 @@
         "The worker diagnostics expose enlarger transform milliseconds, cache hits and retained bytes. Repeatable cold/warm renderer summaries measure median/p95 at three Viewer sizes with exact GPU upload counters and per-process memory.",
         "A deterministic 24 MP CPU export benchmark separates the final 16-bit conversion from native RAW development, Vulkan and writing. Cold/warm CPU and allocation matrices are independently runnable.",
         "Worker diagnostics distinguish automatic exposure work and reuse. A repeatable 100-request scene records each hit, stage time and private memory usage.",
-        "A deterministic 600-second on-disk log benchmark verified the diagnostic enqueue path independently of Capture One. Across 148,608 messages per logger, writable and locked destinations did not block producers. P99 was 0.0036 ms for two enqueues with a 0.4652 ms maximum."
+        "A deterministic 600-second on-disk log benchmark verified the diagnostic enqueue path independently of Capture One. Across 148,608 messages per logger, writable and locked destinations did not block producers. P99 was 0.0036 ms for two enqueues with a 0.4652 ms maximum.",
+        "The opt-in protocol reports strictly ordered real worker stages tied to a monotonic request ID. Actual GPU and bounded malformed-reply tests validate the order, and the parent ignores publication from a canceled request."
       ],
       "evidence_paths": [
         "ofx-still-renderer/main.cpp",
@@ -1726,7 +1738,8 @@
         ".test-results/enlarger-after-20261120.json",
         ".test-results/export-pixels-20261120.json",
         ".test-results/metering-100-edits-20261120.json",
-        ".test-results/panel-log-ten-minute-20261120/measurement.json"
+        ".test-results/panel-log-ten-minute-20261120/measurement.json",
+        ".test-results/cooperative-vulkan-runtime-20261120/tile-cancel.json"
       ],
       "remaining_work": [
         "No structured end-to-end event model, shared request identity, p50/p95 benchmark matrix or UI latency budget yet.",
@@ -2923,7 +2936,8 @@
         "Image export has dedicated visible cancel/status controls outside the enabled look-control subtree.",
         "After the user approves an output path, atomically store the variant, immutable destination and real export stage. The panel reports waiting, native development, film rendering and encoding. Completion, cancel and failure are distinct terminal outcomes. Reopening displays the most recent durable outcome or unfinished export.",
         "Each accepted export has its own receipt. Tests prove a late completion cannot replace the newer job, malformed history stays preserved and unavailable progress storage does not change an authorized output transaction.",
-        "The licensed host observed actual film and encoding stages during a 6000 × 4000 RGB48 export. The completed receipt matched the exact path and dimensions. Detach canceled an accepted export without replacing its previous file, and restart reloaded the canceled state."
+        "The licensed host observed actual film and encoding stages during a 6000 × 4000 RGB48 export. The completed receipt matched the exact path and dimensions. Detach canceled an accepted export without replacing its previous file, and restart reloaded the canceled state.",
+        "The native Export label now follows the real GPU stages during rendering. Updates are guarded by the same accepted job and cannot overwrite final delivery or cancellation status."
       ],
       "evidence_paths": [
         "NativePanel/SpatialPreview.cs",
@@ -2931,7 +2945,8 @@
         "NativePanel/ExportJobJournal.cs",
         "tests/ViewerContracts/Program.cs",
         ".test-results/contracts-export-progress-20261120/summary.json",
-        ".test-results/host-export-progress-20261120/host-smoke.log"
+        ".test-results/host-export-progress-20261120/host-smoke.log",
+        ".test-results/host-cooperative-renderer-20261120/host-smoke.log"
       ],
       "remaining_work": [
         "Add resumable authorized descriptors and an explicit batch queue with per-image isolation. Current receipts preserve progress and outcome for a single accepted export.",

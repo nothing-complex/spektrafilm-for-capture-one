@@ -28,6 +28,8 @@ public:
   const std::string &lastError() const override;
   void releaseTransientResources() override;
   VulkanMemoryBudget availableDeviceLocalMemory() const;
+  using CancellationProbe = bool (*)(const void *) noexcept;
+  void setCancellationProbe(CancellationProbe probe, const void *context);
 
   bool render(
     const ImageView &source,

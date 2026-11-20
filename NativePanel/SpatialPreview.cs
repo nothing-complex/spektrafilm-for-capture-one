@@ -748,7 +748,27 @@ internal sealed class SpatialPreview : IDisposable
                     if (look.Strength > 0)
                     {
                         Advance(ExportStage.RenderingFilm, "Rendering the Spektrafilm look…");
-                        await using var exporter = new OpticalRenderer(export: true);
+                        await using var exporter = new OpticalRenderer(export: true)
+                        {
+                            ReportProgress = stage =>
+                            {
+                                var text = stage switch
+                                {
+                                    RendererStage.SourceAccepted => "Checking the source pixels…",
+                                    RendererStage.Preparing => "Preparing the film render…",
+                                    RendererStage.Vulkan => "Rendering the Spektrafilm look…",
+                                    RendererStage.Verifying => "Verifying rendered pixels…",
+                                    _ => "Reading the rendered pixels…",
+                                };
+                                if (!exportStatus.Dispatcher.HasShutdownStarted)
+                                    _ = exportStatus.Dispatcher.InvokeAsync(() =>
+                                    {
+                                        if (!disposed && ReferenceEquals(exportWork, work) && !work.Token.IsCancellationRequested
+                                            && receipt?.Stage == ExportStage.RenderingFilm)
+                                            exportStatus.Text = text;
+                                    });
+                            },
+                        };
                         pixels = await exporter.RenderAsync(source.Width, source.Height, source.FloatBytes, args, work.Token).ConfigureAwait(false);
                     }
                     work.Token.ThrowIfCancellationRequested();
