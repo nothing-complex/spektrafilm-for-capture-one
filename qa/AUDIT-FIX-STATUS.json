@@ -3272,7 +3272,8 @@
         "Host-independent tests cover threshold jitter, DPI/zoom geometry, memory pressure, navigation and restoration. Real Capture One projected 2934 physical px and selected a 4096 px 16-bit RAW source. Switching to manual 2048 produced exactly 2048 px without modifying the stored preference.",
         "Passed 12,513 public local assertions and 149 first-launch plus 153 restart assertions. The source catalog hash stayed unchanged.",
         "Both licensed launches limited the real WPF Viewer only within the fixture, measuring a 796 px projection and 900 px native RGB16 source. Restoring the viewport and zooming to 100% demanded a 6000 px projection and a new 4096 px native source. At that tier, native pan shifted the overlay without changing the source or rendered bitmap. Manual 2048 remained exact and the original native geometry was restored.",
-        "Seed Auto from verified physical canvas geometry before developing the first frame when the selected native view is already drawable. The licensed 2934 px projection starts at 4096 px and keeps the same RGB16 buffer through settling. Portable assertions cover large, small and unavailable geometry and constrained memory. Existing manual resolution, live pan, and subsequent zoom behavior pass the licensed stress fixture."
+        "Seed Auto from verified physical canvas geometry before developing the first frame when the selected native view is already drawable. The licensed 2934 px projection starts at 4096 px and keeps the same RGB16 buffer through settling. Portable assertions cover large, small and unavailable geometry and constrained memory. Existing manual resolution, live pan, and subsequent zoom behavior pass the licensed stress fixture.",
+        "Seed Auto before settled development even when a canceled draft still occupies its slot. Keep the initial seed pending if canvas geometry is unavailable, and recompute it when a user selects Auto from a manual size. Pass 59 licensed assertions on the same Online RAW catalog that exposed the earlier cold test failure. Hold a canceled draft through scheduling, verify the first 4096 px RGB16 development for a 2934 px canvas, and exercise resize, pan, manual 2048, Auto reentry, draft caching and renderer recovery. The donor catalog hash verified."
       ],
       "evidence_paths": [
         "NativePanel/ViewportQuality.cs",
@@ -3283,7 +3284,8 @@
         ".test-results/contracts-auto-viewport-quality-20261120/summary.json",
         ".test-results/host-viewer-grain-conditional-20261120/host-smoke.log",
         ".test-results/sf-cold-auto-packed-draft/host-smoke.log",
-        ".test-results/cold-auto-packed-draft-contracts.log"
+        ".test-results/cold-auto-packed-draft-contracts.log",
+        ".test-results/host-auto-retiring-draft-20261121/host-smoke.log"
       ],
       "remaining_work": [
         "Measure mixed-DPI and monitor movement, rapid zoom and drag latency across GPUs, then use measured latency to tune optional quality presets and pressure hysteresis. Native resize and zoom tier transitions have licensed coverage.",

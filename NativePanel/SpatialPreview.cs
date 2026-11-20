@@ -509,7 +509,12 @@ internal sealed class SpatialPreview : IDisposable
         resolutions.ColumnDefinitions.Add(new ColumnDefinition());
         AddRow(0, "Viewer resolution", previewSize);
         AddRow(1, "Drag preview resolution", dragPreviewSize);
-        previewSize.SelectionChanged += (_, _) => OnPreferencesChanged();
+        previewSize.SelectionChanged += (_, _) =>
+        {
+            if (previewSize.SelectedItem is Choice { Id: "auto" })
+                ResetViewportQuality();
+            OnPreferencesChanged();
+        };
         dragPreviewSize.SelectionChanged += (_, _) =>
         {
             if (DragLongEdge == 0)
@@ -1402,13 +1407,18 @@ internal sealed class SpatialPreview : IDisposable
     private void ResetSource(bool keepDraftRenderer = false)
     {
         rendererRetry.Reset();
-        viewportQuality.Reset();
-        viewportSeedPending = true;
+        ResetViewportQuality();
         failedRevision = null;
         retryViewer.Visibility = Visibility.Collapsed;
         failedSpace = null;
         failedSize = null;
         ReleaseSourceBuffers(keepDraftRenderer);
+    }
+
+    private void ResetViewportQuality()
+    {
+        viewportQuality.Reset();
+        viewportSeedPending = true;
     }
 
     private void ReleaseSourceBuffers(bool keepDraftRenderer)
@@ -1557,22 +1567,22 @@ internal sealed class SpatialPreview : IDisposable
         if (!CheckSourceProfile(space)) return;
         var encoding = (OpticalOption)outputSpace.SelectedItem;
         var automatic = ((Choice)previewSize.SelectedItem).Id == "auto";
-        if (automatic && pending is null && pendingDraft is null && !dragging)
+        if (automatic && pending is null && (viewportSeedPending || pendingDraft is null && !dragging))
         {
             var projection = viewer.ProjectedLongEdge(selectedVariant);
             var budget = RenderMemoryBudget.SystemMemory.AvailableForNewAllocation;
             var now = Environment.TickCount64;
-            if (source is null && viewportSeedPending)
+            var ratio = source is { } frame ? Math.Min(frame.Width, frame.Height) / (double)Math.Max(frame.Width, frame.Height) : 1;
+            if (viewportSeedPending)
             {
-                viewportSeedPending = false;
-                viewportQuality.Update(projection ?? viewer.MeasureBeforePaint(selectedVariant), 1, budget, now, firstFrame: true);
-            }
-            else
-            {
-                var ratio = source is { } frame ? Math.Min(frame.Width, frame.Height) / (double)Math.Max(frame.Width, frame.Height) : 1;
-                if (viewportQuality.Update(projection, ratio, budget, now))
+                // Initial sizing belongs to settled development even while an old draft is retiring.
+                projection ??= viewer.MeasureBeforePaint(selectedVariant);
+                viewportSeedPending = projection is null;
+                if (viewportQuality.Update(projection, ratio, budget, now, firstFrame: true))
                     RequestRefresh();
             }
+            else if (viewportQuality.Update(projection, ratio, budget, now))
+                RequestRefresh();
         }
         var retryKey = (selectedVariant, inputRevision, revision);
         if (rendererRetry.IsWaiting(retryKey, Environment.TickCount64)) return;

@@ -621,6 +621,10 @@ public static partial class StartupHook
         try
         {
             Call(spatial, "SetEnabled", false);
+            using var drain = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+            await (Task)Call(spatial, "DrainPreviewWorkersAsync", drain.Token)!;
+            while (Field(spatial, "pending") is not null || Field(spatial, "pendingDraft") is not null)
+                await Task.Delay(25, drain.Token);
             Select(options.Single(item => Prop(item, "Id") is "auto"));
             var memory = spatial.GetType().Assembly.GetType("RenderMemoryBudget")!.GetProperty("SystemMemory", Flags)!.GetValue(null)!;
             var budget = (long?)Prop(memory, "AvailableForNewAllocation");
@@ -630,10 +634,26 @@ public static partial class StartupHook
             var qualityType = spatial.GetType().Assembly.GetType("ViewportQuality")!;
             var expectedQuality = Activator.CreateInstance(qualityType)!;
             Call(expectedQuality, "Update", coldProjection, 1d, budget, Environment.TickCount64, true);
-            Call(spatial, "SetEnabled", true);
+            // Keep the canceled draft handle through the first synchronous scheduling pass.
+            // This is the interval between cancellation and the old draft's finally block.
+            var pendingDraft = spatial.GetType().GetField("pendingDraft", Flags)!;
+            using var retiringDraft = new CancellationTokenSource();
+            retiringDraft.Cancel();
+            pendingDraft.SetValue(spatial, retiringDraft);
+            Task firstRefresh;
+            try
+            {
+                Call(spatial, "SetEnabled", true);
+                firstRefresh = (Task)Call(spatial, "RefreshAsync")!;
+                Check(Field(spatial, "viewportSeedPending") is false
+                    && Equals(Prop(spatial, "ViewerRenderSize"), Prop(expectedQuality, "SizeId")),
+                    "a canceled draft awaiting retirement does not delay Auto sizing from the native canvas");
+            }
+            finally { pendingDraft.SetValue(spatial, null); }
+            await firstRefresh;
             var firstSource = await WaitForSource(() => Call(view, "ProjectedLongEdge", variant) is double edge && edge > 0);
             Check(Equals(Field(spatial, "sourceSize"), Prop(expectedQuality, "SizeId")) && Prop(firstSource, "BitDepth") is 16,
-                $"Auto develops the first RGB16 source at the tier selected before overlay paint ({Field(spatial, "sourceSize")} px)");
+                $"Auto develops the first RGB16 source from a {coldProjection:F0} px canvas at its {Prop(expectedQuality, "SizeId")} px tier (actual {Field(spatial, "sourceSize")} px)");
             await Task.Delay(1400);
             var automatic = await WaitForSource(() => Field(spatial, "sourceSize") is string size
                 && Equals(Prop(spatial, "ViewerRenderSize"), size));
@@ -650,6 +670,19 @@ public static partial class StartupHook
             await TestNativePresentationMotion(spatial, view, variant, manual);
             await TestSaveViewerPng(spatial);
             await TestNativeDraftPyramid(spatial, manual);
+            var manualProjection = Call(view, "ProjectedLongEdge", variant) as double?;
+            Check(manualProjection is > 0, "the settled manual Viewer exposes the native projection for a new Auto selection");
+            expectedQuality = Activator.CreateInstance(qualityType)!;
+            budget = (long?)Prop(memory, "AvailableForNewAllocation");
+            var aspect = Math.Min((int)Prop(manual, "Width")!, (int)Prop(manual, "Height")!)
+                / (double)Math.Max((int)Prop(manual, "Width")!, (int)Prop(manual, "Height")!);
+            Call(expectedQuality, "Update", manualProjection, aspect, budget, Environment.TickCount64, true);
+            Select(options.Single(item => Prop(item, "Id") is "auto"));
+            var reseed = (Task)Call(spatial, "RefreshAsync")!;
+            Check(Field(spatial, "viewportSeedPending") is false
+                && Equals(Prop(spatial, "ViewerRenderSize"), Prop(expectedQuality, "SizeId")),
+                "switching a painted manual Viewer to Auto selects the current native tier immediately");
+            await reseed;
             Check(ReferenceEquals(savedPreferences, preferences.GetValue(null)), "fixture quality changes leave the user's stored preference unchanged");
         }
         finally { Select(previous); }
