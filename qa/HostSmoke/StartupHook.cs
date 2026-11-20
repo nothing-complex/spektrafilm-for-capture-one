@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -1675,8 +1676,17 @@ public static partial class StartupHook
         Check(result && File.Exists(output), "captured recipe export completed while a different disabled variant was selected");
         using (var data = File.OpenRead(output))
         {
-            var frame = BitmapDecoder.Create(data, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad).Frames[0];
+            var frame = BitmapDecoder.Create(data, BitmapCreateOptions.PreservePixelFormat | BitmapCreateOptions.IgnoreColorProfile,
+                BitmapCacheOption.OnLoad).Frames[0];
             Check(frame.Format == PixelFormats.Rgb48, "recipe export saved RGB48 TIFF");
+            if (Prop(recipe, "ColorProfilePath") is string profilePath && File.Exists(profilePath))
+            {
+                Check(frame.ColorContexts is { Count: 1 }, "recipe export embedded an RGB ICC profile");
+                using var embedded = frame.ColorContexts![0].OpenProfileStream();
+                using var selectedProfile = File.OpenRead(profilePath);
+                Check(SHA256.HashData(embedded).SequenceEqual(SHA256.HashData(selectedProfile)),
+                    "16-bit native recipe export embedded the exact selected Capture One ICC bytes");
+            }
             Check(frame.PixelWidth == (int)Prop(recipe, "Width")! && frame.PixelHeight == (int)Prop(recipe, "Height")!,
                 "recipe export obeyed Capture One output dimensions");
             var resolution = (double)Prop(recipe, "Resolution")!;

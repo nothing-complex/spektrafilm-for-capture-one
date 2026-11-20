@@ -591,6 +591,16 @@ Evidence is under `.test-results/host-10000-restart-20261120`.
 
 Evidence is in `.test-results/audit-capabilities-generated-20261120.md` and `.test-results/audit8-package-verify-20261120/result.json`.
 
+## Capture One Export Recipe ICC delivery
+
+- [x] Capture and validate the local RGB ICC profile selected by the recipe before the destination dialog. Convert the existing SDR film result at 16 bits and verify the exact ICC bytes in the temporary file before publishing it.
+- [x] Verify ProPhoto and Linear Rec.2020 in both RGB48 TIFF and RGBA64 PNG. Reopened color codes and PNG alpha match the WIC conversion exactly. Confirm the captured ICC remains stable if its backing path is locked or replaced. Scoped color contexts keep handles out of global state.
+- [x] Pass 12,706 host-independent checks and 210 first-launch plus 214 forced-restart assertions. The licensed test verifies the exact Adobe RGB profile in the native recipe route and the complete 6000 × 4000 RGB48 direct export.
+- [x] Compare SDR patch results against the actual three ICC matrix/TRC descriptions. P95 Delta E 2000 ranged from 0.031 to 0.159, with a maximum of 0.803. [Windows Imaging Component format contract](https://learn.microsoft.com/en-us/windows/win32/api/wincodec/nf-wincodec-iwiccolortransform-initialize)
+- [ ] Compare additional native recipe profile references and implement format-quality and naming policies within the 16-bit export requirement.
+
+Evidence is under `.test-results/host-recipe-icc-final-20261120`, `.test-results/contracts-recipe-icc-final-20261120` and `.test-results/wic-icc16-probe-20261120`.
+
 ## Status maintenance
 
 `qa/AUDIT-FIX-STATUS.json` owns task IDs, status, implemented substeps, remaining acceptance work and evidence. This handover owns context, runtime identity and resume instructions. `.test-results/FINAL-RESULT.json` is the completed runtime delivery receipt; keep its runtime commit/package identity distinct from later documentation-only commits.

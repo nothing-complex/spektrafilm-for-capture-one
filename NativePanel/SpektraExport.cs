@@ -30,9 +30,11 @@ internal static class SpektraExport
     }
 
     internal static void SaveApproved(OutputPathGuard.ApprovedDestination destination, BitmapSource image, CancellationToken stop,
-        ExportMetadata? metadata = null) => SaveImage(destination.Path, image, stop, destination, metadata);
+        ExportMetadata? metadata = null, ExportColorProfile? outputProfile = null) =>
+        SaveImage(destination.Path, image, stop, destination, metadata, outputProfile);
 
-    private static void SaveImage(string path, BitmapSource image, CancellationToken stop, OutputPathGuard.ApprovedDestination? destination, ExportMetadata? metadata = null)
+    private static void SaveImage(string path, BitmapSource image, CancellationToken stop, OutputPathGuard.ApprovedDestination? destination,
+        ExportMetadata? metadata = null, ExportColorProfile? outputProfile = null)
     {
         stop.ThrowIfCancellationRequested();
         var format = PixelFormatFor(path);
@@ -43,10 +45,8 @@ internal static class SpektraExport
         BitmapEncoder encoder = png
             ? new PngBitmapEncoder()
             : new TiffBitmapEncoder { Compression = TiffCompressOption.Zip };
-        var profilePath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.System),
-            "spool", "drivers", "color", "sRGB Color Space Profile.icm");
-        var profile = new ReadOnlyCollection<ColorContext>(new[] { new ColorContext(new Uri(profilePath)) });
+        outputProfile ??= ExportColorProfile.Srgb;
+        var profile = new ReadOnlyCollection<ColorContext>(new[] { outputProfile.Context });
         var xmp = metadata is null ? null : Encoding.UTF8.GetBytes(metadata.CreateXmp(image.PixelWidth, image.PixelHeight));
         BitmapMetadata? tiff = null;
         if (!png)
@@ -68,6 +68,8 @@ internal static class SpektraExport
             var frame = BitmapDecoder.Create(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnDemand).Frames[0];
             if (frame.Format != format || frame.PixelWidth != image.PixelWidth || frame.PixelHeight != image.PixelHeight)
                 throw new InvalidDataException("The encoded image lost its pixel dimensions or 16-bit format.");
+            if (frame.ColorContexts is not { Count: 1 } contexts || !outputProfile.Matches(contexts[0]))
+                throw new InvalidDataException("The encoded image did not preserve the selected ICC profile.");
             var stored = frame.Metadata as BitmapMetadata;
             if (!png && stored?.GetQuery("/ifd/{ushort=274}") is not (ushort)1)
                 throw new InvalidDataException("The TIFF encoder did not preserve the normalized orientation.");

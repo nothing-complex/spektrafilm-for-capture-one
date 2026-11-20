@@ -20,6 +20,7 @@
     <Compile Include="../../NativePanel/ColorTransfer.cs" Link="ColorTransfer.cs" />
     <Compile Include="../../NativePanel/SrgbDelivery.cs" Link="SrgbDelivery.cs" />
     <Compile Include="../../NativePanel/SpektraExport.cs" Link="SpektraExport.cs" />
+    <Compile Include="../../NativePanel/ExportColorProfile.cs" Link="ExportColorProfile.cs" />
     <Compile Include="../../NativePanel/PanelFiles.cs" Link="PanelFiles.cs" />
     <Compile Include="../../NativePanel/PanelPreferences.cs" Link="PanelPreferences.cs" />
     <Compile Include="../../NativePanel/OutputPathGuard.cs" Link="OutputPathGuard.cs" />
@@ -28,5 +29,9 @@
     <Compile Include="../../NativePanel/ExportJobJournal.cs" Link="ExportJobJournal.cs" />
     <Compile Include="../../NativePanel/ExportResolution.cs" Link="ExportResolution.cs" />
     <Compile Include="../../NativePanel/ExportMetadata.cs" Link="ExportMetadata.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="../../profiles/preview/ProPhoto RGB.icc" Link="Profiles/ProPhoto RGB.icc" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../profiles/preview/Linear Rec.2020.icc" Link="Profiles/Linear Rec.2020.icc" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

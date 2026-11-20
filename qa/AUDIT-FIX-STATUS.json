@@ -1393,7 +1393,9 @@
       "implemented": [
         "Panel/export dialog now explicitly disclose fixed 16-bit sRGB TIFF/PNG output and unsupported recipe fields.",
         "Recipe print resolution now reaches the encoder. The selector and help text state the 16-bit sRGB TIFF/PNG output policy and which recipe settings carry over.",
-        "Recipe metadata flags now gate the explicit supported metadata subset captured before Save. Both native command paths produce a verified 16-bit image with explicit sRGB and normalized orientation under the fixed-output policy."
+        "Recipe metadata flags now gate the explicit supported metadata subset captured before Save. Both native command paths produce a verified 16-bit image and normalized orientation under the TIFF/PNG policy.",
+        "Capture the recipe's local RGB ICC profile before showing Save and color-convert the SDR film result through a genuine 16-bit RGBA64 transform. TIFF drops alpha without changing any converted RGB code; PNG retains alpha. Reopen the encoded file and verify the exact profile digest before atomically publishing it.",
+        "The licensed Adobe RGB recipe produced the exact embedded profile in 210 first-launch and 214 restart checks. ProPhoto and Linear Rec.2020 TIFF/PNG fixtures retained the actual converted RGB, alpha where applicable, DPI and ICC. Across three profiles, an independent ICC matrix/TRC reference had p95 Delta E 2000 of 0.031–0.159 and maximum 0.803. The normal direct export remains sRGB."
       ],
       "evidence_paths": [
         "NativePanel/SpektraFilmTool.cs",
@@ -1401,10 +1403,14 @@
         "README.md",
         ".test-results/host-audit-resolution-20261119/host-smoke.log",
         ".test-results/host-export-meta-adapter-20261119/host-smoke.log",
-        "NativePanel/ExportMetadata.cs"
+        "NativePanel/ExportMetadata.cs",
+        "NativePanel/ExportColorProfile.cs",
+        ".test-results/host-recipe-icc-final-20261120/host-smoke.log",
+        ".test-results/contracts-recipe-icc-final-20261120/summary.json",
+        ".test-results/wic-icc16-probe-20261120/independent-colour-science.json"
       ],
       "remaining_work": [
-        "Implement and compare supported recipe ICC, format/quality and naming policies against independent native reference exports. Keep unsupported recipe settings explicit."
+        "Compare selected RGB recipe output against additional native profile references. Native format/quality and naming rules beyond the explicit 16-bit TIFF/PNG save policy remain open."
       ],
       "original_acceptance_tests": [
         "Table-driven JPEG, PNG, TIFF 8/16-bit, unknown-format, custom ICC, image-folder/custom-folder/subfolder/token/suffix and duplicate-name cases.",

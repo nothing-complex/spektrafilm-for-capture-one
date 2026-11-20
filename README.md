@@ -46,7 +46,9 @@ Saved looks live under `%LOCALAPPDATA%\FilmToolsForCaptureOne\Variant looks`. Ba
 
 ## Export at 16 bits
 
-With Spektrafilm enabled, select the photo and one enabled Export Recipe, then open Capture One's **Export** dialog. The recipe supplies the image size, crop and print resolution. The Spektrafilm save dialog sets the name and format, with **16-bit TIFF** and **16-bit PNG** in sRGB. Spektrafilm uses its sRGB output profile. It includes recipe-permitted copyright, creator, title, capture date, rating and keywords when available. Keywords use the recipe’s **All** setting. GPS, keyword lists limited by a recipe whitelist, other EXIF/IPTC fields and watermarks are omitted. The **Export with Spektrafilm** button in the panel uses the selected image and 96 DPI. Source development and processing use high-depth channels through the 16-bit output encoder. **Save preview PNG** saves the on-screen comparison frame.
+With Spektrafilm enabled, select the photo and one enabled Export Recipe, then open Capture One's **Export** dialog. The recipe supplies the size, crop, print resolution and local RGB ICC profile. The save dialog shows the destination profile and offers **16-bit TIFF** and **16-bit PNG**. Spektrafilm converts its SDR film output to the destination profile at 16 bits and embeds the exact profile. Choose an RGB profile for this workflow. A recipe with no profile path uses sRGB.
+
+The export includes recipe-permitted copyright, creator, title, capture date, rating and keywords when available. Keywords use the recipe’s **All** setting. GPS, keyword lists limited by a recipe whitelist, other EXIF/IPTC fields and watermarks are omitted. The **Export with Spektrafilm** button in the panel uses the selected image, sRGB and 96 DPI. **Save preview PNG** saves the on-screen comparison frame.
 
 Once you choose a destination, the panel reports Capture One development, film rendering and saving. The last export outcome stays visible after restart.
 

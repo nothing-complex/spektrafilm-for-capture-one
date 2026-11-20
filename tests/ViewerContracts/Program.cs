@@ -62,6 +62,7 @@ internal static partial class Program
         TestParallelExportPixels();
         TestDraft();
         TestExport(folder);
+        TestExportProfiles(folder);
         TestExportMetadata(folder);
         TestExportResolution();
         TestExportJobJournal(folder);
@@ -815,6 +816,77 @@ internal static partial class Program
             Check(Math.Abs(decoded.DpiX - 150) < 0.03 && Math.Abs(decoded.DpiY - 200) < 0.03, "Encoder changed supplied non-square resolution");
             Console.WriteLine($"Export {suffix}: {decoded.Format}, exact samples, ICC, resolution and canceled/rejected writes passed.");
         }
+    }
+
+    private static void TestExportProfiles(string folder)
+    {
+        const int width = 257, height = 33;
+        const int stride = width * 8;
+        var original = Path.Combine(folder, "profile-fixture-original.raw");
+        File.WriteAllBytes(original, new byte[] { 7, 2, 4 });
+        var random = new Random(812627);
+        var source = new ushort[width * height * 4];
+        for (var index = 0; index < source.Length; index++) source[index] = (ushort)random.Next(65536);
+        var bitmap = BitmapSource.Create(width, height, 123, 150, PixelFormats.Rgba64, null, source, stride);
+        bitmap.Freeze();
+        Check(ReferenceEquals(ExportColorProfile.ForRecipe(null, null).ConvertSrgb(bitmap, PixelFormats.Rgba64), bitmap),
+            "the default sRGB export bypasses unnecessary profile conversion");
+        foreach (var name in new[] { "ProPhoto RGB", "Linear Rec.2020" })
+        {
+            var path = Path.Combine(AppContext.BaseDirectory, "Profiles", name + ".icc");
+            var profile = ExportColorProfile.ForRecipe(name + ".icc", path);
+            Check(profile.Label == name && profile.RequiresConversion, "recipe identifies the exact RGB destination");
+            var converted = Task.Run(() => profile.ConvertSrgb(bitmap, PixelFormats.Rgba64)).GetAwaiter().GetResult();
+            var rgba = new ushort[source.Length];
+            converted.CopyPixels(rgba, stride, 0);
+            Check(Enumerable.Range(0, width * height).All(index => rgba[index * 4 + 3] == source[index * 4 + 3]),
+                "ICC conversion preserved original 16-bit alpha across the background handoff");
+            Check(rgba.Where((_, index) => index % 4 != 3).Distinct().Count() > 4096 && !rgba.SequenceEqual(source),
+                "ICC conversion changes RGB while preserving far more than 256 levels");
+
+            foreach (var extension in new[] { ".tif", ".png" })
+            {
+                var destination = Path.Combine(folder, name + extension);
+                var format = SpektraExport.PixelFormatFor(destination);
+                var native = profile.ConvertSrgb(bitmap, format);
+                SpektraExport.SaveApproved(OutputPathGuard.Approve(destination, original), native, CancellationToken.None, outputProfile: profile);
+                using var input = File.OpenRead(destination);
+                var frame = BitmapDecoder.Create(input, BitmapCreateOptions.PreservePixelFormat | BitmapCreateOptions.IgnoreColorProfile,
+                    BitmapCacheOption.OnLoad).Frames[0];
+                Check(frame.Format == format && frame.ColorContexts is { Count: 1 } contexts && profile.Matches(contexts[0]),
+                    "RGB48 TIFF and RGBA64 PNG embed precisely the chosen ICC bytes");
+                var channelCount = format.BitsPerPixel / 16;
+                var samples = new ushort[width * height * channelCount];
+                frame.CopyPixels(samples, width * channelCount * 2, 0);
+                Check(samples.Select((value, index) => value == rgba[(index / channelCount) * 4 + index % channelCount]).All(equal => equal),
+                    "the output container and TIFF alpha strip preserve each converted 16-bit number");
+                Check(Math.Abs(frame.DpiX - 123) < 0.03 && Math.Abs(frame.DpiY - 150) < 0.03,
+                    "ICC conversion retains the supplied DPI");
+            }
+        }
+
+        var snapshotPath = Path.Combine(folder, "captured-profile.icc");
+        File.Copy(Path.Combine(AppContext.BaseDirectory, "Profiles", "ProPhoto RGB.icc"), snapshotPath);
+        var captured = ExportColorProfile.ForRecipe("Captured RGB", snapshotPath);
+        var initial = new ushort[source.Length];
+        captured.ConvertSrgb(bitmap, PixelFormats.Rgba64).CopyPixels(initial, stride, 0);
+        try { File.Copy(Path.Combine(AppContext.BaseDirectory, "Profiles", "Linear Rec.2020.icc"), snapshotPath, overwrite: true); }
+        catch (IOException error) when ((error.HResult & 0xffff) is 32 or 33)
+        {
+            // Some WIC builds protect a profile with an open read handle.
+        }
+        var unchanged = new ushort[source.Length];
+        captured.ConvertSrgb(bitmap, PixelFormats.Rgba64).CopyPixels(unchanged, stride, 0);
+        Check(initial.SequenceEqual(unchanged) && captured.Matches(captured.Context),
+            "the captured ICC transform and bytes survive replacement of the recipe profile file");
+
+        var invalid = Path.Combine(folder, "non-rgb-profile.icc");
+        var invalidHeader = File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Profiles", "ProPhoto RGB.icc"));
+        "CMYK"u8.CopyTo(invalidHeader.AsSpan(16, 4));
+        File.WriteAllBytes(invalid, invalidHeader);
+        try { ExportColorProfile.ForRecipe("CMYK fixture", invalid); throw new InvalidOperationException("Accepted non-RGB ICC data."); }
+        catch (InvalidDataException) { assertions++; }
+        Check(File.ReadAllBytes(original).SequenceEqual(new byte[] { 7, 2, 4 }), "managed ICC export left original source alone");
     }
 
     private static void TestLargeEncoding(string folder)

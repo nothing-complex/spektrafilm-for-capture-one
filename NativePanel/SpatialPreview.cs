@@ -696,6 +696,7 @@ internal sealed class SpatialPreview : IDisposable
             var snapshot = HostImageSource.Capture(window, target,
                 input.Space, captureRecipe: useRecipeSize);
             var recipe = snapshot.Recipe;
+            var deliveryProfile = ExportColorProfile.ForRecipe(recipe?.ColorProfileName, recipe?.ColorProfilePath);
             var extension = SpektraExport.ExtensionFor(recipe?.FormatId);
             var dpi = recipe is null ? ExportResolution.DefaultDpi : ExportResolution.DotsPerInch(recipe.Resolution, recipe.ResolutionUnit);
 
@@ -703,7 +704,7 @@ internal sealed class SpatialPreview : IDisposable
             {
                 Title = recipe is null
                     ? "Save 16-bit Spektrafilm export (sRGB)"
-                    : $"Save {recipe.Width} × {recipe.Height} 16-bit sRGB TIFF or PNG",
+                    : $"Save {recipe.Width} × {recipe.Height} 16-bit TIFF or PNG · {deliveryProfile.Label}",
                 Filter = SpektraExport.FileFilter,
                 FilterIndex = extension == ".png" ? 2 : 1,
                 FileName = Path.GetFileNameWithoutExtension(target.SourcePath) + "-Spektrafilm",
@@ -750,10 +751,13 @@ internal sealed class SpatialPreview : IDisposable
                     }
                     work.Token.ThrowIfCancellationRequested();
                     Advance(ExportStage.Encoding, "Writing the 16-bit export…", rendered.Crop.Width, rendered.Crop.Height);
-                    using var memory = RenderMemoryBudget.SystemMemory.Reserve(RenderAllocation.ImageEncoding,
+                    using var memory = RenderMemoryBudget.SystemMemory.Reserve(deliveryProfile.RequiresConversion
+                            ? RenderAllocation.ProfileImageEncoding : RenderAllocation.ImageEncoding,
                         (long)rendered.Crop.Width * rendered.Crop.Height, "Free memory or choose a smaller Export Recipe.");
-                    var output = DecodeExport(source, pixels, look.Strength, input.Space, encoding, outputFormat, rendered.Crop, work.Token, dpi);
-                    SpektraExport.SaveApproved(approved, output, work.Token, recipe?.Metadata);
+                    var deliveryFormat = deliveryProfile.RequiresConversion ? PixelFormats.Rgba64 : outputFormat;
+                    var image = DecodeExport(source, pixels, look.Strength, input.Space, encoding, deliveryFormat, rendered.Crop, work.Token, dpi);
+                    var output = deliveryProfile.ConvertSrgb(image, outputFormat);
+                    SpektraExport.SaveApproved(approved, output, work.Token, recipe?.Metadata, deliveryProfile);
                     return (output.PixelWidth, output.PixelHeight);
                 }, work.Token);
                 Advance(ExportStage.Completed, $"Saved 16-bit Spektrafilm export · {result.PixelWidth} × {result.PixelHeight}",
