@@ -12,6 +12,7 @@
     <Compile Include="../../NativePanel/PanelLog.cs" Link="PanelLog.cs" />
     <Compile Include="../../NativePanel/PanelChoices.cs" Link="PanelChoices.cs" />
     <Compile Include="../../NativePanel/VariantLookStore.cs" Link="VariantLookStore.cs" />
+    <Compile Include="../../NativePanel/VariantLookBatch.cs" Link="VariantLookBatch.cs" />
     <Compile Include="../../NativePanel/LookStateValidation.cs" Link="LookStateValidation.cs" />
     <Compile Include="../../NativePanel/LookSettings.cs" Link="LookSettings.cs" />
     <Compile Include="../../NativePanel/LookPreset.cs" Link="LookPreset.cs" />

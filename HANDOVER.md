@@ -1323,6 +1323,14 @@ The memory fixes are in source commit `f1e5c9a`. Audit.32 remains the latest exa
 
 Vulkan reports memory budget and usage for each process. The coordinator limits concurrent estimates inside Capture One and each worker retains its per-render checks. The driver can change available memory as other processes run. [Khronos adapter identity](https://docs.vulkan.org/refpages/latest/refpages/source/VkPhysicalDeviceIDProperties.html) · [Khronos memory budget specification](https://docs.vulkan.org/refpages/latest/refpages/source/VkPhysicalDeviceMemoryBudgetPropertiesEXT.html)
 
+## Copy Spektrafilm settings to selected variants
+
+- [x] Add an explicit multi-variant command alongside single-variant Apply. Capture up to 1,000 native variant IDs before confirmation and intersect the chosen sections with what was copied. Preflight every changed look and recheck its baseline before writing. Stop leaves earlier atomic saves in place. Group Undo covers that saved subset and refuses newer conflicting edits. Undo restores the effective defaults for a previously unedited target.
+- [x] Pass 281 state assertions including 1,000 durable target changes, complete group Undo and Redo, a newer-look conflict and refusal of unavailable or pending writes. In the licensed four-RAW host, 25 launch and 19 restart assertions verify selection changes during approval, exact untouched settings, real native Undo and Redo, the panel Stop command and the exact saved subset after restart. Run `qa/HostSmoke/Run-HostSmoke.ps1 -NativeLookBatch` with a disposable four-RAW catalog and the verified native preferences backup.
+- [ ] Persist an operation journal with crash reconciliation and add rollback fault injection for group history. Individual looks already survive restart, and the active native Undo group belongs to the current Capture One process. Native clone lineage and native adjustment-copy behavior require separate proof.
+
+Evidence is in `.test-results/host-native-look-batch-final-20261120` and the 281-assertion `tests/state` run. The disposable host inventory matches all 199 documented controls, including the new apply and stop buttons. See `.test-results/host-look-batch-inventory-20261120`. This is a source checkpoint after audit.32.
+
 ## Status maintenance
 
 `qa/AUDIT-FIX-STATUS.json` owns task IDs, status, implemented substeps, remaining acceptance work and evidence. This handover owns context, runtime identity and resume instructions. `.test-results/FINAL-RESULT.json` is the completed runtime delivery receipt; keep its runtime commit/package identity distinct from later documentation-only commits.

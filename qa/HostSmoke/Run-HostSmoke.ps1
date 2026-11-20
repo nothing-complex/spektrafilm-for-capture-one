@@ -20,6 +20,7 @@ param(
     [ValidateRange(0,200)][int] $NativeLifetimeCycles=0,
     [switch] $ViewerNativeBaseline,
     [switch] $DurableSliderEdits,
+    [switch] $NativeLookBatch,
     [string] $MetadataFixtureRoot,
     [switch] $SkipRestart,
     [switch] $CheckOrdinaryLaunch,
@@ -46,6 +47,11 @@ param(
     [string] $ResultsDirectory
 )
 $ErrorActionPreference='Stop'
+if ($NativeLookBatch -and (!$NativeSettingsConfig -or $SkipRestart -or $PackagedRuntime -or $UpgradeFromPackage -or
+    $CatalogIsolation -or $ConcurrentCatalogs -or $DurableSliderEdits -or $ViewerLayouts -or $ViewerChurn -or
+    $ColorMatrix -or $NativeEffectExport -or $CheckOrdinaryLaunch)) {
+    throw 'Native batch copy needs its own disposable launch and restart with a verified preferences backup.'
+}
 if ($SavedLooksFromUpdatedCatalog -and !$SavedLooksBackup) { throw 'An updated catalog fixture needs its saved-look backup.' }
 if ($SavedLooksBackup -and (!$NativeSettingsConfig -or $UpgradeFromPackage -or $CatalogIsolation -or $ConcurrentCatalogs -or $SessionIsolation)) {
     throw 'Moved-catalog look verification requires a single disposable catalog and a native preferences backup.'
@@ -572,7 +578,7 @@ $names=@(
     'SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT','SPEKTRAFILM_HOST_MOVED_LOOK_BACKUP',
     'SPEKTRAFILM_SHOW_TOOL','SPEKTRAFILM_HOST_PROOF_TEST','SPEKTRAFILM_HOST_CATALOG_ISOLATION',
     'SPEKTRAFILM_HOST_VIEWER_LAYOUTS','SPEKTRAFILM_HOST_FLOATING_WORKSPACE','SPEKTRAFILM_HOST_NATIVE_WORKSPACE_SWITCH',
-    'SPEKTRAFILM_HOST_DURABLE_EDITS','SPEKTRAFILM_HOST_METADATA_FIXTURE',
+    'SPEKTRAFILM_HOST_DURABLE_EDITS','SPEKTRAFILM_HOST_LOOK_BATCH','SPEKTRAFILM_HOST_METADATA_FIXTURE',
     'SPEKTRAFILM_HOST_VIEWER_CHURN','SPEKTRAFILM_HOST_VIEWER_CHURN_RESOLUTION','SPEKTRAFILM_HOST_VIEWER_TELEMETRY_SECONDS','SPEKTRAFILM_HOST_EXPORT_INTERRUPTION',
     'SPEKTRAFILM_HOST_NATIVE_VIEWER_BASELINE','SPEKTRAFILM_HOST_OTHER_CATALOG',
     'SPEKTRAFILM_HOST_NATIVE_LIFETIME',
@@ -603,6 +609,7 @@ try {
     $env:SPEKTRAFILM_HOST_FLOATING_WORKSPACE=if($FloatingWorkspaceLayout){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_NATIVE_WORKSPACE_SWITCH=if($NativeWorkspaceSwitch){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_DURABLE_EDITS=if($DurableSliderEdits){'1'}else{$null}
+    $env:SPEKTRAFILM_HOST_LOOK_BATCH=if($NativeLookBatch){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_METADATA_FIXTURE=$MetadataFixtureRoot
     $env:SPEKTRAFILM_HOST_VIEWER_CHURN=if($ViewerChurn){[string]$ViewerChurn}else{$null}
     $env:SPEKTRAFILM_HOST_VIEWER_CHURN_RESOLUTION=if($ViewerChurn){$ViewerChurnResolution}else{$null}

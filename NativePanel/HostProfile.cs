@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Windows.Forms;
 using P1.C1.Core;
 using P1.C1.Core.Interfaces;
@@ -39,6 +40,22 @@ internal static class HostProfile
             || collection.PrimaryVariant is not ICoreVariant variant)
             throw new InvalidOperationException("Select an image in the Viewer first.");
         return new Selection(manager.Instance, document, variant);
+    }
+
+    internal static Guid[] CaptureSelectedVariants(object window, ICaptureOneDocument expectedDocument)
+    {
+        var active = ReadSelection(window);
+        if (!ReferenceEquals(active.Document, expectedDocument)
+            || ((ISelectedCollectionsProvider)active.Document).PrimarySelectedCollectionSelection is not { } selection
+            || selection.PrimaryVariant?.UUID != active.Variant.UUID || selection.SelectedVariants is not { } selected)
+            throw new InvalidOperationException("Capture One’s selection changed. Select the variants again.");
+
+        var ids = selected.Select(variant => variant.UUID).Distinct().Take(VariantLookBatch.MaxVariants + 1).ToArray();
+        if (ids.Length == 0 || ids.Contains(Guid.Empty) || !ids.Contains(active.Variant.UUID))
+            throw new InvalidOperationException("Capture One did not return a complete variant selection.");
+        if (ids.Length > VariantLookBatch.MaxVariants)
+            throw new InvalidOperationException($"Select up to {VariantLookBatch.MaxVariants:N0} variants at a time.");
+        return ids;
     }
 
     internal readonly record struct Selection(object Manager, ICaptureOneDocument Document, ICoreVariant Variant);

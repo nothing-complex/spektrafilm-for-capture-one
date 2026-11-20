@@ -127,6 +127,11 @@ public static partial class StartupHook
                 await TestDurableSliderEdits(panel, spatial, store);
                 return;
             }
+            if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_LOOK_BATCH") == "1")
+            {
+                await TestNativeLookBatch(panel, store);
+                return;
+            }
             if (int.TryParse(Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_VIEWER_CHURN"), out var visits) && visits is > 0 and <= 200)
             {
                 await MeasureViewerChurn(panel, spatial, store, visits);

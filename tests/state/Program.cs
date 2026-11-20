@@ -463,6 +463,51 @@ PanelFiles.WriteCompactPreset(undoFile, Sample(2.4));
 Throws<InvalidOperationException>("stale history cannot overwrite a newer saved look", () => store.ReplaceIfCurrent(undoVariant, undoSecond, undoFirst));
 Check("history conflict preserves the newer persisted look", new VariantLookStore(root, catalog).Read(undoVariant)?.Look.Exposure == 2.4);
 
+var batchStore = new VariantLookStore(root, Path.Combine(scratch, "batch-looks.cocatalogdb"));
+var batchDefaults = Sample(0);
+var batchPreset = LookPreset.From(Sample(1.37) with { Enabled = false, Grain = new(5, 91, 78) });
+var batchIds = Enumerable.Range(0, VariantLookBatch.MaxVariants).Select(_ => Guid.NewGuid()).ToArray();
+var batchDisabled = Sample(-.63) with { Enabled = false, Grain = new(1, 16, 55) };
+batchStore.Queue(batchIds[0], batchDisabled);
+batchStore.Flush();
+var batchChanges = batchIds.Select(id => VariantLookBatch.Prepare(batchStore, id, batchDefaults, batchPreset,
+    LookSections.Film)!).ToArray();
+Check("batch prepares 1,000 unique targets with their own unselected sections",
+    batchChanges.Length == 1000 && batchChanges[0].After.Enabled == false && batchChanges[0].After.Grain == batchDisabled.Grain
+    && batchChanges.Skip(1).All(change => change.SavedBefore is null && change.After.Enabled && change.After.Grain == batchDefaults.Grain));
+foreach (var change in batchChanges)
+    batchStore.CommitBatchChange(change.Variant, change.SavedBefore, change.After);
+Check("batch persists all 1,000 published looks", batchIds.All(id => batchStore.ReadForBatch(id)?.Look.Exposure == 1.37));
+Check("already applied sections plan no change",
+    VariantLookBatch.Prepare(batchStore, batchIds[0], batchDefaults, batchPreset, LookSections.Film) is null);
+VariantLookBatch.Replay(batchStore, batchChanges, undo: true);
+Check("group Undo restores each target's prior effective look",
+    VariantLookStore.Equivalent(batchStore.ReadForBatch(batchIds[0]), batchDisabled)
+    && batchIds.Skip(1).All(id => VariantLookStore.Equivalent(batchStore.ReadForBatch(id), batchDefaults)));
+VariantLookBatch.Replay(batchStore, batchChanges, undo: false);
+Check("group Redo restores the same durable looks", batchIds.All(id => batchStore.ReadForBatch(id)?.Look.Exposure == 1.37));
+batchStore.Queue(batchIds[1], Sample(4));
+batchStore.Flush();
+Throws<InvalidOperationException>("batch Undo refuses a newer saved edit before touching the group",
+    () => VariantLookBatch.Replay(batchStore, batchChanges, undo: true));
+Check("conflicted Undo keeps both newer and unaffected variants",
+    batchStore.ReadForBatch(batchIds[1])?.Look.Exposure == 4 && batchStore.ReadForBatch(batchIds[^1])?.Look.Exposure == 1.37);
+batchStore.Queue(batchIds[2], Sample(2.8));
+Throws<InvalidOperationException>("batch preflight refuses ordinary pending edits",
+    () => VariantLookBatch.Prepare(batchStore, batchIds[2], batchDefaults, batchPreset, LookSections.Film));
+batchStore.Flush();
+var batchBlockedId = Guid.NewGuid();
+var batchBlocked = VariantLookBatch.Prepare(batchStore, batchBlockedId, batchDefaults, batchPreset, LookSections.Film)!;
+var batchesFolder = Path.GetDirectoryName(StateFile(root, batchIds[0]))!;
+var blockedDestination = Directory.CreateDirectory(Path.Combine(batchesFolder, batchBlockedId.ToString("N") + ".json")).FullName;
+try
+{
+    Throws<IOException>("failed optional batch commit leaves no queued change",
+        () => batchStore.CommitBatchChange(batchBlockedId, batchBlocked.SavedBefore, batchBlocked.After));
+    Check("failed batch commit schedules no delayed write", !batchStore.HasPending);
+}
+finally { Directory.Delete(blockedDestination); }
+
 var grainId = Guid.NewGuid();
 var grainOriginal = new GrainValues(1, 7, 30);
 var grainFirst = new GrainValues(2, 35, 60);

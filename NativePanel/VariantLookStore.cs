@@ -177,6 +177,36 @@ internal sealed class VariantLookStore
         }
     }
 
+    internal VariantLook? ReadForBatch(Guid variant)
+    {
+        lock (session)
+        {
+            var current = Read(variant);
+            if (session.Pending.ContainsKey(variant))
+                throw new InvalidOperationException("A selected variant has a pending save. Resolve it before applying copied settings.");
+            return current;
+        }
+    }
+
+    internal void RequireBatchBaseline(Guid variant, VariantLook? expected)
+    {
+        var current = ReadForBatch(variant);
+        if (expected is null ? current is not null : !Equivalent(current, expected))
+            throw new InvalidOperationException("A selected variant’s saved look changed. The newer look was kept.");
+    }
+
+    internal void CommitBatchChange(Guid variant, VariantLook? expected, VariantLook replacement)
+    {
+        LookStateValidation.Validate(replacement);
+        lock (session)
+        {
+            RequireBatchBaseline(variant, expected);
+            // A failed optional copy must not turn into a pending edit and
+            // overwrite a user's later change when the normal watchdog runs.
+            Commit(variant, PrepareEdit(replacement, session.KnownHash.GetValueOrDefault(variant)));
+        }
+    }
+
     internal void Flush() => FlushPending(null);
 
     internal void FlushVariant(Guid variant) => FlushPending(variant);
@@ -201,18 +231,7 @@ internal sealed class VariantLookStore
                 {
                     if (blocked.TryGetValue(variant, out var issue))
                         throw new InvalidDataException(issue.Message);
-                    Directory.CreateDirectory(directory);
-                    var path = GetPath(variant);
-                    PanelFiles.WriteAtomically(path, stream => stream.Write(pending.Json), () =>
-                    {
-                        if (pending.KeepPrevious && pending.BaseHash is not null)
-                            SavePrevious(variant, path, pending.BaseHash);
-                        EnsureExpectedPrimary(variant, path, pending.BaseHash);
-                    }, overwrite: pending.BaseHash is not null);
-                    session.KnownHash[variant] = pending.Hash;
-                    session.KnownLookHash[variant] = pending.Hash;
-                    session.Pending.Remove(variant);
-                    TryDeleteRecovery(variant);
+                    Commit(variant, pending);
                 }
                 catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or InvalidDataException)
                 {
@@ -234,6 +253,22 @@ internal sealed class VariantLookStore
             if (failures.Count != 0)
                 throw new IOException(string.Join(Environment.NewLine, failures));
         }
+    }
+
+    private void Commit(Guid variant, PendingEdit edit)
+    {
+        Directory.CreateDirectory(directory);
+        var path = GetPath(variant);
+        PanelFiles.WriteAtomically(path, stream => stream.Write(edit.Json), () =>
+        {
+            if (edit.KeepPrevious && edit.BaseHash is not null)
+                SavePrevious(variant, path, edit.BaseHash);
+            EnsureExpectedPrimary(variant, path, edit.BaseHash);
+        }, overwrite: edit.BaseHash is not null);
+        session.KnownHash[variant] = edit.Hash;
+        session.KnownLookHash[variant] = edit.Hash;
+        session.Pending.Remove(variant);
+        TryDeleteRecovery(variant);
     }
 
     // Only invoked after an explicit user recovery action. Archive both alternatives

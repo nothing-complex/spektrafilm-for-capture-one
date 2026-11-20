@@ -54,6 +54,7 @@ public static partial class StartupHook
         BindFields(spatial, "viewer-quality", ("previewSize", null), ("dragPreviewSize", null), ("fastSynthesis", null));
         BindFields(spatial, "native-export", ("cancelExport", null));
         BindFields(panel, "lut-export", ("cancelLut", null));
+        BindFields(panel, "presets", ("cancelBatch", null));
         BindFields(Field(spatial, "histogram")!, "viewer-analysis", ("markHighlights", null));
 
         var numericControls = bindings.Where(entry => entry.Value.Capability == "vulkan" && entry.Key.GetType().Name == "NativeSlider")
@@ -93,6 +94,7 @@ public static partial class StartupHook
             ["Film and print"] = "presets", ["Optics and colour spaces"] = "presets",
             ["Staged Capture One grain"] = "presets", ["Master switch"] = "presets",
             ["Copy selected settings"] = "presets", ["Apply copied settings"] = "presets", ["Load selected sections…"] = "presets",
+            ["Apply to selected variants…"] = "presets",
             ["Export with Spektrafilm…"] = "native-export",
             ["Export 33-point LUT…"] = "lut-export", ["Export 65-point LUT…"] = "lut-export",
         };

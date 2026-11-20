@@ -457,6 +457,9 @@ internal static class SpektraFilmTool
         private readonly WrapPanel exportButtons = new() { Margin = new Thickness(0, 5, 0, 0) };
         private readonly CancellationTokenSource lifetime = new();
         private readonly Button cancelLut = new() { Content = "Cancel LUT export", Visibility = Visibility.Collapsed };
+        private readonly TextBlock batchStatus = new() { TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed };
+        private readonly Button cancelBatch = new() { Content = "Stop applying copied settings", Visibility = Visibility.Collapsed };
+        private CancellationTokenSource? batchWork;
         private CancellationTokenSource? lutWork;
         private bool lutExporting;
         private readonly IUndoManager? nativeUndo;
@@ -468,6 +471,7 @@ internal static class SpektraFilmTool
         private VariantLook? previousSavedLook;
         private DispatcherOperation? selectionSync;
         private LookOptions? options;
+        private VariantLook? defaultLook;
         private bool controlsLoadFailed;
         private bool settingValues;
         private bool disposed;
@@ -500,6 +504,9 @@ internal static class SpektraFilmTool
             layout.Children.Add(exportBridgeStatus);
             cancelLut.Click += (_, _) => lutWork?.Cancel();
             layout.Children.Add(cancelLut);
+            layout.Children.Add(batchStatus);
+            layout.Children.Add(cancelBatch);
+            cancelBatch.Click += (_, _) => batchWork?.Cancel();
             layout.Children.Add(controls);
             Content = layout;
             AddStock(controls, "Processing mode", mode, () =>
@@ -789,6 +796,18 @@ internal static class SpektraFilmTool
                 catch (Exception error) { Report(error); }
                 return Task.CompletedTask;
             });
+            var applyBatch = Button("Apply to selected variants…", async () =>
+            {
+                if (copied is not { } entry) return;
+                try
+                {
+                    await ApplyCopiedToSelectionAsync(entry.Preset, Selected() & entry.Included, count =>
+                        MessageBox.Show($"Apply the copied Spektrafilm sections to {count:N0} selected variants?",
+                            StartupHook.ProductName, MessageBoxButton.OKCancel, MessageBoxImage.Question,
+                            MessageBoxResult.Cancel) == MessageBoxResult.OK);
+                }
+                catch (Exception error) { Report(error); }
+            });
             var copy = Button("Copy selected settings", () =>
             {
                 var sections = Selected();
@@ -796,13 +815,14 @@ internal static class SpektraFilmTool
                 {
                     copied = (LookPreset.From(look), sections);
                     status.Text = "Spektrafilm settings copied.";
-                    apply.IsEnabled = true;
+                    applyBatch.IsEnabled = apply.IsEnabled = true;
                 }
                 return Task.CompletedTask;
             });
             actions.Children.Add(load);
             actions.Children.Add(copy);
             actions.Children.Add(apply);
+            actions.Children.Add(applyBatch);
             controls.Children.Add(actions);
             foreach (var choice in new[] { film, optics, grain, enabled })
             {
@@ -828,8 +848,96 @@ internal static class SpektraFilmTool
             {
                 var selected = Selected();
                 load.IsEnabled = copy.IsEnabled = selected != LookSections.None;
-                apply.IsEnabled = copied is { } entry && (entry.Included & selected) != LookSections.None;
+                applyBatch.IsEnabled = apply.IsEnabled = copied is { } entry && (entry.Included & selected) != LookSections.None;
             }
+        }
+
+        private async Task<int> ApplyCopiedToSelectionAsync(LookPreset preset, LookSections sections, Func<int, bool> confirm)
+        {
+            if (disposed || batchWork is not null || sections == LookSections.None || defaultLook is not { } defaults)
+                return 0;
+            if (nativeUndo is null)
+                throw new InvalidOperationException("Capture One Undo is unavailable for this catalog.");
+            preset.Validate();
+            var variants = HostProfile.CaptureSelectedVariants(window, document);
+            if (variants.Length < 2)
+                throw new InvalidOperationException("Select two or more variants, or use Apply copied settings for one variant.");
+            UpdateHistoryGesture(false);
+            using var work = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+            batchWork = work;
+            var committed = new List<VariantLookChange>();
+            var prepared = new List<VariantLookChange>();
+            var needsRefresh = false;
+            string? failure = null;
+            var confirmed = false;
+            try
+            {
+                confirmed = confirm(variants.Length);
+                if (!confirmed) return 0;
+                batchStatus.Visibility = cancelBatch.Visibility = Visibility.Visible;
+                foreach (var variant in variants)
+                {
+                    await Dispatcher.Yield(DispatcherPriority.Background);
+                    work.Token.ThrowIfCancellationRequested();
+                    batchStatus.Text = $"Checking {variants.Length:N0} selected variants…";
+                    if (VariantLookBatch.Prepare(looks, variant, defaults, preset, sections) is not { } change)
+                        continue;
+                    ValidateLoadedSettings(change.After.Look, change.After.Optics);
+                    ResolvePresetStocks(change.After.Look);
+                    prepared.Add(change);
+                }
+                foreach (var change in prepared)
+                {
+                    await Dispatcher.Yield(DispatcherPriority.Background);
+                    work.Token.ThrowIfCancellationRequested();
+                    // Do not merge a batch edit into an in-progress slider gesture.
+                    UpdateHistoryGesture(false);
+                    looks.CommitBatchChange(change.Variant, change.SavedBefore, change.After);
+                    committed.Add(change);
+                    if (displayedVariant == change.Variant)
+                    {
+                        needsRefresh = true;
+                        OnHistoryChanged(change.Variant, null);
+                        needsRefresh = false;
+                    }
+                    batchStatus.Text = $"Applied copied settings to {committed.Count:N0} of {prepared.Count:N0} changed variants…";
+                }
+            }
+            catch (OperationCanceledException) when (work.IsCancellationRequested) { failure = "Stopped."; }
+            catch (Exception error)
+            {
+                failure = error.GetBaseException().Message;
+                StartupHook.Log("Spektrafilm batch apply stopped: " + error);
+            }
+            finally
+            {
+                batchWork = null;
+                if (committed.Count > 0 && !disposed)
+                {
+                    var notify = historyChanged;
+                    try
+                    {
+                        nativeUndo.Do(new NativeLookBatchUndoAction(looks, committed.ToArray(), (changes, error) =>
+                        {
+                            foreach (var change in changes) notify(change.Variant, null);
+                            if (error is not null) notify(Guid.Empty, error);
+                        }));
+                    }
+                    catch (Exception error)
+                    {
+                        failure = "The changes were saved. Capture One could not record Undo.";
+                        StartupHook.Log("Could not record Spektrafilm batch Undo: " + error);
+                    }
+                    if (needsRefresh && displayedVariant is { } current) OnHistoryChanged(current, null);
+                }
+                if (!disposed && confirmed)
+                {
+                    cancelBatch.Visibility = Visibility.Collapsed;
+                    batchStatus.Text = $"Applied copied settings to {committed.Count:N0} of {variants.Length:N0} selected variants."
+                        + (failure is null ? string.Empty : " " + failure);
+                }
+            }
+            return committed.Count;
         }
 
         internal bool IsSpektraExportActive => SyncSelection() && IsSpektraFilmEnabled;
@@ -1290,7 +1398,7 @@ internal static class SpektraFilmTool
             opticalPreview.ValidateSettings(optics);
         }
 
-        private void SetPreset(LookSettings settings)
+        private (Stock Mode, Stock Film, Stock Paper, Stock Method) ResolvePresetStocks(LookSettings settings)
         {
             var available = options ?? throw new InvalidOperationException("The available stocks are still loading.");
             static Stock Find(Stock[] stocks, string id) => stocks.FirstOrDefault(option => option.Id == id)
@@ -1301,7 +1409,12 @@ internal static class SpektraFilmTool
             var selectedMethod = Find(available.SpectralMethods, settings.SpectralMethod);
             if (selectedMode.Id == "print" && selectedFilm.Kind == "positive")
                 throw new InvalidDataException("This positive film needs scan mode.");
+            return (selectedMode, selectedFilm, selectedPaper, selectedMethod);
+        }
 
+        private void SetPreset(LookSettings settings)
+        {
+            var (selectedMode, selectedFilm, selectedPaper, selectedMethod) = ResolvePresetStocks(settings);
             var previousSetting = settingValues;
             settingValues = true;
             try
@@ -1581,6 +1694,8 @@ internal static class SpektraFilmTool
                 opticalPreview.VerifyRendererOptions(renderer);
                 options = available with { Films = SortStocks(available.Films, false), Papers = SortStocks(available.Papers, true) };
                 SetDefaults();
+                if (CurrentSettings() is { } initial)
+                    defaultLook = new VariantLook(initial, opticalPreview.CaptureSettings(), true, Grain: DefaultGrain);
                 controlsLoadFailed = false;
                 SyncSelection();
 
