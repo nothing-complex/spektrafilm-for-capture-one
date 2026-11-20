@@ -359,7 +359,13 @@ public static partial class StartupHook
                 var before = routeCount;
                 job = null;
                 destination = Path.Combine(folder, caseName + "-" + kind + extension);
-                if (usePrevious) ExecuteNativeExportCommand(previous);
+                if (usePrevious)
+                {
+                    if (kind == "both-grains-previous")
+                        Check(Prop(bridge, "Busy") is false,
+                            "a finished job with a closed dialog releases Export before the next native command");
+                    ExecuteNativeExportCommand(previous);
+                }
                 else
                 {
                     ShowNativeDialog(() =>

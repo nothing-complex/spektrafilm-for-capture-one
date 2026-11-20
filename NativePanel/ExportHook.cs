@@ -31,7 +31,8 @@ internal sealed class ExportHook : IDisposable
     private readonly CommandBinding previous;
     private ExportDialog? dialog;
     private IDisposable? confirmation;
-    private bool busy;
+    private bool choosingDestination;
+    private Task<bool>? activeExport;
     private string? confirmationError;
     private bool disposed;
 
@@ -74,6 +75,7 @@ internal sealed class ExportHook : IDisposable
     }
 
     internal Window? Dialog => dialog;
+    private bool Busy => choosingDestination || activeExport is { } job && (!job.IsCompleted || dialog is not null);
 
     private bool IsApprovedDocument() =>
         !window.IsDisposed && ReferenceEquals(activeDocument.GetValue(manager), document)
@@ -90,7 +92,7 @@ internal sealed class ExportHook : IDisposable
                 normal.Original(command, editMultiple);
                 return;
             }
-            if (busy || dialog is not null || !CheckConfirmationSupport())
+            if (Busy || dialog is not null || !CheckConfirmationSupport())
                 return;
             if (!HasSingleSelection(editMultiple))
             {
@@ -112,7 +114,7 @@ internal sealed class ExportHook : IDisposable
     {
         try
         {
-            if (disposed || !IsApprovedDocument() || busy)
+            if (disposed || !IsApprovedDocument() || Busy)
                 return false;
             if (!isActive())
                 return native();
@@ -147,7 +149,7 @@ internal sealed class ExportHook : IDisposable
                 Warn("Select one variant to export with Spektrafilm.");
                 return;
             }
-            if (!busy && dialog is null && CheckConfirmationSupport() && CheckRecipe())
+            if (!Busy && dialog is null && CheckConfirmationSupport() && CheckRecipe())
                 _ = ExportAsync();
         }
         catch (Exception error)
@@ -228,12 +230,18 @@ internal sealed class ExportHook : IDisposable
 
     private async Task<bool> ExportAsync()
     {
-        busy = true;
         var owner = dialog;
+        Task<bool>? job = null;
         try
         {
             StartupHook.Log("Native Export routed to the Spektrafilm renderer.");
-            if (!await export())
+            // The destination picker runs a nested message loop before the task
+            // is returned. Once the window has closed and the task completes,
+            // the next command can proceed before this continuation resumes.
+            choosingDestination = true;
+            try { activeExport = job = export(); }
+            finally { choosingDestination = false; }
+            if (!await job)
                 return false;
             if (!disposed && owner is { IsVisible: true } && ReferenceEquals(owner, dialog))
                 _ = owner.Dispatcher.BeginInvoke(new Action(() =>
@@ -253,7 +261,8 @@ internal sealed class ExportHook : IDisposable
         }
         finally
         {
-            busy = false;
+            if (ReferenceEquals(activeExport, job))
+                activeExport = null;
         }
     }
 
