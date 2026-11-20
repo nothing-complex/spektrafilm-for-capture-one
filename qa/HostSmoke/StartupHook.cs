@@ -170,7 +170,7 @@ public static partial class StartupHook
                 await TestNativeExportInterruption(panel, spatial, interruption);
                 return;
             }
-            if (exportFixture is "1" or "matrix" or "grain" or "clone" or "compression" or "folders")
+            if (exportFixture is "1" or "matrix" or "grain" or "clone" or "compression" or "folders" or "panel-modes")
             {
                 var phase = File.ReadAllText(Path.Combine(folder, "phase.txt"));
                 if (exportFixture == "matrix")
@@ -178,7 +178,8 @@ public static partial class StartupHook
                 else
                     await TestNativeEffectExport(hookField, hosted, panel, spatial, window, phase,
                         compareGrain: exportFixture is "grain" or "clone", compareClone: exportFixture == "clone",
-                        compareCompression: exportFixture == "compression", compareFolders: exportFixture == "folders");
+                        compareCompression: exportFixture == "compression", compareFolders: exportFixture == "folders",
+                        comparePanelModes: exportFixture == "panel-modes");
                 File.WriteAllText(Path.Combine(folder, phase + ".passed"), $"PASS {checks} native effects export assertions");
                 return;
             }

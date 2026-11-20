@@ -46,7 +46,7 @@ public static partial class StartupHook
 
     private static async Task TestNativeEffectExport(FieldInfo hookField, object hosted, object panel, object spatial, object window,
         string caseName, bool compareGrain = false, bool compareClone = false, bool compareCompression = false,
-        bool compareFolders = false)
+        bool compareFolders = false, bool comparePanelModes = false)
     {
         var toggle = (CheckBox)Field(panel, "enableSpektraFilm")!;
         var inputEncoding = (string)Prop(((ComboBox)Field(spatial, "inputSpace")!).SelectedItem, "Id")!;
@@ -169,6 +169,7 @@ public static partial class StartupHook
             var grain = compareGrain ? await CompareGrain(fullEffects) : null;
             var compressionComparison = compareCompression ? await CompareCompression(fullEffects) : null;
             if (compareFolders) await CheckFolders();
+            var panelModes = comparePanelModes ? await ComparePanelModes(fullEffects) : null;
             if (compareGrain) await CheckReadOnlyDestination();
             toggle.IsChecked = false;
             bool clicked = false;
@@ -180,7 +181,8 @@ public static partial class StartupHook
                 native.Close();
                 return true;
             });
-            var expectedRoutes = 5 + (compareGrain ? 8 : 0) + (compareCompression ? 6 : 0) + (compareFolders ? 3 : 0);
+            var expectedRoutes = 5 + (compareGrain ? 8 : 0) + (compareCompression ? 6 : 0)
+                + (compareFolders ? 3 : 0) + (comparePanelModes ? 4 : 0);
             Check(clicked && routeCount == expectedRoutes && Prop(bridge, "Dialog") is null,
                 "the master switch delegates to the ordinary Capture One Export dialog without a Spektrafilm job");
             ((IDisposable)bridge).Dispose();
@@ -190,9 +192,73 @@ public static partial class StartupHook
             File.WriteAllText(Path.Combine(folder, caseName + "-native-effect-export.json"), JsonSerializer.Serialize(new
             {
                 width = expectedWidth, height = expectedHeight, iccSha256 = iccSha, tiffCompression = compression.ToString(),
-                filmDifference, opticsDifference, halationScatterDifference, commandDifference, grain, compressionComparison,
+                filmDifference, opticsDifference, halationScatterDifference, commandDifference, grain, compressionComparison, panelModes,
                 nativeExportCallbacks = routeCount, masterOffDelegated = clicked, timings,
             }, new JsonSerializerOptions { WriteIndented = true }));
+
+            async Task<object> ComparePanelModes(BitmapSource reference)
+            {
+                Check(File.Exists(Path.Combine(folder, "Capture One user.config.before-proofing")),
+                    "the native workspace export test has a verified preferences backup");
+                var hook = hookField.DeclaringType!;
+                var palette = hook.GetField("owner", Flags)!.GetValue(null)!;
+                var pluginTab = hook.GetField("tab", Flags)!.GetValue(null)!;
+                var originalTab = Prop(palette, "Current")!;
+                var tabs = ((IEnumerable)Prop(palette, "Tabs")!).Cast<object>();
+                var ordinaryTab = tabs.First(item => !ReferenceEquals(item, pluginTab));
+                var select = hook.GetMethod("SelectTab", Flags)!;
+                var control = (FrameworkElement)panel;
+                var viewer = Field(spatial, "viewer")!;
+                var measurements = new List<object>();
+                if (Field(hosted, "floating") is not null)
+                    throw new InvalidOperationException("The workspace export test starts with a docked tool.");
+                try
+                {
+                    select.Invoke(null, new[] { palette, ordinaryTab });
+                    await WaitForViewer(() => !control.IsVisible, "the real Viewer keeps painting Spektrafilm while its docked tab is hidden");
+                    await Measure("tab-hidden");
+                    Call(hosted, "ShowFloating");
+                    await WaitForViewer(() => control.IsVisible && Field(hosted, "floating") is Window { IsVisible: true } floating
+                        && floating.GetType().Name == "DockableWindow", "the same Viewer look stays painted with the actual floating tool");
+                    await Measure("tool-floating");
+                }
+                finally
+                {
+                    if (Field(hosted, "floating") is Window floating) floating.Close();
+                    select.Invoke(null, new[] { palette, originalTab });
+                }
+                Check(ReferenceEquals(Prop(palette, "Current"), originalTab) && Field(hosted, "floating") is null,
+                    "the workspace export fixture restored its selected tab and docked tool");
+                return measurements;
+
+                async Task Measure(string placement)
+                {
+                    foreach (var usePrevious in new[] { false, true })
+                    {
+                        var kind = placement + (usePrevious ? "-previous" : "-export");
+                        var delta = Difference(reference, await Render(kind, ".tif", usePrevious));
+                        Check(delta.Mean < 8d / 65535 && delta.Maximum < .01,
+                            $"{kind} retains the reference film, diffusion, halation and scatter pixels");
+                        measurements.Add(new { placement, usePrevious, delta });
+                    }
+                }
+
+                async Task WaitForViewer(Func<bool> placement, string description)
+                {
+                    var started = Stopwatch.GetTimestamp();
+                    do
+                    {
+                        if (ReferenceEquals(Prop(palette, "Current"), ordinaryTab) && placement()
+                            && Prop(viewer, "HasPainted") is true && Field(spatial, "frameCurrent") is true)
+                        {
+                            Check(true, description);
+                            return;
+                        }
+                        await Task.Delay(80);
+                    } while (Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(20));
+                    throw new InvalidOperationException(description);
+                }
+            }
 
             async Task CheckFolders()
             {

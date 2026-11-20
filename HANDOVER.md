@@ -1072,6 +1072,15 @@ Evidence is in `.test-results/host-native-location-accepted-paths-20261120`. Rep
 
 Evidence is in `.test-results/host-renderer-numeric-inventory-20261120/panel-numeric-contract.json`, `.test-results/host-renderer-range-full-20261120` and `.test-results/contracts-renderer-control-ranges-20261120`. The compatibility check preserves existing reset behavior. A generated managed layout and versioned appearance defaults remain open.
 
+## Native effects export outside the tool tab
+
+- [x] Switch the actual Capture One workspace to an ordinary tab and confirm the docked Spektrafilm controls are hidden while the native Viewer paints the settled look.
+- [x] Open the real Capture One floating tool while the ordinary tab remains selected. The same Viewer paints the selected look with the native floating controls visible.
+- [x] Use the actual Export dialog and Previous Settings in each layout. Eight 3000 by 2000 RGB48 output files keep the selected ICC and the docked reference's film, diffusion, halation and scatter. On an independent sample of 41,238 codes per comparison, maximum mean difference is 1.05e-6 of full-scale RGB and the largest sampled difference is 0.000855.
+- [x] Pass 96 licensed assertions on each launch, confirm film output versus the strength-zero reference, and restore the previous tab and docked tool each time.
+
+Evidence is in `.test-results/host-native-export-hidden-and-floating-20261120`. Repeat with `Run-HostSmoke.ps1 -NativeEffectPanelModes` and the exact host's `-NativeSettingsConfig`.
+
 ## Status maintenance
 
 `qa/AUDIT-FIX-STATUS.json` owns task IDs, status, implemented substeps, remaining acceptance work and evidence. This handover owns context, runtime identity and resume instructions. `.test-results/FINAL-RESULT.json` is the completed runtime delivery receipt; keep its runtime commit/package identity distinct from later documentation-only commits.
