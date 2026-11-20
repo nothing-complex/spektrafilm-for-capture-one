@@ -24,6 +24,7 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
     private int sourceWidth, sourceHeight;
     private ulong requestSequence;
     internal string? ParameterContract { get; private set; }
+    internal string? AssetContract { get; private set; }
 
     internal async Task<byte[]> RenderAsync(int width, int height, byte[] rgba, string[] arguments, CancellationToken stop,
         bool displayPixels = false)
@@ -126,7 +127,7 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
             throw new TimeoutException($"Spektrafilm did not finish the {target} in time.");
         }
         catch (Exception error) when (error is IOException or InvalidDataException or JsonException
-            or OperationCanceledException or ObjectDisposedException or DecoderFallbackException)
+            or UnauthorizedAccessException or OperationCanceledException or ObjectDisposedException or DecoderFallbackException)
         {
             await StopAsync(abort: true).ConfigureAwait(false);
             // Disposing a worker can close its pipe before Windows completes
@@ -174,7 +175,8 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
             || contract.GetString() is not { Length: 64 } hash || !IsSha256(hash))
             throw new InvalidDataException("The renderer returned incompatible capabilities. Reinstall the complete matching release.");
         ParameterContract = hash;
-        ValidateBuildManifest(child, hash);
+        AssetContract = ValidateBuildManifest(child, hash);
+        if (AssetContract is not null) StartupHook.Log("Verified renderer asset SHA-256: " + AssetContract);
         negotiatedMaxEdge = maxSide;
         negotiatedMaxPixels = maxPixels;
         negotiatedPackedDisplay = packed.ValueKind == JsonValueKind.True;
@@ -188,12 +190,18 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
         return true;
     }
 
-    private static void ValidateBuildManifest(Process child, string contract)
+    private static string? ValidateBuildManifest(Process child, string contract)
     {
         var root = Directory.GetParent(child.StartInfo.WorkingDirectory)?.FullName;
-        if (root is null) return;
+        if (root is null) return null;
         var path = Path.Combine(root, "build-manifest.json");
-        if (!File.Exists(path)) return; // Source-tree and legacy developer layouts may omit the release manifest.
+        if (!File.Exists(path))
+        {
+            // Standalone source tests may run without staging a release.
+            if (File.Exists(Path.Combine(root, "runtime-manifest.required")))
+                throw new InvalidDataException("The packaged Spektrafilm build manifest is missing.");
+            return null;
+        }
         using var file = File.OpenRead(path);
         if (file.Length > 4 * 1024 * 1024)
             throw new InvalidDataException("The renderer build manifest is invalid.");
@@ -204,6 +212,7 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
             || !value.TryGetProperty("parameterContract", out var parameter) || parameter.ValueKind != JsonValueKind.String
             || !string.Equals(parameter.GetString(), contract, StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("The renderer and release manifest do not match. Reinstall the complete release.");
+        return RuntimeAssets.Verify(root, value);
     }
 
     internal async Task<JsonElement?> ReadDiagnosticsAsync(CancellationToken stop)
@@ -268,6 +277,9 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
                 RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true,
             };
             WorkerEnvironment.Sanitize(start);
+            // The OFX loader also searches its conventional bundle Resources
+            // directory. The still bridge owns the files beside this executable.
+            start.Environment["SPEKTRAFILM_RESOURCE_DIR"] = start.WorkingDirectory;
             start.ArgumentList.Add(export ? "--export-stream" : nativePreview ? "--native-preview-stream" : "--stream");
             var child = Process.Start(start) ?? throw new IOException("Could not start the optical renderer.");
             child.ErrorDataReceived += (_, args) =>
@@ -319,6 +331,7 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
         sourceWidth = sourceHeight = 0;
         negotiated = false;
         ParameterContract = null;
+        AssetContract = null;
     }
 
     private static async Task ObserveDisposalAsync(Task completion)

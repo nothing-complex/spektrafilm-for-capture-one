@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -684,7 +685,10 @@ internal static class SpektraFilmTool
             : StocksReady ? LaunchPhase.Ready : LaunchPhase.LoadingControls;
         internal ViewerHealth ViewerStatus => opticalPreview.Health;
 
-        private async Task SavePresetAsync()
+        private Task SavePresetAsync() =>
+            SavePresetWithDestinationAsync(picker => picker.ShowDialog() == true ? picker.FileName : null);
+
+        private async Task SavePresetWithDestinationAsync(Func<SaveFileDialog, string?> chooseDestination)
         {
             if (!SyncSelection() || !enableSpektraFilm.IsEnabled || CaptureLook() is not { } settings)
                 return;
@@ -694,11 +698,24 @@ internal static class SpektraFilmTool
                 var original = HostProfile.CaptureTarget(window).SourcePath;
                 var preset = LookPreset.From(settings);
                 var picker = new SaveFileDialog { Filter = "Spektrafilm preset|*.spektra.json", FileName = "Film look.spektra.json" };
-                if (picker.ShowDialog() != true)
+                var destination = chooseDestination(picker);
+                if (destination is null)
                     return;
                 stop.ThrowIfCancellationRequested();
-                var approved = OutputPathGuard.Approve(picker.FileName, original);
-                await Task.Run(() => approved.Write(stream => PanelFiles.WritePreset(stream, preset), stop), stop);
+                var approved = OutputPathGuard.Approve(destination, original);
+                await Task.Run(() =>
+                {
+                    try
+                    {
+                        if (RuntimeAssets.ReadPresetIdentity(Environment.GetEnvironmentVariable("SPEKTRAFILM_ROOT")) is { } identity)
+                            preset = preset with { SchemaVersion = 3, Engine = identity };
+                    }
+                    catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or InvalidDataException)
+                    {
+                        StartupHook.Log("Preset renderer provenance unavailable: " + error.GetBaseException().Message);
+                    }
+                    approved.Write(stream => PanelFiles.WritePreset(stream, preset), stop);
+                }, stop);
                 if (!disposed) status.Text = "Preset saved.";
             }
             catch (OperationCanceledException) when (disposed) { }

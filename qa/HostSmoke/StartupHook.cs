@@ -107,6 +107,7 @@ public static partial class StartupHook
             }
             TestProductionUndo(panel, spatial, window, store, variant, exposure);
             TestPresetHistory(panel, window, store, variant, exposure, toggle);
+            await TestPresetExport(panelAssembly, panel, store, variant);
             await TestViewportQuality(spatial, variant);
             await TestSpectralReconstruction(panel, spatial, store, variant);
             await TestViewerHistogram(hook, spatial, restart);
@@ -764,6 +765,28 @@ public static partial class StartupHook
             Check(Is(1.2) && Equals(shown, value.GetValue(exposure)), "Undo writes only the original variant while another remains selected");
         }
         finally { SelectWithoutHistory(selected[0]!); }
+    }
+
+    static async Task TestPresetExport(Assembly assembly, object panel, object store, Guid variant)
+    {
+        if (panel.GetType().GetMethod("SavePresetWithDestinationAsync", Flags) is null) return;
+        var path = Path.Combine(folder, "verified-look.spektra.json");
+        var before = Call(store, "Read", variant)!;
+        await (Task)Call(panel, "SavePresetWithDestinationAsync", (Func<SaveFileDialog, string?>)(_ => path))!;
+        Check(File.Exists(path), "real panel saved the selected variant through the normal preset action");
+        var file = JsonNode.Parse(File.ReadAllText(path))!;
+        var root = Environment.GetEnvironmentVariable("SPEKTRAFILM_ROOT")!;
+        var build = assembly.GetType("RuntimeAssets")!.GetMethod("ReadPresetIdentity", Flags)!.Invoke(null, new[] { root });
+        Check(build is null
+            ? file["SchemaVersion"]!.GetValue<int>() == 2 && file["Engine"] is null
+            : file["SchemaVersion"]!.GetValue<int>() == 3 && file["Engine"]!["AssetSha256"]!.GetValue<string>() == (string)Prop(build, "AssetSha256")!,
+            "saved native preset reflects the exact verified renderer provenance available in this launch");
+        var presetType = assembly.GetType("LookPreset")!;
+        var stored = JsonSerializer.Deserialize(File.ReadAllText(path), presetType)!;
+        Call(stored, "Validate");
+        Check(JsonNode.DeepEquals(JsonSerializer.SerializeToNode(before, before.GetType()),
+            JsonSerializer.SerializeToNode(Call(store, "Read", variant), before.GetType())),
+            "saving a portable preset leaves the selected variant's durable look unchanged");
     }
 
     static void TestPresetHistory(object panel, object window, object store, Guid variant, object exposure, CheckBox toggle)

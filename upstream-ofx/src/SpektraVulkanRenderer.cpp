@@ -145,6 +145,14 @@ std::filesystem::path modulePath() {
 }
 
 std::filesystem::path findResourcePath(const std::filesystem::path &relativePath) {
+#if defined(SPEKTRAFILM_STILL_RENDERER)
+  // The standalone bridge has a verified adjacent runtime inventory.
+  const std::filesystem::path imagePath = modulePath();
+  if (imagePath.empty()) return {};
+  const std::filesystem::path candidate = imagePath.parent_path() / relativePath;
+  std::error_code ec;
+  return std::filesystem::is_regular_file(candidate, ec) ? candidate : std::filesystem::path{};
+#else
   std::vector<std::filesystem::path> directories;
   if (std::filesystem::path resourceDir = envPath("SPEKTRAFILM_RESOURCE_DIR"); !resourceDir.empty()) {
     directories.push_back(resourceDir);
@@ -171,6 +179,7 @@ std::filesystem::path findResourcePath(const std::filesystem::path &relativePath
     }
   }
   return {};
+#endif
 }
 
 std::vector<uint32_t> readSpirvFile(const std::filesystem::path &path, std::string &error) {

@@ -469,6 +469,16 @@ Use `Run-HostSmoke.ps1 -PackagedRuntime <installed-or-extracted-package> -Source
 
 Evidence is under `.test-results/host-native-camera-icc-20261120` and `.test-results/host-native-adjustments-restored-20261120`. Run `python qa/analyze-native-adjustments.py <results>/color-matrix` to reproduce the exposure and white balance report.
 
+## Verified renderer assets and portable preset provenance
+
+- [x] Verify the installed renderer inputs before the first frame. Keep the still worker’s asset lookups in the renderer directory. The production managed worker rejected a same-length shader mutation and recovered the same asset fingerprint after restoring the bytes.
+- [x] Verify that an alternate resource folder cannot supply a missing native shader. Two clean MSVC rebuilds produced the same `0228f69acd84fd387b4785ad3b5a74503cfcd6100cfa1322588a3e16164298d7` renderer hash.
+- [x] Add optional verified source and renderer identities to version 3 presets and native LUT output. Retain the earlier version 2 file shape for source-only runs. Host tests exercised the real preset Save action in the source layout without changing the durable look.
+- [x] Pass 12,672 host-independent assertions, the real Vulkan smoke, and 186 first-launch plus 191 restart assertions on the disposable catalog.
+- [ ] Verify the new development ZIP and actual version 3 preset from its installed panel. Rebuild across a different checkout path or compiler before claiming that coverage.
+
+Evidence is under `.test-results/contracts-runtime-provenance-final-20261120`, `.test-results/runtime-repro-link-20261120`, `.test-results/runtime-assets-real-20261120`, and `.test-results/host-runtime-provenance-dev-20261120`.
+
 ## Status maintenance
 
 `qa/AUDIT-FIX-STATUS.json` owns task IDs, status, implemented substeps, remaining acceptance work and evidence. This handover owns context, runtime identity and resume instructions. `.test-results/FINAL-RESULT.json` is the completed runtime delivery receipt; keep its runtime commit/package identity distinct from later documentation-only commits.

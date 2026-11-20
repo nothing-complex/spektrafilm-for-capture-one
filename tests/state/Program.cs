@@ -310,6 +310,22 @@ var presetPath = Path.Combine(scratch, "all-controls.spektra.json");
 PanelFiles.WritePreset(presetPath, LookPreset.From(presetSource));
 var presetCopy = PanelFiles.ReadPreset<LookPreset>(presetPath);
 presetCopy.Validate();
+Check("version 2 presets keep their prior JSON shape",
+    !File.ReadAllText(presetPath).Contains("\"Engine\"", StringComparison.Ordinal));
+var presetEngine = new PresetEngineIdentity(new string('a', 40), new string('b', 64), new string('c', 64), new string('d', 64));
+var presetWithIdentity = presetCopy with { SchemaVersion = 3, Engine = presetEngine };
+var provenancePath = Path.Combine(scratch, "engine-provenance.spektra.json");
+PanelFiles.WritePreset(provenancePath, presetWithIdentity);
+var provenanceCopy = PanelFiles.ReadPreset<LookPreset>(provenancePath);
+provenanceCopy.Validate();
+Check("version 3 presets carry verified renderer and source digests with the same settings",
+    provenanceCopy.Engine == presetEngine
+    && JsonNode.DeepEquals(JsonSerializer.SerializeToNode(provenanceCopy.Look), JsonSerializer.SerializeToNode(presetCopy.Look)));
+Throws<InvalidDataException>("invalid version 3 build identity is refused",
+    () => (provenanceCopy with { Engine = presetEngine with { AssetSha256 = "invalid" } }).Validate());
+Throws<InvalidDataException>("version 3 provenance is mandatory", () => (provenanceCopy with { Engine = null }).Validate());
+Throws<InvalidDataException>("version 2 cannot make a version 3 provenance claim",
+    () => (provenanceCopy with { SchemaVersion = 2 }).Validate());
 Check("current preset roundtrips effect, optics, enable and staged grain",
     presetCopy.SchemaVersion == 2 && presetCopy.Enabled == false && presetCopy.Grain == presetSource.Grain
     && JsonNode.DeepEquals(JsonSerializer.SerializeToNode(presetSource.Look), JsonSerializer.SerializeToNode(presetCopy.Look))

@@ -2048,7 +2048,12 @@
         "Protocol verifies parameter-header SHA and float layout; build/package manifests fingerprint runtime files and launcher validates them; LUT embeds parameter contract.",
         "Fresh complete source build/package at clean ffc4819 verified runtime/resources and host dependency hashes; extracted and installed checks passed.",
         "The package and build manifests now fingerprint the renderer-emitted parameter capabilities file. Manifest fixtures reject missing or changed metadata; the renderer produces byte-stable descriptor output in repeat calls.",
-        "A development ZIP built from clean bb0c19e was extracted and installed in a disposable folder. Fingerprints covered the compiled capabilities. Replacing the description with a valid JSON file of different bytes was refused. The restored fixture passed CheckOnly."
+        "A development ZIP built from clean bb0c19e was extracted and installed in a disposable folder. Fingerprints covered the compiled capabilities. Replacing the description with a valid JSON file of different bytes was refused. The restored fixture passed CheckOnly.",
+        "Before the first frame, the managed worker verifies the exact renderer binary, ten shaders, both scientific tables, compiled capability description, working ICC files and stock list against the installed build. The read-only asset hash is recorded in diagnostics and native LUT comments.",
+        "The standalone C++ worker only loads assets beside its module. An alternate Resources directory had no effect. Removing the adjacent shader caused a clear failure even with a good fallback copy. A same-length mutation was rejected before rendering and an exact restore recovered the same identity.",
+        "Version 3 portable presets can carry verified source, parameter and asset identities from a staged release. Version 2 output retains its prior JSON shape in a standalone developer layout. Pure tests cover invalid provenance and recoverability.",
+        "Enabling reproducible MSVC linking fixed differing clean renderer binaries. Two clean rebuilds under the same toolchain produced the identical 0228f69acd84fd387b4785ad3b5a74503cfcd6100cfa1322588a3e16164298d7 renderer SHA-256.",
+        "Pass 12,672 host-independent assertions, the real adjacent-asset Vulkan smoke and 186 new-launch plus 191 restart checks with the developer runtime."
       ],
       "evidence_paths": [
         "NativePanel/OpticalRenderer.cs",
@@ -2060,10 +2065,21 @@
         "NativePanel/RendererParameters.cs",
         "tests/installer/Test-Manifest.ps1",
         ".test-results/renderer-parameter-matrix-20261120.log",
-        ".test-results/audit3-package-verify-20261120/result.json"
+        ".test-results/audit3-package-verify-20261120/result.json",
+        "NativePanel/RuntimeAssets.cs",
+        "NativePanel/LookPreset.cs",
+        "NativePanel/NativeLutExporter.cs",
+        "ofx-still-renderer/CMakeLists.txt",
+        ".test-results/runtime-assets-real-20261120/changed-shader-rejected.log",
+        ".test-results/strict-renderer-resources-20261120/result.json",
+        ".test-results/runtime-repro-link-20261120/result.json",
+        ".test-results/contracts-runtime-provenance-final-20261120/summary.json",
+        ".test-results/still-asset-admission-final-20261120.log",
+        ".test-results/host-runtime-provenance-dev-20261120/host-smoke.log"
       ],
       "remaining_work": [
-        "Complete remaining tamper matrix; presets/metrics do not yet carry complete build identity; legacy developer layouts allow missing manifest."
+        "Verify a clean development ZIP containing the new worker and read the real version 3 preset produced by its installed panel.",
+        "Assess reproducibility across different checkout paths or toolchain installations. Keep the published source and vendored engine provenance available with binary hashes."
       ],
       "original_acceptance_tests": [
         "Deliberately outdated shader/curve/schema asset rejects clearly",

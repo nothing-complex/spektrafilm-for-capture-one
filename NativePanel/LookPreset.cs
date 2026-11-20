@@ -10,7 +10,8 @@ internal enum LookSections
 }
 
 internal sealed record LookPreset([property: JsonRequired] LookSettings Look, SpatialPreview.Settings? Optics,
-    int SchemaVersion = 0, bool? Enabled = null, GrainControls? Grain = null)
+    int SchemaVersion = 0, bool? Enabled = null, GrainControls? Grain = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] PresetEngineIdentity? Engine = null)
 {
     internal static LookPreset From(VariantLook look) =>
         new(look.Look, look.Optics, SchemaVersion: 2, Enabled: look.Enabled, Grain: look.Grain);
@@ -28,10 +29,12 @@ internal sealed record LookPreset([property: JsonRequired] LookSettings Look, Sp
 
     internal void Validate()
     {
-        if (SchemaVersion is < 0 or > 2)
+        if (SchemaVersion is < 0 or > 3)
             throw new InvalidDataException("This preset version requires a different Spektrafilm build.");
         if (SchemaVersion < 2 && (Enabled is not null || Grain is not null))
             throw new InvalidDataException("This preset uses settings outside its declared version.");
+        if (SchemaVersion == 3 ? Engine is not { IsValid: true } : Engine is not null)
+            throw new InvalidDataException("This preset has invalid renderer provenance for its declared version.");
         LookStateValidation.ValidateLook(Look);
         if (Optics is not null)
             LookStateValidation.ValidateOptics(Optics);

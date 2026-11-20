@@ -294,6 +294,7 @@ function Confirm-VulkanRenderer([string] $renderer) {
             [void] $start.EnvironmentVariables.Remove($name)
         }
     }
+    $start.EnvironmentVariables['SPEKTRAFILM_RESOURCE_DIR'] = $start.WorkingDirectory
     $process = [Diagnostics.Process]::Start($start)
     try {
         $output = New-Object IO.MemoryStream

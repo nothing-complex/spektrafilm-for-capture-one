@@ -8,6 +8,7 @@
     <Compile Include="../../NativePanel/RenderMemoryBudget.cs" Link="RenderMemoryBudget.cs" />
     <Compile Include="../../NativePanel/OpticalRenderer.cs" Link="OpticalRenderer.cs" />
     <Compile Include="../../NativePanel/RendererProtocol.cs" Link="RendererProtocol.cs" />
+    <Compile Include="../../NativePanel/RuntimeAssets.cs" Link="RuntimeAssets.cs" />
     <Compile Include="../../NativePanel/WorkerEnvironment.cs" Link="WorkerEnvironment.cs" />
     <Compile Include="../../NativePanel/NativeLutExporter.cs" Link="NativeLutExporter.cs" />
     <Compile Include="../../NativePanel/ColorTransfer.cs" Link="ColorTransfer.cs" />

@@ -4,9 +4,11 @@ import argparse
 import json
 import os
 from pathlib import Path
+import shutil
 import struct
 import subprocess
 import time
+from tempfile import TemporaryDirectory
 
 import numpy as np
 
@@ -185,6 +187,38 @@ def check_numbered_stream(exe, frame, base):
         assert len(frames) == 2 and frames[0] == replies[0]
         assert frames[1][:2] == (request, 2) and error in frames[1][2], frames[1]
     print("Protocol 2 validated request identity, exact reuse layout, packed output and fatal framing errors")
+
+
+def check_resource_root(exe, options):
+    with TemporaryDirectory(prefix="spektrafilm-resource-probe-") as folder:
+        root = Path(folder)
+        renderer = root / "renderer"
+        renderer.mkdir()
+        source = exe.resolve().parent
+        binary = renderer / exe.name
+        shutil.copyfile(exe, binary)
+        shutil.copytree(source / "shaders", renderer / "shaders")
+        for filename in ("SpektraHanatos2025Spectra.f32", "SpektraOutputGamutCompression.f32"):
+            shutil.copyfile(source / filename, renderer / filename)
+        relative = Path("shaders/SpektraFilmExposure.comp.spv")
+        fallback = root / "Resources" / relative
+        fallback.parent.mkdir(parents=True)
+        fallback.write_bytes(b"not a shader")
+        args = [str(binary), "1", "1", *options.split()]
+        pixel = struct.pack("<4f", .2, .4, .6, 1)
+        env = {key: value for key, value in os.environ.items() if not key.upper().startswith("SPEKTRAFILM_")}
+        def run(environment):
+            return subprocess.run(args, input=pixel, capture_output=True, timeout=20, env=environment)
+        expected = run(env)
+        assert expected.returncode == 0 and len(expected.stdout) == len(pixel), expected.stderr
+        env["SPEKTRAFILM_RESOURCE_DIR"] = str(root / "Resources")
+        shadowed = run(env)
+        assert shadowed.returncode == 0 and shadowed.stdout == expected.stdout, shadowed.stderr
+        adjacent = renderer / relative
+        adjacent.replace(fallback)
+        missing = run(env)
+        assert missing.returncode and not missing.stdout and b"SpektraFilmExposure" in missing.stderr, missing.stderr
+    print("Standalone Vulkan uses adjacent assets and refuses a missing shader despite an alternate copy")
 
 
 def check_export_stream(exe, frame, base):
@@ -467,6 +501,7 @@ def main():
     base = "--stock kodak_portra_400 --paper kodak_portra_endura --input-color srgb"
     check_stream(args.exe, frame, base)
     check_numbered_stream(args.exe, frame, base)
+    check_resource_root(args.exe, base)
     check_export_stream(args.exe, frame, base)
     check_enlarger_cache(args.exe, frame, base)
     check_output_transfers(args.exe, frame, base)

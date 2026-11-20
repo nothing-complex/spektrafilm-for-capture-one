@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
@@ -186,10 +187,42 @@ internal static class Program
                 File.WriteAllText(Path.Combine(root, "build-manifest.json"), manifest);
                 using var renderer = new OpticalRenderer();
                 await Throws<InvalidDataException>(() => renderer.RenderAsync(1, 1, Pixels(1), [], default));
-                File.WriteAllText(Path.Combine(root, "build-manifest.json"),
-                    JsonSerializer.Serialize(new { rendererProtocol = RendererProtocol.Version, parameterContract = Contract }));
+                WriteRuntimeManifest(root);
                 await renderer.RenderAsync(1, 1, Pixels(1), [], default);
                 Check(true, "manifest mismatch recoverable after corrected runtime set");
+            }
+            {
+                var root = Setup(scratch, "valid");
+                WriteRuntimeManifest(root);
+                var asset = Path.Combine(root, "renderer", "shaders", "SpektraFilmExposure.comp.spv");
+                var original = File.ReadAllBytes(asset);
+                var altered = original.ToArray();
+                altered[0] ^= 1;
+                File.WriteAllBytes(asset, altered);
+                await using var renderer = new OpticalRenderer();
+                await Throws<InvalidDataException>(() => renderer.RenderAsync(1, 1, Pixels(1), [], default));
+                var trace = Path.Combine(root, "renderer", "trace.txt");
+                Check(File.ReadAllLines(trace).All(line => !line.Contains(":REQUEST ")), "modified shader rejected before an image is sent");
+                File.WriteAllBytes(asset, original);
+                await renderer.RenderAsync(1, 1, Pixels(1), [], default);
+                Check(renderer.AssetContract is { Length: 64 }, "valid runtime produces a pinned asset fingerprint");
+                var provenance = RuntimeAssets.ReadPresetIdentity(root);
+                Check(provenance is { IsValid: true } && provenance.AssetSha256 == renderer.AssetContract
+                    && provenance.ParameterSha256 == Contract, "preset identity uses the same verified files and parameter contract");
+                var plan = NativeLutExporter.Prepare([]);
+                var cube = await NativeLutExporter.ExportAsync(plan, 33, 1, default);
+                Check(cube.Contains(renderer.AssetContract!, StringComparison.Ordinal), "native LUT records the exact verified runtime assets");
+            }
+            {
+                var root = Setup(scratch, "valid");
+                File.WriteAllText(Path.Combine(root, "runtime-manifest.required"), "");
+                await using var renderer = new OpticalRenderer();
+                await Throws<InvalidDataException>(() => renderer.RenderAsync(1, 1, Pixels(1), [], default));
+                WriteRuntimeManifest(root, "profiles/preview/ProPhoto RGB.icc");
+                await Throws<InvalidDataException>(() => renderer.RenderAsync(1, 1, Pixels(1), [], default));
+                WriteRuntimeManifest(root);
+                await renderer.RenderAsync(1, 1, Pixels(1), [], default);
+                Check(renderer.AssetContract is not null, "complete runtime manifest can replace an incomplete one");
             }
             {
                 Setup(scratch, "valid");
@@ -261,6 +294,11 @@ internal static class Program
             using (var renderer = new OpticalRenderer(nativePreview: true))
             {
                 clean = await renderer.RenderAsync(8, 8, source, options, default);
+                if (File.Exists(Path.Combine(root, "build-manifest.json")))
+                {
+                    Check(renderer.AssetContract is { Length: 64 }, "the actual worker passed verified runtime asset admission");
+                    Console.WriteLine("Verified runtime asset SHA-256 " + renderer.AssetContract);
+                }
                 var metrics = await renderer.ReadDiagnosticsAsync(default);
                 Check(metrics?.GetProperty("schema").GetInt32() == 1, "GPU diagnostics protocol");
                 Check(metrics?.GetProperty("renderSequence").GetInt32() == 1, "GPU render counted");
@@ -429,6 +467,21 @@ internal static class Program
         return root;
     }
 
+    private static void WriteRuntimeManifest(string root, string? skip = null)
+    {
+        var records = RuntimeAssets.RequiredFiles.Where(path => path != skip).Select(path =>
+        {
+            var full = Path.Combine(root, path.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+            if (!File.Exists(full)) File.WriteAllText(full, "inert fixture " + path);
+            using var stream = File.OpenRead(full);
+            return new { path, bytes = stream.Length, sha256 = Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant() };
+        }).ToArray();
+        File.WriteAllText(Path.Combine(root, "build-manifest.json"),
+            JsonSerializer.Serialize(new { rendererProtocol = RendererProtocol.Version, parameterContract = Contract, files = records,
+                source = new { commit = new string('b', 40), treeDigest = new string('c', 64) } }));
+    }
+
     private static byte[] Pixels(int count)
     {
         var bytes = new byte[count * 16];
@@ -454,7 +507,10 @@ internal static class Program
             var tokens = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
             if (tokens[0] == "HELLO")
             {
-                if (Environment.GetEnvironmentVariables().Keys.Cast<string>().Any(n => n.StartsWith("SPEKTRAFILM_", StringComparison.OrdinalIgnoreCase) || n == "DOTNET_STARTUP_HOOKS"))
+                const string resourceKey = "SPEKTRAFILM_RESOURCE_DIR";
+                if (!string.Equals(Environment.GetEnvironmentVariable(resourceKey), Environment.CurrentDirectory, StringComparison.OrdinalIgnoreCase)
+                    || Environment.GetEnvironmentVariables().Keys.Cast<string>().Any(n => n.StartsWith("SPEKTRAFILM_", StringComparison.OrdinalIgnoreCase)
+                        && !n.Equals(resourceKey, StringComparison.OrdinalIgnoreCase) || n == "DOTNET_STARTUP_HOOKS"))
                     File.AppendAllText("trace.txt", "ENV_BAD\n");
                 var json = scenario switch
                 {

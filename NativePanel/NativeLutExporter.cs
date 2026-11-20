@@ -59,13 +59,15 @@ internal static class NativeLutExporter
         var source = BuildGrid(size, stop);
         byte[] result = source;
         string? contract = null;
+        string? assets = null;
         if (strength > 0)
         {
             await using var renderer = new OpticalRenderer(export: true);
             result = await renderer.RenderAsync(size * size, size, source, plan.Arguments, stop).ConfigureAwait(false);
             contract = renderer.ParameterContract;
+            assets = renderer.AssetContract;
         }
-        return await Task.Run(() => FormatCube(plan, size, strength, source, result, contract, stop), stop).ConfigureAwait(false);
+        return await Task.Run(() => FormatCube(plan, size, strength, source, result, contract, stop, assets), stop).ConfigureAwait(false);
     }
 
     internal static byte[] BuildGrid(int size, CancellationToken stop)
@@ -90,7 +92,7 @@ internal static class NativeLutExporter
     }
 
     internal static string FormatCube(Plan plan, int size, double strength, byte[] source, byte[] rendered,
-        string? contract, CancellationToken stop)
+        string? contract, CancellationToken stop, string? assets = null)
     {
         if (source.Length != checked(size * size * size * 16) || rendered.Length != source.Length)
             throw new ArgumentException("The LUT grid and renderer reply dimensions do not agree.");
@@ -108,6 +110,7 @@ internal static class NativeLutExporter
         text.AppendLine("# Domain: sRGB input to sRGB output. Capture One RAW development/native adjustments are not included.");
         text.AppendLine("# Excluded active effects: " + (plan.ExcludedEffects.Length == 0 ? "none" : string.Join(", ", plan.ExcludedEffects)));
         text.AppendLine("# Engine parameter contract: " + (contract ?? "identity; renderer not required"));
+        if (assets is not null) text.AppendLine("# Verified render assets SHA-256: " + assets);
         text.AppendLine("# Look strength: " + strength.ToString("R", CultureInfo.InvariantCulture));
         text.AppendLine($"# Look strength policy v{SrgbDelivery.LookStrengthPolicyVersion} uses SDR clipping before a linear-light blend.");
         text.AppendLine("# Colour parameters: " + string.Join(' ', plan.Arguments));
