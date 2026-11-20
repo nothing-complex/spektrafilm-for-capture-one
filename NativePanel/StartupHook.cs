@@ -229,6 +229,13 @@ internal static class StartupHook
         }
     }
 
+    internal static bool RefreshWorkspaceAttachment(SpektraFilmTool.HostedTool tool)
+    {
+        if (!ReferenceEquals(hostedTool, tool)) return false;
+        OnTick(null, EventArgs.Empty);
+        return ReferenceEquals(hostedTool, tool);
+    }
+
     private static void Attach(Forms.Form form, InspectorPaletteViewModel palette, ICaptureOneDocument document)
     {
         var bus = MessageBusProvider.DefaultInstance;

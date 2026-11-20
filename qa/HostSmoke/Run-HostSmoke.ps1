@@ -12,6 +12,7 @@ param(
     [switch] $SessionIsolation,
     [switch] $ViewerLayouts,
     [switch] $FloatingWorkspaceLayout,
+    [switch] $NativeWorkspaceSwitch,
     [ValidateRange(0,200)][int] $ViewerChurn=0,
     [ValidateSet('1200','2048','4096','native')][string] $ViewerChurnResolution='2048',
     [ValidateRange(0,600)][int] $ViewerTelemetrySeconds=0,
@@ -55,14 +56,16 @@ if ($NativeEffectGrain -and $NativeEffectExportMatrix) {
     throw 'The native grain comparison uses one RAW in its own effects Export fixture.'
 }
 if ($NativeEffectExportMatrix -or $NativeEffectGrain -or $isolatedEffects) { $NativeEffectExport=$true }
-if ($FloatingWorkspaceLayout -and (!$NativeSettingsConfig -or $SkipRestart -or $UpgradeFromPackage -or $ViewerLayouts -or
+if (($FloatingWorkspaceLayout -or $NativeWorkspaceSwitch) -and (!$NativeSettingsConfig -or $SkipRestart -or $UpgradeFromPackage -or $ViewerLayouts -or
+    ($FloatingWorkspaceLayout -and $NativeWorkspaceSwitch) -or
     $NativeEffectExport -or $NativeExportInterruption -or $CatalogIsolation -or $ConcurrentCatalogs -or $SessionIsolation -or
     $ViewerChurn -or $ViewerTelemetrySeconds -or $NativeLifetimeCycles -or $ViewerStress -or $PanelInventory -or
     $SavedLooksBackup -or $DurableSliderEdits -or $MetadataFixtureRoot -or $CalibrationChart -or $ColorMatrix -or
     $NativeSourceMutations -or $OriginalAvailabilityProbe -or $NativeDevelopmentDeadline -or
     $DevelopmentLeaseFixtureDirectory -or $DeviceLossFixtureDirectory)) {
-    throw 'Floating workspace verification requires a separate disposable catalog, restart and native preferences backup.'
+    throw 'Workspace verification requires a separate disposable catalog and native preferences backup.'
 }
+if ($NativeWorkspaceSwitch) { $SkipRestart=$true }
 if ($NativeExportInterruption -and (!$NativeSettingsConfig -or $SkipRestart -or $NativeEffectExport -or $ColorMatrix -or
     $CatalogIsolation -or $ConcurrentCatalogs -or $SessionIsolation -or $ViewerLayouts -or $ViewerChurn -or
     $ViewerTelemetrySeconds -or $NativeLifetimeCycles -or $DurableSliderEdits -or $MetadataFixtureRoot -or
@@ -247,12 +250,14 @@ function Clear-TestCrashMarkers([datetime] $started,[string] $phase) {
         Remove-Item -LiteralPath $marker.FullName
     }
 }
-function Restore-TestCatalogPreferences([string] $profile,[string] $backup,[string[]] $catalogs,[string] $folder,[bool] $restoreWindowPreference=$false) {
+function Restore-TestCatalogPreferences([string] $profile,[string] $backup,[string[]] $catalogs,[string] $folder,
+    [bool] $restoreWindowPreference=$false,[bool] $restoreWorkspacePreferences=$false) {
     if(Get-Process CaptureOne -ErrorAction SilentlyContinue){throw 'Capture One is still active. Its verified preference backup was retained.'}
     $original=(Get-FileHash -LiteralPath $backup).Hash
     $observed=(Get-FileHash -LiteralPath $profile).Hash
     $removedFixtureCatalogs=$false
     $rewroteWindowPreference=$false
+    $rewroteWorkspacePreferences=$false
     if($original -ne $observed){
         $before=[xml](Get-Content -Raw -LiteralPath $backup)
         $container="//setting[@name='DocumentManagerSettings']/value/DocumentManagerSettings"
@@ -267,39 +272,48 @@ function Restore-TestCatalogPreferences([string] $profile,[string] $backup,[stri
         $entries=@($after.SelectNodes($xmlPath) | Where-Object {$catalogs -ccontains $_.InnerText})
         $removedFixtureCatalogs=$entries.Count -gt 0
         $settingParent='/configuration/userSettings/P1.C1.ApplicationSettings'
-        $settingPath="$settingParent/setting[@name='MultipleSessions']"
-        $priorWindowSetting=$before.SelectSingleNode($settingPath)
-        $currentWindowSetting=$after.SelectSingleNode($settingPath)
-        $rewroteWindowPreference=$restoreWindowPreference -and $priorWindowSetting.OuterXml -cne $currentWindowSetting.OuterXml
-        function Restore-WindowSetting([xml] $document) {
-            if (!$rewroteWindowPreference) { return }
-            $existing=$document.SelectSingleNode($settingPath)
-            if ($priorWindowSetting) {
-                $node=$document.ImportNode($priorWindowSetting,$true)
-                if ($existing) { [void]$existing.ParentNode.ReplaceChild($node,$existing) }
-                else {
-                    $parent=$document.SelectSingleNode($settingParent)
-                    if (!$parent) { throw 'The native multiple-window settings group is missing.' }
-                    [void]$parent.AppendChild($node)
+        $settingNames=@()
+        if ($restoreWindowPreference) { $settingNames+='MultipleSessions' }
+        if ($restoreWorkspacePreferences) { $settingNames+=@('WorkspaceCustomSettings','WorkspaceActiveSettings') }
+        $changed=@{}
+        foreach ($name in $settingNames) {
+            $path="$settingParent/setting[@name='$name']"
+            $prior=$before.SelectSingleNode($path)
+            if ($prior.OuterXml -cne $after.SelectSingleNode($path).OuterXml) { $changed[$name]=$prior }
+        }
+        $rewroteWindowPreference=$changed.ContainsKey('MultipleSessions')
+        $rewroteWorkspacePreferences=$changed.ContainsKey('WorkspaceActiveSettings') -or $changed.ContainsKey('WorkspaceCustomSettings')
+        function Restore-ScopedSettings([xml] $document) {
+            foreach ($name in $settingNames) {
+                if (!$changed.ContainsKey($name)) { continue }
+                $existing=$document.SelectSingleNode("$settingParent/setting[@name='$name']")
+                if ($changed[$name]) {
+                    $node=$document.ImportNode($changed[$name],$true)
+                    if ($existing) { [void]$existing.ParentNode.ReplaceChild($node,$existing) }
+                    else {
+                        $parent=$document.SelectSingleNode($settingParent)
+                        if (!$parent) { throw 'The native settings group is missing.' }
+                        [void]$parent.AppendChild($node)
+                    }
+                } elseif ($existing) {
+                    $blank=$existing.PreviousSibling
+                    if ($null -ne $blank -and $blank.NodeType -eq [Xml.XmlNodeType]::Whitespace) {
+                        [void]$existing.ParentNode.RemoveChild($blank)
+                    }
+                    [void]$existing.ParentNode.RemoveChild($existing)
                 }
-            } elseif ($existing) {
-                $blank=$existing.PreviousSibling
-                if ($null -ne $blank -and $blank.NodeType -eq [Xml.XmlNodeType]::Whitespace) {
-                    [void]$existing.ParentNode.RemoveChild($blank)
-                }
-                [void]$existing.ParentNode.RemoveChild($existing)
             }
         }
         if(@($entries | Group-Object -Property {$_.ParentNode.LocalName}, InnerText | Where-Object Count -gt 1).Count){
             throw 'Several entries in one document list matched a single disposable catalog.'
         }
-        if(!$removedFixtureCatalogs -and !$rewroteWindowPreference){
-            [ordered]@{before=$original;afterTest=$observed;restored=$observed;removedRecentCatalog=$false;restoredWindowPreference=$false} |
+        if(!$removedFixtureCatalogs -and !$changed.Count){
+            [ordered]@{before=$original;afterTest=$observed;restored=$observed;removedRecentCatalog=$false;restoredWindowPreference=$false;restoredWorkspacePreferences=$false} |
                 ConvertTo-Json | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $folder 'proof-settings-receipt.json')
             return
         }
         foreach($entry in $entries){[void]$entry.ParentNode.RemoveChild($entry)}
-        Restore-WindowSetting $after
+        Restore-ScopedSettings $after
         $id=[Guid]::NewGuid().ToString('N')
         $temp=$profile+'.'+$id+'.restore'
         $replaced=$profile+'.'+$id+'.previous'
@@ -307,7 +321,7 @@ function Restore-TestCatalogPreferences([string] $profile,[string] $backup,[stri
             if($before.OuterXml -ceq $after.OuterXml){
                 [IO.File]::Copy($backup,$temp)
             } else {
-                # A host launch can advance its run counters. Keep all host changes except this catalog entry.
+                # Restore the fixture catalog entries and scoped settings. Keep independent host changes.
                 $preserved=[xml]::new()
                 $preserved.PreserveWhitespace=$true
                 $preserved.Load($captured)
@@ -318,7 +332,7 @@ function Restore-TestCatalogPreferences([string] $profile,[string] $backup,[stri
                     }
                     [void]$entry.ParentNode.RemoveChild($entry)
                 }
-                Restore-WindowSetting $preserved
+                Restore-ScopedSettings $preserved
                 $preserved.Save($temp)
                 $candidate=[xml](Get-Content -Raw -LiteralPath $temp)
                 if($candidate.OuterXml -cne $after.OuterXml){throw 'The candidate did not preserve other Capture One preferences.'}
@@ -334,7 +348,7 @@ function Restore-TestCatalogPreferences([string] $profile,[string] $backup,[stri
             [IO.File]::Delete($replaced)
         } finally { if([IO.File]::Exists($temp)){[IO.File]::Delete($temp)} }
     }
-    [ordered]@{before=$original;afterTest=$observed;restored=(Get-FileHash -LiteralPath $profile).Hash;removedRecentCatalog=$removedFixtureCatalogs;restoredWindowPreference=$rewroteWindowPreference} |
+    [ordered]@{before=$original;afterTest=$observed;restored=(Get-FileHash -LiteralPath $profile).Hash;removedRecentCatalog=$removedFixtureCatalogs;restoredWindowPreference=$rewroteWindowPreference;restoredWorkspacePreferences=$rewroteWorkspacePreferences} |
         ConvertTo-Json | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $folder 'proof-settings-receipt.json')
 }
 function Test-FixtureRawFiles([string] $root, $marker) {
@@ -438,6 +452,39 @@ function Test-NativeRecipeHashes([string] $phase) {
     $recipeHashes | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $folder "$phase-native-recipe-verified.json")
     Write-Output "PASS $($recipeHashes.Count) native recipe files match their verified backup after $phase."
 }
+$workspaceHashes=@{}
+if ($NativeWorkspaceSwitch) {
+    $workspaceRoot=Get-Item -LiteralPath (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'CaptureOne\Workspaces130') -Force
+    if (!$workspaceRoot.PSIsContainer -or ($workspaceRoot.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        throw 'The exact Capture One workspace directory was not found.'
+    }
+    $workspaceBackup=Join-Path $folder 'native-workspaces-before-test'
+    [void][IO.Directory]::CreateDirectory($workspaceBackup)
+    foreach ($item in Get-ChildItem -LiteralPath $workspaceRoot.FullName -Force) {
+        if ($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            throw 'Unexpected redirected or nested native workspace path.'
+        }
+        $target=Join-Path $workspaceBackup $item.Name
+        Copy-Item -LiteralPath $item.FullName -Destination $target
+        $digest=(Get-FileHash -LiteralPath $target).Hash
+        if ((Get-FileHash -LiteralPath $item.FullName).Hash -ne $digest) { throw 'Native workspace backup did not verify.' }
+        $workspaceHashes[$item.Name]=$digest
+    }
+    $workspaceHashes | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $folder 'native-workspace-backup.json')
+}
+function Test-NativeWorkspaceFiles {
+    if (!$NativeWorkspaceSwitch) { return }
+    $actual=@(Get-ChildItem -LiteralPath $workspaceRoot.FullName -Force)
+    if ($actual.Count -ne $workspaceHashes.Count) { throw "Native workspace inventory changed. Verified backup: $workspaceBackup" }
+    foreach ($item in $actual) {
+        if ($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+            $workspaceHashes[$item.Name] -ne (Get-FileHash -LiteralPath $item.FullName).Hash) {
+            throw "Native workspace file changed. Verified backup: $workspaceBackup"
+        }
+    }
+    $workspaceHashes | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $folder 'native-workspace-files-verified.json')
+    Write-Output "PASS $($workspaceHashes.Count) native workspace files match their verified backup."
+}
 $catalog=Join-Path $folder 'Host Smoke.cocatalogdb'
 $sourceHash=(Get-FileHash -LiteralPath $source).Hash
 $fixtureCatalogs=@($catalog)
@@ -519,7 +566,8 @@ $names=@(
     'SPEKTRAFILM_HOST_VIEWER_STRESS','SPEKTRAFILM_HOST_PANEL_INVENTORY','SPEKTRAFILM_EXPECTED_CONTROL_INVENTORY',
     'SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT','SPEKTRAFILM_HOST_MOVED_LOOK_BACKUP',
     'SPEKTRAFILM_SHOW_TOOL','SPEKTRAFILM_HOST_PROOF_TEST','SPEKTRAFILM_HOST_CATALOG_ISOLATION',
-    'SPEKTRAFILM_HOST_VIEWER_LAYOUTS','SPEKTRAFILM_HOST_FLOATING_WORKSPACE','SPEKTRAFILM_HOST_DURABLE_EDITS','SPEKTRAFILM_HOST_METADATA_FIXTURE',
+    'SPEKTRAFILM_HOST_VIEWER_LAYOUTS','SPEKTRAFILM_HOST_FLOATING_WORKSPACE','SPEKTRAFILM_HOST_NATIVE_WORKSPACE_SWITCH',
+    'SPEKTRAFILM_HOST_DURABLE_EDITS','SPEKTRAFILM_HOST_METADATA_FIXTURE',
     'SPEKTRAFILM_HOST_VIEWER_CHURN','SPEKTRAFILM_HOST_VIEWER_CHURN_RESOLUTION','SPEKTRAFILM_HOST_VIEWER_TELEMETRY_SECONDS','SPEKTRAFILM_HOST_EXPORT_INTERRUPTION',
     'SPEKTRAFILM_HOST_NATIVE_VIEWER_BASELINE','SPEKTRAFILM_HOST_OTHER_CATALOG',
     'SPEKTRAFILM_HOST_NATIVE_LIFETIME',
@@ -529,6 +577,7 @@ $names=@(
 $prior=@{}
 foreach($name in $names){$prior[$name]=[Environment]::GetEnvironmentVariable($name,'Process')}
 $testError=$null
+$captureOneDirectory=Split-Path -LiteralPath (Resolve-Path -LiteralPath $CaptureOnePath).ProviderPath
 try {
     $env:DOTNET_STARTUP_HOOKS=if($ViewerNativeBaseline){$testHook}else{(Join-Path $runtime 'NativePanel.dll')+';'+$testHook}
     $env:SPEKTRAFILM_ROOT=$runtime
@@ -547,6 +596,7 @@ try {
     $env:SPEKTRAFILM_HOST_CATALOG_ISOLATION=if($CatalogIsolation){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_VIEWER_LAYOUTS=if($ViewerLayouts){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_FLOATING_WORKSPACE=if($FloatingWorkspaceLayout){'1'}else{$null}
+    $env:SPEKTRAFILM_HOST_NATIVE_WORKSPACE_SWITCH=if($NativeWorkspaceSwitch){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_DURABLE_EDITS=if($DurableSliderEdits){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_METADATA_FIXTURE=$MetadataFixtureRoot
     $env:SPEKTRAFILM_HOST_VIEWER_CHURN=if($ViewerChurn){[string]$ViewerChurn}else{$null}
@@ -573,7 +623,7 @@ try {
         $env:SPEKTRAFILM_LAUNCH_ID=[Guid]::NewGuid().ToString('N')
         [IO.File]::WriteAllText((Join-Path $folder ($phase+'.launch')), $env:SPEKTRAFILM_LAUNCH_ID)
         # This is an interactive host UI integration test, not a background helper.
-        $process=Start-Process -FilePath $CaptureOnePath -ArgumentList ('"'+$catalog+'"') -WindowStyle Normal -PassThru
+        $process=Start-Process -FilePath $CaptureOnePath -WorkingDirectory $captureOneDirectory -ArgumentList ('"'+$catalog+'"') -WindowStyle Normal -PassThru
         [IO.File]::WriteAllText((Join-Path $folder ($phase+'.pid')),[string]$process.Id)
         try {
             $status=Join-Path (Join-Path $folder 'Launch status') ($env:SPEKTRAFILM_LAUNCH_ID+'.json')
@@ -615,7 +665,7 @@ try {
         [Environment]::SetEnvironmentVariable('DOTNET_STARTUP_HOOKS',$null,'Process')
         $env:SPEKTRAFILM_LAUNCH_ID=[Guid]::NewGuid().ToString('N')
         $status=Join-Path (Join-Path $folder 'Launch status') ($env:SPEKTRAFILM_LAUNCH_ID+'.json')
-        $process=Start-Process -FilePath $CaptureOnePath -ArgumentList ('"'+$catalog+'"') -WindowStyle Normal -PassThru
+        $process=Start-Process -FilePath $CaptureOnePath -WorkingDirectory $captureOneDirectory -ArgumentList ('"'+$catalog+'"') -WindowStyle Normal -PassThru
         try {
             $deadline=[DateTime]::UtcNow.AddSeconds(90)
             do {
@@ -648,7 +698,8 @@ try {
     throw
 } finally {
     try {
-        if ($NativeSettingsConfig) { Restore-TestCatalogPreferences $profile $backup $fixtureCatalogs $folder ([bool]$ConcurrentCatalogs) }
+        if ($NativeSettingsConfig) { Restore-TestCatalogPreferences $profile $backup $fixtureCatalogs $folder ([bool]$ConcurrentCatalogs) ([bool]$NativeWorkspaceSwitch) }
+        Test-NativeWorkspaceFiles
         if ($MetadataFixtureRoot) { Test-FixtureRawFiles $MetadataFixtureRoot $metadataMarker }
     } catch {
         if ($null -eq $testError) { throw }

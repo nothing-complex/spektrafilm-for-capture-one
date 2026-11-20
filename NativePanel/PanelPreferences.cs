@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Text.Json.Serialization;
 using System.Windows;
@@ -18,6 +19,13 @@ internal sealed record PanelPreferenceData(int Version = 1, string ViewerSize = 
     double FloatingScrollOffset = 0,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Dictionary<string, FloatingToolLayout>? FloatingWorkspaces = null)
 {
+    internal static string WorkspaceKey(int type, string? name, string? label)
+    {
+        // Capture One uses the same internal name for every custom workspace.
+        var identity = name == "CustomWorkspace" ? name + "|" + label : name;
+        return type.ToString(CultureInfo.InvariantCulture) + "|" + identity;
+    }
+
     internal FloatingToolLayout FloatingLayout(string? workspace) =>
         workspace is not null && FloatingWorkspaces?.GetValueOrDefault(workspace) is { } saved
             ? saved : new(false, Floating, FloatingScrollOffset);

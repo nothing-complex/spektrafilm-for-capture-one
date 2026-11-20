@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -146,7 +145,7 @@ internal static class SpektraFilmTool
                 return;
             }
             if (workspaceLayoutUpdate?.Status != DispatcherOperationStatus.Pending)
-                workspaceLayoutUpdate = dispatcher.InvokeAsync(ApplyActiveWorkspaceLayout, DispatcherPriority.Loaded);
+                workspaceLayoutUpdate = dispatcher.InvokeAsync(ApplyActiveWorkspaceLayout, DispatcherPriority.ApplicationIdle);
         }
 
         private void ApplyActiveWorkspaceLayout()
@@ -157,7 +156,10 @@ internal static class SpektraFilmTool
             {
                 var workspace = workspaceManager?.ActiveWorkspace;
                 var key = workspace is null ? null
-                    : workspace.SettingsType.ToString(CultureInfo.InvariantCulture) + "|" + workspace.Name;
+                    : PanelPreferenceData.WorkspaceKey(workspace.SettingsType, workspace.Name, workspace.Text);
+                // A workspace can replace Capture One's palette and retire this tool.
+                if (workspaceLayoutReady && !StringComparer.Ordinal.Equals(workspaceKey, key)
+                    && !StartupHook.RefreshWorkspaceAttachment(this)) return;
                 ApplyWorkspaceLayout(key);
             }
             catch (Exception error)

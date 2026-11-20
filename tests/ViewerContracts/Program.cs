@@ -379,10 +379,15 @@ internal static partial class Program
             "legacy floating preferences supply placement or scroll without opening a window");
         var floating = new FloatingToolLayout(true, new FloatingPlacement(20, 40, 370, 580), 42);
         var docked = new FloatingToolLayout(false, new FloatingPlacement(-260, 75, 420, 640), 102);
-        reopened.Update(data => data.WithFloatingLayout("1|Color", floating));
-        reopened.Update(data => data.WithFloatingLayout("2|Color", docked));
+        var workspaceA = PanelPreferenceData.WorkspaceKey(1, "CustomWorkspace", "Color");
+        var workspaceB = PanelPreferenceData.WorkspaceKey(1, "CustomWorkspace", "Retouch");
+        Check(workspaceA != workspaceB, "custom workspaces with the same native internal name have distinct saved layouts");
+        Check(PanelPreferenceData.WorkspaceKey(1, "DefaultWorkspace", "Default") ==
+            PanelPreferenceData.WorkspaceKey(1, "DefaultWorkspace", "Localized label"), "localized built-in labels keep their stable workspace identity");
+        reopened.Update(data => data.WithFloatingLayout(workspaceA, floating));
+        reopened.Update(data => data.WithFloatingLayout(workspaceB, docked));
         var workspacePreferences = new PanelPreferenceStore(path, messages.Add).Current;
-        Check(workspacePreferences.FloatingLayout("1|Color") == floating && workspacePreferences.FloatingLayout("2|Color") == docked,
+        Check(workspacePreferences.FloatingLayout(workspaceA) == floating && workspacePreferences.FloatingLayout(workspaceB) == docked,
             "different native workspace identities retain their own placement, scroll and floating mode across reload");
         Check(workspacePreferences.FloatingLayout("3|Color") == docked && workspacePreferences.ViewerSize == "1600"
             && workspacePreferences.Sections?["child"] == true, "a new workspace inherits docked defaults without changing other preferences");

@@ -1,4 +1,6 @@
 using System;
+using System.Collections;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -14,6 +16,114 @@ using PixelRect = System.Drawing.Rectangle;
 public static partial class StartupHook
 {
     private delegate bool ReadMonitor(nint handle, out PixelRect window, out PixelRect workArea);
+
+    private static async Task TestNativeWorkspaceSwitch(Type hook, object hosted)
+    {
+        Check(File.Exists(Path.Combine(folder, "Capture One user.config.before-proofing"))
+            && File.Exists(Path.Combine(folder, "native-workspace-backup.json")), "native workspace changes start with verified settings and workspace backups");
+        var manager = Field(hosted, "workspaceManager") ?? throw new InvalidOperationException("The native workspace manager is unavailable.");
+        var contract = manager.GetType().GetInterface("P1.C1.ViewModels.Workspace.IWorkspaceManager")!;
+        var active = contract.GetProperty("ActiveWorkspace")!;
+        var workspaceContract = active.PropertyType;
+        var name = workspaceContract.GetProperty("Name")!;
+        var text = workspaceContract.GetProperty("Text")!;
+        var settingsType = workspaceContract.GetProperty("SettingsType")!;
+        var apply = contract.GetMethod("ApplyWorkspace")!;
+        var change = contract.GetEvent("ActiveWorkspaceChanged")!;
+        var original = active.GetValue(manager)!;
+        string Selector(object workspace) => (string)(Equals(name.GetValue(workspace), "CustomWorkspace")
+            ? text.GetValue(workspace) : name.GetValue(workspace))!;
+        string Scope(object workspace) => Equals(name.GetValue(workspace), "CustomWorkspace")
+            ? $"{settingsType.GetValue(workspace)}|CustomWorkspace|{Selector(workspace)}"
+            : $"{settingsType.GetValue(workspace)}|{name.GetValue(workspace)}";
+        string NormalizedName(object workspace) => ((string)name.GetValue(workspace)!).Replace(" ", "");
+        var groups = new[] { "ApplicationPackageWorkspaces", "ChWorkspaces", "EnterpriseWorkspaces", "CustomWorkspaces" }.ToDictionary(group => group,
+            group => ((IEnumerable)contract.GetProperty(group)!.GetValue(manager)!).Cast<object>().ToArray());
+        var presets = groups.Values.SelectMany(items => items).DistinctBy(Scope).ToArray();
+        File.WriteAllText(Path.Combine(folder, "native-workspace-presets.json"), JsonSerializer.Serialize(new
+        {
+            original = Scope(original),
+            presets = groups.ToDictionary(group => group.Key,
+                group => group.Value.Select(item => new { scope = Scope(item), label = text.GetValue(item) })),
+        }, new JsonSerializerOptions { WriteIndented = true }));
+        var firstPreset = presets.FirstOrDefault(item => NormalizedName(item) is "DefaultWorkspace" or "Default");
+        var secondPreset = presets.FirstOrDefault(item => NormalizedName(item) is "SimplifiedWorkspace" or "Simplified");
+        if (firstPreset is null || secondPreset is null)
+        {
+            var available = groups["CustomWorkspaces"].DistinctBy(Scope).Take(2).ToArray();
+            if (available.Length != 2) throw new InvalidOperationException("The host did not expose two native workspace presets.");
+            firstPreset = available[0];
+            secondPreset = available[1];
+        }
+        var hostedField = hook.GetField("hostedTool", Flags)!;
+        var changes = 0;
+        EventHandler observed = (_, _) => changes++;
+        var listener = observed.Method.CreateDelegate(change.EventHandlerType!, observed.Target);
+        change.AddEventHandler(manager, listener);
+        try
+        {
+            var first = await Switch(firstPreset);
+            if (Field(first, "floating") is Window unexpected) unexpected.Close();
+            Call(first, "ShowFloating");
+            var originalFloater = (Window)Field(first, "floating")!;
+            Check(originalFloater.IsVisible && originalFloater.ShowActivated, "the first real workspace opens an explicit native floater");
+
+            var second = await Switch(secondPreset);
+            Check(!originalFloater.IsVisible && Field(second, "floating") is null,
+                "the workspace manager closes the old floater and the second real workspace starts docked");
+            Call(second, "ShowFloating");
+            ((Window)Field(second, "floating")!).Close();
+
+            var returned = await Switch(firstPreset, expectFloating: true);
+            var restored = (Window)Field(returned, "floating")!;
+            Check(!restored.ShowActivated && !restored.IsActive
+                && new WindowInteropHelper(restored).Handle != GetForegroundWindow(),
+                $"returning to the first real workspace restores its native floater without activating it (active {restored.IsActive})");
+            Check(changes >= 2, "the licensed workspace manager raised change notifications for both transitions");
+            var livePanel = Field(returned, "panel")!;
+            await TestNativeEffectExport(hook.GetField("exportHook", Flags)!, returned, livePanel,
+                Field(livePanel, "opticalPreview")!, Field(returned, "mainWindow")!, "returned-workspace");
+            restored!.Close();
+            Check(ReferenceEquals(((ContentControl)Prop(returned, "Holder")!).Content, livePanel)
+                && Prop(livePanel, "ExportBridgeStatus")?.ToString() == "Connected",
+                "docking after the real workspace transitions preserves the panel and connected native Export bridge");
+            File.WriteAllText(Path.Combine(folder, "native-workspace-switch.json"), JsonSerializer.Serialize(new
+            {
+                original = Scope(original), first = Scope(firstPreset), second = Scope(secondPreset),
+                changes, openedWithoutFocus = true, exportedAppliedEffects = true,
+            }));
+        }
+        finally
+        {
+            change.RemoveEventHandler(manager, listener);
+            if (Scope(active.GetValue(manager)!) != Scope(original) && presets.Any(item => Scope(item) == Scope(original)))
+                apply.Invoke(manager, new[] { Selector(original) });
+        }
+        File.WriteAllText(Path.Combine(folder, "first.passed"), $"PASS {checks} real native workspace switch checks");
+
+        async Task<object> Switch(object preset, bool expectFloating = false)
+        {
+            var key = Scope(preset);
+            if (Scope(active.GetValue(manager)!) != key) apply.Invoke(manager, new[] { Selector(preset) });
+            var started = Stopwatch.GetTimestamp();
+            object? settled = null;
+            var stableReads = 0;
+            while (Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(12))
+            {
+                if (hostedField.GetValue(null) is { } current && Equals(Field(current, "workspaceKey"), key)
+                    && Field(current, "panel") is { } content && Prop(content, "StocksReady") is true
+                    && (Field(current, "floating") is Window { IsVisible: true }) == expectFloating)
+                {
+                    if (!ReferenceEquals(settled, current)) stableReads = 0;
+                    settled = current;
+                    if (++stableReads == 8) return current;
+                }
+                else stableReads = 0;
+                await Task.Delay(100);
+            }
+            throw new TimeoutException($"Capture One's active workspace did not settle on '{key}' (active '{Scope(active.GetValue(manager)!)}').");
+        }
+    }
 
     private static async Task TestFloatingWorkspaceLayout(object hosted, object panel)
     {

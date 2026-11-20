@@ -94,6 +94,11 @@ public static partial class StartupHook
                 await TestFloatingWorkspaceLayout(hosted, panel);
                 return;
             }
+            if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_NATIVE_WORKSPACE_SWITCH") == "1")
+            {
+                await TestNativeWorkspaceSwitch(hook!, hosted);
+                return;
+            }
             if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_MOVED_LOOK_BACKUP") is { Length: > 0 } movedLookBackup)
             {
                 await TestMovedCatalogLook(panel, spatial, store, variant, movedLookBackup);
