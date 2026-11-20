@@ -1789,7 +1789,8 @@
         "The periodic watchdog retries pending writes without flushing an empty queue. Four lookup routes were checked against the real host on both launches, including mismatched document and unrelated network path refusal.",
         "Subscribe to the native document manager’s active-document event and coalesce notifications into one captured UI dispatcher check. Stable attachment reduces the defensive poll from 1 to 4 seconds. A real transient read or pending write wakes the fast persistence check immediately.",
         "Licensed startup confirmed the real subscription. Two queued notifications produced one check. The defensive tick recovered a deliberately missed selection synchronization, and a real sharing violation reached the 1-second recovery interval. Two 1,000-call timings averaged 8.03 and 7.70 microseconds per stable UI tick.",
-        "The live Capture One permission and lifecycle checks now pass three focus switches between two actual document windows opened in one process. The active event plus Viewer scope restored the exact original panel and deferred the unrelated catalog. The fixture verifies startup preference recovery and removes only the exact test catalog paths from recent and last-open lists."
+        "The live Capture One permission and lifecycle checks now pass three focus switches between two actual document windows opened in one process. The active event plus Viewer scope restored the exact original panel and deferred the unrelated catalog. The fixture verifies startup preference recovery and removes only the exact test catalog paths from recent and last-open lists.",
+        "A native close while the other catalog remained open disposed the panel and Viewer, unbound Export and stopped a running film renderer. Reopening the approved document in the same process created a new form, panel and Export bridge and painted the original variant with its exact durable look. The final licensed fixture passed 33 assertions."
       ],
       "evidence_paths": [
         "NativePanel/HostDocumentAccess.cs",
@@ -1799,10 +1800,11 @@
         "qa/HostSmoke/WatchdogHost.cs",
         ".test-results/host-adaptive-watchdog-accessibility-20261120/watchdog-first.json",
         ".test-results/host-adaptive-watchdog-accessibility-20261120/watchdog-restart.json",
-        ".test-results/host-concurrent-exact-preference-restore-20261120/host-smoke.log"
+        ".test-results/host-concurrent-exact-preference-restore-20261120/host-smoke.log",
+        ".test-results/host-concurrent-close-reopen-final-20261120/host-smoke.log"
       ],
       "remaining_work": [
-        "Exercise true replacement/reopen of the approved form, native workspace reset and an unavailable network catalog. The same-process multi-window focus path is now tested."
+        "Exercise native workspace reset, a hidden palette that has not finished loading and an unavailable network catalog. Real same-process focus and approved form replacement now have licensed coverage."
       ],
       "original_acceptance_tests": [
         "measure idle UI thread cost/IO and zero-change work",
@@ -3017,7 +3019,8 @@
         "Verified two byte-identical disposable Capture One catalogs share an isolated plugin data root while keeping different durable looks for the same native document UUID, variant UUID, RAW path and catalog basename.",
         "Four licensed launches passed 22, 25, 25 and 25 assertions. Opposite film exposure edits persisted independently. WPF drew the correct settled bitmap and native full-size RGB48 export produced the expected distinct output after both restarts. Original catalog and RAW hashes matched.",
         "An installed-assembly metadata probe identified ICaptureOneDocument identity and lifecycle, ISessionDocument folder selectors and DocumentManager's open-document enumeration without creating a session.",
-        "Two byte-identical disposable catalogs opened in separate native windows using the actual File Open helper and native multiple-window mode. With the second catalog unapproved, three focus cycles withheld the first catalog’s Viewer and Export, maintained one look namespace, and resumed the exact original tool and saved look. Closing the second window preserved the approved look. The native fixture passed 26 assertions."
+        "Two byte-identical disposable catalogs opened in separate native windows using the actual File Open helper and native multiple-window mode. With the second catalog unapproved, three focus cycles withheld the first catalog’s Viewer and Export, maintained one look namespace, and resumed the exact original tool and saved look. Closing the second window preserved the approved look. The native fixture passed 26 assertions.",
+        "Native approved-window teardown stopped its running film worker, disposed its tool and Viewer and unbound Export without closing the other catalog. Native reopen in the same process created an independent replacement form, panel and Export bridge and painted the original exact saved look. Thirty-three assertions passed with the exact scoped settings restored."
       ],
       "evidence_paths": [
         "qa/HostSmoke/CatalogIsolation.cs",
@@ -3026,10 +3029,12 @@
         ".test-results/native-multiview-metadata-20261120/metadata.txt",
         "qa/HostSmoke/ConcurrentCatalogs.cs",
         ".test-results/host-concurrent-exact-preference-restore-20261120/host-smoke.log",
-        ".test-results/host-concurrent-exact-preference-restore-20261120/proof-settings-receipt.json"
+        ".test-results/host-concurrent-exact-preference-restore-20261120/proof-settings-receipt.json",
+        ".test-results/host-concurrent-close-reopen-final-20261120/host-smoke.log",
+        ".test-results/host-concurrent-close-reopen-final-20261120/proof-settings-receipt.json"
       ],
       "remaining_work": [
-        "Prove sessions, tether arrival and actual replacement/reopen of the approved document window before extending coverage. The verified concurrent case authorizes only one catalog at a time. Other licensed host versions and a per-document registry remain open."
+        "Prove sessions and tether arrival before extending coverage. The verified concurrent case authorizes one catalog at a time and includes close and reopen. Other licensed host versions and a per-document registry remain open."
       ],
       "original_acceptance_tests": [
         "Two disposable documents with same filenames/variant-like identities never share state or viewer/export output.",

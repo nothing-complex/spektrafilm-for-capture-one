@@ -99,6 +99,51 @@ public static partial class StartupHook
                 Check(ReferenceEquals(hookField.GetValue(null), hosted) && Equals(value.GetValue(exposure), 1.25),
                     "the exact native tool and film state return when the opted-in catalog resumes");
             }
+
+            var worker = Field(spatial, "renderer") is { } renderer ? Field(renderer, "process") as Process : null;
+            using var workerProbe = worker is { HasExited: false } ? Process.GetProcessById(worker.Id) : null;
+            Check(workerProbe is not null, "the approved window has a live renderer to check during teardown");
+            var exportField = hook.GetField("exportHook", Flags)!;
+            var originalExport = exportField.GetValue(null);
+            _ = Call(manager, "SetActiveDocument", catalogB);
+            secondWindow.BringToFront();
+            secondWindow.Activate();
+            await WaitFor(() => ReferenceEquals(Active(), catalogB), "The second document was not active for approved-window teardown.");
+            ((Forms.Form)firstWindow).Close();
+            await WaitFor(() => ((Forms.Form)firstWindow).IsDisposed && !OpenDocuments().Any(document => Matches(document, firstPath)),
+                "Native close did not remove the approved document window.");
+            await WaitFor(() => hookField.GetValue(null) is null && Field(spatial, "disposed") is true
+                && (workerProbe is null || workerProbe.HasExited), "The closed native window retained its tool or live worker.");
+            Check(ReferenceEquals(Active(), catalogB) && exportField.GetValue(null) is null && Prop(panel, "IsSpektraExportActive") is false,
+                "closing the approved window detaches its native Export bridge while the unapproved window stays open");
+            Check(Field(hosted, "disposed") is true && Field(panel, "disposed") is true && Prop(viewer, "HasPainted") is false,
+                "the old tool, panel and viewer are disposed after closing the approved window");
+            Check(File.ReadAllBytes(lookPath).SequenceEqual(savedA), "closing the approved window preserves the exact saved look");
+
+            _ = open.Invoke(null, new object?[] { firstPath, null, false, null, false, true, null });
+            await WaitFor(() => OpenDocuments().Any(document => Matches(document, firstPath)), "Capture One did not reopen the approved catalog.");
+            catalogA = OpenDocuments().Single(document => Matches(document, firstPath));
+            await WaitFor(() => MainForm(catalogA) is { IsHandleCreated: true }, "The reopened catalog did not receive a native form.");
+            var replacement = MainForm(catalogA)!;
+            if (!replacement.Visible) replacement.Show();
+            replacement.BringToFront();
+            replacement.Activate();
+            _ = Call(manager, "SetActiveDocument", catalogA);
+            await WaitFor(() => ReferenceEquals(Active(), catalogA) && hookField.GetValue(null) is { } current
+                && !ReferenceEquals(current, hosted) && Prop(current, "IsSpektraExportActive") is true,
+                "The reopened catalog did not attach an independent tool and Export bridge.");
+            var reopened = hookField.GetValue(null)!;
+            var reopenedPanel = Field(reopened, "panel")!;
+            var reopenedViewer = Field(Field(reopenedPanel, "opticalPreview")!, "viewer")!;
+            await WaitFor(() => Prop(reopenedViewer, "HasPainted") is true, "The reopened catalog did not paint the stored look.");
+            Check(!ReferenceEquals(firstWindow, replacement) && !ReferenceEquals(panel, reopenedPanel)
+                && exportField.GetValue(null) is { } reopenedExport && !ReferenceEquals(originalExport, reopenedExport),
+                "reopening the approved catalog creates an independent native form and plugin panel in the same process");
+            Check(Prop(Field(reopenedPanel, "exposure")!, "Value") is 1.25
+                && Equals(Field(reopenedPanel, "displayedVariant"), variant) && File.ReadAllBytes(lookPath).SequenceEqual(savedA),
+                "reopening loads the exact original variant and durable film settings");
+            Check(!secondWindow.IsDisposed && OpenDocuments().Contains(catalogB),
+                "the unapproved window remains independent across teardown and replacement");
         }
         finally
         {

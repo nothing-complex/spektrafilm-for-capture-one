@@ -411,7 +411,7 @@ Run `Run-HostSmoke.ps1 -ColorMatrix -SkipRestart` with the four-camera test cata
 - [x] Carry the exact captured ICC fingerprint, working encoding, native adjustment revision, selected variant and format on developed and derived draft frames. Use the captured identity when reusing Viewer sources and validating export snapshots.
 - [x] Pass 59 native colour checks across four RAW formats and four working profiles. All four camera fixtures reported the same exact ICC fingerprint for each encoding, and the four encodings had distinct fingerprints. The independent common-sRGB analysis still passed all twelve profile comparisons.
 - [x] Pass 12,547 host-independent assertions and 177 new-launch plus 182 restart checks in a copied Capture One catalog.
-- [ ] Verify external profile replacement, calibrated native exposure/white balance/highlights and same-stage TIFF parity.
+- [ ] Measure a calibrated sensor chart before Capture One’s developed-image stage. External profile replacement, native exposure/white balance/highlights and same-stage TIFF parity have separate checkpoints below.
 
 Evidence is under `.test-results/host-frame-description-matrix-20261120` and `.test-results/host-frame-description-20261120`.
 
@@ -541,7 +541,7 @@ Evidence is in `.test-results/physical-blur-support-reference-20261120.json` and
 - [x] Clone one test database byte for byte into two folders. The native catalog and variant UUIDs, the database basename and RAW source are identical. The plugin uses the full opted-in catalog path to keep distinct look files in one shared test data root.
 - [x] Pass 97 assertions across four licensed launches. Both clones restored their own film exposure, drew their own film bitmap and exported a distinct full-resolution RGB48 TIFF. The source catalog and RAW hashes matched.
 - [x] Back up the host preferences and remove only the two fixture recent catalog entries. Preserve other settings. Identify session interfaces in metadata for the supported version.
-- [ ] Verify concurrently open windows, focus switching, actual native sessions, tethered files and document teardown.
+- [ ] Verify actual native sessions and tethered files. Concurrent catalog windows, repeated focus and document teardown have a separate checkpoint below.
 
 Evidence is under `.test-results/host-catalog-isolation-painted-20261120`.
 
@@ -674,7 +674,7 @@ Evidence is under `.test-results/audit11-package-verify-20261120`, `.test-result
 
 - [x] Subscribe to the actual document manager and dispatch lifecycle changes with one queued check. Back off to a 4-second defensive poll after steady attachment and return to a 1-second cadence after notification or a persistence error. A real sharing violation recovered without input. Two 1,000-tick measurements averaged 8.03 and 7.70 microseconds per stable UI tick on this host.
 - [x] Verify the native embedded text editor's editable UI Automation Value pattern and the outer full label and reset instructions. Exact ±8 EV values commit. Escape, NaN, Infinity and malformed text leave the saved file byte-identical. The first and forced-restart suites passed 282 and 286 assertions.
-- [ ] Exercise actual concurrent-document and form replacement, unavailable network paths, external screen readers, narrow layouts and physical mixed-DPI monitors. The coalescing fixture invokes the registered notification path under the licensed UI dispatcher.
+- [ ] Exercise unavailable network paths, external screen readers, narrow layouts and physical mixed-DPI monitors. The coalescing fixture invokes the registered notification path under the licensed UI dispatcher. Actual concurrent-document and form replacement have a separate checkpoint below.
 
 Evidence is under `.test-results/host-adaptive-watchdog-accessibility-20261120`.
 
@@ -702,9 +702,10 @@ Evidence is under `.test-results/contracts-release-required-checks-20261120` and
 
 - [x] Open byte-identical disposable catalog copies in two real native windows. The host File Open helper creates the second form. Enable the native multiple-window preference only within this scoped fixture. Across three focus cycles, the unapproved catalog never displayed or exported the approved look, never received a plugin look directory, and never changed the approved saved file. On return, the same tool and exact exposure were restored. Closing the other catalog left the approved one active. The repeat passed 26 licensed assertions. [Capture One multiple-window setting](https://support.captureone.com/hc/en-us/articles/360002649858-How-do-I-open-more-than-one-Catalog-or-Session-at-a-time)
 - [x] Restore only the exact test paths from recent and last-open document lists and the prior native multiple-window setting. The first attempt exposed that Capture One can record one path in both lists. Verified backups were used to restore both fields and preserve unrelated settings. The final repeat exercised both restore paths automatically.
-- [ ] Test real approved-window replacement, session creation and tether arrivals. A compatible installer for a second licensed host is still required to verify 16.7. Capture One distributes older versions through the account download page. [Capture One historical downloads](https://support.captureone.com/hc/en-us/articles/14996282988957-Download-an-Older-Version-of-Capture-One)
+- [x] Close the approved native form while the second stays active. Verify the old panel, film paint, Export bridge and running worker deactivate. Reopen in the same process and verify a new native form, new tool and Export bridge, original variant, identical saved bytes and the visible film look. Thirty-three licensed assertions passed. The first fixture attempt used the wrong internal field name for the new Viewer, which was corrected before the successful repeat.
+- [ ] Test session creation and tether arrivals. A compatible installer for a second licensed host is still required to verify 16.7. Capture One distributes older versions through the account download page. [Capture One historical downloads](https://support.captureone.com/hc/en-us/articles/14996282988957-Download-an-Older-Version-of-Capture-One)
 
-Evidence is under `.test-results/host-concurrent-exact-preference-restore-20261120`, `.test-results/concurrent-preferences-cleanup-20261120` and `.test-results/concurrent-window-default-recovery-20261120`.
+Evidence is under `.test-results/host-concurrent-exact-preference-restore-20261120`, `.test-results/host-concurrent-close-reopen-final-20261120`, `.test-results/concurrent-preferences-cleanup-20261120` and `.test-results/concurrent-window-default-recovery-20261120`.
 
 ## Live input ICC change handling
 
