@@ -1,3 +1,9 @@
+function Get-CatalogKey([string] $path) {
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { return ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes([IO.Path]::GetFullPath($path).ToUpperInvariant())))).Replace('-', '') }
+    finally { $sha.Dispose() }
+}
+
 function Get-CatalogStateDigest([object[]] $records) {
     [string[]] $lines = @($records | ForEach-Object { $_.path + ':' + $_.sha256 })
     [Array]::Sort($lines, [StringComparer]::Ordinal)
@@ -68,6 +74,11 @@ namespace Spektrafilm
             foreach (var variant in required)
                 if (original.ImagesByVariant[variant] != updated.ImagesByVariant[variant])
                     throw Failure(operation, "A saved variant belongs to a different native image in the existing catalog.");
+        }
+
+        public static Guid DocumentId(string path)
+        {
+            return ReadIdentity(path, new HashSet<Guid>(), "Capture One catalog identity verification").Document;
         }
 
         private static Identity ReadIdentity(string path, HashSet<Guid> required, string operation)
@@ -157,4 +168,14 @@ function Confirm-CatalogIntegrity([string] $path) {
 function Confirm-RelatedCatalogs([string] $backup, [string] $destination, [Guid[]] $variants) {
     Initialize-CatalogIntegrity
     [Spektrafilm.CatalogIntegrity]::VerifyRelated($backup, $destination, $variants)
+}
+
+function Get-CatalogDocumentId([string] $path) {
+    try {
+        Initialize-CatalogIntegrity
+        return [Spektrafilm.CatalogIntegrity]::DocumentId($path).ToString('D')
+    } catch {
+        Write-Verbose "Catalog document identity unavailable: $($_.Exception.Message)"
+        return $null
+    }
 }

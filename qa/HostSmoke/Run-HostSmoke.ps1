@@ -8,6 +8,7 @@ param(
     [Alias('ProofingSettingsConfig')][string] $NativeSettingsConfig,
     [string] $SavedLooksBackup,
     [switch] $SavedLooksFromUpdatedCatalog,
+    [switch] $DiscoverSavedLooks,
     [switch] $CatalogIsolation,
     [switch] $ConcurrentCatalogs,
     [switch] $SessionIsolation,
@@ -95,6 +96,9 @@ if ($NativeLookBatch -and (!$NativeSettingsConfig -or $SkipRestart -or $Packaged
     throw 'Native batch copy needs its own disposable launch and restart with a verified preferences backup.'
 }
 if ($SavedLooksFromUpdatedCatalog -and !$SavedLooksBackup) { throw 'An updated catalog fixture needs its saved-look backup.' }
+if ($DiscoverSavedLooks -and (!$SavedLooksBackup -or $PackagedRuntime)) {
+    throw 'Discovered saved looks use a source fixture and a verified catalog backup.'
+}
 if ($SavedLooksBackup -and (!$NativeSettingsConfig -or $UpgradeFromPackage -or $CatalogIsolation -or $ConcurrentCatalogs -or $SessionIsolation)) {
     throw 'Moved-catalog look verification requires a single disposable catalog and a native preferences backup.'
 }
@@ -279,7 +283,13 @@ $tokens=$null
 $parseErrors=$null
 $launcher=[Management.Automation.Language.Parser]::ParseFile((Join-Path $root 'Start-Spektrafilm.ps1'), [ref]$tokens, [ref]$parseErrors)
 if($parseErrors.Count){throw 'Launcher syntax failed.'}
-foreach($name in 'Read-SpektrafilmLaunchStatus','Wait-SpektrafilmPanel'){
+$launcherHelpers = @('Read-SpektrafilmLaunchStatus','Wait-SpektrafilmPanel')
+if ($DiscoverSavedLooks) {
+    . (Join-Path $root 'CatalogIntegrity.ps1')
+    $launcherHelpers += @('Confirm-CatalogIsIdle','Get-CatalogLookFiles','Test-CatalogLookState','New-LookBackup','Save-CatalogBackup',
+        'Read-LookRecoveryManifest','Find-CatalogLookBackup','Test-CurrentBackupLookState','Restore-DiscoveredCatalogLooks','Prepare-SpektrafilmCatalog')
+}
+foreach($name in $launcherHelpers){
     $definition=$launcher.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name}, $true)
     . ([scriptblock]::Create($definition.Extent.Text))
 }
@@ -572,9 +582,28 @@ if ($NativeEffectProfileSidecars -and !$CalibrationChart) {
 }
 if ($SavedLooksBackup) {
     $SavedLooksBackup=(Resolve-Path -LiteralPath $SavedLooksBackup).ProviderPath
-    $allowUpdated=@{AllowUpdatedCatalog=[bool]$SavedLooksFromUpdatedCatalog}
-    & (Join-Path $runtimeSource 'Restore-SpektrafilmCatalog.ps1') -BackupDatabase $SavedLooksBackup -DestinationDatabase $catalog `
-        -UserDataRoot $folder -SavedLooksOnly -Apply @allowUpdated
+    $restoreScript = Join-Path $runtimeSource 'Restore-SpektrafilmCatalog.ps1'
+    if ($DiscoverSavedLooks) {
+        $userData = $folder
+        $appName = 'Spektrafilm catalog discovery fixture'
+        $archived = Read-LookRecoveryManifest ($SavedLooksBackup + '.manifest.json')
+        if (!$archived) { throw 'The discovery fixture needs a valid archived manifest.' }
+        $seed = Join-Path (Join-Path $folder 'Catalog backups') $archived.catalogKey.Substring(0, 20)
+        [void][IO.Directory]::CreateDirectory($seed)
+        foreach ($suffix in @('', '.spektrafilm.zip', '.manifest.json')) {
+            Copy-Item -LiteralPath ($SavedLooksBackup + $suffix) -Destination $seed
+        }
+        $prepared = Prepare-SpektrafilmCatalog $catalog $restoreScript -AcceptUpdated:$SavedLooksFromUpdatedCatalog
+        $manifest = Read-LookRecoveryManifest ($prepared + '.manifest.json')
+        if (!$manifest -or @($manifest.files).Count -eq 0 -or !(Test-CatalogLookState (Get-CatalogKey $catalog))) {
+            throw 'The actual launcher preparation did not attach and back up the discovered saved looks.'
+        }
+        [IO.File]::WriteAllText((Join-Path $folder 'discovered-catalog-look.txt'), $prepared)
+    } else {
+        $allowUpdated=@{AllowUpdatedCatalog=[bool]$SavedLooksFromUpdatedCatalog}
+        & $restoreScript -BackupDatabase $SavedLooksBackup -DestinationDatabase $catalog `
+            -UserDataRoot $folder -SavedLooksOnly -Apply @allowUpdated
+    }
     if ((Get-FileHash -LiteralPath $catalog).Hash -ne $sourceHash) { throw 'The saved-look restore wrote to the copied catalog.' }
 }
 if($ConcurrentCatalogs){$catalog=$fixtureCatalogs[0]}

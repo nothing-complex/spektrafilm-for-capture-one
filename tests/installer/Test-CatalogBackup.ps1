@@ -13,7 +13,9 @@ $tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $repo 'Start-Spektrafilm.ps1'),[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'Launcher syntax failed.'}
 . (Join-Path $repo 'CatalogIntegrity.ps1')
-foreach($name in @('New-LookBackup','Save-CatalogBackup')) {
+foreach($name in @('Get-CatalogLookFiles','Test-CatalogLookState','New-LookBackup','Save-CatalogBackup',
+        'Read-LookRecoveryManifest','Find-CatalogLookBackup','Test-CurrentBackupLookState','Restore-DiscoveredCatalogLooks',
+        'Prepare-SpektrafilmCatalog')) {
     $definition=$ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name},$true)
     . ([scriptblock]::Create($definition.Extent.Text))
 }
@@ -368,4 +370,84 @@ foreach ($name in $failures.Keys) {
     catch { $failure = $_.Exception.Message }
     Assert ($failure -match $failures[$name] -and !(Test-Path -LiteralPath $refusedState) -and (Get-FileHash -LiteralPath $target).Hash -eq $hash) "Reject $name without publishing state or changing catalog bytes"
 }
+
+# The launcher backs up the selected closed copy, then discovers a source without
+# changing any database or overwriting path-specific looks.
+$userData = Join-Path $root 'launcher-state'
+$autoSource = $databasesByName.original
+$autoKey = Get-CatalogKey $autoSource
+$autoLook = Join-Path (Join-Path (Join-Path $userData 'Variant looks') $autoKey) '11111111111111111111111111111111.json'
+$autoRecovery = Join-Path (Join-Path (Join-Path $userData 'Look recovery') $autoKey) '11111111111111111111111111111111.pending.json'
+foreach ($state in @($autoLook, $autoRecovery)) { [void][IO.Directory]::CreateDirectory((Split-Path -Parent $state)) }
+[IO.File]::Copy($look, $autoLook)
+$pending.CatalogKey = $autoKey
+[IO.File]::WriteAllText($autoRecovery, ($pending | ConvertTo-Json -Depth 12 -Compress))
+$launchBackup = Save-CatalogBackup $autoSource
+$launchManifest = Read-LookRecoveryManifest ($launchBackup + '.manifest.json')
+Assert ($launchManifest.nativeDocumentId -eq '22222222-2222-2222-2222-222222222222') 'A new generation indexes its one verified native document ID'
+
+$clone = Join-Path $identityFixtures ('renamed ' + [char]0x00C8 + '.cocatalogdb')
+[IO.File]::Copy($autoSource, $clone)
+$cloneHash = (Get-FileHash -LiteralPath $clone).Hash
+$cloneCopy = Prepare-SpektrafilmCatalog $clone $restore -SkipRecovery
+Assert (!(Test-CatalogLookState (Get-CatalogKey $clone))) 'A launch that skips recovery still makes a verified catalog backup'
+$matches = @(Find-CatalogLookBackup $clone $cloneCopy)
+Assert ($matches.Count -eq 1 -and $matches[0].Exact -and $matches[0].Database -eq $launchBackup) 'A renamed copy finds the exact backup with saved state'
+
+$updatedCopy = Save-CatalogBackup $updated
+$matches = @(Find-CatalogLookBackup $updated $updatedCopy)
+Assert ($matches.Count -eq 1 -and !$matches[0].Exact) 'An updated catalog discovers the archived native document identity'
+$indexPath = $launchBackup + '.manifest.json'
+$indexBytes = [IO.File]::ReadAllBytes($indexPath)
+try {
+    $launchManifest.PSObject.Properties.Remove('nativeDocumentId')
+    [IO.File]::WriteAllText($indexPath, ($launchManifest | ConvertTo-Json -Depth 6))
+    $legacyMatches = @(Find-CatalogLookBackup $updated $updatedCopy)
+    Assert ($legacyMatches.Count -eq 1 -and $legacyMatches[0].Database -eq $launchBackup) 'Discovery also reads native identity from pre-index backup generations'
+} finally { [IO.File]::WriteAllBytes($indexPath, $indexBytes) }
+Assert (!(Restore-DiscoveredCatalogLooks $updated $updatedCopy $restore -WarningAction SilentlyContinue) -and
+    !(Test-CatalogLookState (Get-CatalogKey $updated))) 'Unattended launch leaves an updated candidate untouched until approved'
+Assert (Restore-DiscoveredCatalogLooks $updated $updatedCopy $restore -AcceptUpdated) 'An approved updated catalog passes variant verification and restores the looks'
+$wrong = $databasesByName.remappedImage
+$wrongCopy = Save-CatalogBackup $wrong
+Assert (!(Restore-DiscoveredCatalogLooks $wrong $wrongCopy $restore -AcceptUpdated -WarningAction SilentlyContinue) -and
+    !(Test-CatalogLookState (Get-CatalogKey $wrong))) 'An indexed document UUID cannot authorize a remapped native variant'
+
+$fresh = Join-Path $identityFixtures 'another copy.cocatalogdb'
+[IO.File]::Copy($autoSource, $fresh)
+$freshCopy = Save-CatalogBackup $fresh
+[IO.File]::WriteAllText($autoLook, ($changed | ConvertTo-Json -Depth 10 -Compress))
+Assert (!(Restore-DiscoveredCatalogLooks $fresh $freshCopy $restore -WarningAction SilentlyContinue) -and
+    !(Test-CatalogLookState (Get-CatalogKey $fresh))) 'The launcher refuses an older backup when the live source has a newer look'
+[IO.File]::Copy($look, $autoLook, $true)
+$sourceArchive = $launchBackup + '.spektrafilm.zip'
+$archiveBytes = [IO.File]::ReadAllBytes($sourceArchive)
+try {
+    [IO.File]::WriteAllText($sourceArchive, 'invalid fixture archive')
+    Assert (!(Restore-DiscoveredCatalogLooks $fresh $freshCopy $restore -WarningAction SilentlyContinue) -and
+        !(Test-CatalogLookState (Get-CatalogKey $fresh))) 'A corrupt archive discovered by metadata cannot publish state'
+} finally { [IO.File]::WriteAllBytes($sourceArchive, $archiveBytes) }
+
+$prepared = Prepare-SpektrafilmCatalog $clone $restore
+$preparedManifest = Read-LookRecoveryManifest ($prepared + '.manifest.json')
+Assert ($prepared -ne $cloneCopy -and $preparedManifest.files.Count -eq 2) 'The launcher restores the sole verified exact match and backs up the recovered state before opening'
+$cloneKey = Get-CatalogKey $clone
+$cloneLook = Join-Path (Join-Path (Join-Path $userData 'Variant looks') $cloneKey) '11111111111111111111111111111111.json'
+$cloneRecovery = Join-Path (Join-Path (Join-Path $userData 'Look recovery') $cloneKey) '11111111111111111111111111111111.pending.json'
+Assert ((Get-FileHash -LiteralPath $clone).Hash -eq $cloneHash -and
+    (Get-FileHash -LiteralPath $cloneLook).Hash -eq $baseHash -and
+    ([IO.File]::ReadAllText($cloneRecovery) | ConvertFrom-Json).CatalogKey -eq $cloneKey) 'Exact recovery rebases the pending edit and preserves catalog and committed look bytes'
+Assert (@(Find-CatalogLookBackup ($clone.ToUpperInvariant()) $cloneCopy).Count -eq 0) 'The case alias finds existing path-specific state and does not look for a replacement'
+
+[IO.File]::WriteAllText($cloneLook, ($changed | ConvertTo-Json -Depth 10 -Compress))
+$null = Save-CatalogBackup $clone
+$forks = @(Find-CatalogLookBackup $fresh $freshCopy)
+Assert ($forks.Count -eq 2 -and $forks[0].Manifest.catalogKey -ne $forks[1].Manifest.catalogKey) 'The latest snapshots of two divergent catalog paths remain separate candidates'
+Assert (!(Restore-DiscoveredCatalogLooks $fresh $freshCopy $restore -WarningAction SilentlyContinue) -and
+    !(Test-CatalogLookState (Get-CatalogKey $fresh))) 'Identical catalog bytes never select silently between divergent looks'
+Assert ((Get-FileHash -LiteralPath $autoLook).Hash -eq $baseHash -and
+    (Get-FileHash -LiteralPath $cloneLook).Hash -ne $baseHash -and
+    (Get-FileHash -LiteralPath $autoSource).Hash -eq $cloneHash -and
+    (Get-FileHash -LiteralPath $clone).Hash -eq $cloneHash -and
+    (Get-FileHash -LiteralPath $updated).Hash -eq $updatedHash) 'The exact and updated copies retain independent looks and leave both source and copied catalogs unchanged'
 Write-Output "PASS: $count joint backup assertions. Evidence: $root"

@@ -7,7 +7,9 @@ param(
     [switch] $ShowTool,
     [ValidateRange(1, 180)][int] $PanelTimeoutSeconds = 45,
     [switch] $Shortcut,
-    [string] $UserDataDirectory
+    [string] $UserDataDirectory,
+    [switch] $SkipCatalogLookRecovery,
+    [switch] $RecoverUpdatedCatalogLooks
 )
 
 $ErrorActionPreference = 'Stop'
@@ -123,42 +125,53 @@ function Get-CatalogPath([string] $path) {
     return $item.FullName
 }
 
+function Get-CatalogLookFiles([string] $key) {
+    foreach ($scope in @('Variant looks', 'Look recovery')) {
+        $root = Join-Path (Join-Path $userData $scope) $key
+        if (!(Test-Path -LiteralPath $root -PathType Container)) { continue }
+        $root = (Get-Item -LiteralPath $root -Force).FullName
+        $directories = New-Object 'System.Collections.Generic.Queue[string]'
+        $directories.Enqueue($root)
+        while ($directories.Count -gt 0) {
+            $directory = Get-Item -LiteralPath $directories.Dequeue() -Force
+            if ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Saved-look backup cannot follow linked folders.' }
+            foreach ($item in Get-ChildItem -LiteralPath $directory.FullName -Force | Sort-Object Name) {
+                if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Saved-look backup cannot follow linked files.' }
+                if ($item.PSIsContainer) { $directories.Enqueue($item.FullName); continue }
+                [pscustomobject]@{
+                    Relative = $scope + '/' + $item.FullName.Substring($root.Length + 1).Replace('\', '/')
+                    Path = $item.FullName
+                }
+            }
+        }
+    }
+}
+
+function Test-CatalogLookState([string] $key) {
+    foreach ($scope in @('Variant looks', 'Look recovery')) {
+        if (Test-Path -LiteralPath (Join-Path (Join-Path $userData $scope) $key)) { return $true }
+    }
+    return $false
+}
+
 function New-LookBackup([string] $path, [string] $archive) {
     Add-Type -AssemblyName System.IO.Compression
-    $sha = [Security.Cryptography.SHA256]::Create()
-    try { $key = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes([IO.Path]::GetFullPath($path).ToUpperInvariant())))).Replace('-', '') }
-    finally { $sha.Dispose() }
+    $key = Get-CatalogKey $path
     $records = New-Object 'System.Collections.Generic.List[object]'
     $zipStream = [IO.File]::Open($archive, [IO.FileMode]::CreateNew, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
     try {
         $zip = New-Object IO.Compression.ZipArchive($zipStream, [IO.Compression.ZipArchiveMode]::Create, $true)
         try {
-            foreach ($scope in @('Variant looks', 'Look recovery')) {
-                $root = Join-Path (Join-Path $userData $scope) $key
-                if (!(Test-Path -LiteralPath $root -PathType Container)) { continue }
-                $root = (Get-Item -LiteralPath $root -Force).FullName
-                $directories = New-Object 'System.Collections.Generic.Queue[string]'
-                $directories.Enqueue($root)
-                while ($directories.Count -gt 0) {
-                    $directory = Get-Item -LiteralPath $directories.Dequeue() -Force
-                    if ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Saved-look backup cannot follow linked folders.' }
-                    foreach ($item in Get-ChildItem -LiteralPath $directory.FullName -Force | Sort-Object Name) {
-                        if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Saved-look backup cannot follow linked files.' }
-                        if ($item.PSIsContainer) { $directories.Enqueue($item.FullName); continue }
-                        $relative = $scope + '/' + $item.FullName.Substring($root.Length + 1).Replace('\', '/')
-                        $input = [IO.File]::Open($item.FullName, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)
-                        try {
-                            $entry = $zip.CreateEntry($relative, [IO.Compression.CompressionLevel]::Optimal)
-                            $output = $entry.Open()
-                            try { $input.CopyTo($output) } finally { $output.Dispose() }
-                            $input.Position = 0
-                            $hash = [Security.Cryptography.SHA256]::Create()
-                            try { $digest = ([BitConverter]::ToString($hash.ComputeHash($input))).Replace('-', '').ToLowerInvariant() }
-                            finally { $hash.Dispose() }
-                            $records.Add([ordered]@{path=$relative;bytes=$input.Length;sha256=$digest})
-                        } finally { $input.Dispose() }
-                    }
-                }
+            foreach ($file in Get-CatalogLookFiles $key) {
+                $input = [IO.File]::Open($file.Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)
+                try {
+                    $entry = $zip.CreateEntry($file.Relative, [IO.Compression.CompressionLevel]::Optimal)
+                    $output = $entry.Open()
+                    try { $input.CopyTo($output) } finally { $output.Dispose() }
+                    $input.Position = 0
+                    $digest = (Get-FileHash -InputStream $input -Algorithm SHA256).Hash.ToLowerInvariant()
+                    $records.Add([ordered]@{path=$file.Relative;bytes=$input.Length;sha256=$digest})
+                } finally { $input.Dispose() }
             }
             $stateDigest = Get-CatalogStateDigest $records.ToArray()
             $manifest = [ordered]@{schemaVersion=2;catalogKey=$key;stateDigest=$stateDigest;files=$records.ToArray()}
@@ -173,13 +186,7 @@ function New-LookBackup([string] $path, [string] $archive) {
 
 function Save-CatalogBackup([string] $path, [scriptblock] $Clock = { [DateTime]::UtcNow }) {
     Confirm-CatalogIsIdle $path
-    $sha = [System.Security.Cryptography.SHA256]::Create()
-    try {
-        $encoded = [System.Text.Encoding]::UTF8.GetBytes($path.ToUpperInvariant())
-        $key = ([BitConverter]::ToString($sha.ComputeHash($encoded))).Replace('-', '').Substring(0, 20)
-    } finally {
-        $sha.Dispose()
-    }
+    $key = (Get-CatalogKey $path).Substring(0, 20)
     $folder = Join-Path (Join-Path $userData 'Catalog backups') $key
     [System.IO.Directory]::CreateDirectory($folder) | Out-Null
     $tempPath = Join-Path $folder ([Guid]::NewGuid().ToString('N') + '.tmp')
@@ -231,6 +238,8 @@ function Save-CatalogBackup([string] $path, [scriptblock] $Clock = { [DateTime]:
             return $existing[0].FullName
         }
         if (!$verifiedDatabase) { Confirm-CatalogIntegrity $tempPath }
+        $documentId = if ($verifiedDatabase -and $previousState.nativeDocumentId) { $previousState.nativeDocumentId }
+            else { Get-CatalogDocumentId $tempPath }
         $created = [DateTime](& $Clock)
         $time = $created.ToString('yyyyMMdd-HHmmss-fff', [Globalization.CultureInfo]::InvariantCulture)
         $stem = "$name-$time"
@@ -242,7 +251,7 @@ function Save-CatalogBackup([string] $path, [scriptblock] $Clock = { [DateTime]:
         $ordinal = $sequence.ToString('D6', [Globalization.CultureInfo]::InvariantCulture)
         $destination = Join-Path $folder "$stem-$ordinal.cocatalogdb"
         $joint = [ordered]@{schemaVersion=$looks.schemaVersion;createdUtc=$created.ToString('o');catalogKey=$looks.catalogKey;
-            stateDigest=$looks.stateDigest;catalogSha256=$catalogHash;databaseIntegrity='ok';
+            stateDigest=$looks.stateDigest;catalogSha256=$catalogHash;nativeDocumentId=$documentId;databaseIntegrity='ok';
             looksSha256=(Get-FileHash -LiteralPath $tempLooks -Algorithm SHA256).Hash.ToLowerInvariant();files=$looks.files}
         $manifestStream = [IO.File]::Open($tempManifest, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
         try {
@@ -279,6 +288,142 @@ function Save-CatalogBackup([string] $path, [scriptblock] $Clock = { [DateTime]:
             }
         } finally { $backupLock.Dispose() }
     }
+}
+
+function Read-LookRecoveryManifest([string] $path) {
+    try {
+        $file = Get-Item -LiteralPath $path -Force -ErrorAction Stop
+        if ($file.PSIsContainer -or ($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $file.Length -gt 32MB) { return }
+        $manifest = [IO.File]::ReadAllText($file.FullName) | ConvertFrom-Json
+        if ($manifest.schemaVersion -in 1, 2 -and $manifest.databaseIntegrity -eq 'ok' -and
+            $manifest.catalogKey -match '^[0-9A-F]{64}$' -and $manifest.catalogSha256 -match '^[0-9A-F]{64}$') {
+            return $manifest
+        }
+    } catch { Write-Verbose "Could not read catalog backup index: $($_.Exception.Message)" }
+}
+
+function Find-CatalogLookBackup([string] $path, [string] $backup) {
+    $destinationKey = Get-CatalogKey $path
+    if (Test-CatalogLookState $destinationKey) { return }
+    $selected = Read-LookRecoveryManifest ($backup + '.manifest.json')
+    if (!$selected -or $selected.catalogKey -ne $destinationKey) { return }
+    $backups = Get-Item -LiteralPath (Join-Path $userData 'Catalog backups') -Force
+    if ($backups.Attributes -band [IO.FileAttributes]::ReparsePoint) { return }
+    $documentId = $selected.nativeDocumentId
+    if (!$documentId) { $documentId = Get-CatalogDocumentId $backup }
+    $legacyDocumentIds = @{}
+    $exactBySource = @{}
+    $relatedBySource = @{}
+    foreach ($origin in Get-ChildItem -LiteralPath $backups.FullName -Directory -Force) {
+        if ($origin.Name -notmatch '^[0-9A-F]{20}$' -or ($origin.Attributes -band [IO.FileAttributes]::ReparsePoint)) { continue }
+        foreach ($candidate in Get-ChildItem -LiteralPath $origin.FullName -Filter '*.cocatalogdb' -File -Force |
+                Sort-Object LastWriteTimeUtc, Name -Descending) {
+            if ($candidate.Attributes -band [IO.FileAttributes]::ReparsePoint) { continue }
+            $manifest = Read-LookRecoveryManifest ($candidate.FullName + '.manifest.json')
+            if (!$manifest -or !$manifest.catalogKey.StartsWith($origin.Name, [StringComparison]::OrdinalIgnoreCase) -or
+                !($manifest.files | Where-Object { $_.path -cmatch '^(Variant looks/[0-9a-f]{32}\.json|Look recovery/[0-9a-f]{32}\.pending\.json)$' } |
+                    Select-Object -First 1)) { continue }
+            $exact = $manifest.catalogSha256 -eq $selected.catalogSha256
+            if (!$exact) {
+                if (!$documentId) { continue }
+                $candidateId = $manifest.nativeDocumentId
+                if (!$candidateId) {
+                    $digest = $manifest.catalogSha256
+                    if (!$legacyDocumentIds.ContainsKey($digest)) {
+                        $legacyDocumentIds[$digest] = Get-CatalogDocumentId $candidate.FullName
+                    }
+                    $candidateId = $legacyDocumentIds[$digest]
+                }
+                if ($documentId -ne $candidateId) { continue }
+            }
+            $matchesBySource = if ($exact) { $exactBySource } else { $relatedBySource }
+            if (!$matchesBySource.ContainsKey($manifest.catalogKey)) {
+                $matchesBySource[$manifest.catalogKey] = [pscustomobject]@{
+                    Database = $candidate.FullName
+                    Manifest = $manifest
+                    Exact = $exact
+                }
+            }
+        }
+    }
+    # Once a catalog is forked, otherwise identical databases can have different film looks.
+    # Never select a different lineage just because its archive was created more recently.
+    $lineages = @(@($exactBySource.Keys) + @($relatedBySource.Keys) | Sort-Object -Unique)
+    foreach ($key in $lineages) {
+        if ($exactBySource.ContainsKey($key)) { $exactBySource[$key] }
+        else { $relatedBySource[$key] }
+    }
+}
+
+function Test-CurrentBackupLookState($manifest) {
+    $key = [string]$manifest.catalogKey
+    if (!$key -or $key -notmatch '^[0-9A-F]{64}$') { return $false }
+    if (!(Test-CatalogLookState $key)) { return $true }
+    $live = @(Get-CatalogLookFiles $key)
+    if ($live.Count -ne @($manifest.files).Count) { return $false }
+    $archives = @{}
+    foreach ($record in $manifest.files) { $archives[$record.path] = $record }
+    foreach ($file in $live) {
+        $record = $archives[$file.Relative]
+        if (!$record -or (Get-FileHash -LiteralPath $file.Path -Algorithm SHA256).Hash -ne $record.sha256) { return $false }
+    }
+    return $true
+}
+
+function Restore-DiscoveredCatalogLooks {
+    [CmdletBinding()]
+    param([string] $path, [string] $backup, [string] $restoreScript,
+        [switch] $AcceptUpdated, [switch] $AskAboutUpdated)
+    try {
+        $candidates = @(Find-CatalogLookBackup $path $backup)
+        if ($candidates.Count -eq 0) { return $false }
+        if ($candidates.Count -gt 1) {
+            Write-Warning ("Several catalog paths have matching Spektrafilm backups. Choose a source using Restore-SpektrafilmCatalog.ps1: " +
+                (($candidates | ForEach-Object { $_.Database }) -join '; '))
+            return $false
+        }
+        $match = $candidates[0]
+        if (!(Test-CurrentBackupLookState $match.Manifest)) {
+            Write-Warning "Saved looks at the source path have changed since the matching backup. No older looks were attached. Backup: $($match.Database)"
+            return $false
+        }
+        $options = @{
+            BackupDatabase = $match.Database
+            DestinationDatabase = $path
+            UserDataRoot = $userData
+            SavedLooksOnly = $true
+            AllowUpdatedCatalog = !$match.Exact
+        }
+        if (!$match.Exact -and !$AcceptUpdated) {
+            if (!$AskAboutUpdated) {
+                Write-Warning "A Spektrafilm backup may match this updated catalog. Launch with -RecoverUpdatedCatalogLooks to verify and restore it: $($match.Database)"
+                return $false
+            }
+            $null = & $restoreScript @options
+            Add-Type -AssemblyName System.Windows.Forms
+            $answer = [System.Windows.Forms.MessageBox]::Show(
+                "Verified saved looks for this updated catalog. Restore them from this backup?`n`n$($match.Database)", $appName,
+                [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Question,
+                [System.Windows.Forms.MessageBoxDefaultButton]::Button2)
+            if ($answer -ne [System.Windows.Forms.DialogResult]::Yes) { return $false }
+        }
+        Confirm-CatalogIsIdle $path
+        $null = & $restoreScript @options -Apply
+        Write-Host "Restored Spektrafilm looks from $($match.Database)"
+        return $true
+    } catch {
+        Write-Warning "Could not recover Spektrafilm looks from a matching backup. $($_.Exception.Message)"
+        return $false
+    }
+}
+
+function Prepare-SpektrafilmCatalog([string] $path, [string] $restoreScript, [switch] $SkipRecovery,
+    [switch] $AcceptUpdated, [switch] $AskAboutUpdated) {
+    $backup = Save-CatalogBackup $path
+    if (!$SkipRecovery -and (Restore-DiscoveredCatalogLooks $path $backup $restoreScript -AcceptUpdated:$AcceptUpdated -AskAboutUpdated:$AskAboutUpdated)) {
+        $backup = Save-CatalogBackup $path
+    }
+    return $backup
 }
 
 function Confirm-VulkanRenderer([string] $renderer) {
@@ -383,7 +528,9 @@ try {
     if (!$CatalogPath) { return }
     if ($UserDataDirectory) { $userData = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($UserDataDirectory) }
     $database = Get-CatalogPath $CatalogPath
-    $backup = Save-CatalogBackup $database
+    $restoreScript = Join-Path $PSScriptRoot 'Restore-SpektrafilmCatalog.ps1'
+    $recoveryOptions = @{SkipRecovery=$SkipCatalogLookRecovery; AcceptUpdated=$RecoverUpdatedCatalogLooks; AskAboutUpdated=$Shortcut}
+    $backup = Prepare-SpektrafilmCatalog $database $restoreScript @recoveryOptions
     Confirm-CatalogIsIdle $database
     $start = New-Object System.Diagnostics.ProcessStartInfo
     $start.FileName = $app

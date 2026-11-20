@@ -31,12 +31,6 @@ function Get-PlainPath([string] $path, [switch] $AllowMissing) {
     return $full
 }
 
-function Get-CatalogKey([string] $path) {
-    $sha = [Security.Cryptography.SHA256]::Create()
-    try { return ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($path.ToUpperInvariant())))).Replace('-', '') }
-    finally { $sha.Dispose() }
-}
-
 function Read-Manifest([string] $path) {
     if ((Get-Item -LiteralPath $path).Length -gt 32MB) { throw 'The backup manifest is unexpectedly large.' }
     $document = [IO.File]::ReadAllText($path) | ConvertFrom-Json

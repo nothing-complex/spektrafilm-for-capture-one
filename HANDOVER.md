@@ -1473,6 +1473,16 @@ For the local ICC fixture use `Run-HostSmoke.ps1 -NativeEffectProfileSidecars -S
 
 Repeat the native fixture with `Run-HostSmoke.ps1 -NativeOpticalAvailability`, the closed source catalog and the exact native settings path. Latest evidence is in `.test-results/host-grain-prerequisites-20261120`, `.test-results/grain-prerequisites-gpu-20261120.log` and `.test-results/grain-prerequisites-state-20261120.log`. This source checkpoint follows audit.35.
 
+## Launcher discovery for moved and copied catalogs
+
+- [x] Discover matching saved-look generations while preparing the closed catalog. The launcher restores one verified byte-identical match before Capture One opens. For changed databases, index the native document ID and verify every archived variant's image before recovery. Older backups are discoverable through their read-only databases. Updated recovery requires approval through the shortcut or `-RecoverUpdatedCatalogLooks`. Use `-SkipCatalogLookRecovery` to bypass discovery.
+- [x] Preserve existing destination state. Distinct catalog paths keep separate saved looks. Multiple source paths and newer unarchived local looks require an explicit backup choice. Every approved recovery uses the existing verified restore and creates a new joint backup for the destination before launch.
+- [x] Pass 79 joint backup assertions each in Windows PowerShell 5.1 and PowerShell 7, including Unicode paths, independent copies, opt-out, old archive metadata, corrupt ZIP refusal and a remapped variant. A deeply nested initial fixture exceeded the Windows SQLite path limit. The fixture now uses a shorter app-data directory under its same isolated root.
+- [x] Run the actual launcher preparation with a known joint backup and then open the exact and natively updated disposable RAW copies. Both load 1.37 EV and paint using Capture One high-depth source development. Each passes 19 checks on initial launch and 19 after restart, with the original catalog bytes verified.
+- [ ] Recover cleanly from a process stopped during multi-directory publication. Carry newer unarchived looks when the original catalog path is gone. Extend reverted-catalog and separate Windows account coverage.
+
+Run `Run-HostSmoke.ps1 -SavedLooksBackup <backup> -DiscoverSavedLooks` with the closed fixture and verified native preferences path. For the updated catalog use `-SavedLooksFromUpdatedCatalog`. Evidence is in `.test-results/host-discovered-catalog-look-20261120`, `.test-results/host-discovered-updated-look-20261120` and the `catalog-discovery-final-ps51-20261120.log` and `catalog-discovery-final-ps7-20261120.log` receipts. This is a source checkpoint after audit.35.
+
 ## Status maintenance
 
 `qa/AUDIT-FIX-STATUS.json` owns task IDs, status, implemented substeps, remaining acceptance work and evidence. This handover owns context, runtime identity and resume instructions. `.test-results/FINAL-RESULT.json` is the completed runtime delivery receipt; keep its runtime commit/package identity distinct from later documentation-only commits.
