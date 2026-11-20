@@ -110,4 +110,14 @@ $pe[0x3c] = 127
 [IO.File]::WriteAllBytes($peFixture, $pe)
 if (Get-WindowsExecutableArchitecture $peFixture) { throw 'FAIL: truncated PE accepted' }
 $count++
+$tests=@('RendererContracts','StateContracts','ViewerContracts','runner-environment','manifest','launch-status',
+    'reference-selection','catalog-backup','installer','renderer-smoke')
+$passing=@($tests | ForEach-Object { [pscustomobject]@{name=$_;exitCode=0} }) + @([pscustomobject]@{name='capture-one-integration';status='not-run'})
+if ((Confirm-ReleaseContractSummary $passing) -ne 10) { throw 'FAIL: complete contract results did not allow packaging' }
+$count++
+Assert-Rejected {Confirm-ReleaseContractSummary @($passing | Where-Object name -ne 'installer')} 'Missing installer suite'
+Assert-Rejected {Confirm-ReleaseContractSummary (@($passing | Where-Object name -ne 'installer') + @([pscustomobject]@{name='installer';exitCode=1}))} 'Failing installer suite'
+Assert-Rejected {Confirm-ReleaseContractSummary (@($passing | Where-Object name -ne 'renderer-smoke') + @([pscustomobject]@{name='renderer-smoke';status='not-run'}))} 'Missing physical Vulkan prerequisite'
+Assert-Rejected {Confirm-ReleaseContractSummary (@($passing) + @([pscustomobject]@{name='installer';exitCode=0}))} 'Duplicate result'
+Assert-Rejected {Confirm-ReleaseContractSummary (@($passing | Where-Object name -ne 'capture-one-integration') + @([pscustomobject]@{name='capture-one-integration';exitCode=0}))} 'Unverified licensed host advertised as passing'
 Write-Output "PASS: $count manifest assertions. Evidence: $root"

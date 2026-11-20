@@ -14,11 +14,23 @@ $sourceIdentity = Get-ReleaseSourceIdentity $root
 if ($sourceIdentity.treeDigest -ne $build.source.treeDigest -or $sourceIdentity.commit -ne $build.source.commit) {
     throw 'Source no longer matches staged runtime. Run Build-Windows.ps1 -BuildPanel -StageRuntime again.'
 }
+$releaseValidation=$null
 if (!$Development) {
     if ($sourceIdentity.dirty -or $build.source.dirty) { throw 'Release packaging requires committed clean source. Use -Development for an explicitly uncommitted test package.' }
     if ($build.validation.rendererSmoke -ne 'passed' -or $build.validation.panelBuild -ne 'passed') { throw 'Release packaging requires a successful renderer smoke test and panel build.' }
     $tag = & git -C $root rev-parse --verify "refs/tags/v$Version^{commit}" 2>$null
     if ($LASTEXITCODE -ne 0 -or $tag -ne $sourceIdentity.commit) { throw "Tag v$Version must identify the exact tested source commit before release packaging." }
+    $results=Join-Path $root ('.test-results/release-' + [Guid]::NewGuid().ToString('N'))
+    & (Join-Path $root 'Test-Windows.ps1') -Gpu -ResultsDirectory $results
+    $summaryPath=Join-Path $results 'summary.json'
+    $summary=Get-Content -Raw -LiteralPath $summaryPath | ConvertFrom-Json
+    $passed=Confirm-ReleaseContractSummary @($summary)
+    $stillCurrent=Get-ReleaseSourceIdentity $root
+    if ($stillCurrent.dirty -or $stillCurrent.commit -ne $sourceIdentity.commit -or $stillCurrent.treeDigest -ne $sourceIdentity.treeDigest) {
+        throw 'Source changed while release contracts were running. Rebuild and rerun the release check.'
+    }
+    $releaseValidation=[ordered]@{ verifiedContracts=$passed; rendererSmoke='passed'; licensedCaptureOne='separate validation required';
+        summarySha256=(Get-FileHash -LiteralPath $summaryPath -Algorithm SHA256).Hash.ToLowerInvariant() }
 }
 $dist = Join-Path $root 'dist'
 $archiveName = "Spektrafilm-for-Capture-One-v$Version-windows-x64.zip"
@@ -72,6 +84,7 @@ try {
         source=$sourceIdentity; rendererProtocol=$build.rendererProtocol; parameterContract=$build.parameterContract
         files=@(($files + 'SOURCE.txt' + 'CAPABILITIES.md') | Sort-Object -Unique | ForEach-Object { Get-ReleaseFileRecord $package $_ })
     }
+    if ($releaseValidation) { $packageManifest.validation=$releaseValidation }
     [IO.File]::WriteAllText((Join-Path $package 'package-manifest.json'),($packageManifest | ConvertTo-Json -Depth 8),(New-Object Text.UTF8Encoding($false)))
     [void](Test-ReleaseManifest $package 'package-manifest.json')
     $temporaryArchive = Join-Path $stage $archiveName

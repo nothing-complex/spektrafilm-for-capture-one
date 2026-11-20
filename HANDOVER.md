@@ -687,6 +687,14 @@ Evidence is under `.test-results/host-adaptive-watchdog-accessibility-20261120`.
 
 Repeat with `qa/HostSmoke/Run-HostSmoke.ps1 -ViewerChurn 100` using the disposable four-RAW catalog and `-NativeSettingsConfig`. Evidence is under `.test-results/host-viewer-100-visits-current-paint-20261120`.
 
+## Tagged Windows package validation
+
+- [x] Require the full Windows contracts and a physical Vulkan smoke before creating a tagged non-development ZIP. Recheck the source digest after validation. The summary checksum is recorded in the package without test machine paths.
+- [x] Test acceptance of a complete result and refusal of missing, failed, skipped, repeated and falsely claimed licensed results. The full local suite passed with 26 manifest assertions. Attach the host-independent CI summary using a pinned upload action. [Pinned GitHub action release](https://github.com/actions/upload-artifact/releases/tag/v4.6.2)
+- [ ] Exercise the non-development route with a local-only tag in a disposable clone and verify the public CI artifact. A genuine outside-fork PR and a licensed 16.7 matrix remain separate acceptance work.
+
+Evidence is under `.test-results/contracts-release-required-checks-20261120`.
+
 ## Status maintenance
 
 `qa/AUDIT-FIX-STATUS.json` owns task IDs, status, implemented substeps, remaining acceptance work and evidence. This handover owns context, runtime identity and resume instructions. `.test-results/FINAL-RESULT.json` is the completed runtime delivery receipt; keep its runtime commit/package identity distinct from later documentation-only commits.

@@ -2845,7 +2845,8 @@
         "Public Windows contracts now run on separate Server 2022 and Server 2025 runners with read-only permissions and no persisted checkout credentials.",
         "Both CI images passed 12,297 fixture assertions after normalizing the worker EOF/cancellation race. Both ran the symbolic-link fixture.",
         "Windows 2022 and 2025 passed startup and selective preset checkpoints. Diagnosed a prior Windows 2022-only backup collision and added a deterministic frozen-clock regression.",
-        "Windows Contracts succeeded for the exact audit.4 source commit that passed the separately licensed packaged host matrix."
+        "Windows Contracts succeeded for the exact audit.4 source commit that passed the separately licensed packaged host matrix.",
+        "Tagged Windows packaging now reruns the mandatory host-independent suites and Vulkan smoke before assembling a ZIP, reinspects the committed source after tests and records the summary checksum. Six manifest contracts reject missing, failed, skipped, duplicate and unsupported claimed results. The public Windows workflow uploads only the host-independent summary using a pinned action."
       ],
       "evidence_paths": [
         ".github/workflows/contracts.yml",
@@ -2857,10 +2858,13 @@
         "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44630864725",
         "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44632131352",
         "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44647341973",
-        "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44650162887"
+        "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44650162887",
+        "Package-Windows.ps1",
+        "ReleaseManifest.ps1",
+        ".test-results/contracts-release-required-checks-20261120/manifest.log"
       ],
       "remaining_work": [
-        "Verify a real outside-fork PR. Finish automated release gating through tagged build provenance and retain a separate exact licensed-host matrix."
+        "Verify the new non-development path end to end using an isolated local tagged clone, and observe a real outside-fork PR with no write token. Keep licensed 16.4/16.7 compatibility evidence separate."
       ],
       "original_acceptance_tests": [
         "Fork PR can run pure tests without upstream write access or secrets.",

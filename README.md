@@ -106,6 +106,8 @@ Building requires Windows x64, Visual Studio 2022 with Desktop development with 
 .\Package-Windows.ps1 -Version 0.1.1 -Development
 ```
 
+Tagged release packaging reruns the Windows contracts and Vulkan smoke test against the staged runtime. The package manifest records the result fingerprint. Licensed Capture One tests run separately on a controlled Windows system.
+
 Use `-VulkanSdkPath` to specify a Vulkan SDK location or `-CaptureOneDirectory` for a custom Capture One installation. The build runs the renderer smoke test by default. Packaging writes the archive and SHA-256 checksum to `dist`. See the [upstream build and changes](UPSTREAM-CHANGES.md) and [third-party notices](THIRD-PARTY.md).
 
 `-Development` explicitly labels local test packages, including builds containing uncommitted changes. Public release packaging omits that switch and requires clean committed source, a matching `v<Version>` tag, passed renderer smoke tests, and matching runtime/source manifests. A partial rebuild or changed shader/table is rejected. The manifest records source, host assembly and runtime hashes without redistributing Capture One components.

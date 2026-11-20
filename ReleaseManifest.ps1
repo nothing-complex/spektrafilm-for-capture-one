@@ -187,6 +187,30 @@ function Test-ReleaseManifest([string] $Root, [string] $Name = 'build-manifest.j
     return $manifest
 }
 
+function Confirm-ReleaseContractSummary([object[]] $Results) {
+    $required=@('RendererContracts','StateContracts','ViewerContracts','runner-environment','manifest','launch-status',
+        'reference-selection','catalog-backup','installer','renderer-smoke')
+    $observed=@{}
+    foreach ($result in $Results) {
+        if ($result.name -isnot [string] -or [string]::IsNullOrWhiteSpace($result.name) -or $observed.ContainsKey($result.name)) {
+            throw 'The release validation summary contains an invalid or duplicate result.'
+        }
+        $observed[$result.name]=$result
+        if ($null -ne $result.exitCode -and $result.exitCode -ne 0) { throw "The release contract failed: $($result.name)." }
+    }
+    foreach ($name in $required) {
+        $result=$observed[$name]
+        if ($null -eq $result -or $result.status -eq 'not-run' -or
+            ($result.exitCode -isnot [int] -and $result.exitCode -isnot [long]) -or $result.exitCode -ne 0) {
+            throw "Successful contract results are required for release packaging: $name."
+        }
+    }
+    if ($observed['capture-one-integration'].status -cne 'not-run') {
+        throw 'Release contract results must identify licensed Capture One validation as a separate test.'
+    }
+    return $required.Count
+}
+
 function Write-ReleaseBuildManifest([string] $Root, $SourceIdentity, [string] $CaptureOneDirectory, [string] $SmokeStatus, [string] $PythonPath, [string] $VulkanSdkPath) {
     $hostFiles = @('CaptureOne.dll','P1.AppCore.dll','P1.C1.Core.dll','P1.C1.Framework.dll','P1.C1.ImageCoreWrapper.dll','P1.C1.ModelEntities.dll','P1.C1.ViewModels.dll')
     $hostRecords = @($hostFiles | ForEach-Object { Get-ReleaseFileRecord $CaptureOneDirectory $_ })
