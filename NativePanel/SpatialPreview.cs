@@ -114,6 +114,10 @@ internal sealed class SpatialPreview : IDisposable
     private bool enabled;
     private Guid? activeVariant;
     private BitmapSource? viewerFrame;
+    private PreviewInputSpace? checkedProfileSpace;
+    private string? checkedProfileHash;
+    private long nextProfileCheck;
+
     private long nextViewerCheck;
     private int inputRevision;
     private string? sourceSize;
@@ -881,6 +885,42 @@ internal sealed class SpatialPreview : IDisposable
         renderedDisplay = null;
     }
 
+    private bool CheckSourceProfile(PreviewInputSpace space)
+    {
+        var now = Environment.TickCount64;
+        if (checkedProfileSpace == space && now < nextProfileCheck)
+            return checkedProfileHash is not null;
+        checkedProfileSpace = space;
+        nextProfileCheck = now + 1000;
+        try
+        {
+            var (_, hash) = HostImageSource.ResolvePreviewProfile(space);
+            if (string.Equals(checkedProfileHash, hash, StringComparison.Ordinal)) return true;
+            if (checkedProfileHash is not null) InvalidateSourceProfile();
+            else RequestRefresh();
+            checkedProfileHash = hash;
+            return true;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException or InvalidOperationException)
+        {
+            if (checkedProfileHash is not null) InvalidateSourceProfile();
+            checkedProfileHash = null;
+            ClearFrame(error);
+            return false;
+        }
+    }
+
+    private void InvalidateSourceProfile()
+    {
+        pending?.Cancel();
+        ResetSource(keepDraftRenderer: true);
+        viewer.Clear();
+        viewerFrame = null;
+        frameCurrent = false;
+        showSource.IsEnabled = false;
+        RequestRefresh();
+    }
+
     private async Task RefreshAsync()
     {
         if (!enabled)
@@ -932,6 +972,7 @@ internal sealed class SpatialPreview : IDisposable
         }
         var selectedSpace = (InputChoice)inputSpace.SelectedItem;
         var space = selectedSpace.Space;
+        if (!CheckSourceProfile(space)) return;
         var encoding = (Choice)outputSpace.SelectedItem;
         var automatic = ((Choice)previewSize.SelectedItem).Id == "auto";
         if (automatic && pending is null && pendingDraft is null && !dragging)
@@ -948,7 +989,8 @@ internal sealed class SpatialPreview : IDisposable
         const bool highDepthPreview = true;
         var dragEdge = DragLongEdge;
         var needsSource = source?.Description is not { } description || description.VariantId != selectedVariant
-            || description.AdjustmentKey != revision || description.InputEncoding != space || sourceSize != size;
+            || description.AdjustmentKey != revision || description.InputEncoding != space || sourceSize != size
+            || !string.Equals(description.ProfileSha256, checkedProfileHash, StringComparison.Ordinal);
         if (highDepthPreview && !needsSource && WantsDragPreview
             && source is { } liveSource && Math.Max(liveSource.Width, liveSource.Height) > dragEdge)
         {

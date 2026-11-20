@@ -690,10 +690,11 @@ Repeat with `qa/HostSmoke/Run-HostSmoke.ps1 -ViewerChurn 100` using the disposab
 ## Tagged Windows package validation
 
 - [x] Require the full Windows contracts and a physical Vulkan smoke before creating a tagged non-development ZIP. Recheck the source digest after validation. The summary checksum is recorded in the package without test machine paths.
-- [x] Test acceptance of a complete result and refusal of missing, failed, skipped, repeated and falsely claimed licensed results. The full local suite passed with 26 manifest assertions. Attach the host-independent CI summary using a pinned upload action. [Pinned GitHub action release](https://github.com/actions/upload-artifact/releases/tag/v4.6.2)
-- [ ] Exercise the non-development route with a local-only tag in a disposable clone and verify the public CI artifact. A genuine outside-fork PR and a licensed 16.7 matrix remain separate acceptance work.
+- [x] Test acceptance of a complete result and refusal of missing, failed, skipped, repeated and falsely claimed licensed results. The full local suite passed with 26 manifest assertions.
+- [x] Package the exact clean `366e25e` source from an isolated clone tagged locally as `v0.2.0-audit.gate`. Missing local tag and a first fixture run that hit legacy Windows path length both refused publication. The successful short-path clone produced a 152-entry ZIP, required ten contracts and Vulkan smoke, and kept licensed validation listed separately. Archive SHA-256 `9e27be753c4152e82d2c9cc70bacfa305894f6b7383824d38004f79bb82faeb6`.
+- [ ] Verify the pinned CI upload step publishes one host-independent JSON receipt per Windows runner. A genuine outside-fork PR and a licensed 16.7 matrix remain separate acceptance work. [Pinned GitHub action release](https://github.com/actions/upload-artifact/releases/tag/v4.6.2)
 
-Evidence is under `.test-results/contracts-release-required-checks-20261120`.
+Evidence is under `.test-results/contracts-release-required-checks-20261120` and `D:/Library AI testing/sf-tag-gate-20261120/.test-results/tagged-release-proof.json`.
 
 ## Concurrent licensed Capture One catalog windows
 
@@ -702,6 +703,14 @@ Evidence is under `.test-results/contracts-release-required-checks-20261120`.
 - [ ] Test real approved-window replacement, session creation and tether arrivals. A compatible installer for a second licensed host is still required to verify 16.7. Capture One distributes older versions through the account download page. [Capture One historical downloads](https://support.captureone.com/hc/en-us/articles/14996282988957-Download-an-Older-Version-of-Capture-One)
 
 Evidence is under `.test-results/host-concurrent-exact-preference-restore-20261120`, `.test-results/concurrent-preferences-cleanup-20261120` and `.test-results/concurrent-window-default-recovery-20261120`.
+
+## Live input ICC change handling
+
+- [x] Validate the selected profile during live refresh and include its fingerprint in source reuse. Invalidate cached and in-flight work if it changes. A previously captured native development holds the verified profile read-only and fails if the underlying ICC no longer matches that snapshot.
+- [x] Make a byte-verified backup of a disposable ProPhoto profile, corrupt it without changing the selected input space, and observe both the stale-frame invalidation and stale-snapshot rejection. Restore the exact ICC and verify a fresh 16-bit image paints on its own. Detection took about 745 ms on both licensed launches. The complete runs passed 287 first-launch, 291 restart and 115 four-RAW colour assertions.
+- [ ] Measure a calibrated sensor chart at earlier native seams and cross-check all derived cache keys. The current source remains Capture One-developed RGB.
+
+Evidence is under `.test-results/host-input-icc-guard-final-20261120` and `.test-results/host-color-matrix-profile-guard-20261120`.
 
 ## Status maintenance
 

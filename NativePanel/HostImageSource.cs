@@ -101,7 +101,7 @@ internal static class HostImageSource
         var proxyManager = GetProxyManager?.Invoke(selection.Manager, new object[] { selection.Document }) as IProxyManager;
         var recipe = captureRecipe ? ReadRecipe(selection, ref settings) : null;
         var description = new FrameDescription(target.VariantId, target.SourceFormat, inputSpace, profileSha256, revision);
-        return new Snapshot(scheduler, selection.Document, variant, target.SourcePath, settings, description, proxyManager, recipe);
+        return new Snapshot(scheduler, selection.Document, variant, target.SourcePath, profilePath, settings, description, proxyManager, recipe);
     }
 
     private static RecipeInfo? ReadRecipe(HostProfile.Selection selection, ref IC_ProcessSettings settings)
@@ -175,7 +175,7 @@ internal static class HostImageSource
         ProgramType.GetProperty(name, BindingFlags.Static | BindingFlags.Public)
         ?? throw new MissingMemberException(ProgramType.FullName, name);
 
-    private static (string Path, string Sha256) ResolvePreviewProfile(PreviewInputSpace space)
+    internal static (string Path, string Sha256) ResolvePreviewProfile(PreviewInputSpace space)
     {
         var (label, path, digest) = space switch
         {
@@ -209,7 +209,7 @@ internal static class HostImageSource
     }
 
     internal sealed class Snapshot(ImageCoreScheduler scheduler, ICaptureOneDocument document, ICoreVariant variant,
-        string sourcePath, IC_ProcessSettings settings, FrameDescription description, IProxyManager? proxyManager, RecipeInfo? recipe)
+        string sourcePath, string profilePath, IC_ProcessSettings settings, FrameDescription description, IProxyManager? proxyManager, RecipeInfo? recipe)
     {
         internal Revision AdjustmentKey => description.AdjustmentKey;
         internal RecipeInfo? Recipe => recipe;
@@ -236,6 +236,10 @@ internal static class HostImageSource
                 throw new InvalidOperationException("Select a Capture One export recipe and capture it before rendering at its size.");
 
             token.ThrowIfCancellationRequested();
+            // Keep this captured profile stable while Capture One reads it from its pathname.
+            using var sourceProfile = new FileStream(profilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            if (!string.Equals(Convert.ToHexString(SHA256.HashData(sourceProfile)), description.ProfileSha256, StringComparison.Ordinal))
+                throw new IOException("The input colour profile changed after the Capture One source was captured. Try the render again.");
             var requestProxyCheck = true;
             for (var attemptsLeft = 12; ; attemptsLeft--)
             {

@@ -170,6 +170,7 @@ public static partial class StartupHook
             var target = profile.GetMethod("CaptureTarget", Flags)!.Invoke(null, new[] { window });
             var space = Enum.ToObject(panelAssembly.GetType("PreviewInputSpace")!, 0);
             await TestNativeGeometry(host, profile, window, target!, space);
+            await TestInputProfileReplacement(host, window, target!, spatial);
             var snapshot = host.GetMethod("Capture", Flags)!.Invoke(null, new[] { window, target, space, false })!;
             object? lastFrame = null;
             foreach (var edge in new[] { 720, 1200 })

@@ -894,7 +894,8 @@
         "Each captured frame carries a typed input encoding, actual ICC SHA-256, variant UUID, source extension and native adjustment revision. Draft reductions retain that description. Viewer source reuse checks the exact variant, encoding, dimensions request and native revision; export validates the copied descriptor against its captured snapshot. All 16 native frames declared the expected identity and each encoding had one distinct ICC fingerprint across cameras.",
         "The packaged runtime passed 95 licensed RAW checks. The four cameras record their actual Capture One input profile names and ICC hashes: RicohGR3-Generic, NikonZ6-ProStandard, FujiXT4-Generic and CanonEOSR-ProStandard. The native exposure, white balance and highlights tests operate on copied variants and restore exact white balance multipliers as well as adjustment values.",
         "At the selected Linear Rec.2020 developed output, +1 EV produced median linear-luminance gains from 1.94 to 2.58 and −1 EV produced 0.316 to 0.369. Gains varied across each image’s interior midtones, verifying that these transfer-encoded-linear pixels retain Capture One’s developed-image tone behavior. White balance moves changed channel values and highlight recovery changed thousands of bright, finite pixels without changing alpha or canvas geometry.",
-        "The exact audit.5 binaries passed 111 native RAW colour checks. Capture One’s bitmap and TIFF destinations were developed from the same captured settings for all four camera files. All 2,004,657 RGB16 channel codes were identical. Each native TIFF embedded the exact verified 664-byte Linear Rec.2020 profile."
+        "The exact audit.5 binaries passed 111 native RAW colour checks. Capture One’s bitmap and TIFF destinations were developed from the same captured settings for all four camera files. All 2,004,657 RGB16 channel codes were identical. Each native TIFF embedded the exact verified 664-byte Linear Rec.2020 profile.",
+        "The licensed Viewer detects input ICC replacement at idle, cancels stale work, drops derived pixels and rebuilds the source when the original profile is restored. Previously captured native development holds the profile stable while reading and rejects a changed ICC. The isolated ProPhoto fault fixture restored the original bytes and observed a fresh painted 16-bit frame in both launches. 287 first-launch, 291 restart and 115 RAW colour assertions passed on the final source."
       ],
       "evidence_paths": [
         "NativePanel/HostImageSource.cs",
@@ -915,10 +916,13 @@
         ".test-results/host-native-camera-icc-20261120/color-matrix/adjustment-report.json",
         "qa/HostSmoke/NativeTiffProbe.cs",
         ".test-results/host-native-tiff-exact-20261120/host-smoke.log",
-        ".test-results/host-native-tiff-exact-20261120/color-matrix/native-tiff-comparison.json"
+        ".test-results/host-native-tiff-exact-20261120/color-matrix/native-tiff-comparison.json",
+        "qa/HostSmoke/InputProfileReplacement.cs",
+        ".test-results/host-input-icc-guard-final-20261120/host-smoke.log",
+        ".test-results/host-color-matrix-profile-guard-20261120/host-smoke.log"
       ],
       "remaining_work": [
-        "Complete the pipeline-stage descriptor and verify its coverage for all caches, including how an externally replaced ICC profile is invalidated during an open document.",
+        "Audit the pipeline-stage descriptor for all derived cache keys. The externally replaced source ICC is already tested with an open licensed document.",
         "Measure earlier Capture One seams using a calibrated sensor chart. Keep the declared input as Capture One-developed RGB unless an earlier stage is independently verified."
       ],
       "original_acceptance_tests": [
@@ -2848,7 +2852,8 @@
         "Both CI images passed 12,297 fixture assertions after normalizing the worker EOF/cancellation race. Both ran the symbolic-link fixture.",
         "Windows 2022 and 2025 passed startup and selective preset checkpoints. Diagnosed a prior Windows 2022-only backup collision and added a deterministic frozen-clock regression.",
         "Windows Contracts succeeded for the exact audit.4 source commit that passed the separately licensed packaged host matrix.",
-        "Tagged Windows packaging now reruns the mandatory host-independent suites and Vulkan smoke before assembling a ZIP, reinspects the committed source after tests and records the summary checksum. Six manifest contracts reject missing, failed, skipped, duplicate and unsupported claimed results. The public Windows workflow uploads only the host-independent summary using a pinned action."
+        "Tagged Windows packaging reruns the mandatory host-independent suites and Vulkan smoke before assembling a ZIP, reinspects the committed source after tests and records the summary checksum. Six manifest contracts reject missing, failed, skipped, duplicate and unsupported claimed results.",
+        "The clean, locally tagged 366e25e clone refused packaging without an exact tag. The first tagged run correctly refused a failed contract caused by a deep Windows fixture path. The short-path clone passed all ten mandatory contracts and physical Vulkan smoke, validating a 152-entry ZIP against its manifest. No tag or ZIP was published."
       ],
       "evidence_paths": [
         ".github/workflows/contracts.yml",
@@ -2863,10 +2868,11 @@
         "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44650162887",
         "Package-Windows.ps1",
         "ReleaseManifest.ps1",
-        ".test-results/contracts-release-required-checks-20261120/manifest.log"
+        ".test-results/contracts-release-required-checks-20261120/manifest.log",
+        "D:/Library AI testing/sf-tag-gate-20261120/.test-results/tagged-release-proof.json"
       ],
       "remaining_work": [
-        "Verify the new non-development path end to end using an isolated local tagged clone, and observe a real outside-fork PR with no write token. Keep licensed 16.4/16.7 compatibility evidence separate."
+        "Verify the new pinned CI step publishes one host-independent JSON receipt per Windows runner and observe a real outside-fork PR with no write token. Keep licensed 16.4/16.7 compatibility evidence separate."
       ],
       "original_acceptance_tests": [
         "Fork PR can run pure tests without upstream write access or secrets.",
