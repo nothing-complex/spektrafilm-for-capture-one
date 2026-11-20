@@ -785,7 +785,11 @@ internal static class SpektraFilmTool
                 var stop = lifetime.Token;
                 var original = HostProfile.CaptureTarget(window).SourcePath;
                 var preset = LookPreset.From(settings);
-                var picker = new SaveFileDialog { Filter = "Spektrafilm preset|*.spektra.json", FileName = "Film look.spektra.json" };
+                var picker = new SaveFileDialog
+                {
+                    Filter = "Spektrafilm preset|*.spektra.json", FileName = "Film look.spektra.json",
+                    InitialDirectory = UserPresetDirectory(),
+                };
                 var destination = chooseDestination(picker);
                 if (destination is null)
                     return;
@@ -822,7 +826,11 @@ internal static class SpektraFilmTool
             {
                 if (filename is null)
                 {
-                    var picker = new OpenFileDialog { Filter = "Spektrafilm preset|*.spektra.json", CheckFileExists = true };
+                    var picker = new OpenFileDialog
+                    {
+                        Filter = "Spektrafilm preset|*.spektra.json", CheckFileExists = true,
+                        InitialDirectory = UserPresetDirectory(),
+                    };
                     if (picker.ShowDialog() != true) return;
                     filename = picker.FileName;
                 }
@@ -841,6 +849,17 @@ internal static class SpektraFilmTool
         {
             try { panelChoices.RememberPreset(filename); }
             catch (Exception error) { StartupHook.Log("Recent preset could not be saved: " + error.GetBaseException().Message); }
+        }
+
+        private static string UserPresetDirectory()
+        {
+            var path = Path.Combine(PanelPreferences.UserDataDirectory(), "Presets");
+            try { return Directory.CreateDirectory(path).FullName; }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                StartupHook.Log("The user presets directory is unavailable: " + error.GetBaseException().Message);
+                return "";
+            }
         }
 
         private bool ApplyPreset(Guid variant, LookPreset preset) =>

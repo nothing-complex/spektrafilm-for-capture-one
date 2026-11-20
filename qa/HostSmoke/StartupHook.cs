@@ -913,9 +913,14 @@ public static partial class StartupHook
     static async Task TestPresetExport(Assembly assembly, object panel, object store, Guid variant)
     {
         if (panel.GetType().GetMethod("SavePresetWithDestinationAsync", Flags) is null) return;
-        var path = Path.Combine(folder, "verified-look.spektra.json");
+        var path = Path.Combine(folder, "Presets", "verified-look.spektra.json");
         var before = Call(store, "Read", variant)!;
-        await (Task)Call(panel, "SavePresetWithDestinationAsync", (Func<SaveFileDialog, string?>)(_ => path))!;
+        await (Task)Call(panel, "SavePresetWithDestinationAsync", (Func<SaveFileDialog, string?>)(picker =>
+        {
+            Check(picker.InitialDirectory == Path.GetDirectoryName(path) && Directory.Exists(picker.InitialDirectory),
+                "the real preset save dialog defaults to the isolated user presets folder");
+            return path;
+        }))!;
         Check(File.Exists(path), "real panel saved the selected variant through the normal preset action");
         var file = JsonNode.Parse(File.ReadAllText(path))!;
         var root = Environment.GetEnvironmentVariable("SPEKTRAFILM_ROOT")!;

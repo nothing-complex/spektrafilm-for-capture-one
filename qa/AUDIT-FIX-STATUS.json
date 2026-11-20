@@ -712,7 +712,7 @@
       "id": "RQ-01",
       "title": "Preserve custom files through installation upgrades",
       "priority": "P1",
-      "status": "partial",
+      "status": "implemented",
       "implemented": [
         "Installer now uses owned-runtime metadata, recursively preserves unknown files and retains rollback material; inert install fixtures are tracked.",
         "Fresh complete package installed into the real owned application directory after a verified full backup; installed CheckOnly passed and six existing user-data files remained unchanged.",
@@ -720,7 +720,9 @@
         "The Windows runner passed 54 installer assertions, including case-only notes, Unicode user presets, nested content, unavailable Desktop, locked binary, real NTFS junctions and an interrupted publish with a simulated foreign file occupying the destination. The exact old runtime and user sentinels remained in the reported previous directory, and manual restoration reproduced the current runtime hash.",
         "Real audit.11-to-audit.12 isolated upgrade validated both staged manifests, kept a nested Unicode user-look byte-identical and archived modified packaged ICC bytes before installing the verified original. The updated shortcut and launcher CheckOnly passed.",
         "Upgrades now acquire a destination lock and synchronously publish an identity-scoped recovery journal before moving either directory. Installer reruns restore the verified previous install and retain the abandoned candidate, including files written to it after interruption. The full Windows/Vulkan run passed 94 installer assertions, with actual installer child death on both sides of publication and tests for mismatched candidate receipt, concurrent lock and unrelated destination content.",
-        "Published upgrades keep the prior runtime beside the active install with a generation-specific launch receipt. Cleanup requires an authenticated Ready response with native Export connected, the same current generation and verified copies of all custom previous files. Inert Windows tests exercised 101 assertions, including partial and stale status, custom changes introduced after publication and repeated acknowledgment after the missing copy was restored."
+        "Published upgrades keep the prior runtime beside the active install with a generation-specific launch receipt. Cleanup requires a matching Ready response with native Export connected, the same current generation and verified copies of all custom previous files. Inert Windows tests exercised 101 assertions, including partial and stale status, custom changes introduced after publication and repeated acknowledgment after the missing copy was restored.",
+        "An actual audit.12-to-audit.13 isolated update retained its byte-exact previous version through CheckOnly. The ordinary installed launcher retired it only after the supported licensed host reported Ready and Export Connected. The legacy nested look and independent per-user preset remained byte-exact. The audit.13 ZIP contains 153 verified files from clean 9c3c09b.",
+        "New preset dialogs default to the separate per-user Presets directory; a previous file or other user-selected location still works. Actual native save in the intended directory preserved the selected look and provenance. The current-source licensed first/restart checks passed 288 and 292 assertions."
       ],
       "evidence_paths": [
         "Install-Spektrafilm.ps1",
@@ -732,11 +734,12 @@
         ".test-results/contracts-install-hard-exit-final-20261120/summary.json",
         "InstallUpgradeState.ps1",
         ".test-results/contracts-installed-ready-final-20261120/installer.log",
-        "qa/HostSmoke/InstalledUpgrade.ps1"
+        "qa/HostSmoke/InstalledUpgrade.ps1",
+        "D:/Library AI testing/sf-native-ready-20261120/installed-upgrade-receipt.json",
+        "D:/Library AI testing/sf-native-ready-20261120/proof-settings-receipt.json",
+        ".test-results/host-external-presets-20261120/host-smoke.log"
       ],
-      "remaining_work": [
-        "Verify the new side-by-side retention, real launcher acknowledgment and cleanup using two exact packages and a licensed catalog. Verify externally stored and legacy nested presets across it."
-      ],
+      "remaining_work": [],
       "original_acceptance_tests": [
         "New install, same-version upgrade, legacy-name upgrade and nested/top-level user-file preservation.",
         "Case collisions, Unicode and space-containing paths, inaccessible Desktop, locked binary, file-vs-directory collision, interrupted move and failed rollback.",
@@ -3056,8 +3059,8 @@
   ],
   "counts": {
     "total": 70,
-    "implemented": 23,
-    "partial": 47,
+    "implemented": 24,
+    "partial": 46,
     "pending": 0
   },
   "last_reconciled": "2026-11-20",
