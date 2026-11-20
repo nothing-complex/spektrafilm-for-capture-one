@@ -1063,6 +1063,15 @@ Evidence is under `.test-results/host-native-recipe-naming-async-20261120` and `
 
 Evidence is in `.test-results/host-native-location-accepted-paths-20261120`. Repeat with `Run-HostSmoke.ps1 -NativeEffectFolders` and the exact host's `-NativeSettingsConfig`. This source update is newer than the verified audit.23 package.
 
+## Native slider and compiled renderer compatibility
+
+- [x] Validate each native renderer slider's actual bounds, reset value and step against the compiled option type at startup. Verify output and input choices, push/pull, scan inversion and worker switches before loading the tool.
+- [x] Keep existing managed reset values. Some authored values serve a separate panel function, including the UV and IR off sentinels and starting values for custom color channels. The native inventory reports the slider and renderer defaults explicitly for each managed number.
+- [x] Reject ambiguous option shapes, nonfinite float32 bounds and invalid integer ranges. Pass 268 state and recovery assertions, the complete Windows contract script and the native 344/348 assertion general runs.
+- [x] Record the bounds, increments, units and defaults of 112 native renderer sliders. The licensed inventory passes 20 assertions and retains the same 197-control published inventory.
+
+Evidence is in `.test-results/host-renderer-numeric-inventory-20261120/panel-numeric-contract.json`, `.test-results/host-renderer-range-full-20261120` and `.test-results/contracts-renderer-control-ranges-20261120`. The compatibility check preserves existing reset behavior. A generated managed layout and versioned appearance defaults remain open.
+
 ## Status maintenance
 
 `qa/AUDIT-FIX-STATUS.json` owns task IDs, status, implemented substeps, remaining acceptance work and evidence. This handover owns context, runtime identity and resume instructions. `.test-results/FINAL-RESULT.json` is the completed runtime delivery receipt; keep its runtime commit/package identity distinct from later documentation-only commits.

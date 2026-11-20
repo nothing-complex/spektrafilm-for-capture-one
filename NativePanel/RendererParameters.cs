@@ -45,6 +45,25 @@ internal sealed class RendererParameters
                 throw new InvalidDataException($"The renderer does not advertise the selected {key} option '{value}'. Reinstall the matching runtime.");
     }
 
+    internal void VerifyNumericControl(string key, double minimum, double maximum, double initial, double increment)
+    {
+        if (!parameters.TryGetValue(key, out var parameter) || parameter.Kind is not ("number" or "integer")
+            || !double.IsFinite(minimum) || !double.IsFinite(maximum) || !double.IsFinite(initial) || !double.IsFinite(increment)
+            || minimum > initial || initial > maximum || increment <= 0
+            || (parameter.Kind == "integer" && increment != Math.Truncate(increment))
+            || !parameter.Accepts(NumberToken(minimum)) || !parameter.Accepts(NumberToken(maximum))
+            || !parameter.Accepts(NumberToken(initial)))
+            throw new InvalidDataException($"The {key} control range does not match this Spektrafilm renderer. Reinstall the matching runtime.");
+    }
+
+    internal void VerifyBooleanControl(string key)
+    {
+        if (!parameters.TryGetValue(key, out var parameter) || parameter.Kind != "boolean")
+            throw new InvalidDataException($"The {key} switch is unavailable in this Spektrafilm renderer. Reinstall the matching runtime.");
+    }
+
+    internal static string NumberToken(double number) => number.ToString("0.######", CultureInfo.InvariantCulture);
+
     internal void VerifyArguments(string[] arguments)
     {
         if (arguments.Length % 2 != 0) throw new InvalidDataException("The renderer option list is incomplete.");
@@ -83,14 +102,21 @@ internal sealed class RendererParameters
     {
         internal bool HasValidDefault() => Kind switch
         {
-            "number" or "integer" => Minimum is double min && Maximum is double max && double.IsFinite(min)
-                && double.IsFinite(max) && min <= max && Default.ValueKind == JsonValueKind.Number && Accepts(Default.GetRawText()),
-            "boolean" => Default.ValueKind is JsonValueKind.True or JsonValueKind.False,
-            "choice" => Choices is { Length: > 0 and <= 128 } && Choices.All(value => value is { Length: > 0 and <= 128 })
+            "number" => Choices is null && Minimum is double min && Maximum is double max
+                && float.IsFinite((float)min) && float.IsFinite((float)max) && min <= max && ValidNumberDefault(),
+            "integer" => Choices is null && Minimum is double lower && Maximum is double upper
+                && lower >= int.MinValue && upper <= int.MaxValue && lower <= upper
+                && lower == Math.Truncate(lower) && upper == Math.Truncate(upper) && ValidNumberDefault(),
+            "boolean" => Minimum is null && Maximum is null && Choices is null
+                && Default.ValueKind is JsonValueKind.True or JsonValueKind.False,
+            "choice" => Minimum is null && Maximum is null
+                && Choices is { Length: > 0 and <= 128 } && Choices.All(value => value is { Length: > 0 and <= 128 })
                 && Choices.Distinct(StringComparer.Ordinal).Count() == Choices.Length
                 && Default.ValueKind == JsonValueKind.String && Accepts(Default.GetString()!),
             _ => false,
         };
+
+        private bool ValidNumberDefault() => Default.ValueKind == JsonValueKind.Number && Accepts(Default.GetRawText());
 
         internal bool Accepts(string value) => Kind switch
         {

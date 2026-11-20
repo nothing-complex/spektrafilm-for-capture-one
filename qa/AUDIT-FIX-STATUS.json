@@ -1175,7 +1175,8 @@
       "status": "partial",
       "implemented": [
         "Saved look/preset dictionaries, types, ranges, unknown fields and UI enum options are validated before application; parameter header is fingerprinted.",
-        "The panel reads a bounded compiled parameter manifest and validates available options against its runtime. The licensed-host fixture checked the actual arguments from the full Print and Scan slider boundary presets."
+        "The panel reads a bounded compiled parameter manifest and validates available options against its runtime. The licensed-host fixture checked the actual arguments from the full Print and Scan slider boundary presets.",
+        "Validate every renderer-facing native slider's bounds, initial value and integer step before enabling the panel, as well as the actual switches, scan inversion and push/pull model. Reject contradictory or unrepresentable compiled option shapes. The actual host inventory verifies 112 numeric sliders and retains all 197 control entries; the Windows state suite passes 268 checks and the native general suite passes 344 and 348."
       ],
       "evidence_paths": [
         "NativePanel/LookStateValidation.cs",
@@ -1185,7 +1186,9 @@
         "tests/state",
         "NativePanel/RendererParameters.cs",
         ".test-results/contracts-compilercaps-20261120/summary.json",
-        ".test-results/host-compiled-controls-20261120/host-smoke.log"
+        ".test-results/host-compiled-controls-20261120/host-smoke.log",
+        ".test-results/host-renderer-numeric-inventory-20261120/panel-numeric-contract.json",
+        ".test-results/contracts-renderer-control-ranges-20261120/StateContracts.log"
       ],
       "remaining_work": [
         "Drive managed units, ranges, defaults, dependency groups and schema migrations from the canonical description. Add malformed/bounded property-based validation beyond the current exact fixtures."
@@ -1737,7 +1740,8 @@
         "The licensed host loaded an existing Hanatos 2025 look without changing its method, then persisted a selected 2026 look and rendered it from real 16-bit Capture One development. This passed on both first launch and restart.",
         "The compiled renderer emits a versioned parameter description from its actual numeric limits, choices, defaults and generated film data. Builds verify its parameter header hash and package the description as a required fingerprinted runtime file.",
         "Panel startup validates its advertised stocks, modes, spectral choices and optics colour/enum choices. A renderer missing the 2026 method or calibration for any advertised stock does not expose the 2026 option. The compiled CLI and managed verifier both reject unavailable Process Negative.",
-        "The licensed host validated generated requests for Print and Scan at the managed slider boundaries. The standalone GPU matrix verifies every described renderer key and rejects invalid values, including missing APD calibration."
+        "The licensed host validated generated requests for Print and Scan at the managed slider boundaries. The standalone GPU matrix verifies every described renderer key and rejects invalid values, including missing APD calibration.",
+        "The licensed inventory records the actual ranges, units, steps and UI reset values of 112 renderer-facing sliders against their compiled bounds and renderer defaults. Startup refuses incompatible numeric bounds or boolean types. Existing panel reset values and UV/IR off semantics stay intact."
       ],
       "evidence_paths": [
         "stocks.json",
@@ -1751,7 +1755,9 @@
         "ReleaseManifest.ps1",
         ".test-results/contracts-compilercaps-20261120/summary.json",
         ".test-results/renderer-parameter-matrix-20261120.log",
-        ".test-results/host-compiled-controls-20261120/host-smoke.log"
+        ".test-results/host-compiled-controls-20261120/host-smoke.log",
+        ".test-results/host-renderer-numeric-inventory-20261120/panel-numeric-contract.json",
+        ".test-results/host-renderer-range-full-20261120/host-smoke.log"
       ],
       "remaining_work": [
         "Extend schema coverage with managed labels, units, dependency groups, conditional parameter capabilities and explicit defaults/migration applied by the panel. The authored WPF style and units still live in C#.",

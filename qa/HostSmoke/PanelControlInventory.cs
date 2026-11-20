@@ -20,8 +20,8 @@ public static partial class StartupHook
         var rows = new List<PanelControl>();
         using var worker = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(
             Environment.GetEnvironmentVariable("SPEKTRAFILM_ROOT")!, "renderer", "parameter-capabilities.json")));
-        var workerKeys = worker.RootElement.GetProperty("parameters").EnumerateArray()
-            .Select(option => option.GetProperty("key").GetString()!).ToHashSet(StringComparer.Ordinal);
+        var workerOptions = worker.RootElement.GetProperty("parameters").EnumerateArray()
+            .ToDictionary(option => option.GetProperty("key").GetString()!, StringComparer.Ordinal);
 
         foreach (var name in new[] { "values", "choices", "toggles" })
         {
@@ -56,6 +56,35 @@ public static partial class StartupHook
         BindFields(panel, "lut-export", ("cancelLut", null));
         BindFields(Field(spatial, "histogram")!, "viewer-analysis", ("markHighlights", null));
 
+        var numericControls = bindings.Where(entry => entry.Value.Capability == "vulkan" && entry.Key.GetType().Name == "NativeSlider")
+            .Select(entry =>
+            {
+                var option = entry.Value.Option!;
+                var slider = entry.Key;
+                var contract = workerOptions[option];
+                return new
+                {
+                    Option = option,
+                    Label = AutomationProperties.GetName((DependencyObject)Field(slider, "control")!),
+                    Unit = Prop(Field(slider, "control")!, "Unit"),
+                    Minimum = (double)Prop(slider, "Minimum")!,
+                    Maximum = (double)Prop(slider, "Maximum")!,
+                    Initial = (double)Prop(slider, "Initial")!,
+                    Increment = (double)Prop(slider, "Increment")!,
+                    WorkerKind = contract.GetProperty("kind").GetString()!,
+                    WorkerMinimum = contract.GetProperty("minimum").GetDouble(),
+                    WorkerMaximum = contract.GetProperty("maximum").GetDouble(),
+                    WorkerDefault = contract.GetProperty("default").GetDouble(),
+                };
+            }).OrderBy(control => control.Option, StringComparer.Ordinal).ToArray();
+        Check(numericControls.Length > 0 && numericControls.All(control =>
+            (float)control.Minimum >= (float)control.WorkerMinimum && (float)control.Maximum <= (float)control.WorkerMaximum
+            && control.Initial >= control.Minimum && control.Initial <= control.Maximum && control.Increment > 0
+            && (control.WorkerKind != "integer" || control.Increment == Math.Truncate(control.Increment))),
+            "every displayed worker slider's legal range and precision fit the compiled parameter type");
+        File.WriteAllText(Path.Combine(folder, "panel-numeric-contract.json"),
+            JsonSerializer.Serialize(numericControls, new JsonSerializerOptions { WriteIndented = true }) + Environment.NewLine);
+
         var contextual = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["Defaults"] = "look-state",
@@ -77,7 +106,7 @@ public static partial class StartupHook
             new("Tool / Print stock menu", "Add to favourites / Remove from favourites", "menu", "stock-favourites"),
         });
         Check(bindings.Count == 0, "all registered capability controls are present in the native panel logical tree");
-        Check(rows.All(row => row.Capability != "vulkan" || workerKeys.Contains(row.Option!)),
+        Check(rows.All(row => row.Capability != "vulkan" || workerOptions.ContainsKey(row.Option!)),
             "each native Vulkan control maps to one option in the compiled worker");
         Check(rows.Select(row => (row.Section, row.Label)).Distinct().Count() == rows.Count,
             "each native control has a unique section and label");

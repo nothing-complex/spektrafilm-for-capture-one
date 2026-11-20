@@ -66,6 +66,8 @@ internal sealed class NativeSlider : Grid
 
     internal double Minimum => (double)(control.Minimum / displayScale);
     internal double Maximum => (double)(control.Maximum / displayScale);
+    internal double Initial => defaultValue;
+    internal double Increment => (double)(control.Increment / displayScale);
 
     internal event EventHandler? ValueChanged;
     internal event EventHandler? DragStarted;

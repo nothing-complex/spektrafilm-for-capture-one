@@ -253,6 +253,10 @@ internal sealed class SpatialPreview : IDisposable
         renderer.VerifyOptions("output-color", OutputSpaces.Select(choice => choice.Id));
         foreach (var (key, selector) in choices)
             renderer.VerifyOptions(key, ((Choice[])selector.ItemsSource).Select(choice => choice.Id));
+        foreach (var (key, slider) in values)
+            renderer.VerifyNumericControl(key, slider.Minimum, slider.Maximum, slider.Initial, slider.Increment);
+        foreach (var key in toggles.Keys.Where(key => !key.StartsWith("custom-", StringComparison.Ordinal)))
+            renderer.VerifyBooleanControl(key);
     }
 
     internal Settings CaptureSettings()
@@ -1598,7 +1602,7 @@ internal sealed class SpatialPreview : IDisposable
         var args = new List<string>();
         Choice Selected(string key) => (Choice)choices[key].SelectedItem;
         void Set(string key, string value) { args.Add("--" + key); args.Add(value); }
-        void Numeric(string key, double value) => Set(key, value.ToString("0.######", CultureInfo.InvariantCulture));
+        void Numeric(string key, double value) => Set(key, RendererParameters.NumberToken(value));
 
         Set("stock", look.Film);
         Set("paper", look.Paper);

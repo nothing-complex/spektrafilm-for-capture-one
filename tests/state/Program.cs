@@ -321,6 +321,7 @@ var fixtureOptions = new object[]
     modeOption,
     new { key = "film-gamma", kind = "number", minimum = 0.100000001, maximum = 2d, @default = 1d },
     new { key = "grain-seed", kind = "integer", minimum = 0, maximum = int.MaxValue, @default = 1 },
+    new { key = "uv-enabled", kind = "boolean", @default = false },
 };
 void WriteRendererFixture(bool academyPrinterDensity, object[] parameters, int protocol = 2) => PanelFiles.WriteCompactPreset(rendererManifestPath, new
 {
@@ -330,6 +331,36 @@ void WriteRendererFixture(bool academyPrinterDensity, object[] parameters, int p
 WriteRendererFixture(false, fixtureOptions);
 var capabilities = RendererParameters.Read(scratch);
 capabilities.VerifyArguments(new[] { "--mode", "print", "--film-gamma", "0.1", "--grain-seed", "2147483647" });
+capabilities.VerifyNumericControl("film-gamma", .1, 2, 1.3, .05);
+capabilities.VerifyNumericControl("grain-seed", 0, 32767, 1, 1);
+capabilities.VerifyBooleanControl("uv-enabled");
+Check("managed numeric bounds, an intentional panel default and a smaller integer range match the renderer", true);
+Throws<InvalidDataException>("numeric control refuses a narrower worker maximum",
+    () => capabilities.VerifyNumericControl("film-gamma", .1, 2.01, 1, .05));
+Throws<InvalidDataException>("numeric control refuses a default outside the panel range",
+    () => capabilities.VerifyNumericControl("film-gamma", .5, 2, .1, .05));
+Throws<InvalidDataException>("numeric control refuses a nonfinite UI bound",
+    () => capabilities.VerifyNumericControl("film-gamma", double.NaN, 2, 1, .05));
+Throws<InvalidDataException>("integer control refuses a fractional step",
+    () => capabilities.VerifyNumericControl("grain-seed", 0, 32767, 1, .5));
+Throws<InvalidDataException>("numeric control refuses an absent renderer key",
+    () => capabilities.VerifyNumericControl("deleted-number", 0, 1, 0, .1));
+Throws<InvalidDataException>("boolean control refuses a compiled choice using the same name",
+    () => capabilities.VerifyBooleanControl("mode"));
+foreach (var malformed in new object[]
+{
+    new { key = "overflow", kind = "number", minimum = 0d, maximum = 1e100, @default = 1d },
+    new { key = "fractional-bounds", kind = "integer", minimum = 0.25, maximum = 4.75, @default = 1 },
+    new { key = "overflow", kind = "integer", minimum = 0, maximum = (long)int.MaxValue + 1, @default = 1 },
+    new { key = "number-with-choices", kind = "number", minimum = 0d, maximum = 2d, @default = 1d, choices = new[] { "1" } },
+    new { key = "bounded-boolean", kind = "boolean", minimum = 0, maximum = 1, @default = true },
+    new { key = "bounded-choice", kind = "choice", minimum = 0, maximum = 1, @default = "one", choices = new[] { "one" } },
+})
+{
+    WriteRendererFixture(false, new[] { malformed });
+    Throws<InvalidDataException>("compiled capability rejects contradictory or unrepresentable numeric limits",
+        () => RendererParameters.Read(scratch));
+}
 Check("renderer manifest respects float32 boundaries and calibrated method advertisements",
     capabilities.SupportsHanatos2026("kodak_portra_400") && !capabilities.SupportsHanatos2026("missing"));
 Check("an uncalibrated APD mode is hidden even if the parser knows its name",

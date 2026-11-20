@@ -1434,6 +1434,14 @@ internal static class SpektraFilmTool
                 renderer.VerifyOptions("stock", available.Films.Select(stock => stock.Id));
                 renderer.VerifyOptions("paper", available.Papers.Select(stock => stock.Id));
                 renderer.VerifyOptions("mode", available.Modes.Select(mode => mode.Id));
+                renderer.VerifyOptions("mode", new[] { "print", "scan", "scan_inverted" });
+                renderer.VerifyOptions("film-push-pull-mode", ((Stock[])filmPushPullMode.ItemsSource).Select(choice => choice.Id));
+                VerifyNumber("film-exposure", exposure);
+                VerifyNumber("print-exposure", printExposure);
+                renderer.VerifyBooleanControl("uv-enabled");
+                renderer.VerifyBooleanControl("ir-enabled");
+                foreach (var (stateKey, workerKey) in SpatialPreview.DevelopmentRendererParameters)
+                    VerifyNumber(workerKey, development[stateKey].Slider);
                 if (!renderer.SupportsChoice("spectral-method", "hanatos2026")
                     || !available.Films.All(stock => renderer.SupportsHanatos2026(stock.Id)))
                     available = available with { SpectralMethods = available.SpectralMethods.Where(method => method.Id != "hanatos2026").ToArray() };
@@ -1443,6 +1451,9 @@ internal static class SpektraFilmTool
                 SetDefaults();
                 controlsLoadFailed = false;
                 SyncSelection();
+
+                void VerifyNumber(string key, NativeSlider slider) =>
+                    renderer.VerifyNumericControl(key, slider.Minimum, slider.Maximum, slider.Initial, slider.Increment);
             }
             catch (Exception error)
             {
