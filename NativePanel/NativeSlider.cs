@@ -38,6 +38,10 @@ internal sealed class NativeSlider : Grid
         if (places > 4)
             control.UpDownWidth += (places - 4) * 8;
         AutomationProperties.SetName(control, title);
+        var displayUnit = string.IsNullOrEmpty(unit) ? "" : " " + unit;
+        AutomationProperties.SetHelpText(control,
+            $"Default {ToDisplay(initial)}{displayUnit}. Double-click the label or slider to reset.");
+        ToolTip = title;
         Children.Add(control);
         control.PropertyChanged += (_, args) =>
         {

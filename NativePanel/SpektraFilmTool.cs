@@ -1200,6 +1200,12 @@ internal static class SpektraFilmTool
         {
             section.Children.Add(new TextBlock { Text = label, Margin = new Thickness(0, 4, 0, 2) });
             AutomationProperties.SetName(chooser, label);
+            if (ReferenceEquals(chooser, film) || ReferenceEquals(chooser, paper))
+            {
+                chooser.IsTextSearchEnabled = true;
+                TextSearch.SetTextPath(chooser, nameof(Stock.Label));
+                AutomationProperties.SetHelpText(chooser, "Type the start of a stock name to select it.");
+            }
             section.Children.Add(chooser);
             chooser.SelectionChanged += (_, _) => (changed ?? RefreshLook)();
         }

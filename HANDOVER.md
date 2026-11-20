@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 20 bounded primary fixes implemented, 43 partial items and 7 pending items. It includes feasibility investigations and enhancements.
+Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The full 70-item integration audit tracks 20 bounded primary fixes implemented, 44 partial items and 6 pending items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -497,6 +497,15 @@ Evidence is under `.test-results/audit5-package-verify-20261120`. The alternate 
 - [ ] Add the later film-density, print and scanner cache stages and validate them under native motion and memory overlap.
 
 Evidence is under `.test-results/metering-cache-smoke-20261120.log` and `.test-results/metering-*-20261120.json`.
+
+## Native control labels and held comparison
+
+- [x] Use the stock pickers’ native name search. Provide full film slider labels, displayed defaults and reset actions for automation and tooltips.
+- [x] Add Hold to Compare through the WPF pressed state. A licensed panel test switches to the exact cached developed source and back to the original film bitmap. The master look and Show source state remain owned by their existing controls.
+- [x] Pass 190 new-launch and 195 restart checks with the native controls in the disposable catalog.
+- [ ] Add favourites and recent presets. Verify actual keyboard/pointer gestures, locale-aware numeric entry, screen-reader navigation and physical DPI.
+
+Evidence is under `.test-results/host-native-controls-20261120`.
 
 ## Status maintenance
 

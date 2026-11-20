@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -11,6 +12,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -98,6 +100,8 @@ internal sealed class SpatialPreview : IDisposable
         ToolTip = "Long edge of the temporary frame while dragging when the selected Viewer resolution is higher.",
     };
     private readonly CheckBox showSource = new() { Content = "Show source", Margin = new Thickness(0, 4, 0, 1), IsEnabled = false };
+    private readonly Button holdCompare = new() { Content = "Hold to compare", Margin = new Thickness(8, 4, 0, 1) };
+    private static readonly DependencyPropertyDescriptor ComparePress = DependencyPropertyDescriptor.FromProperty(Button.IsPressedProperty, typeof(Button));
     private readonly Button savePreview = new() { Content = "Save preview PNG…", Margin = new Thickness(0, 4, 0, 1), HorizontalAlignment = HorizontalAlignment.Left, IsEnabled = false };
     private readonly CheckBox fastSynthesis = new()
     {
@@ -142,6 +146,10 @@ internal sealed class SpatialPreview : IDisposable
         liveControls.Children.Add(status);
         var actions = new WrapPanel();
         actions.Children.Add(showSource);
+        holdCompare.SetBinding(UIElement.IsEnabledProperty, new Binding(nameof(UIElement.IsEnabled)) { Source = showSource });
+        AutomationProperties.SetHelpText(holdCompare, "Hold the mouse button or Space to show the developed source.");
+        actions.Children.Add(holdCompare);
+        ComparePress.AddValueChanged(holdCompare, OnComparePressChanged);
         savePreview.Margin = new Thickness(8, 4, 0, 1);
         actions.Children.Add(savePreview);
         liveControls.Children.Add(actions);
@@ -195,11 +203,21 @@ internal sealed class SpatialPreview : IDisposable
         exportWork?.Cancel();
         ClearPreview();
         refresh.Tick -= OnRefreshTick;
+        ComparePress.RemoveValueChanged(holdCompare, OnComparePressChanged);
         viewer.StatusChanged -= UpdateViewerStatus;
         viewer.Dispose();
         histogram.Dispose();
     }
-    internal bool CompareSource { get => showSource.IsChecked == true; set => showSource.IsChecked = value; }
+    internal bool CompareSource
+    {
+        get => showSource.IsChecked == true || holdCompare.IsPressed && holdCompare.IsEnabled;
+        set => showSource.IsChecked = value;
+    }
+
+    private void OnComparePressChanged(object? sender, EventArgs args)
+    {
+        if (showSource.IsChecked != true) RequestRefresh();
+    }
     private int DragLongEdge => ((DragSize)dragPreviewSize.SelectedItem).LongEdge;
 
     internal static SpatialPreview BuildForPanel(object window, Func<LookSettings?> getSettings, Func<Guid, bool> useSelectedLook,

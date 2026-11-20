@@ -2570,16 +2570,21 @@
       "id": "NI-02",
       "title": "Finish native control interaction, discoverability and accessibility",
       "priority": "P2",
-      "status": "pending",
-      "implemented": [],
-      "evidence_paths": [],
+      "status": "partial",
+      "implemented": [
+        "Film and print stock selectors support the native WPF name-search interaction. Sliders expose a full accessible label, the displayed default value, unit and reset gesture. Tooltips retain long labels in a narrow panel.",
+        "Hold to Compare uses the native WPF pressed state and shares the settled source/film cache. Pressing the button in the live host showed the identical source bitmap and releasing it restored the identical film bitmap. It preserved the Show source toggle and creative settings.",
+        "190 initial and 195 restart checks passed. The licensed fixture verifies the actual WPF automation properties and observes programmatic press/release transitions on the rendered Viewer."
+      ],
+      "evidence_paths": [
+        "NativePanel/NativeSlider.cs",
+        "NativePanel/SpatialPreview.cs",
+        "NativePanel/SpektraFilmTool.cs",
+        ".test-results/host-native-controls-20261120/host-smoke.log"
+      ],
       "remaining_work": [
-        "Document Capture One baseline semantics on a disposable catalog: double-click defaults, wheel/focus, keyboard arrows, fine adjustment, numeric commit/escape and multi-selection.",
-        "Use parameter manifest labels/units/tooltips/ranges and capability dependencies; preserve values when sections are unavailable without allowing invalid render commands.",
-        "Add explicit automation names, keyboard order/focus cues and locale-aware round-tripping.",
-        "Preserve floating panel DPI/theme/placement through HS-14; avoid width-dependent label truncation without accessible full labels.",
-        "Add stock search, favorites and recent presets using stable IDs; keep core controls visible and advanced groups discoverable.",
-        "Provide cached hold-to-compare as a separate display action, not a saved creative change or a reset of master enable."
+        "Add persistent favourites and recent preset choices using stable identities.",
+        "Compare actual keyboard, mouse, numeric entry, locale and screen-reader behavior with native Capture One. Physical DPI and focus travel remain open."
       ],
       "original_acceptance_tests": [
         "Keyboard and pointer edit/reset/cancel sequences produce identical persisted values and one intended undo gesture.",
@@ -2862,8 +2867,8 @@
   "counts": {
     "total": 70,
     "implemented": 20,
-    "partial": 43,
-    "pending": 7
+    "partial": 44,
+    "pending": 6
   },
   "last_reconciled": "2026-11-20",
   "handover": "HANDOVER.md",

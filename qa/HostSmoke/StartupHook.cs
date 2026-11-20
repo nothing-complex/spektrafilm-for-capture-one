@@ -9,6 +9,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -110,6 +111,7 @@ public static partial class StartupHook
             await TestPresetExport(panelAssembly, panel, store, variant);
             await TestViewportQuality(spatial, variant);
             await TestSpectralReconstruction(panel, spatial, store, variant);
+            TestPanelAccessibility(panel, spatial, exposure);
             await TestViewerHistogram(hook, spatial, restart);
             await TestLockedLook(panel, store, variant, exposure, toggle);
             var optics = Call(spatial, "CaptureSettings")!;
@@ -501,6 +503,29 @@ public static partial class StartupHook
                 "Show source produces a fresh histogram from the actual source Viewer pixels");
             Check(ReferenceEquals(Field(viewer, "clippingSource"), Field(spatial, "viewerFrame"))
                 && !ReferenceEquals(Field(viewer, "clippingSource"), displayed), "Show source refreshes the clipping overlay for the visible frame");
+            if (spatial.GetType().GetField("holdCompare", Flags)?.GetValue(spatial) is Button hold)
+            {
+                var sourceFrame = Field(spatial, "viewerFrame");
+                comparison.IsChecked = false;
+                await WaitForHistogram();
+                var originalFilm = Field(spatial, "viewerFrame");
+                var readSettings = (Delegate)Field(spatial, "getSettings")!;
+                var before = JsonSerializer.SerializeToNode(readSettings.DynamicInvoke());
+                var press = (DependencyPropertyKey)typeof(System.Windows.Controls.Primitives.ButtonBase)
+                    .GetField("IsPressedPropertyKey", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null)!;
+                hold.SetValue(press, true);
+                try
+                {
+                    await WaitForHistogram();
+                    Check(comparison.IsChecked == false && ReferenceEquals(Field(spatial, "viewerFrame"), sourceFrame),
+                        "holding the native compare button paints the cached source without setting Show source");
+                }
+                finally { hold.SetValue(press, false); }
+                await WaitForHistogram();
+                Check(ReferenceEquals(Field(spatial, "viewerFrame"), originalFilm)
+                    && JsonNode.DeepEquals(before, JsonSerializer.SerializeToNode(readSettings.DynamicInvoke())),
+                    "releasing compare restores the same settled film bitmap and creative settings");
+            }
             section.IsExpanded = false;
             Check(Prop(histogram, "Histogram") is null && Field(viewer, "clippingMask") is null
                 && Field(viewer, "inspectionEnabled") is false && File.Exists(Path.Combine(folder, "Panel preferences.json")),
@@ -513,6 +538,18 @@ public static partial class StartupHook
             comparison.IsChecked = priorComparison;
             select.Invoke(null, new[] { palette, priorTab });
         }
+    }
+
+    static void TestPanelAccessibility(object panel, object spatial, object exposure)
+    {
+        if (spatial.GetType().GetField("holdCompare", Flags) is null) return;
+        var slider = (UIElement)Field(exposure, "control")!;
+        Check(AutomationProperties.GetName(slider) == "Film exposure" && AutomationProperties.GetHelpText(slider).Contains("Double-click", StringComparison.Ordinal),
+            "actual native film slider exposes its full label and reset action to automation");
+        var film = (ComboBox)Field(panel, "film")!;
+        var paper = (ComboBox)Field(panel, "paper")!;
+        Check(film.IsTextSearchEnabled && paper.IsTextSearchEnabled && TextSearch.GetTextPath(film) == "Label" && TextSearch.GetTextPath(paper) == "Label",
+            "the actual stock pickers search their displayed names");
     }
 
     static System.Collections.Generic.IEnumerable<ImageSource> ImageLayers(Visual visual)
