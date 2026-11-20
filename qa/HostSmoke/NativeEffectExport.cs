@@ -238,6 +238,7 @@ public static partial class StartupHook
         Task<bool>? job = null;
         string? offeredFilename = null;
         string? offeredDirectory = null;
+        string? offeredTitle = null;
         Action? beforeDestinationApproval = null;
         var cancelDestination = false;
         Task<bool> Route()
@@ -249,6 +250,7 @@ public static partial class StartupHook
                 {
                     offeredFilename = picker.FileName;
                     offeredDirectory = picker.InitialDirectory;
+                    offeredTitle = picker.Title;
                     beforeDestinationApproval?.Invoke();
                     return cancelDestination ? null : destination;
                 }))!;
@@ -508,6 +510,7 @@ public static partial class StartupHook
                     await CheckNumberedNames();
                     await CheckNativeCounter();
                     await CheckSkipExisting();
+                    await CheckDeliveryAlternatives();
                 }
                 finally
                 {
@@ -669,14 +672,18 @@ public static partial class StartupHook
                     File.WriteAllBytes(protectedPath, previousBytes);
                     var writeTime = File.GetLastWriteTimeUtc(protectedPath);
 
-                    await RunSkip("Native Export", () => ShowNativeDialog(() =>
+                    void ConfirmNative()
                     {
-                        if (Prop(bridge, "Dialog") is not Window { IsVisible: true } owner || owner.DataContext is not { } model
-                            || Prop(model, "ExportCommand") is not ICommand confirm || !confirm.CanExecute(null))
-                            return false;
-                        confirm.Execute(null);
-                        return true;
-                    }), expectedPicker: false);
+                        ShowNativeDialog(() =>
+                        {
+                            if (Prop(bridge, "Dialog") is not Window { IsVisible: true } owner || owner.DataContext is not { } model
+                                || Prop(model, "ExportCommand") is not ICommand confirm || !confirm.CanExecute(null))
+                                return false;
+                            confirm.Execute(null);
+                            return true;
+                        });
+                    }
+                    await RunSkip("Native Export", ConfirmNative, expectedPicker: false);
                     await RunSkip("Previous Settings", () => ExecuteNativeExportCommand(previous), expectedPicker: false);
                     Check(File.GetLastWriteTimeUtc(protectedPath) == writeTime, "native Skip leaves the existing file’s timestamp intact");
 
@@ -700,6 +707,17 @@ public static partial class StartupHook
                     }
                     finally { cancelDestination = false; }
 
+                    subfolder.SetValue(selected, Path.GetFileName(directory));
+                    format.SetValue(selected, Enum.Parse(format.PropertyType, "Png"));
+                    var pngRecipe = host.GetMethod("ActiveRecipe", Flags)!.Invoke(null, new[] { window })!;
+                    Check(Prop(pngRecipe, "FormatId") is "Png" && Prop(pngRecipe, "SkipExistingOutput") is true,
+                        "the selected recipe requests native PNG Skip");
+                    expectedFile = (string)Prop(pngRecipe, "SuggestedFilename")! + ".png";
+                    protectedPath = Path.Combine(directory, expectedFile);
+                    File.WriteAllBytes(protectedPath, previousBytes);
+                    await RunSkip("PNG Native Export", ConfirmNative, expectedPicker: false);
+                    await RunSkip("PNG Previous Settings", () => ExecuteNativeExportCommand(previous), expectedPicker: false);
+
                     async Task RunSkip(string command, Action execute, bool expectedPicker)
                     {
                         offeredFilename = null;
@@ -716,6 +734,50 @@ public static partial class StartupHook
                             && Equals(Prop(receipt, "Width"), 0) && Equals(counterProperty.GetValue(document), counterBefore)
                             && File.ReadAllBytes(protectedPath).SequenceEqual(previousBytes),
                             $"{command} preserves the file and counter and records a distinct skipped outcome");
+                    }
+                }
+
+                async Task CheckDeliveryAlternatives()
+                {
+                    var fixture = Directory.CreateDirectory(Path.Combine(fixtureRoot, "delivery-alternatives")).FullName;
+                    subfolder.SetValue(selected, Path.GetFileName(fixture));
+                    filename.SetValue(selected, "Recipe delivery");
+                    overwrite.SetValue(selected, Enum.Parse(overwrite.PropertyType, "Rename"));
+                    var bits = type.GetProperty("TiffBits", Flags)!;
+                    var originalBits = bits.GetValue(selected);
+                    var compressionSetting = type.GetProperty("TiffCompression", Flags)!;
+                    var originalCompression = compressionSetting.GetValue(selected);
+                    try
+                    {
+                        format.SetValue(selected, Enum.Parse(format.PropertyType, "Jpeg"));
+                        await Render("jpeg-recipe-save-tiff", ".tif", false, fixtureOutputDirectory: fixture,
+                            expectedCompression: TiffCompressOption.Zip);
+                        VerifyAlternative("JPEG");
+
+                        format.SetValue(selected, Enum.Parse(format.PropertyType, "Tiff"));
+                        bits.SetValue(selected, 8);
+                        compressionSetting.SetValue(selected, Enum.Parse(compressionSetting.PropertyType, "Zip"));
+                        await Render("eight-bit-tiff-recipe-save-tiff", ".tif", true, fixtureOutputDirectory: fixture,
+                            expectedCompression: TiffCompressOption.Zip);
+                        VerifyAlternative("8-bit TIFF");
+                    }
+                    finally
+                    {
+                        bits.SetValue(selected, originalBits);
+                        compressionSetting.SetValue(selected, originalCompression);
+                    }
+
+                    void VerifyAlternative(string requested)
+                    {
+                        var receipt = Call(Field(spatial, "exportJobs")!, "ReadLatest")!;
+                        var note = $"Recipe requested {requested}. Saved 16-bit TIFF.";
+                        Check(offeredTitle?.StartsWith($"Recipe requests {requested} · Save 16-bit TIFF or PNG", StringComparison.Ordinal) == true,
+                            $"Save discloses the {requested} substitution before publication");
+                        var describe = spatial.GetType().GetMethod("DescribePreviousExport", Flags)!;
+                        Check(Equals(Prop(receipt, "DeliveryNote"), note)
+                            && ((TextBlock)Field(spatial, "exportStatus")!).Text.Contains(note, StringComparison.Ordinal)
+                            && (describe.Invoke(null, new[] { receipt }) as string)?.Contains(note, StringComparison.Ordinal) == true,
+                            $"the completed {requested} export records the actual 16-bit alternative");
                     }
                 }
 

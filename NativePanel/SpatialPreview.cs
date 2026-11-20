@@ -611,7 +611,8 @@ internal sealed class SpatialPreview : IDisposable
                 input.Space, captureRecipe: useRecipeSize);
             var recipe = snapshot.Recipe;
             var deliveryProfile = ExportColorProfile.ForRecipe(recipe?.ColorProfileName, recipe?.ColorProfilePath);
-            var extension = SpektraExport.ExtensionFor(recipe?.FormatId);
+            var delivery = new SpektraExport.RecipeDelivery(recipe?.FormatId, recipe?.TiffBits ?? 0, recipe?.CropMode);
+            var extension = delivery.Extension;
             var dpi = recipe is null ? ExportResolution.DefaultDpi : ExportResolution.DotsPerInch(recipe.Resolution, recipe.ResolutionUnit);
             var suggestedName = SpektraExport.SuggestedOutputName(recipe?.SuggestedFilename, target.SourcePath, extension,
                 recipe?.SuggestedDirectory, recipe?.AddSuffixToExistingFileName == true);
@@ -621,9 +622,7 @@ internal sealed class SpatialPreview : IDisposable
 
             var picker = new SaveFileDialog
             {
-                Title = recipe is null
-                    ? "Save 16-bit Spektrafilm export (sRGB)"
-                    : $"Save {recipe.Width} × {recipe.Height} 16-bit TIFF or PNG · {deliveryProfile.Label}",
+                Title = delivery.SaveTitle(recipe?.Width ?? 0, recipe?.Height ?? 0, deliveryProfile.Label),
                 Filter = SpektraExport.FileFilter,
                 FilterIndex = extension == ".png" ? 2 : 1,
                 FileName = suggestedName,
@@ -651,6 +650,7 @@ internal sealed class SpatialPreview : IDisposable
                 if (approved.AlreadyExists && StringComparer.OrdinalIgnoreCase.Equals(skipPath, approved.Path))
                     return Skip(approved);
                 var outputFormat = SpektraExport.PixelFormatFor(approved.Path);
+                var deliveryNote = delivery.SavedNote(outputFormat);
                 receipt = exportJobs.Accept(work.VariantId, approved.Path);
                 if (owner is { IsVisible: true } && owner.Title.EndsWith(ExportFailureTitleSuffix, StringComparison.Ordinal))
                     owner.Title = owner.Title[..^ExportFailureTitleSuffix.Length];
@@ -746,8 +746,9 @@ internal sealed class SpatialPreview : IDisposable
                     && StringComparer.OrdinalIgnoreCase.Equals(Path.GetFileNameWithoutExtension(suggestedName),
                         Path.GetFileNameWithoutExtension(approved.Path))
                     ? AdvanceNativeExportCounter(advance, jobId) : "";
-                Advance(ExportStage.Completed, $"Saved 16-bit Spektrafilm export · {result.PixelWidth} × {result.PixelHeight}{counterStatus}",
-                    result.PixelWidth, result.PixelHeight);
+                var noteText = deliveryNote is null ? "" : Environment.NewLine + deliveryNote;
+                Advance(ExportStage.Completed, $"Saved 16-bit Spektrafilm export · {result.PixelWidth} × {result.PixelHeight}{counterStatus}{noteText}",
+                    result.PixelWidth, result.PixelHeight, deliveryNote: deliveryNote);
                 StartupHook.Log($"Spektrafilm 16-bit export saved at {result.PixelWidth}x{result.PixelHeight}: {approved.Path}");
                 return true;
 
@@ -809,10 +810,10 @@ internal sealed class SpatialPreview : IDisposable
                 StartupHook.Log("Could not remove the temporary Spektrafilm export: " + cleanupError);
         }
 
-        void Advance(ExportStage stage, string message, int width = 0, int height = 0, string? error = null)
+        void Advance(ExportStage stage, string message, int width = 0, int height = 0, string? error = null, string? deliveryNote = null)
         {
             if (receipt is not null)
-                receipt = exportJobs.Report(receipt, stage, width, height, error);
+                receipt = exportJobs.Report(receipt, stage, width, height, error, deliveryNote);
             if (exportStatus.Dispatcher.CheckAccess())
             {
                 if (!disposed) exportStatus.Text = message;
@@ -885,7 +886,8 @@ internal sealed class SpatialPreview : IDisposable
     private static string DescribePreviousExport(ExportReceipt? receipt) => receipt?.Stage switch
     {
         null => string.Empty,
-        ExportStage.Completed => $"Last Spektrafilm export · {receipt.Width} × {receipt.Height} · {Path.GetFileName(receipt.Destination)}",
+        ExportStage.Completed => $"Last Spektrafilm export · {receipt.Width} × {receipt.Height} · {Path.GetFileName(receipt.Destination)}"
+            + (receipt.DeliveryNote is { } note ? Environment.NewLine + note : ""),
         ExportStage.Skipped => $"Previous Spektrafilm export skipped · {Path.GetFileName(receipt.Destination)} already exists.",
         ExportStage.Canceled => "Previous Spektrafilm export canceled.",
         ExportStage.Failed => "Previous Spektrafilm export failed. " + receipt.Error,

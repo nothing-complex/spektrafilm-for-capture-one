@@ -11,11 +11,42 @@ internal static class SpektraExport
 {
     internal const string FileFilter = "16-bit TIFF image|*.tif|16-bit PNG image|*.png";
 
-    internal static string ExtensionFor(string? format) => format?.ToUpperInvariant() switch
+    internal readonly record struct RecipeDelivery(string? Format, int TiffBits, string? CropMode)
     {
-        "PNG" => ".png",
-        _ => ".tif",
-    };
+        internal string Extension => Format == "Png" ? ".png" : ".tif";
+        private bool CropPath => CropMode == "AsPath";
+        private bool RequiresFormatChange => Format is not (null or "Png") && (Format != "Tiff" || TiffBits != 16);
+
+        private string RequestedFormat => Format switch
+        {
+            "Tiff" when TiffBits is 8 or 16 => $"{TiffBits}-bit TIFF",
+            "Tiff" => "TIFF with a different bit depth",
+            "Png" => "PNG",
+            "Jpeg" or "JpegQuickProof" => "JPEG",
+            "Psd" => "PSD",
+            "Dng" => "DNG",
+            _ => "a different file format",
+        };
+
+        internal string SaveTitle(int width, int height, string profile)
+        {
+            if (Format is null)
+                return $"Save 16-bit Spektrafilm export ({profile})";
+            var prefix = RequiresFormatChange ? $"Recipe requests {RequestedFormat} · " : "";
+            var crop = CropPath ? " · full image, crop path omitted" : "";
+            return $"{prefix}Save 16-bit TIFF or PNG{crop} · {width} × {height} · {profile}";
+        }
+
+        internal string? SavedNote(PixelFormat outputFormat)
+        {
+            var png = outputFormat == PixelFormats.Rgba64;
+            var changed = RequiresFormatChange || Format is "Png" && !png || Format is "Tiff" && png;
+            var format = changed ? $"Recipe requested {RequestedFormat}. Saved 16-bit {(png ? "PNG" : "TIFF")}." : null;
+            const string crop = "Saved the full image. The recipe’s crop path was omitted.";
+            if (!CropPath) return format;
+            return format is null ? crop : format + " " + crop;
+        }
+    }
 
     internal static string SuggestedOutputName(string? recipeName, string sourcePath, string extension,
         string? directory = null, bool addSuffix = false)

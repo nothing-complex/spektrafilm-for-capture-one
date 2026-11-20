@@ -1672,7 +1672,9 @@
         "Resolve the recipe’s native naming token and advance its Output Counter only after publishing the accepted suggested filename. Canceling, choosing a different filename and failing publication leave the counter alone. An intervening counter or naming change preserves the approved output without advancing the newer sequence.",
         "The licensed fixture uses a native three-digit token, starting at 41 with increment 3. Both native commands reopen the exact effect-processed RGB16 TIFF and ICC, and advance to 44 then 47. A save of the captured name after the native counter changes to 90 preserves the saved TIFF and the new counter. Tested native recipe suffixes separately with a literal stem. The 142-check targeted run verifies all nine native recipe files and the unchanged source catalog. The 16.4 and signed 16.7 reference builds agree across 566 emitted host references.",
         "For a TIFF or PNG recipe set to Skip, distinguish an exact resolved output folder from the fallback Save hint. An existing exact destination produces a separate skipped receipt. The publisher also checks for a collision arriving before Save accepts the exact path. Original and output identity guards, the ordinary Save path and counter success behavior are retained.",
-        "A 152-check licensed Capture One 16.4 launch verifies both real native commands with a TIFF Skip recipe, a file that appears while Save is open and the missing-subfolder fallback. Three skip receipts have zero image dimensions and no render or counter events. The preexisting bytes, timestamps in the initially occupied case, counter, all nine recipe files and source catalog verify. Pass 12,509 portable Viewer/export checks and match 566 host references against signed 16.7.8.3529."
+        "A 152-check licensed Capture One 16.4 launch verifies both real native commands with a TIFF Skip recipe, a file that appears while Save is open and the missing-subfolder fallback. Three skip receipts have zero image dimensions and no render or counter events. The preexisting bytes, timestamps in the initially occupied case, counter, all nine recipe files and source catalog verify. Pass 12,509 portable Viewer/export checks and match 566 host references against signed 16.7.8.3529.",
+        "The Save picker names an unsupported format or depth before the user approves a 16-bit substitute. Completed receipts preserve the actual chosen format when it differs. Cancel, failure and Skip produce no saved-format note. The policy also discloses full-image delivery for an omitted crop path. Portable tests cover TIFF 8/16-bit, PNG, JPEG, unknown formats, direct export, crop-path notices and receipt reload.",
+        "A 175-check native 16.4 launch covers a JPEG recipe through Export and an 8-bit TIFF recipe through Previous Settings. Both identify the replacement before Save, persist the note after publication and produce actual 3000 by 2000 RGB16 TIFFs with the exact ICC and decoded low bits. Both native commands also honor PNG Skip. The five Skip jobs have no renderer events. All nine recipe files and the source catalog verify. Pass 12,519 portable Viewer/export checks."
       ],
       "evidence_paths": [
         "NativePanel/SpektraFilmTool.cs",
@@ -1709,11 +1711,14 @@
         ".test-results/host-native-output-counter-completed-20261120",
         ".test-results/host-native-tiff-recipe-skip-20261120",
         ".test-results/recipe-skip-viewer-contracts-20261120.log",
-        ".test-results/host67-contracts/reference-drift-recipe-skip.json"
+        ".test-results/host67-contracts/reference-drift-recipe-skip.json",
+        ".test-results/host-native-delivery-policy-20261120",
+        ".test-results/host-native-delivery-policy-20261120/independent-delivery-check.json",
+        ".test-results/native-delivery-policy-contracts-20261120.log"
       ],
       "remaining_work": [
         "Directory creation and the full location token matrix, automatic Overwrite behavior, tiling and other format and quality settings beyond the explicit 16-bit TIFF/PNG save policy remain open.",
-        "Verify native PNG Skip and characterize Capture One’s behavior for unsupported delivery formats and sidecars. TIFF Skip is verified. Explicit overwrite still requires Save approval.",
+        "Characterize Capture One’s remaining delivery settings and sidecars, including a native PSD crop-path case. JPEG and 8-bit TIFF substitution and TIFF/PNG Skip are verified. Explicit overwrite still requires Save approval.",
         "The counter update follows file publication. Verify persisted native counter continuity across a restart with a dedicated catalog fixture that deliberately keeps its changed counter."
       ],
       "original_acceptance_tests": [

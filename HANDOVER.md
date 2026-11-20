@@ -1390,9 +1390,18 @@ Run `Run-HostSmoke.ps1 -NativeEffectFolders -SkipRestart` with the copied fixtur
 - [x] Keep the file when a TIFF or PNG recipe set to Skip resolves to a verified existing destination. Record a separate terminal receipt, and keep the native counter. Check the approved recipe path again after Save so a recently created file is preserved. Missing or unresolved subfolders still provide a Save hint.
 - [x] Pass 152 checks on licensed 16.4. The fixture explicitly selects TIFF and invokes both native commands. It also covers a file arriving during Save and an occupied root with a missing recipe subfolder. Three receipts report Skip with zero render or counter events. Existing bytes, all nine recipe files and the source catalog verify.
 - [x] Pass 12,509 Viewer and export contracts and compare 566 emitted host references against signed 16.7.8.3529. Licensed 16.7 runtime coverage remains open.
-- [ ] Exercise a native PNG Skip recipe and the broader Location matrix. Explicit overwrites still use Save approval.
+- [x] Verify a native PNG Skip recipe through both Export and Previous Settings in the delivery policy fixture below.
+- [ ] Extend the Location matrix. Explicit overwrites still use Save approval.
 
 Evidence is under `.test-results/host-native-tiff-recipe-skip-20261120`, `.test-results/recipe-skip-viewer-contracts-20261120.log` and `.test-results/host67-contracts/reference-drift-recipe-skip.json`. Run `Run-HostSmoke.ps1 -NativeEffectFolders -SkipRestart` on a copied catalog with the scoped preferences backup.
+
+## Recipe delivery disclosures
+
+- [x] State the requested recipe format or depth in Save when the user is choosing a 16-bit substitute. Include the actual format in completed export history. The policy also discloses the full-image fallback for crop paths. Cancel, failure and Skip have no completed-format note.
+- [x] Pass 175 checks on licensed 16.4. The real Export command uses a JPEG recipe and Previous Settings uses an 8-bit TIFF recipe. Both disclose the 16-bit choice and persist the completed delivery note. Independently read both TIFF headers, ICC digests and ZIP samples to confirm RGB16 at 3000 by 2000 with retained low bits. The run also verifies both native PNG Skip commands, all nine recipe files and the unchanged source catalog. Pass 12,519 host-independent checks.
+- [ ] Verify a native PSD crop-path recipe and the broader recipe and sidecar matrix. The crop-path notice is covered by the portable contract.
+
+Evidence is under `.test-results/host-native-delivery-policy-20261120` and `.test-results/native-delivery-policy-contracts-20261120.log`. Run `Run-HostSmoke.ps1 -NativeEffectFolders -SkipRestart` with the backed-up disposable catalog. [Capture One format settings](https://support.captureone.com/hc/en-us/articles/360021057478-Format-and-Size?page=1) · [Capture One crop paths](https://support.captureone.com/hc/en-us/articles/360020904857-Adjustments-tool)
 
 ## Status maintenance
 

@@ -11,7 +11,8 @@ internal enum ExportStage { Accepted, WaitingForViewer, DevelopingSource, Render
 internal sealed record ExportReceipt([property: JsonRequired] int Version, [property: JsonRequired] Guid JobId,
     [property: JsonRequired] Guid VariantId, [property: JsonRequired] string Destination, [property: JsonRequired] DateTime AcceptedUtc,
     [property: JsonRequired] DateTime UpdatedUtc, [property: JsonRequired] ExportStage Stage,
-    int Width = 0, int Height = 0, string? Error = null)
+    int Width = 0, int Height = 0, string? Error = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? DeliveryNote = null)
 {
     internal bool Finished => Stage is ExportStage.Completed or ExportStage.Canceled or ExportStage.Failed or ExportStage.Skipped;
 }
@@ -68,13 +69,15 @@ internal sealed class ExportJobJournal(string directory, Action<string> log)
         return receipt;
     }
 
-    internal ExportReceipt Report(ExportReceipt current, ExportStage stage, int width = 0, int height = 0, string? error = null)
+    internal ExportReceipt Report(ExportReceipt current, ExportStage stage, int width = 0, int height = 0,
+        string? error = null, string? deliveryNote = null)
     {
         if (current.Finished || stage <= current.Stage || !Enum.IsDefined(stage))
             throw new InvalidOperationException("The Spektrafilm export stage cannot move backwards or change after completion.");
         var now = DateTime.UtcNow;
         var next = current with { Stage = stage, UpdatedUtc = now < current.UpdatedUtc ? current.UpdatedUtc : now, Width = width == 0 ? current.Width : width,
-            Height = height == 0 ? current.Height : height, Error = error is { Length: > 1000 } ? error[..1000] : error };
+            Height = height == 0 ? current.Height : height, Error = error is { Length: > 1000 } ? error[..1000] : error,
+            DeliveryNote = stage == ExportStage.Completed ? deliveryNote : null };
         Save(next);
         return next;
     }

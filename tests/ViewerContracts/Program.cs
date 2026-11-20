@@ -83,6 +83,7 @@ internal static partial class Program
         TestDevelopedFrameDescription();
         TestExport(folder);
         TestExportFilenameSuggestion(folder);
+        TestRecipeDelivery();
         TestExportFolderSuggestion(folder);
         TestTiffCompression(folder);
         TestExportProfiles(folder);
@@ -115,6 +116,35 @@ internal static partial class Program
         Check(FloatingWindowBounds.Fit(new Rectangle(-2800, 3000, 4000, 2000), secondaryWorkArea) == secondaryWorkArea,
             "an oversized offscreen tool shrinks into the work area");
         Check(FloatingWindowBounds.Fit(docked, Rectangle.Empty) == docked, "transient absence of a work area leaves placement undisturbed");
+    }
+
+    private static void TestRecipeDelivery()
+    {
+        foreach (var (requested, bits, actual, expectedTitle, expectedNote) in new[]
+        {
+            ("Tiff", 16, PixelFormats.Rgb48, "Save 16-bit TIFF or PNG", (string?)null),
+            ("Tiff", 8, PixelFormats.Rgb48, "Recipe requests 8-bit TIFF", "Recipe requested 8-bit TIFF. Saved 16-bit TIFF."),
+            ("Png", 0, PixelFormats.Rgba64, "Save 16-bit TIFF or PNG", null),
+            ("Png", 0, PixelFormats.Rgb48, "Save 16-bit TIFF or PNG", "Recipe requested PNG. Saved 16-bit TIFF."),
+            ("Jpeg", 0, PixelFormats.Rgb48, "Recipe requests JPEG", "Recipe requested JPEG. Saved 16-bit TIFF."),
+            ("123", 0, PixelFormats.Rgba64, "Recipe requests a different file format", "Recipe requested a different file format. Saved 16-bit PNG."),
+        })
+        {
+            var delivery = new SpektraExport.RecipeDelivery(requested, bits, "Respect");
+            var title = delivery.SaveTitle(3000, 2000, "ProPhoto RGB");
+            Check(title.StartsWith(expectedTitle, StringComparison.Ordinal) && title.Contains("3000 × 2000 · ProPhoto RGB", StringComparison.Ordinal)
+                && delivery.SavedNote(actual) == expectedNote
+                && delivery.Extension == (requested == "Png" ? ".png" : ".tif"),
+                $"{requested} {bits} recipe states the 16-bit delivery policy and actual saved format");
+        }
+        var cropPath = new SpektraExport.RecipeDelivery("Psd", 16, "AsPath");
+        Check(cropPath.SaveTitle(3000, 2000, "sRGB").Contains("full image, crop path omitted", StringComparison.Ordinal)
+            && cropPath.SavedNote(PixelFormats.Rgba64) ==
+                "Recipe requested PSD. Saved 16-bit PNG. Saved the full image. The recipe’s crop path was omitted.",
+            "a crop path substitution is disclosed before and after delivery");
+        var direct = new SpektraExport.RecipeDelivery(null, 0, null);
+        Check(direct.SavedNote(PixelFormats.Rgb48) is null && direct.SaveTitle(0, 0, "sRGB").Contains("(sRGB)", StringComparison.Ordinal),
+            "a direct panel save has no native recipe substitution");
     }
 
     private static void TestExportFilenameSuggestion(string folder)
@@ -204,6 +234,12 @@ internal static partial class Program
         Check(restarted.ReadLatest() == skipped && skipped is { Finished: true, Width: 0, Height: 0 }
             && File.ReadAllText(firstPath) == "existing output",
             "a native Skip persists a terminal outcome without describing a newly rendered file");
+        const string deliveryNote = "Recipe requested JPEG. Saved 16-bit TIFF.";
+        var failedAlternative = journal.Report(journal.Accept(variant, firstPath), ExportStage.Failed, deliveryNote: deliveryNote);
+        Check(failedAlternative.DeliveryNote is null, "failed delivery carries no saved-format note");
+        var deliveredAlternative = journal.Report(journal.Accept(variant, firstPath), ExportStage.Completed, 2400, 1600, deliveryNote: deliveryNote);
+        Check(restarted.ReadLatest() == deliveredAlternative && deliveredAlternative.DeliveryNote == deliveryNote,
+            "confirmed recipe substitution is visible in export history after reopening");
 
         var sharedDirectory = Path.Combine(folder, "Contended export jobs");
         var errors = new ConcurrentQueue<string>();
