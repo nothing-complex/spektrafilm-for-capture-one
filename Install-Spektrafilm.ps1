@@ -245,7 +245,7 @@ try {
         'Install Spektrafilm for Capture One.cmd', 'Install-Spektrafilm.ps1', 'Setup LUT Export.cmd',
         'ReleaseManifest.ps1', 'build-manifest.json', 'package-manifest.json', 'runtime-manifest.required',
         'Setup-LutExport.ps1', 'lut_worker.py', 'requirements-lut.txt',
-        'README.md', 'LICENSE', 'SOURCE.txt', 'THIRD-PARTY.md', 'UPSTREAM-CHANGES.md', 'assets\Spektrafilm.png',
+        'README.md', 'CAPABILITIES.md', 'LICENSE', 'SOURCE.txt', 'THIRD-PARTY.md', 'UPSTREAM-CHANGES.md', 'assets\Spektrafilm.png',
         'upstream-ofx\LICENSE.txt', 'upstream-ofx\Legal\THIRD_PARTY_NOTICES.txt',
         'upstream-ofx\Legal\SPEKTRAFILM_OFX_LICENSE.txt', 'upstream-ofx\Legal\SPEKTRAFILM_OFX_LUT_LICENSE.txt'
     )

@@ -51,6 +51,8 @@ $custom = @('profiles\nested\my look.spektra.json','my-top-level-look.spektra.js
 foreach ($file in $custom) { Write-Fixture (Join-Path $install $file) "user sentinel: $file" }
 Write-Fixture (Join-Path $install 'assets\Spektrafilm.png\notes.txt') 'directory collision sentinel'
 Write-Fixture (Join-Path $payload 'assets\Spektrafilm.png') 'new bundled file'
+Write-Fixture (Join-Path $install 'CAPABILITIES.md') 'user compatibility notes'
+Write-Fixture (Join-Path $payload 'CAPABILITIES.md') 'generated capability documentation'
 [void][IO.Directory]::CreateDirectory((Join-Path $install 'profiles\empty user folder'))
 Write-Fixture (Join-Path $install 'profiles\preview\ProPhoto RGB.icc') 'modified user profile'
 Write-Fixture (Join-Path $payload 'profiles\preview\Linear Rec.2020.icc') 'inert version two'
@@ -62,6 +64,10 @@ Assert ([IO.File]::ReadAllText((Join-Path $install 'profiles\preview\Linear Rec.
 Assert (Test-Path -LiteralPath (Join-Path $install 'profiles\empty user folder') -PathType Container) 'Preserves empty user directories'
 $collision = @(Get-ChildItem -LiteralPath (Join-Path $install 'Recovered files') -Recurse -File | Where-Object { $_.Name -eq 'notes.txt' })
 Assert ($collision.Count -eq 1 -and [IO.File]::ReadAllText($collision[0].FullName) -eq 'directory collision sentinel') 'Preserves file-directory collision subtree'
+$doc = Join-Path $install 'CAPABILITIES.md'
+$oldDoc = @(Get-ChildItem -LiteralPath (Join-Path $install 'Recovered files') -Recurse -File -Filter 'CAPABILITIES.md')
+Assert ([IO.File]::ReadAllText($doc) -eq 'generated capability documentation') 'Installs the package capability document'
+Assert ($oldDoc.Count -eq 1 -and [IO.File]::ReadAllText($oldDoc[0].FullName) -eq 'user compatibility notes') 'Retains the pre-existing user capability notes'
 $recovered = @(Get-ChildItem -LiteralPath (Join-Path $install 'Recovered files') -Recurse -File | Where-Object { $_.Name -eq 'ProPhoto RGB.icc' })
 Assert ($recovered.Count -eq 1 -and [IO.File]::ReadAllText($recovered[0].FullName) -eq 'modified user profile') 'Retains modified owned file in recovery folder'
 Invoke-Installer

@@ -2833,7 +2833,8 @@
         "README and UI now disclose export, precision, state, host and LUT constraints and tracked testing paths.",
         "Document the packaged compiled renderer option description and the executable parameter and calibration matrices. Build and package verification require the described capabilities as a fingerprinted runtime asset.",
         "The compiled parameter description, host parser, build manifest validation and negotiated capabilities now agree on renderer protocol 2. An old compiled description is rejected in the state contract test.",
-        "The packaging script generates and hashes CAPABILITIES.md from the verified host list and renderer parameter contract. The generator produced 137 entries from the current runtime and passed invariant locale, mismatched revision and malformed-choice regressions."
+        "The packaging script generates and hashes CAPABILITIES.md from the verified host list and renderer parameter contract. The generator produced 137 entries from the current runtime and passed invariant locale, mismatched revision and malformed-choice regressions.",
+        "The audit.7 extracted package included the generated report and rejected altered bytes. Its installer omitted the new optional file. The installer allowlist now includes the report and a 30-assertion upgrade fixture verifies that pre-existing user notes at the same path are preserved."
       ],
       "evidence_paths": [
         "README.md",

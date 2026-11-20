@@ -584,6 +584,7 @@ Evidence is under `.test-results/host-10000-restart-20261120`.
 
 - [x] Generate the supported Capture One host and compiled Vulkan option tables from the exact packaged manifests. Include the Markdown report and its checksum in new Windows ZIPs.
 - [x] Generate 137 current renderer options and pass 20 PowerShell 5.1 manifest checks. The documentation cases verify locale-independent numeric output and rejection of mismatched or malformed descriptors.
+- [x] Find the installed-file omission in the audit.7 fixture and add the generated document to the installer. Verify installation and preservation of prior user notes in the 30-assertion installer suite.
 - [ ] Verify the generated table in a complete new package, and map every visible panel control to its applicable worker or host contract.
 
 Evidence is in `.test-results/audit-capabilities-generated-20261120.md`.
