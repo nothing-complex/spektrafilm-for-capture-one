@@ -337,19 +337,26 @@ internal static class HostImageSource
 
     private static string? TryReadNativeIdentity(ICoreVariant variant, NativeImageRevision expectedRevision)
     {
-        // The native representation is a model dump. Its coverage is established
-        // for the plain variant, with masks and sidecar buffers excluded here.
         var settings = variant.Settings;
         if (VariantReaderLock?.FieldType != typeof(object) || VariantReaderLock.GetValue(settings) is not { } readerLock
             || !Monitor.TryEnter(readerLock))
             return null;
         string model;
+        string? masksSha256 = null;
         try
         {
-            if (ReadRevision(variant) != expectedRevision || variant.LocalAdjustmentsLayers?.Any() == true
+            if (ReadRevision(variant) != expectedRevision
                 || variant.GetSerializedLCCIds()?.Any() != false || variant.GetSerializedICCIds()?.Any() != false)
                 return null;
-            model = settings.ModelCoreRepresentation;
+            if (variant.LocalAdjustmentsLayers is { Count: > 0 } layers)
+            {
+                var identity = NativeLayerIdentity.TryRead(settings, layers);
+                if (identity is null)
+                    return null;
+                model = identity.Model;
+                masksSha256 = identity.MasksSha256;
+            }
+            else model = settings.ModelCoreRepresentation;
             if (ReadRevision(variant) != expectedRevision)
                 return null;
         }
@@ -363,8 +370,9 @@ internal static class HostImageSource
             || value != expectedRevision.HighRes)
             return null;
         var normalizedModel = model.Remove(counter.Index, counter.Length);
+        var identitySha256 = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(normalizedModel))) + masksSha256;
         return ReadRevision(variant) == expectedRevision
-            ? Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(normalizedModel))) : null;
+            ? identitySha256 : null;
     }
 
     private static PropertyInfo HostProperty(string name) =>

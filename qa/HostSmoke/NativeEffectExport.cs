@@ -188,7 +188,7 @@ public static partial class StartupHook
     private static async Task TestNativeEffectExport(FieldInfo hookField, object hosted, object panel, object spatial, object window,
         string caseName, bool compareGrain = false, bool compareClone = false, bool compareCompression = false,
         bool compareFolders = false, bool comparePanelModes = false, bool compareProfiles = false,
-        bool changeSourceRevision = false, bool compareRecipeRestart = false)
+        bool changeSourceRevision = false, bool compareRecipeRestart = false, bool compareMaskedSource = false)
     {
         var toggle = (CheckBox)Field(panel, "enableSpektraFilm")!;
         var inputEncoding = (string)Prop(((ComboBox)Field(spatial, "inputSpace")!).SelectedItem, "Id")!;
@@ -291,7 +291,7 @@ public static partial class StartupHook
                     (Func<Guid, bool>)(variant => Call(hosted, "WouldLoseSavedLook", variant) is true) }, null)!;
             var normal = Field(Field(bridge, "normal")!, "command")!;
             var previous = Field(Field(bridge, "previous")!, "command")!;
-            if (changeSourceRevision || compareRecipeRestart)
+            if (changeSourceRevision || compareRecipeRestart || compareMaskedSource)
             {
                 var profile = panel.GetType().Assembly.GetType("HostProfile", true)!;
                 var selection = profile.GetMethod("ReadSelection", Flags)!.Invoke(null, new[] { window })!;
@@ -312,7 +312,7 @@ public static partial class StartupHook
                 ? await RenderAfterNativeDevelopment()
                 : await Render("no-film-reference", ".tif", false);
             Value(0, 100);
-            if (changeSourceRevision)
+            if (changeSourceRevision || compareMaskedSource)
             {
                 await CheckSourceRevision(unprocessed);
                 return;
@@ -1472,6 +1472,20 @@ public static partial class StartupHook
                     && Equals(Prop(before, "Geometry"), Prop(after, "Geometry"))
                     && Convert.ToInt64(Prop(after, "HighRes")) == Convert.ToInt64(Prop(before, "HighRes")) + 1,
                     "the fixture presents only a high-resolution revision increment");
+                void KeepOnlyHighResolutionChange(object before)
+                {
+                    var counters = Prop(settings, "VariantProcessCounters")!;
+                    var highOnly = Activator.CreateInstance(counters.GetType(),
+                        Convert.ToInt64(Prop(before, "HighRes")) + 1, Prop(before, "LowRes")!, Prop(before, "Geometry")!)!;
+                    Call(settings, "InitializeProcessCounters", highOnly);
+                    CheckHighResolutionOnly(before, Revision());
+                }
+                if (compareMaskedSource)
+                {
+                    var unmasked = await Render("unmasked-source-reference", ".png", true);
+                    await CheckMaskedSource(unmasked);
+                    return;
+                }
                 var originalDestination = Path.Combine(folder, caseName + "-source-changed.tif");
                 var originalFile = File.ReadAllBytes(Path.Combine(folder, caseName + "-no-film-reference.tif"));
                 File.WriteAllBytes(originalDestination, originalFile);
@@ -1562,12 +1576,8 @@ public static partial class StartupHook
                     beforeDestinationApproval = () =>
                     {
                         var before = Revision();
-                        var counters = Prop(settings, "VariantProcessCounters")!;
                         exposureProperty.SetValue(variant, initialExposure + .75f);
-                        var highOnly = Activator.CreateInstance(counters.GetType(),
-                            Convert.ToInt64(Prop(before, "HighRes")) + 1, Prop(before, "LowRes")!, Prop(before, "Geometry")!)!;
-                        Call(settings, "InitializeProcessCounters", highOnly);
-                        CheckHighResolutionOnly(before, Revision());
+                        KeepOnlyHighResolutionChange(before);
                     };
                     destination = originalDestination;
                     job = null;
@@ -1579,11 +1589,126 @@ public static partial class StartupHook
                         && (Prop(changed, "Error") as string)?.Contains("before image development", StringComparison.Ordinal) == true
                         && File.ReadAllBytes(originalDestination).SequenceEqual(originalFile),
                         "the changed native model preserves the approved existing TIFF and reports verification failure");
+
                 }
                 finally
                 {
                     beforeDestinationApproval = null;
                     exposureProperty.SetValue(variant, initialExposure);
+                }
+
+                async Task CheckMaskedSource(BitmapSource unmasked)
+                {
+                    var layers = Prop(variant, "LocalAdjustmentsLayers")!;
+                    var initialCount = (int)Prop(layers, "Count")!;
+                    var provider = native.Assembly.GetType("P1.C1.Core.Messaging.MessageBusProvider", true)!;
+                    var defaultProvider = provider.GetProperty("DefaultInstance", BindingFlags.Static | Flags)?.GetValue(null)
+                        ?? provider.GetField("DefaultInstance", BindingFlags.Static | Flags)?.GetValue(null)
+                        ?? throw new InvalidOperationException("The native layer fixture cannot find the application message bus.");
+                    var bus = Prop(defaultProvider, "GlobalBus")!;
+                    var layer = Call(layers, "AddNew", variant, "Spektrafilm test mask", bus)!;
+                    try
+                    {
+                        Check((int)Prop(layers, "Count")! == initialCount + 1, "the disposable RAW uses a real Capture One adjustment layer");
+                        var setValue = layer.GetType().GetMethods(Flags).Single(method => method.Name == "SetValue"
+                            && method.IsGenericMethodDefinition && method.GetParameters().Length == 2).MakeGenericMethod(typeof(float));
+                        setValue.Invoke(layer, new object[] { "Exposure", .85f });
+                        Call(layer, "FillMaskNoUndo", variant);
+                        var populated = await Render("native-filled-mask", ".png", true);
+                        Check(Difference(unmasked, populated).Mean > .02,
+                            "the native filled mask alters the effect-processed high-depth output");
+
+                        var before = CopyModel();
+                        var prior = Revision();
+                        Call(settings, "IncrementHighResCounter");
+                        CheckHighResolutionOnly(prior, Revision());
+                        var counterOnly = CopyModel();
+                        setValue.Invoke(layer, new object[] { "Exposure", 1.4f });
+                        var exposureChange = CopyModel();
+                        setValue.Invoke(layer, new object[] { "Exposure", .85f });
+                        var maskBefore = MaskBytes();
+                        beforeDestinationApproval = () =>
+                        {
+                            var revision = Revision();
+                            Call(settings, "IncrementHighResCounter");
+                            CheckHighResolutionOnly(revision, Revision());
+                        };
+                        var verified = await Render("verified-masked-source-update", ".png", true);
+                        Check(Difference(populated, verified).Mean < 8d / 65535,
+                            "an unchanged native mask completes export after a high-resolution-only update");
+
+                        var protectedFile = Path.Combine(folder, caseName + "-protected-masked-source.png");
+                        var originalBytes = File.ReadAllBytes(Path.Combine(folder, caseName + "-native-filled-mask.png"));
+                        File.WriteAllBytes(protectedFile, originalBytes);
+                        string[] maskChangedLabels = [];
+                        beforeDestinationApproval = () =>
+                        {
+                            var revision = Revision();
+                            var model = CopyModel();
+                            Call(layer, "InvertMask", variant);
+                            KeepOnlyHighResolutionChange(revision);
+                            maskChangedLabels = ChangedLabels(model, CopyModel());
+                            Check(maskChangedLabels.SequenceEqual(new[] { "highresProcessCounter" }),
+                                "the changed mask cannot be distinguished by the copied model and counters alone");
+                        };
+                        destination = protectedFile;
+                        job = null;
+                        ExecuteNativeExportCommand(previous);
+                        Check(job is not null && !await job.WaitAsync(TimeSpan.FromSeconds(45)),
+                            "the native mask byte change rejects the earlier approved export");
+                        var failed = Call(Field(spatial, "exportJobs")!, "ReadLatest")!;
+                        Check(Prop(failed, "Stage")?.ToString() == "Failed" && File.ReadAllBytes(protectedFile).SequenceEqual(originalBytes),
+                            "the rejected mask edit preserves the existing approved file byte for byte");
+                        beforeDestinationApproval = null;
+
+                        var maskAfter = MaskBytes();
+                        var cleared = await Render("native-inverted-mask", ".png", true);
+                        Check(Difference(unmasked, cleared).Mean < 8d / 65535 && Difference(populated, cleared).Mean > .02,
+                            "changing only the native mask changes the developed output and restores the unmasked pixels");
+                        Check(before != exposureChange && !maskBefore.SequenceEqual(maskAfter),
+                            "the locked model copy includes local adjustment parameters and Capture One can serialize changed mask content");
+                        File.WriteAllText(Path.Combine(folder, caseName + "-mask-source-evidence.json"), JsonSerializer.Serialize(new
+                        {
+                            baselineModelBytes = before.Length, counterOnlyChangedLabels = ChangedLabels(before, counterOnly),
+                            parameterChangedLabels = ChangedLabels(counterOnly, exposureChange), maskChangedLabels,
+                            fullMaskBytes = maskBefore.Length, invertedMaskBytes = maskAfter.Length,
+                        }));
+                    }
+                    finally
+                    {
+                        beforeDestinationApproval = null;
+                        Call(layers, "RemoveNoUndo", layer);
+                        Check((int)Prop(layers, "Count")! == initialCount, "the temporary native layer was removed from the disposable RAW");
+                    }
+
+                    string CopyModel()
+                    {
+                        var modelCore = AppDomain.CurrentDomain.GetAssemblies().Single(item => item.GetName().Name == "P1.AppCore");
+                        var wrapper = modelCore.GetType("P1.ModelCoreWrapper.McVariant", true)!;
+                        using var copy = (IDisposable)Call(settings, "GetMcVariantDeepCopy", true)!;
+                        using var borrowed = (IDisposable)Activator.CreateInstance(wrapper, Call(copy, "GetNativePointer")!)!;
+                        try { return (string)Call(borrowed, "ToJSON")!; }
+                        finally { Call(borrowed, "DisownNativePointer"); }
+                    }
+
+                    byte[] MaskBytes()
+                    {
+                        var sidecars = native.Assembly.GetType("P1.C1.Core.SideCarsPersistency", true)!;
+                        var save = sidecars.GetMethod("SaveLinkedMaskListAsBuffer", BindingFlags.Static | Flags)!;
+                        var mask = Prop(layer, "Mask")!;
+                        using var data = (IDisposable)save.Invoke(null, new[] { Call(mask, "GetHandle")!, (object)false })!;
+                        return (byte[])Call(data, "ToArray")!;
+                    }
+
+                    static string[] ChangedLabels(string before, string after)
+                    {
+                        var left = before.Split('\n');
+                        var right = after.Split('\n');
+                        if (left.Length != right.Length) return ["Line count"];
+                        return left.Zip(right).Where(pair => pair.First != pair.Second)
+                            .Select(pair => System.Text.RegularExpressions.Regex.Match(pair.Second, "^\\s*\"([A-Za-z0-9_]+)\"\\s*:")
+                                .Groups[1].Value).Distinct(StringComparer.Ordinal).ToArray();
+                    }
                 }
 
                 static BitmapFrame ReadFrame(string path)
