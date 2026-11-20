@@ -3290,7 +3290,8 @@
         "Image and LUT output share the panel output slot. Both retire active and idle Viewer workers and await process exit before starting new GPU work. Preview resumes from the latest queued controls when the output slot releases. Real Vulkan worker PIDs and exclusion verified live.",
         "The synchronized worker benchmark measures serialized and overlapped 6 MP packed Viewer and 24 MP float export on RTX 3090 with stacked optics. All 24 paired replies match their serial SHA-256. Warm Viewer p50/p95 grows from 117/118 to 194/198 ms, and export from 1,574/1,590 to 1,674/1,682 ms. This isolates worker transport and optics before adding cross-context admission.",
         "Use shared weighted admission for managed workers on the same Vulkan adapter and heap, with queued output ahead of interactive requests and optional warmup last. A cancelled queued render sends no image and releases no running job. A forced retirement holds its active lease until process exit. Fake workers verify no premature upload, unaffected active rendering and recovery after exit.",
-        "On a physical RTX 3090, a 6 MP packed Viewer finished while a 24 MP stacked-optics float export reply was held. The viewer took 1.08 ms to acquire admission. With a 60.22 MP stacked-optics export, the Viewer waits for the export's lease. Both modes preserve every serial packed and float reply byte. These controlled delivery probes verify admission and output parity."
+        "On a physical RTX 3090, a 6 MP packed Viewer finished while a 24 MP stacked-optics float export reply was held. The viewer took 1.08 ms to acquire admission. With a 60.22 MP stacked-optics export, the Viewer waits for the export's lease. Both modes preserve every serial packed and float reply byte. These controlled delivery probes verify admission and output parity.",
+        "The exact audit.33 package reproduced a false stale-source failure when earlier Viewer development advanced the high-resolution revision after export capture. Audit.34 reserves and drains the Viewer, then waits for the native callback before snapshot and Save. Its exact 16.4 package passed 175 native effects checks on launch and after restart. A separate 40-check case verifies that a genuine edit after capture still rejects the earlier source and allows a fresh export."
       ],
       "evidence_paths": [
         "NativePanel/SpatialPreview.cs",
@@ -3307,11 +3308,13 @@
         ".test-results/managed-shared-admission-pressure-20261120.json",
         ".test-results/host-shared-admission-catalogs-20261120/host-smoke.log",
         ".test-results/host-shared-admission-viewer-20261120/host-smoke.log",
-        ".test-results/host-shared-admission-effects-20261120/failed.txt"
+        ".test-results/host-shared-admission-effects-20261120/failed.txt",
+        ".test-results/host-audit33-delivery-20261120/panel.log",
+        ".test-results/host-audit34-delivery-20261120/host-smoke.log",
+        ".test-results/host-audit34-source-change-20261120/host-smoke.log"
       ],
       "remaining_work": [
-        "Finish admission across separate host processes and reclaim idle resident GPU buffers under pressure. Collect a synchronized, unheld p50/p95 comparison using the managed scheduler across more GPUs, parent memory, tile allocations and cancellation stages.",
-        "The earlier candidate canceled the second export after Viewer drain on restart, before any export GPU request. The current source distinguishes stale snapshots from user cancellation and passes targeted same-dialog retry on launch and restart. If the original unforced symptom recurs, use the new source-change diagnostic and receipt to establish its cause."
+        "Finish admission across separate host processes and reclaim idle resident GPU buffers under pressure. Collect a synchronized, unheld p50/p95 comparison using the managed scheduler across more GPUs, parent memory, tile allocations and cancellation stages."
       ],
       "original_acceptance_tests": [
         "Instrument fake and real workers: maximum active high-cost jobs conforms to budget; warmup is lowest priority.",
@@ -3697,6 +3700,30 @@
     "original_test_catalog_hash_unchanged": true,
     "local_evidence_note": "Paths under .test-results/build/dist are ignored local artifacts and are not present in a public clone.",
     "latest_development_package": {
+      "version": "0.2.0-audit.34",
+      "archive": "dist/Spektrafilm-for-Capture-One-v0.2.0-audit.34-windows-x64.zip",
+      "sha256": "80e176f5badd17a14512a10cf4b7f20654c576c4ba0b269d4f93907cca640095",
+      "source": {
+        "commit": "4370ebe7dfebd3ffae51736d64cc60abb8f544bf",
+        "dirty": false,
+        "treeDigest": "43b972db289a13908a7fc81752f75558ce5288c2dae50f615bef88737c049bfd"
+      },
+      "verified_package_entries": 153,
+      "verified_runtime_entries": 19,
+      "panel_sha256": "e0a7853bb14cae0f2cfb9d429fc9e864f771cd9402869b487e9a7ef573541d07",
+      "renderer_sha256": "9ab72c386c0b4e11ffe5e232cf4469fcb36180c3640a2b5e3a9458fb79a2a488",
+      "static_receipt": ".test-results/audit34-package-verify-20261120/static.json",
+      "tested_host": "16.4.6.2414",
+      "renderer_smoke": "passed",
+      "native_effects_launch_assertions": 175,
+      "native_effects_restart_assertions": 175,
+      "native_export_source_change_assertions": 40,
+      "native_effects_evidence": ".test-results/host-audit34-delivery-20261120/host-smoke.log",
+      "native_export_source_change_evidence": ".test-results/host-audit34-source-change-20261120/host-smoke.log",
+      "private_upgrade_receipt": ".test-results/host-audit34-upgrade-20261120/installed-upgrade-receipt.json",
+      "package_scope": "Local development archive. The paid host version used for runtime testing is 16.4.6.2414."
+    },
+    "previous_development_package": {
       "version": "0.2.0-audit.32",
       "archive": "dist/Spektrafilm-for-Capture-One-v0.2.0-audit.32-windows-x64.zip",
       "sha256": "9e69802f784023a3fb2050ce50c42d37f06b3d3f325c0450813cfbd7f42aa5b6",
