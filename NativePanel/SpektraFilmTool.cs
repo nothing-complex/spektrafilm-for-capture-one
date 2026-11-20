@@ -115,6 +115,7 @@ internal static class SpektraFilmTool
             {
                 if (floating.WindowState == WindowState.Minimized)
                     floating.WindowState = WindowState.Normal;
+                FloatingWindowBounds.KeepVisible(new WindowInteropHelper(floating).Handle);
                 floating.Activate();
                 return;
             }
@@ -148,12 +149,14 @@ internal static class SpektraFilmTool
 
                 new WindowInteropHelper(window).Owner = mainWindow.Handle;
                 ElementHost.EnableModelessKeyboardInterop(window);
+                window.Closing += OnFloatingClosing;
                 window.Closed += OnFloatingClosed;
                 floating = window;
                 floatingScroll = scroll;
                 Holder.Content = null;
                 scroll.Content = panel;
                 window.Show();
+                FloatingWindowBounds.KeepVisible(new WindowInteropHelper(window).Handle);
                 var offset = PanelPreferences.Current.FloatingScrollOffset;
                 if (double.IsFinite(offset) && offset > 0)
                     scroll.ScrollToVerticalOffset(offset);
@@ -213,11 +216,16 @@ internal static class SpektraFilmTool
             return window;
         }
 
+        private void OnFloatingClosing(object? sender, System.ComponentModel.CancelEventArgs args)
+        {
+            if (!args.Cancel && sender is DockableWindow window && ReferenceEquals(window, floating))
+                SaveFloatingPlacement(window);
+        }
+
         private void OnFloatingClosed(object? sender, EventArgs args)
         {
             if (sender is not DockableWindow window || !ReferenceEquals(window, floating))
                 return;
-            SaveFloatingPlacement(window);
             RestoreDock(window);
             if (!disposed)
                 StartupHook.Log($"{StartupHook.ProductName} panel is docked.");
@@ -239,6 +247,7 @@ internal static class SpektraFilmTool
 
         private void RestoreDock(DockableWindow window)
         {
+            window.Closing -= OnFloatingClosing;
             window.Closed -= OnFloatingClosed;
             if (floatingScroll is not null)
                 floatingScroll.Content = null;

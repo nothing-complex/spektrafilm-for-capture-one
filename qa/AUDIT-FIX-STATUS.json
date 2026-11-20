@@ -1495,7 +1495,8 @@
       "implemented": [
         "Persistent export-bridge and save/recovery messages make several failures visible without being overwritten by viewer status.",
         "Native docked and floated menus expose Copy support details and offer Retry look save while pending. The copied report uses an allow-list of build/runtime identities, typed Export/Viewer states, look durability and dropped-log count. Real missing-delegate, restored bridge, master-off and locked-look fixtures verify the reported route without including native error paths.",
-        "Local panel diagnostics now enqueue bounded JSON records on a background writer with one capped previous generation. Nine contracts cover rotation, newline escaping, concurrent producers, a locked destination and eventual recovery. Final licensed runs passed 240 and 244 assertions."
+        "Local panel diagnostics now enqueue bounded JSON records on a background writer with one capped previous generation. Nine contracts cover rotation, newline escaping, concurrent producers, a locked destination and eventual recovery. Final licensed runs passed 240 and 244 assertions.",
+        "A 600-second contention test submitted 148,608 records to each of two local async loggers. The writable logger dropped none and retained two files under 1 MiB each. The locked logger dropped all records and recovered cleanly on exit. The pair of enqueue calls took p99 0.0036 ms and at most 0.4652 ms."
       ],
       "evidence_paths": [
         "NativePanel/SpektraFilmTool.cs",
@@ -1504,10 +1505,11 @@
         "NativePanel/PanelLog.cs",
         "tests/state/PanelLogContracts.cs",
         ".test-results/state-final-isolated-20261120",
-        ".test-results/host-protected-look-formats-20261120/host-smoke.log"
+        ".test-results/host-protected-look-formats-20261120/host-smoke.log",
+        ".test-results/panel-log-ten-minute-20261120/measurement.json"
       ],
       "remaining_work": [
-        "Add per-capability native fault scenarios for renderer and floating window, test user clipboard flow and finish extended log contention validation."
+        "Add per-capability native fault scenarios, exercise the user clipboard flow and add structured per-stage event identifiers. Ten-minute native interaction telemetry is tracked separately under VE-17."
       ],
       "original_acceptance_tests": [
         "fault injection by capability, user can identify degraded feature without opening logs, export visibly reports whether it will contain Spektrafilm, persisted-save error remains prominent."
@@ -1702,7 +1704,8 @@
         "Windows worker benchmark saves per-request transport wall time, renderer stages and Vulkan allocations, working-set/commit samples, cold request versus reused-source edit percentiles, and renderer fingerprint in machine-readable JSON.",
         "The worker diagnostics expose enlarger transform milliseconds, cache hits and retained bytes. Repeatable cold/warm renderer summaries measure median/p95 at three Viewer sizes with exact GPU upload counters and per-process memory.",
         "A deterministic 24 MP CPU export benchmark separates the final 16-bit conversion from native RAW development, Vulkan and writing. Cold/warm CPU and allocation matrices are independently runnable.",
-        "Worker diagnostics distinguish automatic exposure work and reuse. A repeatable 100-request scene records each hit, stage time and private memory usage."
+        "Worker diagnostics distinguish automatic exposure work and reuse. A repeatable 100-request scene records each hit, stage time and private memory usage.",
+        "A deterministic 600-second on-disk log benchmark verified the diagnostic enqueue path independently of Capture One. Across 148,608 messages per logger, writable and locked destinations did not block producers. P99 was 0.0036 ms for two enqueues with a 0.4652 ms maximum."
       ],
       "evidence_paths": [
         "ofx-still-renderer/main.cpp",
@@ -1715,7 +1718,8 @@
         ".test-results/renderer-benchmark-grain-quality-20261119.json",
         ".test-results/enlarger-after-20261120.json",
         ".test-results/export-pixels-20261120.json",
-        ".test-results/metering-100-edits-20261120.json"
+        ".test-results/metering-100-edits-20261120.json",
+        ".test-results/panel-log-ten-minute-20261120/measurement.json"
       ],
       "remaining_work": [
         "No structured end-to-end event model, shared request identity, p50/p95 benchmark matrix or UI latency budget yet.",
@@ -1988,7 +1992,8 @@
       "implemented": [
         "Floating bounds are persisted at close/dispose and restored with an offscreen fallback; quality preferences are independent of looks.",
         "Stable section keys persist comparison-independent expand/collapse state. Nested events leave ancestor state intact. Floating scroll and bounds survive reopen; the isolated store test covers legacy and future preference data.",
-        "Launcher and licensed fixtures can now bind one exact data directory for both saved looks and layout. Fixture section persistence was exercised without writing the ordinary panel preference file."
+        "Launcher and licensed fixtures can now bind one exact data directory for both saved looks and layout. Fixture section persistence was exercised without writing the ordinary panel preference file.",
+        "The actual Capture One floating DockableWindow is fitted inside its current monitor work area without replacing the tool controls. Placement is stored before WPF destroys the native window. The same panel docked, reopened at the fitted position, and docked again on both licensed launches. Pure contracts also cover an oversized window, negative monitor coordinates and invalid work areas."
       ],
       "evidence_paths": [
         "NativePanel/PanelPreferences.cs",
@@ -1996,10 +2001,14 @@
         "tests/ViewerContracts",
         ".test-results/contracts-backup-layout-20261119/ViewerContracts.log",
         "NativePanel/PanelPreferences.cs",
-        ".test-results/host-viewer-histogram-20261120/host-smoke.log"
+        ".test-results/host-viewer-histogram-20261120/host-smoke.log",
+        "NativePanel/FloatingWindowBounds.cs",
+        "qa/HostSmoke/FloatingHost.cs",
+        ".test-results/contracts-floating-and-logs-20261120/ViewerContracts.log",
+        ".test-results/host-floating-save-before-close-20261120/host-smoke.log"
       ],
       "remaining_work": [
-        "Test and improve workspace docking, per-monitor/DPI migration and full visible-area clamping. Exercise multi-monitor, RDP, narrow/wide panels and keyboard focus."
+        "Add workspace-specific docked/floating state and no-focus-steal startup restore. Exercise physical mixed-DPI monitors, display removal, RDP, narrow/wide panels and keyboard focus."
       ],
       "original_acceptance_tests": [
         "100/150/200% DPI, two monitors then one, RDP reconnect, close/reopen, panel narrow/wide, keyboard traversal and modeless focus."

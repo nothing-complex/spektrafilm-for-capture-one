@@ -618,9 +618,18 @@ Evidence is under `.test-results/host-recipe-icc-final-20261120`, `.test-results
 - [x] Queue only 256 diagnostic records and write JSON on a background worker. Rotate at 1 MiB into one previous generation. Contracts cover long text, line breaks, locking, concurrent writes, rotation and reopening.
 - [x] Exercise missing native Export callbacks, recovery, master-off Export and locked reads in the licensed host. Check that native error paths are absent from the copied report.
 - [x] Test a future look format, missing stock, malformed UTF-8 and oversized look. Each is retained byte for byte and archived on explicit recovery. The fixture supplies the backed-up valid generation. The real host passed 240 first-launch and 244 restart checks.
-- [ ] Add a product-managed last known good generation, test more native capability faults and complete the extended log stress report.
+- [x] Run the standalone file and queue stress test for 600 seconds. Each logger received 148,608 records. The writable logger dropped none, with 985,178 current and 1,048,274 previous bytes. The locked logger dropped every record. P99 enqueue time for the pair was 0.0036 ms and the worst measured pair was 0.4652 ms.
+- [ ] Add a product-managed last known good generation, test more native capability faults and stress end-to-end telemetry during native interaction.
 
-Evidence is under `.test-results/state-final-isolated-20261120` and `.test-results/host-protected-look-formats-20261120`. A ten-minute file/queue stress run was started independently using the `--measure-diagnostic-log` state-contract probe.
+Evidence is under `.test-results/state-final-isolated-20261120` and `.test-results/host-protected-look-formats-20261120`. The standalone `--measure-diagnostic-log` probe wrote its receipt to `.test-results/panel-log-ten-minute-20261120/measurement.json`.
+
+## Native floating window placement
+
+- [x] Clamp native floating bounds to the active monitor work area. Save the solved placement in WPF Closing while the window bounds still exist. The original tool instance returns to its dock when closed.
+- [x] In a disposable 16.4.6 catalog, open an intentionally invalid placement, close, reopen within two physical pixels and redock. Both licensed launches passed, with 249 and 253 assertions. The complete local Windows suite passed, including 12,245 Viewer contract assertions.
+- [ ] Validate mixed-DPI displays, monitor removal, RDP and keyboard focus, and implement workspace-scoped floating mode restoration. The licensed fixture used one physical monitor.
+
+Evidence is under `.test-results/host-floating-save-before-close-20261120` and `.test-results/contracts-floating-and-logs-20261120`. [Windows window bounds](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getwindowrect), [Monitor work-area selection](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-monitorfromrect)
 
 ## Status maintenance
 

@@ -107,6 +107,7 @@ public static partial class StartupHook
             var exposure = Field(panel, "exposure")!;
             var toggle = (CheckBox)Field(panel, "enableSpektraFilm")!;
             await TestLaunchHealth(hosted, spatial, toggle);
+            await TestFloatingWorkArea(panelAssembly!, hosted, panel);
             var restart = File.Exists(Path.Combine(folder, "restart.expected"));
             if (restart)
             {

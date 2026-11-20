@@ -54,6 +54,7 @@ internal static partial class Program
         Directory.CreateDirectory(folder);
         TestGeometry();
         TestDpiAndCropGeometry();
+        TestFloatingBounds();
         TestViewportQuality();
         TestViewerHistogram();
         TestRgb16();
@@ -77,6 +78,18 @@ internal static partial class Program
         TestMemoryAdmission();
         TestExportFrameLimits();
         Console.WriteLine($"PASS: {assertions} assertions. Pure current-source probes only; no Capture One process used.");
+    }
+
+    private static void TestFloatingBounds()
+    {
+        var secondaryWorkArea = new Rectangle(-2160, -200, 2160, 1400);
+        var docked = new Rectangle(-400, 100, 300, 600);
+        Check(FloatingWindowBounds.Fit(docked, secondaryWorkArea) == docked, "valid negative-monitor placement stays put");
+        Check(FloatingWindowBounds.Fit(new Rectangle(-20, -220, 380, 620), secondaryWorkArea) ==
+            new Rectangle(-380, -200, 380, 620), "all four edges clamp to the selected monitor's work area");
+        Check(FloatingWindowBounds.Fit(new Rectangle(-2800, 3000, 4000, 2000), secondaryWorkArea) == secondaryWorkArea,
+            "an oversized offscreen tool shrinks into the work area");
+        Check(FloatingWindowBounds.Fit(docked, Rectangle.Empty) == docked, "transient absence of a work area leaves placement undisturbed");
     }
 
     private static void TestExportJobJournal(string folder)
