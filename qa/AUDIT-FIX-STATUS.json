@@ -2256,7 +2256,8 @@
         "With manual 2048 selection in the real host, native zoom from a 2934 px to 6000 px projection, pan by -1466 and +1022 px, and Fit restoration retained the exact 16-bit source, bitmap and worker sequence. The fresh and restart tests passed 214 and 218 assertions.",
         "A 96-assertion licensed source mutation matrix changed and restored exposure, asymmetric crop, Capture One Grain and active lens distortion across DNG, NEF, RAF and CR3. All used fresh RGB16 source identities and matched independent native developments within measured repeatability. Crop changes only the geometry counter, with mean full-canvas sample difference at most 4.13e-7. Lens correction changes that same counter and changes the full-canvas pixels, so the counter alone cannot identify presentation-only crop changes.",
         "Both licensed launches limited the real WPF Viewer only within the fixture, measuring a 796 px projection and 900 px native RGB16 source. Restoring the viewport and zooming to 100% demanded a 6000 px projection and a new 4096 px native source. At that tier, native pan shifted the overlay without changing the source or rendered bitmap. Manual 2048 remained exact and the original native geometry was restored.",
-        "A private calibrated DNG rename reproduced a fully painted cached frame while Capture One reported its original offline. The Viewer now reads the native availability state with the current revision, clears the source and derivatives, stops obsolete work and suspends the overlay. Reconnecting the unmodified bytes automatically redeveloped and painted a new RGB16 frame with the same look. The final measured suspension and repaint took 307 ms and 1.72 seconds. The 29-check fixture also verified native recipe export refuses disconnected originals. Full Windows/Vulkan, 311 first-launch, 315 restart and paired 39-check native effects export regressions passed."
+        "A private calibrated DNG rename reproduced a fully painted cached frame while Capture One reported its original offline. The Viewer now reads the native availability state with the current revision, clears the source and derivatives, stops obsolete work and suspends the overlay. Reconnecting the unmodified bytes automatically redeveloped and painted a new RGB16 frame with the same look. The final measured suspension and repaint took 307 ms and 1.72 seconds. The 29-check fixture also verified native recipe export refuses disconnected originals. Full Windows/Vulkan, 311 first-launch, 315 restart and paired 39-check native effects export regressions passed.",
+        "Pass two 112-check licensed fixtures with actual asymmetric native crop on DNG, NEF, RAF and CR3. With Pro-Mist, halation and scatter active, the live painted bitmap maps to all four native canvas corners and the exact crop clip, and full-canvas display samples change by at most one 8-bit code. The source still independently matches fresh native RGB16 development. On all four formats the native model labels separate crop from lens distortion: crop and syncProcessCounter change for crop, and lensDistortionAmount and syncProcessCounter change for lens distortion. Both donor catalog checksums verify."
       ],
       "evidence_paths": [
         "NativePanel/HostImageSource.cs",
@@ -2272,11 +2273,14 @@
         ".test-results/host-original-availability-final-20261120/original-availability-probe.json",
         ".test-results/host-original-availability-full-20261120/host-smoke.log",
         ".test-results/host-original-availability-export-20261120/host-smoke.log",
-        ".test-results/contracts-original-availability-20261120/summary.json"
+        ".test-results/contracts-original-availability-20261120/summary.json",
+        ".test-results/host-viewer-optical-crop-20261121/native-source-mutations.json",
+        ".test-results/host-viewer-optical-crop-fields-20261121/native-source-mutations.json",
+        ".test-results/host-viewer-optical-crop-fields-20261121/host-smoke.log"
       ],
       "remaining_work": [
-        "Verify optical alignment during crop and sensitive spatial effects in the actual Viewer. Record presentation and monitor/proof dependencies separately from native revision.",
-        "Keep conservative geometry-counter invalidation until a verified host signal can distinguish crop from lens distortion and other pixel-affecting changes."
+        "Record presentation and monitor/proof dependencies separately from native revision. Optical crop alignment has licensed four-RAW coverage.",
+        "Use the observed crop model fields to investigate precise identity and crop-only pixel reuse. Retain conservative invalidation until comparison under the native reader lock can prove unchanged geometry settings, masks and resolved profiles for the exact host. Validate crop, rotation, keystone and lens correction variants before enabling reuse."
       ],
       "original_acceptance_tests": [
         "Mutation matrix of native tools; each change invalidates the right stages and never reuses stale source.",

@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -6,9 +7,12 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Controls;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 
 public static partial class StartupHook
 {
@@ -31,6 +35,16 @@ public static partial class StartupHook
             .GetType("P1.C1.Core.ICoreVariant", true)!;
         var results = new List<object>();
         var unexpected = new List<string>();
+        var choices = (IDictionary)Field(spatial, "choices")!;
+        var diffusion = (ComboBox)choices["camera-diffusion-family"]!;
+        var opticalControls = (IDictionary)Field(spatial, "values")!;
+        var opticalSliders = new[] { "camera-diffusion-strength", "halation-amount", "scatter-amount" }
+            .Select(key => opticalControls[key]!).ToArray();
+        void SetOptic(int index, double value)
+        {
+            var control = opticalSliders[index];
+            control.GetType().GetProperty("Value", Flags)!.SetValue(control, value);
+        }
 
         object Key(object frame) => Prop(Prop(Prop(frame, "Description")!, "Source")!, "AdjustmentKey")!;
         async Task<object> WaitForSource(Guid id)
@@ -56,18 +70,37 @@ public static partial class StartupHook
             var target = profile.GetMethod("CaptureTarget", Flags)!.Invoke(null, new[] { window })!;
             var selected = profile.GetMethod("ReadSelection", Flags)!.Invoke(null, new[] { window })!;
             var nativeVariant = Prop(selected, "Variant")!;
+            var settings = native.GetProperty("Settings")!.GetValue(nativeVariant)!;
+            string Model() => (string)Prop(settings, "ModelCoreRepresentation")!;
             var original = await WaitForSource(id);
 
             async Task Measure(string label, Action apply, Action restore)
             {
                 try
                 {
+                    var beforeModel = Model();
+                    var beforePaint = label == "asymmetric crop" ? ReadCropPaint(viewer, spatial) : null;
                     apply();
                     var expected = revision.Invoke(null, new[] { window, (object)id });
+                    var changedFields = ChangedNativeModelFields(beforeModel, Model());
                     Check(!Equals(Key(original), expected), $"{format} {label} changes Capture One's actual revision counters");
                     var after = await WaitForSource(id);
                     Check(!ReferenceEquals(after, original) && Equals(Key(after), expected),
                         $"{format} {label} replaces the old developed source before publishing a settled frame");
+                    object? presentation = null;
+                    if (beforePaint is not null)
+                    {
+                        var cropPaint = ReadCropPaint(viewer, spatial);
+                        var difference = CompareCropBitmaps(beforePaint.Bitmap, cropPaint.Bitmap);
+                        Check(beforePaint.Transform != cropPaint.Transform || beforePaint.Clip != cropPaint.Clip,
+                            $"{format} asymmetric native crop changes the Viewer presentation");
+                        Check(cropPaint.CornerError <= .55 && cropPaint.ClipMatches,
+                            $"{format} the optical bitmap maps to all four native canvas corners and the exact native crop clip");
+                        Check(difference.Mean < .1 && difference.Percentile999 <= 1 && difference.Maximum <= 8,
+                            $"{format} crop preserves the full-canvas diffusion, halation and scatter samples within display rounding");
+                        presentation = new { beforePaint.CornerError, cropCornerError = cropPaint.CornerError,
+                            clipMatches = cropPaint.ClipMatches, difference };
+                    }
                     var snapshot = capture.Invoke(null, new[] { window, target, encoding, false })!;
                     var reference = (await Task.Run(() => Call(snapshot, "RenderScaledPreview", 1200, CancellationToken.None)))!;
                     var width = (int)Prop(after, "Width")!;
@@ -91,7 +124,7 @@ public static partial class StartupHook
                             : change.Mean > 20 * Math.Max(cachedError.Mean, 1d / 65535),
                         $"{format} {label} has the expected signal in the full-canvas source");
                     results.Add(new { format, label, beforeRevision = RevisionRecord(Key(original)), afterRevision = RevisionRecord(Key(after)),
-                        width, height, cachedError, nativeRepeat, change });
+                        width, height, cachedError, nativeRepeat, change, changedFields, presentation });
                 }
                 finally { restore(); }
                 original = await WaitForSource(id);
@@ -126,8 +159,27 @@ public static partial class StartupHook
                 center = new PointF(size.Width / 2, size.Height / 2);
             }
             var cropValue = Activator.CreateInstance(crop.PropertyType,
-                new object[] { new PointF(center.X + size.Width * .04f, center.Y), new SizeF(size.Width * .72f, size.Height * .71f) })!;
-            await Set("asymmetric crop", crop, cropValue);
+                new object[] { new PointF(center.X + size.Width * .04f, center.Y - size.Height * .05f), new SizeF(size.Width * .72f, size.Height * .71f) })!;
+            var filmOnly = ReadCropPaint(viewer, spatial).Bitmap;
+            var originalFamily = diffusion.SelectedItem;
+            var originalOptics = opticalSliders.Select(slider => (double)Prop(slider, "Value")!).ToArray();
+            try
+            {
+                SetOptic(0, 1.25);
+                SetOptic(1, 1.5);
+                SetOptic(2, .65);
+                diffusion.SelectedItem = diffusion.ItemsSource.Cast<object>().Single(item => Prop(item, "Id") is "pro_mist");
+                original = await WaitForSource(id);
+                Check(CompareCropBitmaps(filmOnly, ReadCropPaint(viewer, spatial).Bitmap).Mean > .5,
+                    $"{format} the crop fixture measures an applied spatial look on the live Viewer");
+                await Set("asymmetric crop", crop, cropValue);
+            }
+            finally
+            {
+                diffusion.SelectedItem = originalFamily;
+                for (var index = 0; index < originalOptics.Length; index++) SetOptic(index, originalOptics[index]);
+            }
+            original = await WaitForSource(id);
             var grain = native.GetProperty("FilmGrainAmount")!;
             var grainType = native.GetProperty("FilmGrainType")!;
             var amount = (float)grain.GetValue(nativeVariant)!;
@@ -142,6 +194,70 @@ public static partial class StartupHook
         File.WriteAllText(Path.Combine(folder, "native-source-mutations.json"), JsonSerializer.Serialize(results, new JsonSerializerOptions { WriteIndented = true }));
         Check(unexpected.Count == 0, "native source mutation parity: " + string.Join("; ", unexpected));
         File.WriteAllText(Path.Combine(folder, "first.passed"), $"PASS {checks} native source mutation assertions");
+    }
+
+    private sealed record CropPaint(BitmapSource Bitmap, Matrix Transform, System.Windows.Rect Clip, double CornerError, bool ClipMatches);
+
+    private static CropPaint ReadCropPaint(object viewer, object spatial)
+    {
+        var attachment = Field(viewer, "attachment")!;
+        var bitmap = (BitmapSource)Field(spatial, "viewerFrame")!;
+        if (!ReferenceEquals(bitmap, Prop(attachment, "PaintedBitmap")))
+            throw new InvalidOperationException("The current Viewer bitmap has not been painted.");
+        var model = LiveViewerModel(Prop(attachment, "View")!);
+        var geometry = Prop(attachment, "Geometry")!;
+        var matrix = (Matrix)Prop(geometry, "Transform")!;
+        var clip = (System.Windows.Rect)Prop(geometry, "Clip")!;
+        var nativeClip = (RectangleF)Call(model, "GetClipRectangle")!;
+        var corners = ((IEnumerable)Prop(model, "CanvasCoordinates")!).Cast<PointF>().ToArray();
+        var sourceCorners = new System.Windows.Point[]
+        {
+            new(0, 0), new(bitmap.PixelWidth, 0), new(bitmap.PixelWidth, bitmap.PixelHeight), new(0, bitmap.PixelHeight),
+        };
+        var error = sourceCorners.Select(matrix.Transform).Zip(corners, (painted, native) =>
+            (painted - new System.Windows.Point(native.X, native.Y)).Length).Max();
+        return new(bitmap, matrix, clip, error,
+            clip == new System.Windows.Rect(nativeClip.Left, nativeClip.Top, nativeClip.Width, nativeClip.Height));
+    }
+
+    private static string[] ChangedNativeModelFields(string before, string after)
+    {
+        // Report names only, including fields that Capture One omits at defaults.
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var line in before.Split('\n')) counts[line] = counts.GetValueOrDefault(line) - 1;
+        foreach (var line in after.Split('\n')) counts[line] = counts.GetValueOrDefault(line) + 1;
+        return counts.Where(entry => entry.Value != 0)
+            .Select(entry => Regex.Match(entry.Key, "^\\s*\"([A-Za-z0-9_]+)\"\\s*:").Groups[1].Value)
+            .Where(label => label.Length != 0).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+    }
+
+    private static PixelDifference CompareCropBitmaps(BitmapSource first, BitmapSource second)
+    {
+        if (first.PixelWidth != second.PixelWidth || first.PixelHeight != second.PixelHeight
+            || first.Format != PixelFormats.Bgra32 || second.Format != PixelFormats.Bgra32)
+            throw new InvalidOperationException("The Viewer crop changed the processed full-canvas bitmap dimensions or format.");
+        var stride = first.PixelWidth * 4;
+        var a = new byte[stride * first.PixelHeight];
+        var b = new byte[a.Length];
+        first.CopyPixels(a, stride, 0);
+        second.CopyPixels(b, stride, 0);
+        var histogram = new int[256];
+        for (var offset = 0; offset < a.Length; offset += 4)
+            for (var channel = 0; channel < 3; channel++)
+                histogram[Math.Abs(a[offset + channel] - b[offset + channel])]++;
+        var count = a.Length / 4 * 3;
+        var sum = 0L;
+        var seen = 0;
+        var tail = 0;
+        var max = 0;
+        for (var value = 0; value < histogram.Length; value++)
+        {
+            sum += (long)value * histogram[value];
+            if (seen < count * .999) tail = value;
+            seen += histogram[value];
+            if (histogram[value] != 0) max = value;
+        }
+        return new(max, (double)sum / count, tail, count - histogram[0]);
     }
 
     private static object RevisionRecord(object key) => new
