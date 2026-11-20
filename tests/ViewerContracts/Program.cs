@@ -13,7 +13,7 @@ using System.Windows.Media.Imaging;
 
 internal static class HostImageSource
 {
-    internal sealed record Frame(int Width, int Height, byte[] Codes, byte[] FloatBytes, int BitDepth, FrameDescription? Description = null);
+    internal sealed record Frame(int Width, int Height, byte[] FloatBytes, int BitDepth, FrameDescription? Description = null);
 }
 
 internal static class StartupHook
@@ -301,7 +301,7 @@ internal static partial class Program
     {
         var values = new float[] {0,0,0,1, 1,1,1,1};
         var bytes = MemoryMarshal.AsBytes(values.AsSpan()).ToArray();
-        var frame = new HostImageSource.Frame(2,1,Array.Empty<byte>(),bytes,16);
+        var frame = new HostImageSource.Frame(2, 1, bytes, 16);
         foreach (var space in Enum.GetValues<PreviewInputSpace>())
         {
             var result = ViewerDraftSource.Downsample(frame,1,CancellationToken.None,space);
@@ -458,7 +458,7 @@ internal static partial class Program
             samples[index + 2] = (x == 12 ? 1.4f : 0.003f) + y * 0.008f;
             samples[index + 3] = ((x + y * 2) % 7) / 6f;
         }
-        var frame = new HostImageSource.Frame(width, height, Array.Empty<byte>(),
+        var frame = new HostImageSource.Frame(width, height,
             MemoryMarshal.AsBytes(samples.AsSpan()).ToArray(), 16);
 
         foreach (var space in Enum.GetValues<PreviewInputSpace>())
@@ -802,7 +802,7 @@ internal static partial class Program
             var (width,height,edge)=shape;
             var bytes=new byte[width*height*16];var floats=MemoryMarshal.Cast<byte,float>(bytes);
             for(int i=0;i<width*height;i++) { floats[4*i]=.25f;floats[4*i+1]=-.5f;floats[4*i+2]=1.5f;floats[4*i+3]=.75f; }
-            var input=new HostImageSource.Frame(width,height,Array.Empty<byte>(),bytes,16);
+            var input = new HostImageSource.Frame(width, height, bytes, 16);
             var draft=ViewerDraftSource.Downsample(input,edge,CancellationToken.None);
             var result=MemoryMarshal.Cast<byte,float>(draft.FloatBytes);
             Check(Math.Max(draft.Width,draft.Height)<=Math.Min(edge,2560),"Draft cap exceeded");
@@ -848,7 +848,7 @@ internal static partial class Program
         Check(!original.Describes(width, height, 8, bytes) && !original.Describes(height, width, 16, bytes)
             && !original.Describes(width, height, 16, bytes - 1),
             "Descriptor rejects a different native format, orientation or byte count");
-        var image = new HostImageSource.Frame(width, height, Array.Empty<byte>(), new byte[bytes], 16, original);
+        var image = new HostImageSource.Frame(width, height, new byte[bytes], 16, original);
         var reduced = ViewerDraftSource.Downsample(image, 4, CancellationToken.None, PreviewInputSpace.Srgb);
         Check(reduced.Description is { Sampling: SourceSampling.LinearLightArea } derived
             && ReferenceEquals(derived.Source, original.Source)

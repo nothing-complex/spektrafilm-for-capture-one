@@ -69,6 +69,17 @@ public static partial class StartupHook
         var pixels = copy.Invoke(null, new[] { (object)bitmapWidth, bitmapHeight, bitmapStride, nativeFormat, bitmapData, CancellationToken.None })!;
         Check(Prop(pixels, "BitDepth") is 16 && bitmapWidth > 100 && bitmapHeight > 100,
             $"{source} uses Capture One's high-depth ImageCore bitmap destination");
+        var lowDepth = Enum.Parse(nativeFormat.GetType(), "ipfBGRA8");
+        try
+        {
+            copy.Invoke(null, new[] { (object)1, 1, bitmapStride, lowDepth, bitmapData, CancellationToken.None });
+            throw new InvalidOperationException("An 8-bit bitmap was accepted by the high-depth Capture One copy path.");
+        }
+        catch (TargetInvocationException error) when (error.InnerException is InvalidDataException failure
+            && failure.Message.Contains("high-depth", StringComparison.Ordinal))
+        {
+            Check(true, $"{source} cannot silently fall back to a Capture One 8-bit bitmap");
+        }
 
         using var stream = File.OpenRead(path);
         var tiff = BitmapDecoder.Create(stream, BitmapCreateOptions.PreservePixelFormat | BitmapCreateOptions.IgnoreColorProfile,

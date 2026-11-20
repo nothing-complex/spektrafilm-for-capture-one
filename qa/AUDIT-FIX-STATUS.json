@@ -911,7 +911,8 @@
         "A generated Bayer DNG with independently verified sensor samples and black/white levels exercised the native default DNG Standard and Linear Response curves at 0 and +1 EV. The exact audit.14 source delivered 16-bit Linear Rec.2020 with the same ICC in all four cases. +1 EV measured 0.21 to 1.42 stops over usable neutral patches with DNG Standard and 0.08 to 1.61 stops with Linear Response. This measures retained Capture One development with a linear transfer. Twenty-three licensed assertions passed with the isolated source file and original catalog unchanged.",
         "The immutable source descriptor now includes input primaries, transfer, exact host build and DLL hash, variant, ICC and native revision. The frame describes dimensions, original native sample layout, range, alpha and managed sampling. Exact descriptor and geometry are checked through Viewer source reuse, derived drafts and captured export. Source replacement drops all derived pixels. Renderer reuse still requires reference-identical float bytes and dimensions, with new frame upload identity for a changed source.",
         "Eleven independent descriptor contracts cover all four encodings, identity changes, invalid shape/depth/byte count, opaque and preserved sample layouts, draft metadata and rejection of undeclared transfer. All Windows and Vulkan contracts passed, including 12,266 Viewer assertions. The licensed four-RAW matrix passed 131 assertions and the full first/restart pair passed 295 and 299.",
-        "The bounded earlier-stage probe covered actual native Standard/Linear Response output and inspected the exact wrapper's bitmap, file, point-sampler and embedded-preview interfaces. It did not establish a calibrated whole-frame pre-development path, so no sensor-linear or camera-log delivery is exposed."
+        "The bounded earlier-stage probe covered actual native Standard/Linear Response output and inspected the exact wrapper's bitmap, file, point-sampler and embedded-preview interfaces. It did not establish a calibrated whole-frame pre-development path, so no sensor-linear or camera-log delivery is exposed.",
+        "Removed the unused ProcessToBitmap and proxy retry route and the 8-bit source adapter. Native, scaled, drag and export development use Capture One’s high-depth bitmap destination. RGB16, RGBA16 and RGB32F are the only production source formats. All four licensed RAW types reject an 8-bit buffer at the copy boundary. Both colour matrix runs passed 135 checks, including exact RGB16 TIFF parity. The licensed full suite passed 310 first-launch and 314 restart checks, and all Windows/Vulkan contracts passed."
       ],
       "evidence_paths": [
         "NativePanel/HostImageSource.cs",
@@ -943,7 +944,10 @@
         ".test-results/native-earlier-buffer-contract-20261120/members.txt",
         ".test-results/contracts-developed-frame-description-20261120/ViewerContracts.log",
         ".test-results/host-developed-frame-four-raws-20261120/host-smoke.log",
-        ".test-results/host-developed-frame-full-20261120/host-smoke.log"
+        ".test-results/host-developed-frame-full-20261120/host-smoke.log",
+        ".test-results/host-high-depth-only-color-20261120/host-smoke.log",
+        ".test-results/host-high-depth-only-full-20261120/host-smoke.log",
+        ".test-results/contracts-high-depth-only-20261120/summary.json"
       ],
       "remaining_work": [],
       "original_acceptance_tests": [
@@ -1307,7 +1311,8 @@
         "A real navigation test reproduced a previous image still reporting painted after a switch. Viewer readiness now rechecks exact current attachment availability rather than relying on cached flag state. The revised licensed test passed 100 settled visits and 30 interleaved selections without any obsolete painted identity.",
         "Typed worker transport interruptions and deadlines can trigger one delayed retry scoped to the selected variant, settings generation and native source revision. The worker must exit before the retry and the stale frame is discarded. Six deterministic scheduling checks cover the delay, exhaustion, source changes and lifetime reset.",
         "Actual 4096 px licensed tests terminated the in-flight preview worker and recovered in 883 ms and 823 ms. The same developed RGB16 source and exact durable look bytes were reused without another edit. A separate two-termination case reached a terminal Viewer error with no extra worker or obsolete frame while native Export stayed connected. Full first/restart runs passed 294 and 298 assertions; 26 native layout checks also passed.",
-        "The licensed first and restart runs sent 100 rapid exposure changes while a real 4096 px final request was active. Each burst coalesced to one completed final render on the surviving worker, reused the same RGB16 source, and published the last persisted value. No subsequent final or draft work remained after the quiet window. The same runs passed the one-retry and exhausted-retry cases, and all 306 first-launch and 310 restart assertions."
+        "The licensed first and restart runs sent 100 rapid exposure changes while a real 4096 px final request was active. Each burst coalesced to one completed final render on the surviving worker, reused the same RGB16 source, and published the last persisted value. No subsequent final or draft work remained after the quiet window. The same runs passed the one-retry and exhausted-retry cases, and all 306 first-launch and 310 restart assertions.",
+        "All production Viewer and Export source requests bypass the retired proxy-dependent 8-bit path and request only high-depth Capture One development. Four licensed RAW formats exercise the refusal of an 8-bit substitution. The original proxy-pending behavior applied only to the removed implementation."
       ],
       "evidence_paths": [
         "NativePanel/RenderCoordination.cs",
@@ -1321,10 +1326,11 @@
         ".test-results/contracts-viewer-worker-retry-20261120/ViewerContracts.log",
         ".test-results/host-viewer-retry-native-final-20261120/host-smoke.log",
         ".test-results/host-viewer-layout-regression-20261120/host-smoke.log",
-        ".test-results/host-viewer-grain-conditional-20261120/host-smoke.log"
+        ".test-results/host-viewer-grain-conditional-20261120/host-smoke.log",
+        ".test-results/host-high-depth-only-color-20261120/host-smoke.log"
       ],
       "remaining_work": [
-        "Exercise actual native proxy-pending and long deadline faults, and delayed completion across disabled, detached and export-owned contexts. The 100-edit burst, single transport retry and exhausted retry have licensed coverage."
+        "Exercise actual native development and renderer deadline faults, and delayed completion across disabled, detached and export-owned contexts. The removed proxy-only source path no longer participates in the active Viewer."
       ],
       "original_acceptance_tests": [
         "Deterministic virtual clock and delayed fake renderer: latest settled request publishes; out-of-order final/draft completions never regress quality or variant.",
@@ -2995,7 +3001,7 @@
       "id": "RQ-08",
       "title": "Generate truthful feature and compatibility documentation",
       "priority": "P2",
-      "status": "partial",
+      "status": "implemented",
       "implemented": [
         "README and UI now disclose export, precision, state, host and LUT constraints and tracked testing paths.",
         "Document the packaged compiled renderer option description and the executable parameter and calibration matrices. Build and package verification require the described capabilities as a fingerprinted runtime asset.",
@@ -3005,7 +3011,8 @@
         "Audit.8 ships and installs the verified 137-option table. Regenerating it from installed manifests produced the same text. Changing the file in the extracted fixture made package integrity validation fail.",
         "GitHub's current latest release resolves to v0.1.1. Its actual Windows ZIP and checksum asset names match the README and published tag, with both URLs verified through release metadata.",
         "A licensed capture of the native panel generated 196 declared controls, sections and menu entries, including 136 controls mapped to compiled worker options. A second native launch matches the tracked inventory exactly and verifies the developer exhaustion control is disabled with a reason. CAPABILITIES.md generation rejects unknown renderer options, unknown local capabilities, duplicate identities and invalid table cells. Thirty-one manifest assertions passed under Windows PowerShell 5.1.",
-        "The Viewer Save Preview PNG now uses the same window-owner-aware dialog pattern as image export. Both licensed runs saved the settled 2048 px Viewer image, reopened exact dimensions, colour context and the sampled BGRA pixel, and re-enabled the command. All Windows and Vulkan contracts passed."
+        "The Viewer Save Preview PNG now uses the same window-owner-aware dialog pattern as image export. Both licensed runs saved the settled 2048 px Viewer image, reopened exact dimensions, colour context and the sampled BGRA pixel, and re-enabled the command. All Windows and Vulkan contracts passed.",
+        "The exact extracted audit.15 package regenerated identical capability documentation, passed all package and runtime checksums and reproduced the 196-control inventory in the licensed host. It passed 310 first-launch and 314 restart assertions, 131 native RAW assertions on each launch, 28 managed Vulkan checks, and both public Windows contract jobs."
       ],
       "evidence_paths": [
         "README.md",
@@ -3025,10 +3032,13 @@
         "qa/HostSmoke/PanelControlInventory.cs",
         ".test-results/host-panel-inventory-verified-20261120/host-smoke.log",
         ".test-results/host-native-preview-png-final-20261120/host-smoke.log",
-        ".test-results/contracts-panel-control-caps-final-20261120/summary.json"
+        ".test-results/contracts-panel-control-caps-final-20261120/summary.json",
+        ".test-results/audit15-package-verify-20261120/result.json",
+        ".test-results/host-audit15-inventory-20261120/host-smoke.log",
+        "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44687634647"
       ],
       "remaining_work": [
-        "Verify the structural inventory in an exact extracted development package and exercise the remaining conditional commands individually. Recheck published links when a newer release exists."
+        "Individually exercise the remaining conditional commands, including the live LUT cancellation button and recent-preset menu selection. Recheck public URLs after future releases."
       ],
       "original_acceptance_tests": [
         "Every visible enabled control has declared capability and a non-error execution test or is visibly unavailable.",
@@ -3125,8 +3135,8 @@
   ],
   "counts": {
     "total": 70,
-    "implemented": 25,
-    "partial": 45,
+    "implemented": 26,
+    "partial": 44,
     "pending": 0
   },
   "last_reconciled": "2026-11-20",
@@ -3166,32 +3176,34 @@
     "original_test_catalog_hash_unchanged": true,
     "local_evidence_note": "Paths under .test-results/build/dist are ignored local artifacts and are not present in a public clone.",
     "latest_development_package": {
-      "version": "0.2.0-audit.14",
-      "archive": "dist/Spektrafilm-for-Capture-One-v0.2.0-audit.14-windows-x64.zip",
-      "sha256": "df16f40db3a55c0cf1cae9fe4deeaa8e53261d009c9c013262108345c9b4be95",
+      "version": "0.2.0-audit.15",
+      "archive": "dist/Spektrafilm-for-Capture-One-v0.2.0-audit.15-windows-x64.zip",
+      "sha256": "3c3ad963f8c560cde990409ef4fdc7bff52e73ab1204208790dbed08a1a56eb4",
       "source": {
-        "commit": "ffb51740404c7d6152285b9edf6fa4356f518a14",
+        "commit": "cc24e45f73fd0c301699fa686404d880906e9a00",
         "dirty": false,
-        "treeDigest": "6fa2a19a51a267c81dcb7c9deed3af3d2e3759fdd3ea85b392baa6c099d0b808"
+        "treeDigest": "ef8b282b718bb890c59e4fa1e0cf2462bb7624007549b103afd4eac6fb564cab"
       },
       "verified_package_entries": 153,
       "verified_runtime_entries": 19,
       "renderer_protocol": 2,
       "renderer_sha256": "47ae010c3cbde41579e2e6b3c2ee6336496f3e2d1741d866827d14bde8c74e49",
       "asset_contract": "7bc552c3a6db30572393c854bec69cb0f3621356484f80c5392b6a442894e710",
-      "generated_capabilities_sha256": "725e1a82999543343b8faa1bfef128d1b49128c7de9ee66cb754564e4885eb4f",
+      "generated_capabilities_sha256": "e5281940406abf421f6ca2c338d673c212a4b088c1a209cfd1158d6fb6d6b0e9",
+      "native_control_count": 196,
       "version3_native_preset_verified": true,
-      "isolated_install_and_checkonly": "passed",
+      "isolated_install_and_checkonly": "pending for audit.15; exact extracted package verified",
       "exact_package_host_tests": {
-        "first_launch": 294,
-        "restart": 298,
-        "raw_matrix": 115,
-        "managed_gpu": 28,
-        "native_metadata": 27
+        "first_launch": 310,
+        "restart": 314,
+        "raw_matrix": 131,
+        "raw_matrix_restart": 131,
+        "native_inventory": 19,
+        "managed_gpu": 28
       },
-      "remote_windows_contracts": "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44680701028",
+      "remote_windows_contracts": "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44687634647",
       "normal_installed_revision": "ffc481988eb2e6e7ef7a1379486c4a8b2656ac81",
-      "receipt": ".test-results/audit14-package-verify-20261120/result.json"
+      "receipt": ".test-results/audit15-package-verify-20261120/result.json"
     }
   },
   "completed_milestones": [

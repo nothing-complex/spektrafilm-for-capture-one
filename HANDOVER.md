@@ -1,12 +1,12 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The 70-item integration audit tracks 25 bounded primary fixes implemented and 45 partial items. It includes feasibility investigations and enhancements.
+Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The 70-item integration audit tracks 26 bounded primary fixes implemented and 44 partial items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
 1. Read this file, `AGENTS.md` and `qa/AUDIT-FIX-STATUS.json` before changing code. The JSON is the authoritative task-progress ledger; its `remaining_work` and original acceptance tests matter more than a short status label.
 2. Check `git status`, current branch and PR head. Do not discard existing edits or switch the installed build merely because this documentation has a newer commit.
-3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP is `0.2.0-audit.14` from clean `ffb5174`. Its verification used an isolated installation.
+3. The regular installed runtime and original delivery package identify `ffc481988eb2e6e7ef7a1379486c4a8b2656ac81`. The initial product changes are in `285f0aa`. The latest verified development ZIP is `0.2.0-audit.15` from clean `cc24e45`. The extracted package passed the licensed matrix.
 4. Choose an unresolved task and an exact ownership boundary. Do not repeat the completed installation, crash test or old defect reproductions as if nothing had happened.
 5. Update task evidence and the delivery ledger at each completed milestone. Never mark a broad parent task complete because one mitigation shipped.
 
@@ -765,9 +765,18 @@ Evidence is in `.test-results/host-viewer-grain-conditional-20261120`, `.test-re
 - [x] Inventory 196 actual native controls, sections and menu entries. Validate the 136 controls that emit renderer options against the exact compiled description. Keep managed controls and unavailable developer exhaustion explicit. The licensed repeat matched `qa/panel-controls.json` exactly. Use `Run-HostSmoke.ps1 -PanelInventory` with a disposable catalog and native settings backup after intentional control changes.
 - [x] Generate the package's capability table from the recorded panel inventory and verified worker description. Fail generation on an unknown capability, unknown worker option, duplicate control or malformed Markdown cell. Thirty-one Windows PowerShell 5.1 manifest assertions and all Windows and Vulkan contracts passed.
 - [x] Use the panel's window owner when saving the displayed Viewer PNG. Both licensed Viewer stress launches passed 37 checks. The output reopened with the displayed dimensions, one colour context and the identical sampled BGRA pixel. A fixture initially treated a dotless file extension as an error and entered the production error dialog. The exact disposable process was terminated, its test-only catalog entry was removed using the verified backup and the corrected fixture passed both launches.
-- [ ] Verify the exact extracted package and finish conditional host command coverage.
+- [x] Build `0.2.0-audit.15` from clean `cc24e45`. Verify all 153 package records, 19 critical records and byte-identical regeneration of the capability report. The archive SHA-256 is `3c3ad963f8c560cde990409ef4fdc7bff52e73ab1204208790dbed08a1a56eb4` and the report SHA-256 is `e5281940406abf421f6ca2c338d673c212a4b088c1a209cfd1158d6fb6d6b0e9`. The exact extraction passed 19 inventory, 310 first-launch, 314 restart, 131 four-RAW checks on each launch and 28 physical GPU checks. The regular installed manifest still identifies `ffc4819`. [Public Windows checks](https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44687634647)
+- [ ] Finish conditional command coverage on the licensed host and verify audit.15 in a separate installer upgrade fixture.
 
-Evidence is under `.test-results/host-panel-inventory-verified-20261120`, `.test-results/host-native-preview-png-final-20261120` and `.test-results/contracts-panel-control-caps-final-20261120`.
+Evidence is under `.test-results/host-panel-inventory-verified-20261120`, `.test-results/host-native-preview-png-final-20261120`, `.test-results/contracts-panel-control-caps-final-20261120` and `.test-results/audit15-package-verify-20261120`. The latest verified development ZIP is under `dist/`.
+
+## Single high-depth development path
+
+- [x] Remove the unused 8-bit Capture One proxy source, its retry branch and its display-code buffer. Native Viewer, scaled Viewer, drag draft and Export use the original Capture One image handle and the high-depth bitmap destination. RGB16, RGBA16 and RGB32F are accepted. Display conversion and the explicit Viewer PNG command retain their existing display precision.
+- [x] Test the lowest-depth rejection at the actual native bitmap copy entry point, separately for each of the four RAWs. Both licensed colour runs passed 135 assertions, including identical native 16-bit TIFF samples, and the full first-launch and restart runs passed 310 and 314 checks. All Windows and Vulkan contracts passed.
+- [ ] Test native development deadline recovery and measure the behavior of disconnected originals. The old proxy-pending route is no longer part of the film path.
+
+Source verification used `.test-results/host-high-depth-only-color-20261120`, `.test-results/host-high-depth-only-full-20261120` and `.test-results/contracts-high-depth-only-20261120`. The audit.15 development ZIP predates this source simplification.
 
 ## Status maintenance
 

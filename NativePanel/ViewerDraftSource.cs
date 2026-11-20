@@ -76,7 +76,7 @@ internal static class ViewerDraftSource
         });
         return frame with
         {
-            Width = width, Height = height, Codes = Array.Empty<byte>(), FloatBytes = draft,
+            Width = width, Height = height, FloatBytes = draft,
             Description = frame.Description is { } original
                 ? original with { Width = width, Height = height, Sampling = SourceSampling.LinearLightArea } : null,
         };

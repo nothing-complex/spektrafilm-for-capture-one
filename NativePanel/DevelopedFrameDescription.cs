@@ -5,7 +5,7 @@ internal readonly record struct NativeImageRevision(long HighRes, long LowRes, l
 internal enum SourceStage { CaptureOneDevelopedRgb }
 internal enum SourcePrimaries { SrgbD65, AdobeRgbD65, ProPhotoRgbD50, Rec2020D65 }
 internal enum SourceTransfer { Srgb, AdobeRgb1998, ProPhotoRgb, Linear }
-internal enum NativeSourceFormat { Rgb8, PremultipliedBgra8, Rgb16, Rgba16, Rgb32Float }
+internal enum NativeSourceFormat { Rgb16, Rgba16, Rgb32Float }
 internal enum SourceSampleRange { NormalizedUnsigned, FiniteExtended }
 internal enum SourceAlpha { Opaque, PreservedNativeChannel }
 internal enum SourceSampling { CaptureOne, LinearLightArea }
@@ -42,7 +42,6 @@ internal sealed record FrameDescription(FrameSourceDescription Source, int Width
 
     internal int NativeBitDepth => NativeFormat switch
     {
-        NativeSourceFormat.Rgb8 or NativeSourceFormat.PremultipliedBgra8 => 8,
         NativeSourceFormat.Rgb16 or NativeSourceFormat.Rgba16 => 16,
         NativeSourceFormat.Rgb32Float => 32,
         _ => throw new ArgumentOutOfRangeException(nameof(NativeFormat)),

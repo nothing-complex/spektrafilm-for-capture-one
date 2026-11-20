@@ -3,7 +3,6 @@ using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
@@ -19,32 +18,24 @@ using P1.C1.Core.ModelEntities;
 using P1.C1.Framework;
 using P1.C1.ImageCoreWrapper.CoordinateSystem;
 using P1.C1.ImageCoreWrapper.ImageCore;
-using P1.C1.ViewModels.ProxyProcessing;
 using P1.ModelCoreWrapper;
 
 internal static class HostImageSource
 {
-    private const int PixelLimit = 1024 * 1024;
     private const int DraftEdgeLimit = 1200;
     private const int ScaledPreviewEdgeLimit = 4096;
     private const int NativePreviewEdgeLimit = RenderFrameLimits.MaxHighDepthEdge;
-    private static readonly TimeSpan PreviewScheduleTimeout = TimeSpan.FromSeconds(20);
-    private static readonly TimeSpan NativePreviewScheduleTimeout = TimeSpan.FromMinutes(3);
-    private static readonly TimeSpan ExportScheduleTimeout = TimeSpan.FromMinutes(3);
-    private static readonly TimeSpan ProxyRetryDelay = TimeSpan.FromMilliseconds(300);
+    private static readonly TimeSpan DraftScheduleTimeout = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan NativeScheduleTimeout = TimeSpan.FromMinutes(3);
     private static readonly SemaphoreSlim SchedulerSlot = new(1, 1);
     private static readonly Type ProgramType = typeof(ImageCoreScheduler).Assembly.GetType("P1.C1.Program", throwOnError: true)!;
     private static readonly PropertyInfo SchedulerProperty = HostProperty("ImageCoreScheduler");
     private static readonly PropertyInfo? KeywordManagerProperty = ProgramType.GetProperty("KeywordLibraryManager",
         BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
     private static readonly PropertyInfo ColorProfilesProperty = HostProperty("ColorProfileLibrary");
-    private static readonly MethodInfo? GetProxyManager = HostProperty("DocumentManager").PropertyType
-        .GetMethod("GetDocumentProxyManager", new[] { typeof(ICaptureOneDocument) });
     private static readonly MethodInfo? GetDestinationManager = HostProperty("DocumentManager").PropertyType
         .GetMethod("GetDestinationDocumentManager", new[] { typeof(ICaptureOneDocument) });
-    private static readonly float[] Bgra8Values = CreateByteLookup();
-
-    internal sealed record Frame(int Width, int Height, byte[] Codes, byte[] FloatBytes, int BitDepth, FrameDescription? Description = null);
+    internal sealed record Frame(int Width, int Height, byte[] FloatBytes, int BitDepth, FrameDescription? Description = null);
     internal sealed record ExportFrame(Frame Image, Rectangle Crop);
     internal sealed record RecipeInfo(string Name, string FormatId, string ColorProfileName, string ColorProfilePath,
         string CropMode, string RootFolderMode, string CustomRootFolder, string Subfolder, string Filename,
@@ -95,12 +86,11 @@ internal static class HostImageSource
 
         var scheduler = SchedulerProperty.GetValue(null) as ImageCoreScheduler
             ?? throw new InvalidOperationException("Capture One’s image scheduler is unavailable.");
-        var proxyManager = GetProxyManager?.Invoke(selection.Manager, new object[] { selection.Document }) as IProxyManager;
         var recipe = captureRecipe ? ReadRecipe(selection, ref settings) : null;
         var host = StartupHook.VerifiedHost ?? throw new InvalidOperationException("The Capture One image source requires a verified host.");
         var description = new FrameSourceDescription(target.VariantId, target.SourceFormat, inputSpace, profileSha256, revision,
             host.FileVersion, host.AssemblySha256);
-        return new Snapshot(scheduler, selection.Document, variant, target.SourcePath, profilePath, settings, description, proxyManager, recipe);
+        return new Snapshot(scheduler, selection.Document, variant, profilePath, settings, description, recipe);
     }
 
     private static RecipeInfo? ReadRecipe(HostProfile.Selection selection, ref IC_ProcessSettings settings)
@@ -208,28 +198,25 @@ internal static class HostImageSource
     }
 
     internal sealed class Snapshot(ImageCoreScheduler scheduler, ICaptureOneDocument document, ICoreVariant variant,
-        string sourcePath, string profilePath, IC_ProcessSettings settings, FrameSourceDescription description, IProxyManager? proxyManager, RecipeInfo? recipe)
+        string profilePath, IC_ProcessSettings settings, FrameSourceDescription description, RecipeInfo? recipe)
     {
         internal NativeImageRevision AdjustmentKey => description.AdjustmentKey;
         internal FrameSourceDescription SourceIdentity => description;
         internal RecipeInfo? Recipe => recipe;
 
-        internal Frame Render(int maxDimension, CancellationToken token) =>
-            RenderWithRetry(new RenderOptions(maxDimension, RenderPurpose.Preview), token).Image;
-
         internal Frame RenderNativePreview(CancellationToken token) =>
-            RenderWithRetry(new RenderOptions(NativePreviewEdgeLimit, RenderPurpose.NativePreview), token).Image;
+            Render(new RenderOptions(NativePreviewEdgeLimit, RenderPurpose.NativePreview), token).Image;
 
         internal Frame RenderScaledPreview(int maxLongEdge, CancellationToken token) =>
-            RenderWithRetry(new RenderOptions(Math.Min(maxLongEdge, ScaledPreviewEdgeLimit), RenderPurpose.ScaledPreview), token).Image;
+            Render(new RenderOptions(Math.Min(maxLongEdge, ScaledPreviewEdgeLimit), RenderPurpose.ScaledPreview), token).Image;
 
         internal Frame RenderDraft(int maxLongEdge, CancellationToken token) =>
-            RenderWithRetry(new RenderOptions(Math.Min(maxLongEdge, DraftEdgeLimit), RenderPurpose.Draft), token).Image;
+            Render(new RenderOptions(Math.Min(maxLongEdge, DraftEdgeLimit), RenderPurpose.Draft), token).Image;
 
         internal ExportFrame RenderExport(int? maxLongEdge, CancellationToken token, bool followRecipeSize = false) =>
-            RenderWithRetry(new RenderOptions(maxLongEdge ?? RenderFrameLimits.MaxHighDepthEdge, RenderPurpose.Export, followRecipeSize, maxLongEdge is not null), token);
+            Render(new RenderOptions(maxLongEdge ?? RenderFrameLimits.MaxHighDepthEdge, RenderPurpose.Export, followRecipeSize, maxLongEdge is not null), token);
 
-        private ExportFrame RenderWithRetry(RenderOptions options, CancellationToken token)
+        private ExportFrame Render(RenderOptions options, CancellationToken token)
         {
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(options.MaxDimension);
             if (options.FollowRecipeSize && recipe is null)
@@ -240,29 +227,12 @@ internal static class HostImageSource
             using var sourceProfile = new FileStream(profilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
             if (!string.Equals(Convert.ToHexString(SHA256.HashData(sourceProfile)), description.ProfileSha256, StringComparison.Ordinal))
                 throw new IOException("The input colour profile changed after the Capture One source was captured. Try the render again.");
-            var requestProxyCheck = true;
-            for (var attemptsLeft = 12; ; attemptsLeft--)
-            {
-                try
-                {
-                    return ScheduleRender(options, requestProxyCheck, token);
-                }
-                catch (ProxyPendingException) when (attemptsLeft > 0)
-                {
-                    requestProxyCheck = false;
-                    Task.Delay(ProxyRetryDelay, token).GetAwaiter().GetResult();
-                }
-            }
+            return ScheduleRender(options, token);
         }
 
-        private ExportFrame ScheduleRender(RenderOptions options, bool requestProxyCheck, CancellationToken token)
+        private ExportFrame ScheduleRender(RenderOptions options, CancellationToken token)
         {
-            var timeout = options.Purpose switch
-            {
-                RenderPurpose.Export => ExportScheduleTimeout,
-                RenderPurpose.NativePreview or RenderPurpose.ScaledPreview => NativePreviewScheduleTimeout,
-                _ => PreviewScheduleTimeout,
-            };
+            var timeout = options.Purpose == RenderPurpose.Draft ? DraftScheduleTimeout : NativeScheduleTimeout;
             using var work = CancellationTokenSource.CreateLinkedTokenSource(token);
             work.CancelAfter(timeout);
             var workToken = work.Token;
@@ -278,7 +248,7 @@ internal static class HostImageSource
                     workToken.ThrowIfCancellationRequested();
                     if (source.UUID != description.VariantId || ReadRevision(source) != description.AdjustmentKey)
                         throw new OperationCanceledException("Capture One settings changed before the image could render.");
-                    return RenderOnScheduler(source, options, requestProxyCheck, workToken);
+                    return RenderOnScheduler(source, options, workToken);
                 }, () => SchedulerSlot.Release());
                 releaseSlot = false; // The request now owns release, including a running native callback.
                 try
@@ -310,7 +280,7 @@ internal static class HostImageSource
             }
         }
 
-        private ExportFrame RenderOnScheduler(ICoreVariant source, RenderOptions options, bool requestProxyCheck, CancellationToken token)
+        private ExportFrame RenderOnScheduler(ICoreVariant source, RenderOptions options, CancellationToken token)
         {
             var renderSettings = settings;
             var geometry = options.ForExport ? VariantGeometryTransformer.FromProcessSettings(ref renderSettings) : null;
@@ -330,7 +300,7 @@ internal static class HostImageSource
                 RenderPurpose.Export or RenderPurpose.NativePreview => RenderFrameLimits.MaxHighDepthPixels,
                 RenderPurpose.ScaledPreview => ScaledPreviewEdgeLimit * ScaledPreviewEdgeLimit,
                 RenderPurpose.Draft => DraftEdgeLimit * DraftEdgeLimit,
-                _ => PixelLimit,
+                _ => throw new ArgumentOutOfRangeException(nameof(options)),
             };
             double scale;
             if (options.ForExport)
@@ -347,23 +317,17 @@ internal static class HostImageSource
                     || Math.Ceiling(canvas.Width) * Math.Ceiling(canvas.Height) > pixelLimit)
                     throw new InvalidOperationException("The native Viewer canvas exceeds 16,384 pixels per side or 100 megapixels. Choose a smaller Viewer resolution.");
             }
-            else if (options.Purpose is RenderPurpose.Draft or RenderPurpose.ScaledPreview)
-            {
-                scale = Math.Min(1, options.MaxDimension / longest);
-            }
             else
             {
-                var edgeScale = options.MaxDimension / longest;
-                var areaScale = Math.Sqrt((pixelLimit - 2 * Math.Sqrt(pixelLimit)) / ((double)canvas.Width * canvas.Height));
-                scale = Math.Min(1, Math.Min(edgeScale, areaScale));
+                scale = Math.Min(1, options.MaxDimension / longest);
             }
             renderSettings.cropIsRelative = false;
             renderSettings.cropCenterX = center.X;
             renderSettings.cropCenterY = center.Y;
             renderSettings.cropWidth = canvas.Width;
             renderSettings.cropHeight = canvas.Height;
-            renderSettings.cropScale = options.UsesNativeDepth ? (float)scale : 1;
-            renderSettings.cropScaleView = options.UsesNativeDepth ? 1 : (float)scale;
+            renderSettings.cropScale = (float)scale;
+            renderSettings.cropScaleView = 1;
 
             var pixels = checked((long)Math.Ceiling(canvas.Width * scale) * (long)Math.Ceiling(canvas.Height * scale));
             using var memory = RenderMemoryBudget.SystemMemory.Reserve(RenderAllocation.NativeDevelopment, pixels,
@@ -371,28 +335,12 @@ internal static class HostImageSource
             using var bitmap = new ImageCoreBitmap();
             var coreImage = source.CoreImage
                 ?? throw new InvalidOperationException("The selected variant no longer has a source image.");
-            if (options.UsesNativeDepth && !coreImage.IsFileAvailable)
+            if (!coreImage.IsFileAvailable)
                 throw new InvalidOperationException("Connect the original image for the full-resolution Spektrafilm render.");
             var image = coreImage.Handle
                 ?? throw new InvalidOperationException("Capture One did not open this source image.");
-            IC_Result result;
-            if (options.UsesNativeDepth)
-            {
-                result = DevelopNativeBitmap(bitmap, image, renderSettings, CancelNativeRender);
-            }
-            else
-            {
-                using var targetId = new ReferenceCountedIDisposable<ImageCoreTargetID>(ImageCoreTargetID.CreateImageCoreTargetId(), true);
-                result = ImageCoreProcessor.ProcessToBitmap(Path.GetFileName(sourcePath), bitmap, image, ref renderSettings,
-                    ProcessQuality.Best, targetId, CancelNativeRender, false);
-            }
+            var result = DevelopNativeBitmap(bitmap, image, renderSettings, CancelNativeRender);
             token.ThrowIfCancellationRequested();
-            if (!options.UsesNativeDepth && IsProxyPending(result, coreImage))
-            {
-                if (requestProxyCheck && coreImage is IImage previewImage)
-                    proxyManager?.AddToProxyCheck(new[] { previewImage });
-                throw new ProxyPendingException(result);
-            }
             if (result != IC_Result.resOK)
                 throw new InvalidOperationException($"Capture One could not develop the {(options.ForExport ? "export source" : "preview")} ({result}).");
             if (ReadRevision(source) != description.AdjustmentKey)
@@ -437,20 +385,14 @@ internal static class HostImageSource
                 : result;
         }
 
-        private static bool IsProxyPending(IC_Result result, ICoreImage image) =>
-            result is IC_Result.resProxyNotFound or IC_Result.resInvalidProxyFile or IC_Result.resProxyOpenError
-                or IC_Result.resProxyTooOld or IC_Result.resProxyDoesNotMatchRAW or IC_Result.resCreatingProxy
-                or IC_Result.resProxyGenerationInProgress
-            || (result == IC_Result.resFileOpenError && !image.ProxyExists);
     }
 
-    private enum RenderPurpose { Preview, Draft, ScaledPreview, NativePreview, Export }
+    private enum RenderPurpose { Draft, ScaledPreview, NativePreview, Export }
 
     private readonly record struct RenderOptions(int MaxDimension, RenderPurpose Purpose, bool FollowRecipeSize = false,
         bool CallerLimitsExportEdge = false)
     {
         internal bool ForExport => Purpose == RenderPurpose.Export;
-        internal bool UsesNativeDepth => Purpose != RenderPurpose.Preview;
     }
 
     private static RectangleF CropInCanvas(VariantGeometryTransformer geometry, SizeF canvas)
@@ -469,156 +411,50 @@ internal static class HostImageSource
             Math.Min(canvas.Width, right), Math.Min(canvas.Height, bottom));
     }
 
-    internal sealed class ProxyPendingException(IC_Result result) :
-        InvalidOperationException($"Capture One’s native preview is not available yet ({result}).");
-
     private static Frame CopyPixels(ImageCoreBitmap bitmap, int pixelLimit, CancellationToken token, RenderPurpose purpose,
         FrameSourceDescription source)
     {
         var format = (PixelFormat)ImgCoreDll.ICB_GetPixelFormat(bitmap.Handle);
-        var nativeDepth = purpose != RenderPurpose.Preview;
-        if (nativeDepth)
+        var destination = purpose switch
         {
-            var destination = purpose switch
-            {
-                RenderPurpose.Export => "export",
-                RenderPurpose.Draft => "draft Viewer",
-                RenderPurpose.ScaledPreview => "scaled Viewer",
-                _ => "native Viewer",
-            };
-            StartupHook.Log($"Capture One {destination} source {bitmap.Width} × {bitmap.Height}, native format {format}.");
-            if (format is not (PixelFormat.ipfRGB16 or PixelFormat.ipfRGBA16 or PixelFormat.ipfRGB32F))
-                throw new InvalidDataException($"Capture One returned {format} for the high-depth {destination} source.");
-        }
-        var frame = CopyPixels(bitmap.Width, bitmap.Height, bitmap.Stride, format, bitmap.Data, token, pixelLimit,
-            includePreviewCodes: !nativeDepth);
+            RenderPurpose.Export => "export",
+            RenderPurpose.Draft => "draft Viewer",
+            RenderPurpose.ScaledPreview => "scaled Viewer",
+            _ => "native Viewer",
+        };
+        StartupHook.Log($"Capture One {destination} source {bitmap.Width} × {bitmap.Height}, native format {format}.");
         var nativeFormat = format switch
         {
-            PixelFormat.ipfARGB8 or PixelFormat.ipfBGRA8 => NativeSourceFormat.PremultipliedBgra8,
-            PixelFormat.ipfRGB8 => NativeSourceFormat.Rgb8,
             PixelFormat.ipfRGB16 => NativeSourceFormat.Rgb16,
             PixelFormat.ipfRGBA16 => NativeSourceFormat.Rgba16,
             PixelFormat.ipfRGB32F => NativeSourceFormat.Rgb32Float,
-            _ => throw new InvalidDataException($"Capture One returned an unsupported bitmap format ({format})."),
+            _ => throw new InvalidDataException($"Capture One returned {format} for the high-depth {destination} source."),
         };
+        var frame = CopyPixels(bitmap.Width, bitmap.Height, bitmap.Stride, format, bitmap.Data, token, pixelLimit);
         return frame with { Description = new FrameDescription(source, frame.Width, frame.Height, nativeFormat) };
     }
 
     internal static Frame CopyPixels(int width, int height, int stride, PixelFormat format, nint data, CancellationToken token) =>
-        CopyPixels(width, height, stride, format, data, token, PixelLimit, includePreviewCodes: true);
+        CopyPixels(width, height, stride, format, data, token, RenderFrameLimits.MaxHighDepthPixels);
 
     private static Frame CopyPixels(int width, int height, int stride, PixelFormat format, nint data,
-        CancellationToken token, int pixelLimit, bool includePreviewCodes)
+        CancellationToken token, int pixelLimit)
     {
         var (pixelBytes, depth) = format switch
         {
-            PixelFormat.ipfARGB8 or PixelFormat.ipfBGRA8 => (4, 8),
-            PixelFormat.ipfRGB8 => (3, 8),
             PixelFormat.ipfRGB16 => (6, 16),
             PixelFormat.ipfRGBA16 => (8, 16),
             PixelFormat.ipfRGB32F => (12, 32),
-            _ => throw new InvalidDataException($"Capture One returned an unsupported bitmap format ({format})."),
+            _ => throw new InvalidDataException($"Capture One returned an unsupported high-depth bitmap format ({format})."),
         };
         if (width < 1 || height < 1 || (long)width * height > pixelLimit || stride < (long)width * pixelBytes
             || (long)(height - 1) * stride + (long)width * pixelBytes > int.MaxValue || data == 0)
             throw new InvalidDataException("Capture One returned an invalid or oversized preview bitmap.");
 
         token.ThrowIfCancellationRequested();
-        if (!includePreviewCodes && depth == 16)
-            return new Frame(width, height, Array.Empty<byte>(),
-                HighDepthSource.Convert16(width, height, stride, data, format == PixelFormat.ipfRGBA16, token), depth);
-        if (!includePreviewCodes && depth == 32)
-            return new Frame(width, height, Array.Empty<byte>(), HighDepthSource.ConvertFloat(width, height, stride, data, token), depth);
-        if (pixelBytes == 4)
-            return CopyBgra8(data, width, height, stride, token);
-
-        var rowBytes = width * pixelBytes;
-        var channelCount = checked(width * height * 4);
-        var codes = includePreviewCodes ? new byte[channelCount] : Array.Empty<byte>();
-        var bytes = new byte[checked(channelCount * sizeof(float))];
-        var floats = MemoryMarshal.Cast<byte, float>(bytes);
-        var row = new byte[rowBytes];
-        var pixelOffset = 0;
-        for (var y = 0; y < height; y++)
-        {
-            token.ThrowIfCancellationRequested();
-            Marshal.Copy(data + y * stride, row, 0, rowBytes);
-            for (var x = 0; x < rowBytes; x += pixelBytes)
-            {
-                for (var channel = 0; channel < 3; channel++)
-                {
-                    var color = depth switch
-                    {
-                        8 => row[x + channel] / 255f,
-                        16 => BitConverter.ToUInt16(row, x + channel * sizeof(ushort)) / 65535f,
-                        32 => BitConverter.ToSingle(row, x + channel * sizeof(float)),
-                        _ => throw new InvalidDataException("Unsupported preview channel depth."),
-                    };
-                    if (!float.IsFinite(color))
-                        throw new InvalidDataException("Capture One returned a non-finite preview pixel.");
-                    floats[pixelOffset + channel] = color;
-                    if (includePreviewCodes)
-                        codes[pixelOffset + 2 - channel] = (byte)MathF.Round(255 * Math.Clamp(color, 0, 1));
-                }
-                var alpha = format == PixelFormat.ipfRGBA16
-                    ? BitConverter.ToUInt16(row, x + 6) / 65535f
-                    : 1;
-                floats[pixelOffset + 3] = alpha;
-                if (includePreviewCodes)
-                    codes[pixelOffset + 3] = (byte)MathF.Round(255 * alpha);
-                pixelOffset += 4;
-            }
-        }
-        return new Frame(width, height, codes, bytes, depth);
-    }
-
-    private static Frame CopyBgra8(nint data, int width, int height, int stride, CancellationToken token)
-    {
-        var rowBytes = width * 4;
-        var codes = GC.AllocateUninitializedArray<byte>(rowBytes * height);
-        var bytes = GC.AllocateUninitializedArray<byte>(codes.Length * sizeof(float));
-        var floats = MemoryMarshal.Cast<byte, float>(bytes.AsSpan());
-
-        if (stride == rowBytes)
-            Marshal.Copy(data, codes, 0, codes.Length);
-        for (var y = 0; y < height; y++)
-        {
-            token.ThrowIfCancellationRequested();
-            var rowStart = y * rowBytes;
-            if (stride != rowBytes)
-                Marshal.Copy(data + y * stride, codes, rowStart, rowBytes);
-
-            for (var i = rowStart; i < rowStart + rowBytes; i += 4)
-            {
-                var alpha = codes[i + 3];
-                if (alpha == 255)
-                {
-                    floats[i] = Bgra8Values[codes[i + 2]];
-                    floats[i + 1] = Bgra8Values[codes[i + 1]];
-                    floats[i + 2] = Bgra8Values[codes[i]];
-                }
-                else
-                {
-                    // Capture One's four-channel Viewer buffers are premultiplied BGRA.
-                    for (var channel = 0; channel < 3; channel++)
-                    {
-                        var index = i + channel;
-                        var color = alpha == 0 ? 0 : Math.Min(1, codes[index] / (float)alpha);
-                        floats[i + 2 - channel] = color;
-                        codes[index] = (byte)MathF.Round(255 * color);
-                    }
-                }
-                floats[i + 3] = 1;
-            }
-        }
-        return new Frame(width, height, codes, bytes, 8);
-    }
-
-    private static float[] CreateByteLookup()
-    {
-        var values = new float[256];
-        for (var i = 0; i < values.Length; i++)
-            values[i] = i / 255f;
-        return values;
+        var pixels = depth == 16
+            ? HighDepthSource.Convert16(width, height, stride, data, format == PixelFormat.ipfRGBA16, token)
+            : HighDepthSource.ConvertFloat(width, height, stride, data, token);
+        return new Frame(width, height, pixels, depth);
     }
 }

@@ -65,7 +65,6 @@ internal sealed class SpatialPreview : IDisposable
     private readonly ViewportQuality viewportQuality = new();
     private readonly ViewerHistogramControl histogram = new();
     private OpticalRenderer? renderer;
-    private bool rendererUsesHighDepthPreview;
     private CancellationTokenSource? pending;
     private CancellationTokenSource? pendingDraft;
     private OpticalRenderer? draftRenderer;
@@ -991,15 +990,13 @@ internal sealed class SpatialPreview : IDisposable
         var size = ViewerRenderSize;
         var nativeSize = size == "native";
         var longEdge = nativeSize ? 0 : int.Parse(size, CultureInfo.InvariantCulture);
-        // Resolution is a sampling choice, never a silent bit-depth/source change.
-        const bool highDepthPreview = true;
         var dragEdge = DragLongEdge;
         var cachedSource = source;
         var needsSource = cachedSource?.Description is not { } description || description.Source.VariantId != selectedVariant
             || description.Source.AdjustmentKey != revision || description.Source.InputEncoding != space || sourceSize != size
             || !string.Equals(description.Source.ProfileSha256, checkedProfileHash, StringComparison.Ordinal)
             || !description.Describes(cachedSource.Width, cachedSource.Height, cachedSource.BitDepth, cachedSource.FloatBytes.Length);
-        if (highDepthPreview && !needsSource && WantsDragPreview
+        if (!needsSource && WantsDragPreview
             && source is { } liveSource && Math.Max(liveSource.Width, liveSource.Height) > dragEdge)
         {
             if (pendingDraft is null && lastDraftRevision != inputRevision && getSettings() is { } draftLook)
@@ -1015,7 +1012,7 @@ internal sealed class SpatialPreview : IDisposable
         {
             if (viewerFrame is not null)
                 ShowFrame(selectedVariant, viewerFrame);
-            if (highDepthPreview && !needsSource && frameCurrent && !dragging && dragEdge > 0
+            if (!needsSource && frameCurrent && !dragging && dragEdge > 0
                 && !draftWarmupAttempted && pendingDraft is null
                 && source is { } fullSource && Math.Max(fullSource.Width, fullSource.Height) > dragEdge
                 && getSettings() is { } warmLook)
@@ -1036,8 +1033,6 @@ internal sealed class SpatialPreview : IDisposable
             var args = strength > 0 ? RendererOptions(look, selectedSpace.Id, encoding.Id) : Array.Empty<string>();
             if (needsSource)
             {
-                if (renderer is not null && rendererUsesHighDepthPreview != highDepthPreview)
-                    ReleaseRenderer();
                 var target = HostProfile.CaptureTarget(window);
                 var snapshot = HostImageSource.Capture(window, target, space);
                 var initialStarted = Stopwatch.GetTimestamp();
@@ -1068,7 +1063,7 @@ internal sealed class SpatialPreview : IDisposable
                     queued = true;
                     return;
                 }
-                ResetDraft(keepRenderer: highDepthPreview);
+                ResetDraft(keepRenderer: true);
                 source = developed;
                 sourceSize = size;
                 sourceDisplay = null;
@@ -1103,17 +1098,11 @@ internal sealed class SpatialPreview : IDisposable
 
                 if (renderedDisplay is null || renderedStrength != strength)
                 {
-                    var displayPixels = highDepthPreview && strength == 1 && encoding.Id == "srgb"
-                        && renderedPixels is null;
+                    var displayPixels = strength == 1 && encoding.Id == "srgb" && renderedPixels is null;
                     byte[]? packed = null;
                     if (renderedPixels is null)
                     {
-                        if (renderer is null || rendererUsesHighDepthPreview != highDepthPreview)
-                        {
-                            ReleaseRenderer();
-                            renderer = new OpticalRenderer(nativePreview: highDepthPreview);
-                            rendererUsesHighDepthPreview = highDepthPreview;
-                        }
+                        renderer ??= new OpticalRenderer(nativePreview: true);
                         renderingFinal = true;
                         byte[] reply;
                         try { reply = await renderer.RenderAsync(input.Width, input.Height, input.FloatBytes, args, job.Token, displayPixels); }
@@ -1156,11 +1145,6 @@ internal sealed class SpatialPreview : IDisposable
         {
             if (!job.IsCancellationRequested)
                 queued = true;
-        }
-        catch (HostImageSource.ProxyPendingException) when (!job.IsCancellationRequested)
-        {
-            status.Text = "Waiting for Capture One to build the source preview…";
-            nextViewerCheck = Environment.TickCount64 + 1500;
         }
         catch (Exception error) when (settingsVersion == inputRevision && !job.IsCancellationRequested
             && (error is RendererConnectionInterruptedException or RendererDeadlineException)
@@ -1517,8 +1501,7 @@ internal sealed class SpatialPreview : IDisposable
     private static BitmapSource DecodeResult(HostImageSource.Frame frame, byte[]? bytes, double strength,
         PreviewInputSpace space, string outputEncoding, CancellationToken token)
     {
-        var pixels = strength <= 0 && space == PreviewInputSpace.Srgb && frame.Codes.Length > 0
-            ? frame.Codes : ToDisplayPixels(frame, bytes, strength, space, outputEncoding, token);
+        var pixels = ToDisplayPixels(frame, bytes, strength, space, outputEncoding, token);
         return CreateDisplayBitmap(frame, pixels);
     }
 
@@ -1534,7 +1517,6 @@ internal sealed class SpatialPreview : IDisposable
     {
         var pixels = GC.AllocateUninitializedArray<byte>(original.FloatBytes.Length / sizeof(float));
         var transform = new SrgbDelivery(space, outputEncoding, strength);
-        var hasPreviewCodes = original.Codes.Length != 0;
         var rowWidth = original.Width * 4;
         PreviewRows.Process(original.Width, original.Height, token, (first, last) =>
         {
@@ -1550,7 +1532,7 @@ internal sealed class SpatialPreview : IDisposable
                     pixels[i] = (byte)Math.Round(rgb.Blue * 255);
                     pixels[i + 1] = (byte)Math.Round(rgb.Green * 255);
                     pixels[i + 2] = (byte)Math.Round(rgb.Red * 255);
-                    pixels[i + 3] = hasPreviewCodes ? original.Codes[i + 3] : (byte)MathF.Round(255 * Math.Clamp(source[i + 3], 0, 1));
+                    pixels[i + 3] = (byte)MathF.Round(255 * Math.Clamp(source[i + 3], 0, 1));
                 }
             }
         });
