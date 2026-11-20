@@ -7,6 +7,9 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -130,6 +133,8 @@ internal sealed class SpatialPreview : IDisposable
     private readonly CancellationTokenSource lifetime = new();
     private readonly TextBlock exportStatus = new() { TextWrapping = TextWrapping.Wrap };
     private readonly Button cancelExport = new() { Content = "Cancel export", Visibility = Visibility.Collapsed, HorizontalAlignment = HorizontalAlignment.Left };
+    private readonly Button retryExport = new() { Content = "Retry interrupted export…", Visibility = Visibility.Collapsed, HorizontalAlignment = HorizontalAlignment.Left };
+    private ExportReceipt? interruptedExport;
     private bool disposed;
     private bool renderingFinal;
     private bool selectionUnavailable;
@@ -183,10 +188,14 @@ internal sealed class SpatialPreview : IDisposable
             RequestRefresh();
         };
         var exportControls = new StackPanel();
-        exportStatus.Text = exportActivity.Message ?? DescribePreviousExport(exportJobs.ReadLatest());
+        var latest = exportActivity.Active is null ? exportJobs.ReadLatest() : null;
+        interruptedExport = latest is { Finished: false, Retry.Valid: true } ? latest : null;
+        exportStatus.Text = exportActivity.Message ?? DescribePreviousExport(latest);
         exportControls.Children.Add(exportStatus);
         exportControls.Children.Add(cancelExport);
+        exportControls.Children.Add(retryExport);
         cancelExport.Click += (_, _) => exportActivity.Active?.Cancel();
+        retryExport.Click += async (_, _) => await RetryInterruptedExportAsync(ChooseExportDestination);
         ExportControls = exportControls;
         exportActivity.Changed += UpdateExportControls;
         UpdateExportControls();
@@ -568,6 +577,7 @@ internal sealed class SpatialPreview : IDisposable
     {
         if (disposed) return;
         enabled = value;
+        retryExport.IsEnabled = value;
         if (enabled)
         {
             RequestRefresh();
@@ -586,6 +596,7 @@ internal sealed class SpatialPreview : IDisposable
         if (exportActivity.Message is { } message)
             exportStatus.Text = message;
         cancelExport.Visibility = active is { IsAccepted: true } ? Visibility.Visible : Visibility.Collapsed;
+        retryExport.Visibility = active is null && interruptedExport is not null ? Visibility.Visible : Visibility.Collapsed;
         var resume = exportWasActive && active is null;
         exportWasActive = active is not null;
         if (resume) RequestRefresh();
@@ -612,8 +623,17 @@ internal sealed class SpatialPreview : IDisposable
     internal Task<bool> ExportAsync(bool useRecipeSize, Window? owner = null) =>
         ExportWithDestinationAsync(useRecipeSize, owner, ChooseExportDestination);
 
-    private async Task<bool> ExportWithDestinationAsync(bool useRecipeSize, Window? owner,
-        Func<SaveFileDialog, Window?, string?> chooseDestination)
+    private Task<bool> ExportWithDestinationAsync(bool useRecipeSize, Window? owner,
+        Func<SaveFileDialog, Window?, string?> chooseDestination) =>
+        RunExportWithDestinationAsync(useRecipeSize, owner, chooseDestination, null);
+
+    private Task<bool> RetryInterruptedExportAsync(Func<SaveFileDialog, Window?, string?> chooseDestination) =>
+        interruptedExport is { Retry: { } retry } interrupted
+            ? RunExportWithDestinationAsync(retry.FollowRecipe, Window.GetWindow(retryExport), chooseDestination, interrupted)
+            : Task.FromResult(false);
+
+    private async Task<bool> RunExportWithDestinationAsync(bool useRecipeSize, Window? owner,
+        Func<SaveFileDialog, Window?, string?> chooseDestination, ExportReceipt? interrupted)
     {
         if (disposed || !enabled || exportActivity.Active is not null)
             return false;
@@ -629,6 +649,8 @@ internal sealed class SpatialPreview : IDisposable
         {
             var look = getSettings() ?? throw new InvalidOperationException("Wait for the Spektrafilm controls to finish loading.");
             var target = HostProfile.CaptureTarget(window);
+            if (interrupted is not null && interrupted.VariantId != target.VariantId)
+                throw new InvalidOperationException("Select the image from the interrupted export and try again.");
             var input = (OpticalInput)inputSpace.SelectedItem;
             var encoding = ((OpticalOption)outputSpace.SelectedItem).Id;
             var args = look.Strength > 0 ? RendererOptions(look, input.Id, encoding, export: true) : Array.Empty<string>();
@@ -653,46 +675,73 @@ internal sealed class SpatialPreview : IDisposable
                     input.Space, captureRecipe: useRecipeSize);
                 var recipe = snapshot.Recipe;
                 var deliveryProfile = ExportColorProfile.ForRecipe(recipe?.ColorProfileName, recipe?.ColorProfilePath);
+                await using var heldSource = interrupted is null ? null : OpenForFingerprint(target.SourcePath);
+                ExportRetryDescriptor? retry = null;
+                if (interrupted is not null)
+                {
+                    exportActivity.Report(work, "Checking the interrupted export…");
+                    retry = await CaptureRetryDescriptorAsync(snapshot, target.SourcePath, args, look.Strength, encoding,
+                        deliveryProfile, useRecipeSize, work.Token, heldSource);
+                    if (retry is null || retry != interrupted.Retry)
+                        throw new InvalidOperationException("The source, film settings or Export Recipe changed. Restore them or start a new export.");
+                }
+                work.Token.ThrowIfCancellationRequested();
                 var delivery = new SpektraExport.RecipeDelivery(recipe?.FormatId, recipe?.TiffBits ?? 0, recipe?.CropMode,
                     recipe?.Omissions ?? SpektraExport.RecipeOmission.None);
-                var extension = delivery.Extension;
+                var extension = interrupted is null ? delivery.Extension : Path.GetExtension(interrupted.Destination);
+                var png = extension.Equals(".png", StringComparison.OrdinalIgnoreCase);
                 var dpi = recipe is null ? ExportResolution.DefaultDpi : ExportResolution.DotsPerInch(recipe.Resolution, recipe.ResolutionUnit);
                 var suggestedName = SpektraExport.SuggestedOutputName(recipe?.SuggestedFilename, target.SourcePath, extension,
                     recipe?.SuggestedDirectory, recipe?.AddSuffixToExistingFileName == true);
-                var skipPath = delivery.CanSkipRecipeOutput && recipe is { SkipExistingOutput: true,
+                var skipPath = interrupted is null && delivery.CanSkipRecipeOutput && recipe is { SkipExistingOutput: true,
                     SuggestedFilename: { } stem, ExactDirectory: { } exactDirectory }
                     ? Path.Combine(exactDirectory, stem + extension) : null;
 
                 var picker = new SaveFileDialog
                 {
                     Title = delivery.SaveTitle(recipe?.Width ?? 0, recipe?.Height ?? 0, deliveryProfile.Label),
-                    Filter = SpektraExport.FileFilter,
-                    FilterIndex = extension == ".png" ? 2 : 1,
-                    FileName = suggestedName,
+                    Filter = interrupted is null ? SpektraExport.FileFilter
+                        : png ? "16-bit PNG image|*.png" : "16-bit TIFF image|*.tif;*.tiff",
+                    FilterIndex = interrupted is null && png ? 2 : 1,
+                    FileName = interrupted is null ? suggestedName : Path.GetFileName(interrupted.Destination),
                     DefaultExt = extension,
                     AddExtension = true,
                     OverwritePrompt = true,
                 };
-                if (recipe?.SuggestedDirectory is { } directory)
+                if (interrupted is not null)
+                    picker.InitialDirectory = Path.GetDirectoryName(interrupted.Destination) ?? "";
+                else if (recipe?.SuggestedDirectory is { } directory)
                     picker.InitialDirectory = directory;
                 if (skipPath is not null && ExistingRecipeOutput(skipPath, target.SourcePath) is { } existing)
                     return Skip(existing);
                 var destination = chooseDestination(picker, owner);
                 work.Token.ThrowIfCancellationRequested();
                 if (destination is null)
+                {
+                    if (interrupted is not null)
+                        exportActivity.Report(work, DescribePreviousExport(interrupted));
                     return false;
+                }
 
+                if (interrupted is not null && SpektraExport.PixelFormatFor(interrupted.Destination) != SpektraExport.PixelFormatFor(destination))
+                    throw new InvalidOperationException("Use the original file format when retrying an interrupted export.");
                 var approved = OutputPathGuard.Approve(destination, target.SourcePath);
                 if (approved.AlreadyExists && StringComparer.OrdinalIgnoreCase.Equals(skipPath, approved.Path))
                     return Skip(approved);
                 var outputFormat = SpektraExport.PixelFormatFor(approved.Path);
                 var deliveryNote = delivery.SavedNote(outputFormat);
-                receipt = exportJobs.Accept(work.VariantId, approved.Path);
+                receipt = exportJobs.AcceptRetry(work.VariantId, approved.Path, interrupted?.JobId);
                 work.IsAccepted = true;
+                interruptedExport = null;
+                exportActivity.Report(work, "Preparing the accepted export…");
                 if (owner is { IsVisible: true } && owner.Title.EndsWith(ExportFailureTitleSuffix, StringComparison.Ordinal))
                     owner.Title = owner.Title[..^ExportFailureTitleSuffix.Length];
                 var jobId = receipt.JobId;
                 var started = Stopwatch.GetTimestamp();
+                retry ??= await CaptureRetryDescriptorAsync(snapshot, target.SourcePath, args, look.Strength, encoding,
+                    deliveryProfile, useRecipeSize, work.Token);
+                if (retry is not null)
+                    receipt = exportJobs.RecordRetry(receipt, retry);
                 Advance(ExportStage.DevelopingSource, "Developing export pixels in Capture One…");
                 var result = await Task.Run(async () =>
                 {
@@ -789,6 +838,7 @@ internal sealed class SpatialPreview : IDisposable
                 bool Skip(OutputPathGuard.ApprovedDestination existingOutput)
                 {
                     receipt = exportJobs.Accept(work.VariantId, existingOutput.Path);
+                    interruptedExport = null;
                     var name = Path.GetFileName(existingOutput.Path);
                     Advance(ExportStage.Skipped, $"Skipped Spektrafilm export · {name} already exists.");
                     StartupHook.Log("export.recipe-skip.v1", new { JobId = receipt.JobId });
@@ -814,6 +864,7 @@ internal sealed class SpatialPreview : IDisposable
             var message = error.GetBaseException().Message;
             Advance(ExportStage.Failed, $"Spektrafilm export failed. {message}", error: message);
             if (disposed) return false;
+            if (interrupted is not null && receipt is null) return false;
             if (receipt is not null)
             {
                 if (owner is { IsVisible: true })
@@ -860,6 +911,61 @@ internal sealed class SpatialPreview : IDisposable
                 });
         }
     }
+
+    private static async Task<ExportRetryDescriptor?> CaptureRetryDescriptorAsync(HostImageSource.Snapshot snapshot, string originalPath,
+        string[] filmArguments, double strength, string encoding, ExportColorProfile profile, bool followRecipe, CancellationToken token,
+        FileStream? heldSource = null)
+    {
+        try
+        {
+            if (snapshot.ReadRetryModel() is not { } model)
+                return null;
+            var recipe = snapshot.Recipe;
+            var source = snapshot.SourceIdentity;
+            var settings = JsonSerializer.SerializeToUtf8Bytes(new
+            {
+                Panel = typeof(SpatialPreview).Module.ModuleVersionId,
+                source.HostAssemblySha256, source.ProfileSha256, source.InputEncoding, source.SourceFormat,
+                Film = filmArguments, strength, encoding, OutputICC = profile.Sha256, profile.SrgbSha256,
+                Recipe = recipe is null ? null : new
+                {
+                    recipe.FormatId, recipe.CropMode, recipe.TiffBits, recipe.Width, recipe.Height, recipe.Scale, recipe.IgnoreCrop,
+                    recipe.Resolution, recipe.ResolutionUnit, recipe.TiffCompression, recipe.Omissions,
+                    Metadata = recipe.Metadata.CreateXmp(1, 1),
+                },
+            });
+            return await Task.Run(async () =>
+            {
+                using var delivery = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+                delivery.AppendData(settings);
+                if (strength > 0)
+                {
+                    var root = Environment.GetEnvironmentVariable("SPEKTRAFILM_ROOT");
+                    if (root is null) return null;
+                    foreach (var relative in RuntimeAssets.RequiredFiles)
+                        delivery.AppendData(await HashFile(Path.Combine(root, relative), token).ConfigureAwait(false));
+                }
+                return new ExportRetryDescriptor(followRecipe, Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(model))),
+                    Convert.ToHexString(heldSource is null ? await HashFile(originalPath, token).ConfigureAwait(false)
+                        : await SHA256.HashDataAsync(heldSource, token).ConfigureAwait(false)),
+                    Convert.ToHexString(delivery.GetHashAndReset()));
+            }, token);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            StartupHook.Log("Could not record Spektrafilm export retry identity: " + error.GetType().Name);
+            return null;
+        }
+
+        static async Task<byte[]> HashFile(string path, CancellationToken stop)
+        {
+            await using var file = OpenForFingerprint(path);
+            return await SHA256.HashDataAsync(file, stop).ConfigureAwait(false);
+        }
+    }
+
+    private static FileStream OpenForFingerprint(string path) => new(path, FileMode.Open, FileAccess.Read, FileShare.Read,
+        128 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
 
     private static OutputPathGuard.ApprovedDestination? ExistingRecipeOutput(string path, string original)
     {

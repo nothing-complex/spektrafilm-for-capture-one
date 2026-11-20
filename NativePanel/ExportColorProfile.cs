@@ -20,6 +20,8 @@ internal sealed class ExportColorProfile
 
     internal static ExportColorProfile Srgb => ForRecipe(null, null);
     internal string Label { get; }
+    internal string Sha256 => destination.Sha256;
+    internal string SrgbSha256 => source.Sha256;
     internal ColorContext Context => destination.Context;
     internal bool RequiresConversion => source.Sha256 != destination.Sha256;
 

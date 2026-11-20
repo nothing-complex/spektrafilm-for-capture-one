@@ -8,11 +8,19 @@ using System.Text.Json.Serialization;
 [JsonConverter(typeof(JsonStringEnumConverter<ExportStage>))]
 internal enum ExportStage { Accepted, WaitingForViewer, DevelopingSource, RenderingFilm, Encoding, Completed, Canceled, Failed, Skipped }
 
+internal sealed record ExportRetryDescriptor(bool FollowRecipe, string NativeModel, string Original, string Delivery)
+{
+    internal bool Valid => IsDigest(NativeModel) && IsDigest(Original) && IsDigest(Delivery);
+    private static bool IsDigest(string? value) => value is { Length: 64 } && value.All(Uri.IsHexDigit);
+}
+
 internal sealed record ExportReceipt([property: JsonRequired] int Version, [property: JsonRequired] Guid JobId,
     [property: JsonRequired] Guid VariantId, [property: JsonRequired] string Destination, [property: JsonRequired] DateTime AcceptedUtc,
     [property: JsonRequired] DateTime UpdatedUtc, [property: JsonRequired] ExportStage Stage,
     int Width = 0, int Height = 0, string? Error = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? DeliveryNote = null)
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? DeliveryNote = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ExportRetryDescriptor? Retry = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? RetryOf = null)
 {
     internal bool Finished => Stage is ExportStage.Completed or ExportStage.Canceled or ExportStage.Failed or ExportStage.Skipped;
 }
@@ -41,7 +49,9 @@ internal sealed class ExportJobJournal(string directory, Action<string> log)
                     var receipt = PanelFiles.ReadPreset<ExportReceipt>(path);
                     if (receipt.Version == 1 && receipt.JobId != Guid.Empty && receipt.VariantId != Guid.Empty
                         && receipt.Destination is { Length: > 0 } && Path.IsPathFullyQualified(receipt.Destination) && Enum.IsDefined(receipt.Stage)
-                        && receipt.AcceptedUtc <= receipt.UpdatedUtc && Path.GetFileName(path) == Name(receipt))
+                        && receipt.AcceptedUtc <= receipt.UpdatedUtc && Path.GetFileName(path) == Name(receipt)
+                        && (receipt.Retry is null || receipt.Retry.Valid)
+                        && (receipt.RetryOf is null || receipt.RetryOf != Guid.Empty && receipt.RetryOf != receipt.JobId))
                         return receipt;
                     log("Ignored a malformed Spektrafilm export record.");
                 }
@@ -59,14 +69,25 @@ internal sealed class ExportJobJournal(string directory, Action<string> log)
         return null;
     }
 
-    internal ExportReceipt Accept(Guid variantId, string destination)
+    internal ExportReceipt Accept(Guid variantId, string destination) => AcceptRetry(variantId, destination, null);
+
+    internal ExportReceipt AcceptRetry(Guid variantId, string destination, Guid? previous)
     {
         if (variantId == Guid.Empty || !Path.IsPathFullyQualified(destination))
             throw new ArgumentException("A saved export needs a variant and an absolute destination path.");
         var now = DateTime.UtcNow;
-        var receipt = new ExportReceipt(1, Guid.NewGuid(), variantId, destination, now, now, ExportStage.Accepted);
+        var receipt = new ExportReceipt(1, Guid.NewGuid(), variantId, destination, now, now, ExportStage.Accepted, RetryOf: previous);
         Save(receipt);
         return receipt;
+    }
+
+    internal ExportReceipt RecordRetry(ExportReceipt receipt, ExportRetryDescriptor descriptor)
+    {
+        if (receipt.Stage != ExportStage.Accepted || receipt.Retry is not null || !descriptor.Valid)
+            throw new InvalidOperationException("Resume information belongs to a newly accepted export.");
+        var next = receipt with { Retry = descriptor };
+        Save(next);
+        return next;
     }
 
     internal ExportReceipt Report(ExportReceipt current, ExportStage stage, int width = 0, int height = 0,
@@ -77,7 +98,8 @@ internal sealed class ExportJobJournal(string directory, Action<string> log)
         var now = DateTime.UtcNow;
         var next = current with { Stage = stage, UpdatedUtc = now < current.UpdatedUtc ? current.UpdatedUtc : now, Width = width == 0 ? current.Width : width,
             Height = height == 0 ? current.Height : height, Error = error is { Length: > 1000 } ? error[..1000] : error,
-            DeliveryNote = stage == ExportStage.Completed ? deliveryNote : null };
+            DeliveryNote = stage == ExportStage.Completed ? deliveryNote : null,
+            Retry = stage is ExportStage.Completed or ExportStage.Canceled or ExportStage.Failed or ExportStage.Skipped ? null : current.Retry };
         Save(next);
         return next;
     }

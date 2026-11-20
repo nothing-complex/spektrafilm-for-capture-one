@@ -238,18 +238,21 @@ internal static partial class Program
         var firstPath = Path.GetFullPath(Path.Combine(folder, "First.tif"));
         File.WriteAllText(firstPath, "existing output");
         var first = journal.Accept(variant, firstPath);
+        var retry = new ExportRetryDescriptor(false, new string('A', 64), new string('B', 64), new string('C', 64));
+        first = journal.RecordRetry(first, retry);
         first = journal.Report(first, ExportStage.DevelopingSource);
         first = journal.Report(first, ExportStage.RenderingFilm);
         var restarted = new ExportJobJournal(directory, messages.Add);
-        Check(restarted.ReadLatest() == first && first is { Finished: false, Stage: ExportStage.RenderingFilm },
+        Check(restarted.ReadLatest() == first && first is { Finished: false, Stage: ExportStage.RenderingFilm } && first.Retry == retry,
             "accepted variant, destination and in-progress stage survive a fresh journal reader");
 
         if (!SpinWait.SpinUntil(() => DateTime.UtcNow > first.AcceptedUtc, TimeSpan.FromSeconds(1)))
             throw new InvalidOperationException("The system clock did not advance for the export fixture.");
-        var second = journal.Accept(Guid.NewGuid(), Path.GetFullPath(Path.Combine(folder, "Second.png")));
+        var second = journal.AcceptRetry(variant, Path.GetFullPath(Path.Combine(folder, "Second.png")), first.JobId);
         first = journal.Report(first, ExportStage.Encoding, 2400, 1600);
         first = journal.Report(first, ExportStage.Completed);
-        Check(restarted.ReadLatest() == second && Directory.GetFiles(directory, "*.json").Length == 2,
+        Check(restarted.ReadLatest() == second && second.RetryOf == first.JobId && first.Retry is null
+            && Directory.GetFiles(directory, "*.json").Length == 2,
             "a late older completion cannot replace the receipt for a newer accepted export");
         second = journal.Report(second, ExportStage.Canceled);
         Check(restarted.ReadLatest() == second && second.Finished, "canceled export publishes its distinct terminal state");

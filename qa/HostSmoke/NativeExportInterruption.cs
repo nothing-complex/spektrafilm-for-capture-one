@@ -36,6 +36,8 @@ public static partial class StartupHook
         }
         Task<bool> Save(string path) => (Task<bool>)Call(spatial, "ExportWithDestinationAsync", false, null,
             (Func<SaveFileDialog, Window?, string?>)((_, _) => path))!;
+        Task<bool> Retry(Func<SaveFileDialog, Window?, string?> choose) =>
+            (Task<bool>)Call(spatial, "RetryInterruptedExportAsync", choose)!;
         var variant = (Guid)Field(panel, "displayedVariant")!;
         if (phase == "first")
         {
@@ -67,6 +69,8 @@ public static partial class StartupHook
                         File.WriteAllText(evidence, JsonSerializer.Serialize(new InterruptedExport(jobId, variant, stage, previous,
                             savedExposure, stagedBytes, process.Id)));
                         Check(!writing.IsCompleted, "the approved export is still in progress when the disposable process is stopped");
+                        Check(Prop(current, "Retry") is { } descriptor && Prop(descriptor, "Valid") is true,
+                            "the original, native model and delivery digests are durable before the process stops");
                         var marker = Path.Combine(folder, "validated-interruption");
                         File.WriteAllText(marker, $"PASS {checks} checks before abrupt stop during {stage}");
                         File.Move(marker, Path.Combine(folder, "first.passed"));
@@ -105,10 +109,35 @@ public static partial class StartupHook
                 && File.ReadAllText(unrelatedStage) == unrelatedText,
                 "Windows released only the active Spektrafilm staging file after the process stopped mid-encoding");
         var retry = Path.Combine(folder, "explicit-retry.tif");
-        Check(await Save(retry).WaitAsync(TimeSpan.FromSeconds(45)), "a fresh explicit export succeeds after interruption");
+        var retryButton = (Button)Field(spatial, "retryExport")!;
+        Check(retryButton.Visibility == Visibility.Visible && retryButton.IsEnabled,
+            "the restarted tool offers a verified retry for the interrupted job");
+        exposureValue.SetValue(exposure, interrupted.Exposure + .21);
+        var offeredWhileChanged = false;
+        Check(!await Retry((_, _) => { offeredWhileChanged = true; return retry; }).WaitAsync(TimeSpan.FromSeconds(45))
+            && !offeredWhileChanged && !File.Exists(retry) && Equals(Prop(Read()!, "JobId"), interrupted.Job),
+            "a changed look refuses the retry before opening Save or accepting another output");
+        exposureValue.SetValue(exposure, interrupted.Exposure);
+        var offered = false;
+        string SelectedDestination(SaveFileDialog picker)
+        {
+            Check(StringComparer.OrdinalIgnoreCase.Equals(Path.GetFullPath(picker.InitialDirectory), Path.GetDirectoryName(target))
+                && picker.FileName == Path.GetFileName(target) && picker.DefaultExt.TrimStart('.') == "tif"
+                && picker.FilterIndex == 1 && !picker.Filter.Contains("PNG", StringComparison.Ordinal) && picker.OverwritePrompt,
+                "the retry suggests the approved path and keeps overwrite confirmation");
+            offered = true;
+            return retry;
+        }
+        Check(!await Retry((picker, _) => { SelectedDestination(picker); return null; }).WaitAsync(TimeSpan.FromSeconds(45))
+            && offered && !File.Exists(retry) && Equals(Prop(Read()!, "JobId"), interrupted.Job),
+            "canceling Save leaves the original interrupted receipt available");
+        offered = false;
+        Check(await Retry((picker, _) => SelectedDestination(picker)).WaitAsync(TimeSpan.FromSeconds(45)) && offered,
+            "a verified explicit retry succeeds after the acknowledged look is restored");
         var completed = Read()!;
         Check(Prop(completed, "Stage")?.ToString() == "Completed" && !Equals(Prop(completed, "JobId"), interrupted.Job)
-            && Equals(Prop(completed, "Destination"), retry) && Digest(target) == interrupted.PreviousSha256,
+            && Equals(Prop(completed, "RetryOf"), interrupted.Job) && Equals(Prop(completed, "Destination"), retry)
+            && Digest(target) == interrupted.PreviousSha256,
             "the retry accepted a distinct immutable destination and retained the previous output bytes");
         var retryDigest = Digest(retry);
         using var file = File.OpenRead(retry);

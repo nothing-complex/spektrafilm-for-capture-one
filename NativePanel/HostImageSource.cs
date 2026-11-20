@@ -335,7 +335,7 @@ internal static class HostImageSource
         throw new ExportSourceChangedException($"{message} {phase}. Try Export again.");
     }
 
-    private static string? TryReadNativeIdentity(ICoreVariant variant, NativeImageRevision expectedRevision)
+    private static string? TryReadNativeIdentity(ICoreVariant variant, NativeImageRevision expectedRevision, bool verifyLibraryProfiles = false)
     {
         var settings = variant.Settings;
         if (VariantReaderLock?.FieldType != typeof(object) || VariantReaderLock.GetValue(settings) is not { } readerLock
@@ -348,7 +348,7 @@ internal static class HostImageSource
         {
             if (ReadRevision(variant) != expectedRevision)
                 return null;
-            profilesSha256 = NativeProfileIdentity.TryRead(variant);
+            profilesSha256 = NativeProfileIdentity.TryRead(variant, verifyLibraryProfiles);
             if (profilesSha256 is null)
                 return null;
             if (variant.LocalAdjustmentsLayers is { Count: > 0 } layers)
@@ -421,6 +421,16 @@ internal static class HostImageSource
         internal NativeImageRevision AdjustmentKey => description.AdjustmentKey;
         internal FrameSourceDescription SourceIdentity => description;
         internal RecipeInfo? Recipe => recipe;
+        internal string? ReadRetryModel()
+        {
+            var expected = description.AdjustmentKey;
+            var current = ReadRevision(variant);
+            if (current != expected && (nativeIdentity is null || current.HighRes <= expected.HighRes
+                || current.LowRes != expected.LowRes || current.Geometry != expected.Geometry
+                || !string.Equals(TryReadNativeIdentity(variant, current), nativeIdentity, StringComparison.Ordinal)))
+                return null;
+            return TryReadNativeIdentity(variant, current, verifyLibraryProfiles: true);
+        }
 
         internal Frame RenderNativePreview(CancellationToken token) =>
             Render(new RenderOptions(NativePreviewEdgeLimit, RenderPurpose.NativePreview), token).Image;
