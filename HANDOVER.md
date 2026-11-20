@@ -1,6 +1,6 @@
 # Spektrafilm for Capture One development handover
 
-Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The 70-item integration audit tracks 27 bounded primary fixes implemented and 43 partial items. It includes feasibility investigations and enhancements.
+Updated 2026-11-20. The critical-fix batch is implemented, tested, installed locally and published in a draft pull request. The audit follow-ups below passed local validation. The 70-item integration audit tracks 28 bounded primary fixes implemented and 42 partial items. It includes feasibility investigations and enhancements.
 
 ## Resume here
 
@@ -785,6 +785,15 @@ Source verification used `.test-results/host-high-depth-only-color-20261120`, `.
 - [x] Verify an actual Apply adds one native action, a single Undo restores every field and the previous history item, Redo restores the applied grain and Restore keeps the previous durable settings. The licensed setter, scope-close and selection-change faults preserve the prior history in the same native no-undo scope used by the product. The full suite passed 311 first-launch and 315 restart assertions.
 
 Evidence is under `.test-results/host-grain-atomic-history-20261120`. The current package remains audit.15 and predates this change.
+
+## Native Export applies the film and optical effects
+
+- [x] Execute Capture One's real Export command and confirm from its visible native dialog. The fixture chooses a private save path and leaves the production command binding, recipe capture, renderer and encoder on the tested path. Repeat via **Export with Previous Settings**. Each invocation accepted exactly one job.
+- [x] Reopen an effects-disabled reference, film-only TIFF, film-plus-camera-diffusion TIFF and matching PNG. The 3000 by 2000 outputs carry the exact Adobe RGB recipe profile at 16 bits. Across 41,238 sampled RGB codes per run, film changed a mean 11.66% of full-scale code and camera diffusion changed a further 4.76%. The two native effect outputs agreed within about one millionth of full-scale code on average.
+- [x] Switch Spektrafilm off and observe Capture One's ordinary Export dialog. Simulate a changed callback name, verify each original callback after detach, repeat disposal and confirm a clean production reattach.
+- [x] Pass 39 licensed checks on first launch and restart with the exact audit.15 extraction and the newer source runtime, for four runs. The source catalog hash was checked and temporary native settings were restored. Run `Run-HostSmoke.ps1 -NativeEffectExport` with the exact native settings backup and disposable test catalog.
+
+Evidence and TIFF/PNG examples are under `.test-results/host-native-effect-export-final-20261120` and `.test-results/host-source-native-effect-export-20261120`. Native Export support remains tied to the verified Capture One build and one selected photo with one enabled recipe.
 
 ## Status maintenance
 

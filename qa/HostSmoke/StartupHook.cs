@@ -151,6 +151,11 @@ public static partial class StartupHook
                 File.WriteAllText(Path.Combine(folder, "first.passed"), $"PASS {checks} native control inventory assertions");
                 return;
             }
+            if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT") == "1")
+            {
+                await TestNativeEffectExport(hookField, hosted, panel, spatial, window);
+                return;
+            }
             var exposure = Field(panel, "exposure")!;
             var toggle = (CheckBox)Field(panel, "enableSpektraFilm")!;
             await TestLaunchHealth(hosted, spatial, toggle);

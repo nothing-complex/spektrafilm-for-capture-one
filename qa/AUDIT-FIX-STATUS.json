@@ -1097,11 +1097,13 @@
       "id": "VE-01",
       "title": "Expose export-hook capability and prevent silent unprocessed native exports",
       "priority": "P1",
-      "status": "partial",
+      "status": "implemented",
       "implemented": [
         "An export bind failure is visible and explicit plugin export remains distinct; actual supported-host binding was observed.",
         "Startup binding now exposes a typed Checking/Connected/Unavailable/Detached state. Real first/second command failures leave the warning visible after edits and direct export available.",
-        "Native confirmation commands in a visible Export dialog route through actual Spektrafilm TIFF/PNG output; cancel keeps the dialog open, success closes it, and Export with Previous Settings uses the same pipeline. Two broken closure shapes raise a persistent capability warning, preserve direct export availability and unwind on a clean reattach."
+        "Native confirmation commands in a visible Export dialog route through actual Spektrafilm TIFF/PNG output; cancel keeps the dialog open, success closes it, and Export with Previous Settings uses the same pipeline. Two broken closure shapes raise a persistent capability warning, preserve direct export availability and unwind on a clean reattach.",
+        "The real Capture One Export command, its visible native confirmation, and Export with Previous Settings write the selected variant through the current film pipeline. Each of four licensed runs reopened 3000 by 2000 RGB48 TIFF and RGBA64 PNG with the exact Adobe RGB recipe profile. Across 41,238 sampled 16-bit RGB codes per run, the film look changed the RGB codes by a mean 11.66% of full scale and camera diffusion changed them a further 4.76%. The two native routes agreed within about one millionth of full-scale RGB on average. Each command accepted exactly one job. Switch-off delegated to the ordinary native Export dialog.",
+        "A changed native callback name failed before any mutation. Detach restored each native callback exactly once, repeated detach preserved both invocation lists, and reattachment reported Connected. The exact audit.15 build and current source each passed 39 checks on first launch and restart."
       ],
       "evidence_paths": [
         "NativePanel/StartupHook.cs",
@@ -1109,11 +1111,13 @@
         "qa/HostSmoke",
         ".test-results/host-audit-state-selection-20261119/host-smoke.log",
         ".test-results/host-export-meta-adapter-20261119/host-smoke.log",
-        "NativePanel/ExportHook.cs"
+        "NativePanel/ExportHook.cs",
+        "qa/HostSmoke/NativeEffectExport.cs",
+        ".test-results/host-native-effect-export-final-20261120/first-native-effect-export.json",
+        ".test-results/host-source-native-effect-export-20261120/restart-native-effect-export.json"
       ],
       "remaining_work": [
-        "Exercise the changed native callback name and detached/reattached command invocation with full native queue ownership.",
-        "Include confirmation-stage diagnostics in the cross-version capability contract."
+        "Extend confirmation-stage diagnostics when the independent 16.7 compatibility work establishes a supported native adapter."
       ],
       "original_acceptance_tests": [
         "Inject missing first command, missing second command, wrong closure field/type and changed method name; assert original delegates restored exactly once and capability unavailable.",
@@ -1475,7 +1479,8 @@
         "Recipe print resolution now reaches the encoder. The selector and help text state the 16-bit sRGB TIFF/PNG output policy and which recipe settings carry over.",
         "Recipe metadata flags now gate the explicit supported metadata subset captured before Save. Both native command paths produce a verified 16-bit image and normalized orientation under the TIFF/PNG policy.",
         "Capture the recipe's local RGB ICC profile before showing Save and color-convert the SDR film result through a genuine 16-bit RGBA64 transform. TIFF drops alpha without changing any converted RGB code; PNG retains alpha. Reopen the encoded file and verify the exact profile digest before atomically publishing it.",
-        "The licensed Adobe RGB recipe produced the exact embedded profile in 210 first-launch and 214 restart checks. ProPhoto and Linear Rec.2020 TIFF/PNG fixtures retained the actual converted RGB, alpha where applicable, DPI and ICC. Across three profiles, an independent ICC matrix/TRC reference had p95 Delta E 2000 of 0.031–0.159 and maximum 0.803. The normal direct export remains sRGB."
+        "The licensed Adobe RGB recipe produced the exact embedded profile in 210 first-launch and 214 restart checks. ProPhoto and Linear Rec.2020 TIFF/PNG fixtures retained the actual converted RGB, alpha where applicable, DPI and ICC. Across three profiles, an independent ICC matrix/TRC reference had p95 Delta E 2000 of 0.031–0.159 and maximum 0.803. The normal direct export remains sRGB.",
+        "The real Capture One Export command, its visible native confirmation, and Export with Previous Settings write the selected variant through the current film pipeline. Each of four licensed runs reopened 3000 by 2000 RGB48 TIFF and RGBA64 PNG with the exact Adobe RGB recipe profile. Across 41,238 sampled 16-bit RGB codes per run, the film look changed the RGB codes by a mean 11.66% of full scale and camera diffusion changed them a further 4.76%. The two native routes agreed within about one millionth of full-scale RGB on average. Each command accepted exactly one job. Switch-off delegated to the ordinary native Export dialog."
       ],
       "evidence_paths": [
         "NativePanel/SpektraFilmTool.cs",
@@ -1487,7 +1492,10 @@
         "NativePanel/ExportColorProfile.cs",
         ".test-results/host-recipe-icc-final-20261120/host-smoke.log",
         ".test-results/contracts-recipe-icc-final-20261120/summary.json",
-        ".test-results/wic-icc16-probe-20261120/independent-colour-science.json"
+        ".test-results/wic-icc16-probe-20261120/independent-colour-science.json",
+        "qa/HostSmoke/NativeEffectExport.cs",
+        ".test-results/host-native-effect-export-final-20261120/first-native-effect-export.json",
+        ".test-results/host-source-native-effect-export-20261120/restart-native-effect-export.json"
       ],
       "remaining_work": [
         "Compare selected RGB recipe output against additional native profile references. Native format/quality and naming rules beyond the explicit 16-bit TIFF/PNG save policy remain open."
@@ -3012,7 +3020,8 @@
         "GitHub's current latest release resolves to v0.1.1. Its actual Windows ZIP and checksum asset names match the README and published tag, with both URLs verified through release metadata.",
         "A licensed capture of the native panel generated 196 declared controls, sections and menu entries, including 136 controls mapped to compiled worker options. A second native launch matches the tracked inventory exactly and verifies the developer exhaustion control is disabled with a reason. CAPABILITIES.md generation rejects unknown renderer options, unknown local capabilities, duplicate identities and invalid table cells. Thirty-one manifest assertions passed under Windows PowerShell 5.1.",
         "The Viewer Save Preview PNG now uses the same window-owner-aware dialog pattern as image export. Both licensed runs saved the settled 2048 px Viewer image, reopened exact dimensions, colour context and the sampled BGRA pixel, and re-enabled the command. All Windows and Vulkan contracts passed.",
-        "The exact extracted audit.15 package regenerated identical capability documentation, passed all package and runtime checksums and reproduced the 196-control inventory in the licensed host. It passed 310 first-launch and 314 restart assertions, 131 native RAW assertions on each launch, 28 managed Vulkan checks, and both public Windows contract jobs."
+        "The exact extracted audit.15 package regenerated identical capability documentation, passed all package and runtime checksums and reproduced the 196-control inventory in the licensed host. It passed 310 first-launch and 314 restart assertions, 131 native RAW assertions on each launch, 28 managed Vulkan checks, and both public Windows contract jobs.",
+        "An altered capability report in a disposable copy of the exact audit.15 archive was rejected by checksum. The separate native installer upgrade kept exactly the verified generated report."
       ],
       "evidence_paths": [
         "README.md",
@@ -3035,7 +3044,8 @@
         ".test-results/contracts-panel-control-caps-final-20261120/summary.json",
         ".test-results/audit15-package-verify-20261120/result.json",
         ".test-results/host-audit15-inventory-20261120/host-smoke.log",
-        "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44687634647"
+        "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44687634647",
+        ".test-results/audit15-capability-tamper-20261120/result.txt"
       ],
       "remaining_work": [
         "Individually exercise the remaining conditional commands, including the live LUT cancellation button and recent-preset menu selection. Recheck public URLs after future releases."
@@ -3135,8 +3145,8 @@
   ],
   "counts": {
     "total": 70,
-    "implemented": 27,
-    "partial": 43,
+    "implemented": 28,
+    "partial": 42,
     "pending": 0
   },
   "last_reconciled": "2026-11-20",
@@ -3199,7 +3209,9 @@
         "raw_matrix": 131,
         "raw_matrix_restart": 131,
         "native_inventory": 19,
-        "managed_gpu": 28
+        "managed_gpu": 28,
+        "native_effect_export_first": 39,
+        "native_effect_export_restart": 39
       },
       "remote_windows_contracts": "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44687634647",
       "normal_installed_revision": "ffc481988eb2e6e7ef7a1379486c4a8b2656ac81",
