@@ -30,3 +30,11 @@ jobs:
         run: |
           Get-Content .test-results/summary.json -ErrorAction SilentlyContinue
           'GPU rendering and licensed Capture One integration require a separately reviewed test run.'
+      - name: Attach host-independent contract receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-contracts-${{ matrix.windows }}
+          path: .test-results/summary.json
+          include-hidden-files: true
+          if-no-files-found: ignore
