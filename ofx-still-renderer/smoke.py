@@ -445,15 +445,22 @@ def check_print_optics_mode(exe, frame, base):
     scanner = base + " --scanner-enabled true --scanner-mtf 15"
     print_optics = (" --print-diffusion-family pro_mist --print-diffusion-strength 1.5"
                     " --scanner-glare .07 --scanner-glare-roughness 1 --scanner-glare-blur .6")
+    print_development = (" --print-exposure 1.2 --print-gamma 1.35 --print-push-pull .6"
+                         " --print-shadow-shape .2 --print-highlight-shape -.3 --print-bleach-bypass .4"
+                         " --cyan-filter 20 --magenta-filter 12 --yellow-filter -17"
+                         " --preflash .2 --preflash-magenta 10 --preflash-yellow -8")
     request = b"".join(
         frame_request(small, f"{scanner} --mode {mode}{extra}")
-        for mode in ("scan", "scan_inverted", "print") for extra in ("", print_optics)
+        for mode in ("scan", "scan_inverted", "print")
+        for extra in ("", print_optics, print_development, print_optics + print_development)
     )
-    replies = run_stream(exe, request, mode="--native-preview-stream")
-    assert len(replies) == 6 and all(status == 0 for status, _ in replies)
-    assert replies[0] == replies[1] and replies[2] == replies[3]
-    assert replies[4] != replies[5]
-    print("Print diffusion and glare change Print Simulation and leave both negative scan encodings byte exact")
+    for stream in ("--native-preview-stream", "--export-stream"):
+        replies = run_stream(exe, request, mode=stream)
+        assert len(replies) == 12 and all(status == 0 for status, _ in replies), stream
+        assert all(reply == replies[0] for reply in replies[1:4]), (stream, "Scan uses a print-only setting")
+        assert all(reply == replies[4] for reply in replies[5:8]), (stream, "Inverted scan uses a print-only setting")
+        assert all(reply != replies[8] for reply in replies[9:]), (stream, "Print setting has no effect in Print Simulation")
+        print(f"{stream}: print development, diffusion and glare affect Print Simulation and leave both scan encodings byte exact")
 
 
 def check_optical_prerequisites(exe, frame, base):

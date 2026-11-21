@@ -46,4 +46,45 @@ internal static class FilmControls
 
     internal static IReadOnlyDictionary<string, FilmSlider> Development { get; } =
         Negative.Concat(Printing).Concat(Couplers).ToDictionary(item => item.StateKey, StringComparer.Ordinal);
+
+    internal static IReadOnlyList<(string StateKey, string WorkerKey)> DevelopmentRendererParameters { get; } =
+        Array.AsReadOnly(Development.Values.Where(item => item.WorkerKey is not null)
+            .Select(item => (item.StateKey, item.WorkerKey!)).ToArray());
+
+    internal static void AppendRendererOptions(LookSettings look, bool printing, List<string> arguments)
+    {
+        if (printing && look.Development.GetValueOrDefault("print_exhaustion") != 0)
+            throw new InvalidOperationException("Set Developer exhaustion to zero before rendering Print Simulation.");
+
+        AddNumber(Exposure.WorkerKey!, look.Exposure);
+        if (printing)
+            AddNumber(PrintExposure.WorkerKey!, look.PrintExposure);
+        AddDevelopment(Negative);
+        if (printing)
+            AddDevelopment(Printing);
+        AddDevelopment(Couplers);
+        AddFilter("uv_cutoff", "uv-enabled");
+        AddFilter("ir_cutoff", "ir-enabled");
+
+        void AddDevelopment(IReadOnlyList<FilmSlider> definitions)
+        {
+            foreach (var definition in definitions)
+                if (definition.WorkerKey is { } key && look.Development.TryGetValue(definition.StateKey, out var value))
+                    AddNumber(key, value);
+        }
+
+        void AddFilter(string stateKey, string workerKey)
+        {
+            var initial = Development[stateKey].Initial;
+            Add(workerKey, look.Development.GetValueOrDefault(stateKey, initial) != initial ? "true" : "false");
+        }
+
+        void AddNumber(string key, double value) => Add(key, RendererParameters.NumberToken(value));
+
+        void Add(string key, string value)
+        {
+            arguments.Add("--" + key);
+            arguments.Add(value);
+        }
+    }
 }

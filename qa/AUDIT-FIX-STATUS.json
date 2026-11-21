@@ -1256,7 +1256,8 @@
         "The portable suite verifies the tracked native inventory, generates 32 legal look dictionaries and rejects mutated persisted values just beyond the control range. The licensed 42-check fixture switches Print to Scan and back, verifies the correct 13 disabled options are omitted in Scan and restores the exact Print request.",
         "Pass 728 state and recovery assertions, 12,507 Viewer contracts and 222 licensed four-RAW native effects-export assertions. Both native commands retain the 16-bit effect and exact recipe ICC. The ordinary panel build completes with the compiled gate enabled and its renderer matches the licensed fixture worker bytes.",
         "The optical definition supplies nested prerequisites and disabled-control hints as well as worker argument admission. Metering, both diffusion filters, scanner corrections and color adaptation use the same definition for live controls and frozen native batch arguments. The state suite passes 772 assertions.",
-        "The same declarations now cover the four grain models and both layer switches. Conditions preserve the grain-synthesis dependence on shared particle blur and microstructure, and keep film format available independently. The managed suite passes 865 assertions, including the 16 model and switch combinations."
+        "The same declarations now cover the four grain models and both layer switches. Conditions preserve the grain-synthesis dependence on shared particle blur and microstructure, and keep film format available independently. The managed suite passes 865 assertions, including the 16 model and switch combinations.",
+        "Use the film development definitions to omit all 12 print-only arguments in Scan Negative while retaining every persisted control value. A legacy Developer exhaustion value only blocks the print path, where the panel still explains how to clear it. The state suite passes 965 checks, the 112-control compiled contract passes, and the updated licensed control fixture builds."
       ],
       "evidence_paths": [
         "NativePanel/LookStateValidation.cs",
@@ -1282,7 +1283,10 @@
         ".test-results/optical-prerequisites-state-20261120.log",
         ".test-results/host-optical-prerequisites-tooltip-20261120/host-smoke.log",
         ".test-results/grain-prerequisites-state-20261120.log",
-        ".test-results/host-grain-prerequisites-20261120/host-smoke.log"
+        ".test-results/host-grain-prerequisites-20261120/host-smoke.log",
+        ".test-results/print-stage-20261121/state.log",
+        ".test-results/print-stage-20261121/compiled-controls.log",
+        ".test-results/print-stage-20261121/host-smoke-build.log"
       ],
       "remaining_work": [
         "Finish versioned look migration and extend availability checks to remaining backend conditions. Host-independent CI covers numeric look mutations and checks the tracked native inventory. The Windows panel build validates the actual compiled description; the public Windows CI jobs still need the actual compiled renderer matrix."
@@ -1945,7 +1949,8 @@
         "The licensed host validated generated requests for Print and Scan at the managed slider boundaries. The standalone GPU matrix verifies every described renderer key and rejects invalid values, including missing APD calibration.",
         "The licensed inventory records the actual ranges, units, steps and UI reset values of 112 renderer-facing sliders against their compiled bounds and renderer defaults. Startup refuses incompatible numeric bounds or boolean types. Existing panel reset values and UV/IR off semantics stay intact.",
         "The managed film slider definitions now drive units, range validation, defaults and wire mapping. UI integer behavior comes directly from the compiled parameter type, while old out-of-type fractional values are normalized on load before constructing renderer arguments. The licensed test verifies continuous optics still preserve fractional values.",
-        "The optical definitions now drive presentation, persisted ranges and wire option ownership. The Windows panel build checks every managed renderer option type and choice against the actual worker descriptor. All 112 numeric controls accept their authored minimum, default and maximum."
+        "The optical definitions now drive presentation, persisted ranges and wire option ownership. The Windows panel build checks every managed renderer option type and choice against the actual worker descriptor. All 112 numeric controls accept their authored minimum, default and maximum.",
+        "Apply the same print stage boundary to live preview, native still export and LUT arguments. Both scan encodings produce byte-identical Vulkan frames with and without the dormant print development and optics options. Print Simulation changes with both groups. The standalone worker passes 24 renders across the actual preview and export streams."
       ],
       "evidence_paths": [
         "stocks.json",
@@ -1966,7 +1971,8 @@
         ".test-results/host-film-control-schema-20261120/host-smoke.log",
         "NativePanel/OpticalControls.cs",
         "tests/state/OpticalControlContracts.cs",
-        ".test-results/host-optical-schema-inventory-20261120"
+        ".test-results/host-optical-schema-inventory-20261120",
+        ".test-results/print-stage-20261121/print-scan-vulkan.log"
       ],
       "remaining_work": [
         "Finish versioned migrations and extend the declared dependencies to the remaining optional renderer capability conditions.",

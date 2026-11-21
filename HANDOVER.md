@@ -1550,6 +1550,8 @@ For the local ICC fixture use `Run-HostSmoke.ps1 -NativeEffectProfileSidecars -S
 
 Repeat the native fixture with `Run-HostSmoke.ps1 -NativeOpticalAvailability`, the closed source catalog and the exact native settings path. Latest evidence is in `.test-results/host-grain-prerequisites-20261120`, `.test-results/grain-prerequisites-gpu-20261120.log` and `.test-results/grain-prerequisites-state-20261120.log`. This source checkpoint follows audit.35.
 
+The shared Viewer, native export and LUT request now leave all 12 Print Simulation development options out of both Scan Negative modes. Previously, a saved Developer exhaustion value could prevent a scan from rendering. Scan preserves that staged value. Print Simulation still asks the user to clear it and uses all other staged print settings. Pass 965 state and recovery checks, the 112-control compiled contract, and 24 Vulkan comparisons across preview and export streams. Changes to print development or print optics leave both Scan Negative encodings byte-identical and affect Print Simulation. The updated licensed control fixture builds with zero warnings. Its in-app rerun remains open pending host startup. See `.test-results/print-stage-20261121`.
+
 ## Launcher discovery for moved and copied catalogs
 
 - [x] Discover matching saved-look generations while preparing the closed catalog. The launcher restores one verified byte-identical match before Capture One opens. For changed databases, index the native document ID and verify every archived variant's image before recovery. Older backups are discoverable through their read-only databases. Updated recovery requires approval through the shortcut or `-RecoverUpdatedCatalogLooks`. Use `-SkipCatalogLookRecovery` to bypass discovery.

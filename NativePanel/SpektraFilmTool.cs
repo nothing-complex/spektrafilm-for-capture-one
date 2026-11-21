@@ -1914,7 +1914,7 @@ internal static class SpektraFilmTool
                 printExposure.BindRenderer(renderer, FilmControls.PrintExposure.WorkerKey!);
                 renderer.VerifyBooleanControl("uv-enabled");
                 renderer.VerifyBooleanControl("ir-enabled");
-                foreach (var (stateKey, workerKey) in SpatialPreview.DevelopmentRendererParameters)
+                foreach (var (stateKey, workerKey) in FilmControls.DevelopmentRendererParameters)
                     development[stateKey].Slider.BindRenderer(renderer, workerKey);
                 if (!renderer.SupportsChoice("spectral-method", "hanatos2026")
                     || !available.Films.All(stock => renderer.SupportsHanatos2026(stock.Id)))

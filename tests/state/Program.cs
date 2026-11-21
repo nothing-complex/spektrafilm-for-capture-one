@@ -503,6 +503,35 @@ Check("the film control schema keeps 21 saved keys and 20 distinct wire mappings
     filmDefaults.Count == 21 && developmentKeys.Length == 20 && developmentKeys.Distinct().Count() == 20
     && filmDefaults["print_exhaustion"] == 0);
 LookStateValidation.ValidateDevelopment(filmDefaults);
+var stagedDevelopment = new Dictionary<string, double>(filmDefaults)
+{
+    ["print_exhaustion"] = .4,
+    ["print_gamma"] = 1.35,
+    ["preflash_exposure"] = .2,
+    ["preflash_magenta"] = 10,
+    ["uv_cutoff"] = 395,
+};
+var stagedFilm = Sample(1.5).Look with { PrintExposure = 1.2, Development = stagedDevelopment };
+var scanWire = new List<string>();
+FilmControls.AppendRendererOptions(stagedFilm, printing: false, scanWire);
+var printOnlyKeys = FilmControls.Printing.Select(definition => definition.WorkerKey).OfType<string>()
+    .Append("print-exposure").Select(key => "--" + key).ToArray();
+Check("Scan Negative omits every print-only development setting and keeps active film controls",
+    !scanWire.Intersect(printOnlyKeys).Any() && scanWire[scanWire.IndexOf("--uv-enabled") + 1] == "true"
+    && scanWire.Contains("--dir-amount") && scanWire.Contains("--film-exposure"));
+Throws<InvalidOperationException>("Print Simulation still reports unsupported developer exhaustion",
+    () => FilmControls.AppendRendererOptions(stagedFilm, printing: true, new List<string>()));
+var reloadedStaging = PanelFiles.DecodePreset<LookSettings>(PanelFiles.EncodeCompactPreset(stagedFilm));
+Check("rendering a scan preserves exact staged print settings in saved look state",
+    reloadedStaging.PrintExposure == 1.2 && reloadedStaging.Development["print_exhaustion"] == .4
+    && reloadedStaging.Development["print_gamma"] == 1.35 && reloadedStaging.Development["preflash_magenta"] == 10);
+reloadedStaging.Development["print_exhaustion"] = 0;
+var printWire = new List<string>();
+FilmControls.AppendRendererOptions(reloadedStaging, printing: true, printWire);
+Check("returning to print reuses every mapped staged setting without sending exhaustion",
+    printOnlyKeys.All(printWire.Contains) && !printWire.Contains("--print-exhaustion")
+    && printWire[printWire.IndexOf("--print-gamma") + 1] == "1.35"
+    && printWire[printWire.IndexOf("--preflash-magenta") + 1] == "10");
 foreach (var definition in FilmControls.Development.Values)
 {
     foreach (var bound in new[] { definition.Minimum, definition.Maximum })

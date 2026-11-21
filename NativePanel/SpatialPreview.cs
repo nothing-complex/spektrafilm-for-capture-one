@@ -2317,10 +2317,6 @@ internal sealed class SpatialPreview : IDisposable
         }
     }
 
-    internal static IReadOnlyList<(string StateKey, string WorkerKey)> DevelopmentRendererParameters { get; } =
-        Array.AsReadOnly(FilmControls.Development.Values.Where(item => item.WorkerKey is not null)
-            .Select(item => (item.StateKey, item.WorkerKey!)).ToArray());
-
     internal string[] RendererOptions(LookSettings look, string inputColor, string outputColor, bool export = false, bool draft = false) =>
         BuildRendererOptions(look, inputColor, outputColor, export, draft, frozen: null);
 
@@ -2328,9 +2324,6 @@ internal sealed class SpatialPreview : IDisposable
     {
         if (look.Mode is "process_negative" or "process_negatives")
             throw new InvalidOperationException("Process Negative requires an encoded negative scan as input.");
-        if (look.Development.GetValueOrDefault("print_exhaustion") != 0)
-            throw new InvalidOperationException("Set Developer exhaustion to zero before rendering this optical preview.");
-
         var args = new List<string>();
         string Selected(string key) => frozen is null ? SelectedOpticalChoice(key)
             : frozen.Selections.GetValueOrDefault(key, ((OpticalChoice)OpticalControls.Parameters[key].Parameter).Default);
@@ -2349,20 +2342,7 @@ internal sealed class SpatialPreview : IDisposable
         Set("mode", scanning ? (look.ScanInvert ? "scan_inverted" : "scan") : "print");
         Set("spectral-method", look.SpectralMethod);
         Set("film-push-pull-mode", look.FilmPushPullMode);
-        Numeric("film-exposure", look.Exposure);
-        Numeric("print-exposure", look.PrintExposure);
-        foreach (var (sourceKey, rendererKey) in DevelopmentRendererParameters)
-        {
-            if (look.Development.TryGetValue(sourceKey, out var value))
-                Numeric(rendererKey, value);
-        }
-        SetFilter("uv_cutoff", "uv-enabled");
-        SetFilter("ir_cutoff", "ir-enabled");
-        void SetFilter(string key, string option)
-        {
-            var baseline = FilmControls.Development[key].Initial;
-            Set(option, look.Development.GetValueOrDefault(key, baseline) != baseline ? "true" : "false");
-        }
+        FilmControls.AppendRendererOptions(look, !scanning, args);
 
         bool Send(string key) => OpticalControls.Parameters[key].ShouldSend(!scanning, IsOn, Selected);
         foreach (var key in choices.Keys)

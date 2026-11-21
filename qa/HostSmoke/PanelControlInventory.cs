@@ -112,10 +112,15 @@ public static partial class StartupHook
             mode.SelectedItem = OpticalOption(mode, "scan");
             var scan = OpticalWire(panel, spatial);
             var omitted = print.Keys.Except(scan.Keys).ToArray();
-            Check(sections.All(section => !section.IsEnabled) && scan["mode"] == "scan" && omitted.Length == 13
-                && omitted.All(key => key.StartsWith("print-diffusion-", StringComparison.Ordinal) || key.StartsWith("scanner-glare", StringComparison.Ordinal))
+            string[] printing = ["print-exposure", "print-gamma", "print-push-pull", "print-shadow-shape",
+                "print-highlight-shape", "print-bleach-bypass", "cyan-filter", "magenta-filter", "yellow-filter",
+                "preflash", "preflash-magenta", "preflash-yellow"];
+            Check(sections.All(section => !section.IsEnabled) && scan["mode"] == "scan"
+                && omitted.Count(key => key.StartsWith("print-diffusion-", StringComparison.Ordinal)
+                    || key.StartsWith("scanner-glare", StringComparison.Ordinal)) == 13
+                && omitted.Length == 13 + printing.Length && printing.All(omitted.Contains)
                 && scan.ContainsKey("camera-diffusion-strength") && scan.ContainsKey("scanner-unsharp-amount"),
-                "Scan Film disables and omits the print-only optics while retaining camera diffusion and scanner sharpening");
+                "Scan Film omits print-only development and optics while retaining camera diffusion and scanner sharpening");
             var staged = Call(spatial, "CaptureSettings")!;
             Check(Equals(((IDictionary)Prop(staged, "Selections")!)["print-diffusion-family"], "pro_mist")
                 && Equals(((IDictionary)Prop(staged, "Numbers")!)["scanner-glare"], .07d),
@@ -372,7 +377,8 @@ public static partial class StartupHook
                 Bind(entry.Value!, key.StartsWith("custom-", StringComparison.Ordinal) ? "optical-controls" : "vulkan", key);
             }
         }
-        var development = ((IEnumerable)spatial.GetType().GetProperty("DevelopmentRendererParameters", Flags)!
+        var filmControls = panel.GetType().Assembly.GetType("FilmControls", throwOnError: true)!;
+        var development = ((IEnumerable)filmControls.GetProperty("DevelopmentRendererParameters", Flags)!
             .GetValue(null)!).Cast<ITuple>().ToDictionary(item => (string)item[0]!, item => (string)item[1]!, StringComparer.Ordinal);
         foreach (DictionaryEntry entry in (IDictionary)Field(panel, "development")!)
         {
