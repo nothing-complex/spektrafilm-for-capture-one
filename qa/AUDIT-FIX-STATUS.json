@@ -2757,7 +2757,9 @@
         "A full-frame Viewer worker can now reuse the developed negative immediately before grain. It matches the immutable source revision and effective film, color, camera diffusion, halation and DIR inputs. The density is retained in existing film or DIR scratch. A static resource rebuild, new source, tile, or buffer replacement invalidates the checkpoint.",
         "The Vulkan smoke matches 44 cache-enabled/recomputed float frames across full and tiled paths. Another 156 packed Viewer replies match the previous executable by SHA-256 and use the same GPU scratch. The 100-request sweep reused 95 results, cleared on all five source uploads and held 161,283,184 transient bytes. A concurrent Viewer/Export run matched all 24 serial outputs by SHA-256.",
         "At 3000 × 2000 on the RTX 3090, print-only edits with stacked optics dropped from 140 to 64 passes. The median worker reply fell from 118.33 to 49.24 ms and p95 from 119.02 to 49.54 ms, including reply hashing. Color-only stayed at about 19 ms.",
-        "The new worker passed 36 licensed Capture One 16.4 Viewer assertions and eight drawn RGB16-source frames across four RAW formats. The original fixture catalog hash stayed unchanged."
+        "The new worker passed 36 licensed Capture One 16.4 Viewer assertions and eight drawn RGB16-source frames across four RAW formats. The original fixture catalog hash stayed unchanged.",
+        "Cache the tiled halation highlight peak for one immutable accepted source. Source replacement, effective film exposure, input encoding, film stock and spectral prerequisites invalidate it. Compute the current boost curve on every request. This reuses a single scalar while export preserves its existing device-source upload policy.",
+        "Pass the full standalone Vulkan suite on a physical RTX 3090. The 48 targeted multi-tile Viewer/export frame comparisons and 70 benchmark SHA-256 pairs match forced recomputation exactly. Tile counts, upload sizes and peak scratch match in the paired 6 MP and 24 MP measurements. The cached preparation stage drops from 2.14–2.41 ms at 6 MP and 7.70–7.96 ms at 24 MP to under 0.01 ms. The isolated 6 MP worker medians improve by roughly 2 ms, while 24 MP Viewer wall timing is mixed."
       ],
       "evidence_paths": [
         "upstream-ofx/src/SpektraVulkanRenderer.cpp",
@@ -2772,10 +2774,12 @@
         ".test-results/density-candidate-20261120.json",
         ".test-results/density-sweep-20261120.json",
         ".test-results/density-overlap-20261120.json",
-        ".test-results/host-density-viewer-20261120"
+        ".test-results/host-density-viewer-20261120",
+        ".test-results/tiled-halation-peak-20261121/full-gpu-smoke.log",
+        ".test-results/tiled-halation-peak-20261121/comparison.json"
       ],
       "remaining_work": [
-        "Map and measure downstream print and scanner checkpoints. Tiled preview and export use the original negative-development path.",
+        "Map and measure downstream print and scanner checkpoints. The full negative-density checkpoint remains limited to the full-frame Viewer. The tiled routes now reuse only the measured pre-development halation peak.",
         "Measure end-to-end native print-slider response, with real camera files and displayed Viewer frames, and use shader timestamps if supported for individual stage attribution."
       ],
       "original_acceptance_tests": [

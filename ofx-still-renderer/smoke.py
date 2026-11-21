@@ -60,9 +60,9 @@ def reference_crop(frame, scale=1.2, x_shift=0.04, y_shift=-0.03):
     return ((1 - ty) * top + ty * bottom).astype(np.float32)
 
 
-def frame_request(frame, options):
+def frame_request(frame, options, verb="FRAME"):
     height, width = frame.shape[:2]
-    return f"FRAME {width} {height} {options}\n".encode("ascii") + frame.astype("<f4", copy=False).tobytes()
+    return f"{verb} {width} {height} {options}\n".encode("ascii") + frame.astype("<f4", copy=False).tobytes()
 
 
 def run_stream(exe, request, exit_code=0, mode="--stream", env=None, timeout=20):
@@ -607,6 +607,81 @@ def check_negative_density_cache(exe, frame, base):
     print(f"Negative density reuse matched {2 * len(cases)} recomputed full/tiled results with unchanged scratch allocations")
 
 
+def check_tiled_halation_peak_cache(exe, frame, base):
+    # A bright, asymmetric highlight crosses a tile boundary and makes the
+    # global peak and the automatic exposure correction independently visible.
+    chart = frame[np.arange(256)[:, None] % frame.shape[0], np.arange(384) % frame.shape[1]]
+    center_y, center_x = (edge // 2 for edge in chart.shape[:2])
+    chart[center_y - 5:center_y + 7, center_x - 8:center_x + 6, :3] *= 4
+    changed = chart.copy()
+    changed[..., :3] *= .6
+    boost = f"{base} --spectral-method hanatos2025 --grain-model off --halation-amount 1 --halation-boost 2"
+    exposed = f"{boost} --film-exposure .5"
+    metered = f"{boost} --auto-exposure true --auto-exposure-meter median"
+    uv = f"{boost} --uv-enabled true --uv-cutoff 415"
+    ir = f"{uv} --ir-enabled true --ir-cutoff 640"
+    enlarged = f"{boost} --enlarger-scale 1.4 --enlarger-x 4"
+    cases = (
+        (chart, boost, False),
+        (None, f"{boost} --print-exposure .5", True),
+        (None, f"{boost} --halation-boost 3 --halation-boost-range .4 --halation-protect 1", True),
+        (None, f"{boost} --paper kodak_2383", True),
+        (None, f"{boost} --scanner-enabled true --scanner-mtf 15", True),
+        (None, f"{boost} --film-gamma 1.3 --film-push-pull .4 --mode scan", True),
+        (None, exposed, False),
+        (None, f"{exposed} --print-exposure .3", True),
+        (None, metered, False),
+        (None, f"{metered} --print-exposure .2", True),
+        (None, uv, False),
+        (None, ir, False),
+        (None, f"{ir} --print-exposure .4", True),
+        (None, f"{boost} --stock kodak_ektar_100", False),
+        (None, f"{boost} --stock kodak_ektar_100 --input-color prophoto", False),
+        (None, f"{boost} --stock kodak_ektar_100 --input-color prophoto --spectral-method hanatos2026", False),
+        (None, f"{boost} --stock kodak_ektar_100 --input-color prophoto --spectral-method hanatos2026 --color-adaptation true", False),
+        (changed, boost, False),
+        (None, f"{boost} --print-exposure .7", True),
+        (None, enlarged, False),
+        (None, f"{enlarged} --print-exposure .6", True),
+        (None, boost, False),
+        (chart[:, :-3].copy(), boost, False),
+        (None, f"{boost} --print-exposure .8", True),
+    )
+    clean = {key: value for key, value in os.environ.items()
+             if not key.upper().startswith("SPEKTRAFILM_") and key.upper() != "DOTNET_STARTUP_HOOKS"}
+    tiled = {**clean, "SPEKTRAFILM_VULKAN_TILE_MODE": "tiled", "SPEKTRAFILM_VULKAN_TILE_WIDTH": "192",
+             "SPEKTRAFILM_VULKAN_TILE_HEIGHT": "128"}
+    disabled = {**tiled, "SPEKTRAFILM_VULKAN_TILED_HALATION_PEAK_CACHE": "0"}
+    for stream, frame_verb, reuse_verb in (
+        ("--native-preview-stream", "FRAME8", "REUSE8"), ("--export-stream", "FRAME", "REUSE"),
+    ):
+        packet = b"".join(
+            (frame_request(source, options, frame_verb) if source is not None
+             else f"{reuse_verb} {options}\n".encode("ascii")) + b"METRICS\n"
+            for source, options, _ in cases
+        )
+        candidate = run_stream(exe, packet, mode=stream, env=tiled, timeout=60)
+        reference = run_stream(exe, packet, mode=stream, env=disabled, timeout=60)
+        assert len(candidate) == len(reference) == len(cases) * 2, stream
+        for index, (_, options, hit) in enumerate(cases):
+            actual, stats = candidate[index * 2:index * 2 + 2]
+            expected, clean_stats = reference[index * 2:index * 2 + 2]
+            assert actual[0] == stats[0] == clean_stats[0] == 0, (stream, options, actual[1][:300])
+            assert actual == expected, (stream, index, options)
+            metrics, recomputed = json.loads(stats[1]), json.loads(clean_stats[1])
+            assert metrics["tileCount"] > 1 and recomputed["tileCount"] == metrics["tileCount"], (stream, index)
+            # Export uploads an independently resampled enlargement each request.
+            expected_hit = hit and not (frame_verb == "FRAME" and " --enlarger-scale " in options)
+            assert metrics["tiledHalationPeakCacheHit"] == expected_hit, (stream, index, options)
+            assert not recomputed["tiledHalationPeakCacheHit"], (stream, index)
+            assert metrics["uploadBytes"] == recomputed["uploadBytes"], (stream, index)
+            if frame_verb == "FRAME":
+                assert metrics["uploadBytes"] > 0, (stream, index)
+            assert metrics["transientCachedBytes"] <= recomputed["transientCachedBytes"], (stream, index)
+        assert candidate[0] != candidate[4], (stream, "changing the boost curve must affect output")
+    print(f"Tiled halation peak matches {2 * len(cases)} clean Viewer/export frames with bounded scratch")
+
+
 def check_tiled_parity(exe, base):
     """Compare genuine multi-tile renders on a signal that crosses tile boundaries."""
     height, width = 769, 1027
@@ -962,6 +1037,7 @@ def main():
     check_optical_prerequisites(args.exe, frame, base)
     check_grain_prerequisites(args.exe, frame, base)
     check_negative_density_cache(args.exe, frame, base)
+    check_tiled_halation_peak_cache(args.exe, frame, base)
     check_tiled_parity(args.exe, base)
     check_optical_scratch_lifetime(args.exe, base)
     check_gpu_budget(args.exe, base)

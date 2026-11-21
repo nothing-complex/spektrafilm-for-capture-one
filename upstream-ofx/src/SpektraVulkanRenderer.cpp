@@ -1387,6 +1387,34 @@ struct NegativeDensityKey {
   }
 };
 
+// The tiled boost reduction measures the peak of the exposed film RGB before
+// optics and development. The boost curve itself is rebuilt from current controls.
+struct TiledHalationPeak {
+  uint64_t sourceRevision = 0;
+  int32_t width = 0;
+  int32_t height = 0;
+  uint32_t tileWidth = 0;
+  uint32_t tileHeight = 0;
+  int32_t film = 0;
+  ColorSpace inputSpace{};
+  RgbToRawMethod spectralMethod{};
+  uint32_t adaptationFlags = 0;
+  float exposure = 0.0f;
+  bool uvEnabled = false;
+  float uvCut = 0.0f;
+  bool irEnabled = false;
+  float irCut = 0.0f;
+  float value = 0.0f;
+
+  bool matches(const TiledHalationPeak &other) const {
+    return sourceRevision != 0u && sourceRevision == other.sourceRevision &&
+      width == other.width && height == other.height && tileWidth == other.tileWidth && tileHeight == other.tileHeight &&
+      film == other.film && inputSpace == other.inputSpace && spectralMethod == other.spectralMethod &&
+      adaptationFlags == other.adaptationFlags && exposure == other.exposure &&
+      uvEnabled == other.uvEnabled && uvCut == other.uvCut && irEnabled == other.irEnabled && irCut == other.irCut;
+  }
+};
+
 enum : uint32_t {
   kHalationOpClear = 0u,
   kHalationOpBlurX = 1u,
@@ -2828,6 +2856,7 @@ struct VulkanRenderer::Impl {
     ScratchBuffer filmRaw;
     ScratchBuffer filmDensity;
     NegativeDensityKey negativeDensity;
+    TiledHalationPeak halationPeak;
     ScratchBuffer destination;
     ScratchBuffer destinationConverted;
     ScratchBuffer destinationStaging;
@@ -3117,12 +3146,22 @@ struct VulkanRenderer::Impl {
     double time,
     uint64_t alternateSourceRevision = 0
   );
-  bool computeHalationBoostMilestone(
+  bool prepareTiledHalationBoost(
     const RenderWindow &window,
     const RenderParams &params,
     uint32_t centerTileWidth,
     uint32_t centerTileHeight,
-    VkDeviceSize fullSourceByteCount
+    VkDeviceSize fullSourceByteCount,
+    uint64_t sourceRevision,
+    bool &cacheHit
+  );
+  bool computeTiledHalationPeak(
+    const RenderWindow &window,
+    const RenderParams &params,
+    uint32_t centerTileWidth,
+    uint32_t centerTileHeight,
+    VkDeviceSize fullSourceByteCount,
+    float &globalMaxRaw
   );
 
   bool renderTiledBootstrap(
@@ -3131,7 +3170,8 @@ struct VulkanRenderer::Impl {
     const RenderWindow &window,
     const RenderParams &params,
     double time,
-    uint64_t alternateSourceRevision
+    uint64_t alternateSourceRevision,
+    bool reuseDeviceSource
   );
 
   bool createBuffer(
@@ -4629,6 +4669,7 @@ void VulkanRenderer::Impl::destroyCoreFrameResources() {
   coreFrame.sourceRevision = 0;
   coreFrame.alternateSourceRevision = 0;
   coreFrame.negativeDensity = {};
+  coreFrame.halationPeak = {};
   if (coreFrame.fence != VK_NULL_HANDLE) {
     vkDestroyFence(device, coreFrame.fence, nullptr);
     coreFrame.fence = VK_NULL_HANDLE;
@@ -7244,12 +7285,13 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
   return true;
 }
 
-bool VulkanRenderer::Impl::computeHalationBoostMilestone(
+bool VulkanRenderer::Impl::computeTiledHalationPeak(
   const RenderWindow &window,
   const RenderParams &params,
   uint32_t centerTileWidth,
   uint32_t centerTileHeight,
-  VkDeviceSize fullSourceByteCount
+  VkDeviceSize fullSourceByteCount,
+  float &globalMaxRaw
 ) {
   const int32_t fullWidth = window.x2 - window.x1;
   const int32_t fullHeight = window.y2 - window.y1;
@@ -7312,7 +7354,7 @@ bool VulkanRenderer::Impl::computeHalationBoostMilestone(
 
   // Reduce exposure over the same immutable device source the render tiles use.
   const VkDescriptorBufferInfo sourceBufferInfo{coreFrame.source.buffer, 0, fullSourceByteCount};
-  float globalMaxRaw = 0.0f;
+  globalMaxRaw = 0.0f;
   for (uint32_t tileY = 0u; tileY < tileRows; ++tileY) {
     for (uint32_t tileX = 0u; tileX < tileColumns; ++tileX) {
       if (cancellationRequested()) {
@@ -7609,7 +7651,34 @@ bool VulkanRenderer::Impl::computeHalationBoostMilestone(
       globalMaxRaw = std::max(globalMaxRaw, boostInfo[0]);
     }
   }
+  return true;
+}
 
+bool VulkanRenderer::Impl::prepareTiledHalationBoost(
+  const RenderWindow &window,
+  const RenderParams &params,
+  uint32_t centerTileWidth,
+  uint32_t centerTileHeight,
+  VkDeviceSize fullSourceByteCount,
+  uint64_t sourceRevision,
+  bool &cacheHit
+) {
+  const bool cacheable = sourceRevision != 0u && params.process != ProcessMode::ProcessNegative &&
+    envFlagEnabledOrDefault("SPEKTRAFILM_VULKAN_TILED_HALATION_PEAK_CACHE", true);
+  TiledHalationPeak peak{
+    cacheable ? sourceRevision : 0u, window.x2 - window.x1, window.y2 - window.y1,
+    centerTileWidth, centerTileHeight, params.film, params.inputColorSpace, params.rgbToRawMethod,
+    colorAdaptationFlags(params), params.filmExposureEv, params.cameraUvFilterEnabled, params.cameraUvCutNm,
+    params.cameraIrFilterEnabled, params.cameraIrCutNm
+  };
+  cacheHit = peak.matches(coreFrame.halationPeak);
+  if (cacheHit) {
+    peak.value = coreFrame.halationPeak.value;
+  } else if (!computeTiledHalationPeak(window, params, centerTileWidth, centerTileHeight, fullSourceByteCount, peak.value)) {
+    return false;
+  }
+  coreFrame.halationPeak = peak;
+  const float globalMaxRaw = peak.value;
   const float rawX0 = std::clamp(
     0.184f * std::exp2(params.halationProtectEv),
     0.0f,
@@ -7637,7 +7706,8 @@ bool VulkanRenderer::Impl::renderTiledBootstrap(
   const RenderWindow &window,
   const RenderParams &params,
   double time,
-  uint64_t alternateSourceRevision
+  uint64_t alternateSourceRevision,
+  bool reuseDeviceSource
 ) {
   std::lock_guard<std::recursive_mutex> lock(renderMutex);
   diagnostics = {};
@@ -7669,7 +7739,8 @@ bool VulkanRenderer::Impl::renderTiledBootstrap(
       "use GPU Render Tiling: Full-frame for this setting until that milestone path is implemented.";
     return false;
   }
-  const uint64_t sourceRevision = reusableSourceRevision(source, window);
+  const uint64_t immutableRevision = reusableSourceRevision(source, window);
+  const uint64_t sourceRevision = reuseDeviceSource ? immutableRevision : 0u;
   RenderParams tileParams = params;
   std::vector<float> fullSourcePixels;
   double meteringMs = 0.0;
@@ -7822,15 +7893,18 @@ bool VulkanRenderer::Impl::renderTiledBootstrap(
   }
 #endif
 
-  if (halationBoostMilestoneEnabled &&
-      !computeHalationBoostMilestone(window, tileParams, centerTileWidth, centerTileHeight, fullSourceByteCount)) {
-    const std::string milestoneError = lastError.empty() ? "unknown Vulkan halation boost milestone failure" : lastError;
-    lastError = "Vulkan tiled render failed while computing the halation boost milestone: " + milestoneError;
-    updateSharedDiagnostics();
-    return false;
-  }
-
   RendererDiagnostics aggregate{};
+  if (halationBoostMilestoneEnabled) {
+    const auto halationStart = PerfClock::now();
+    if (!prepareTiledHalationBoost(window, tileParams, centerTileWidth, centerTileHeight, fullSourceByteCount,
+                                  immutableRevision, aggregate.tiledHalationPeakCacheHit)) {
+      const std::string milestoneError = lastError.empty() ? "unknown Vulkan halation boost milestone failure" : lastError;
+      lastError = "Vulkan tiled render failed while computing the halation boost milestone: " + milestoneError;
+      updateSharedDiagnostics();
+      return false;
+    }
+    aggregate.tiledHalationBoostMs = elapsedMilliseconds(halationStart, PerfClock::now());
+  }
   aggregate.meteringMs = meteringMs;
   aggregate.meteringCacheHit = meteringCacheHit;
   aggregate.renderSerialized = true;
@@ -8072,7 +8146,8 @@ bool VulkanRenderer::render(
   const RenderWindow &window,
   const RenderParams &params,
   double time,
-  uint64_t alternateSourceRevision
+  uint64_t alternateSourceRevision,
+  bool reuseDeviceSource
 ) {
   if (!impl_ || !impl_->available) {
     if (impl_) {
@@ -8092,9 +8167,11 @@ bool VulkanRenderer::render(
   } else {
     const GpuRenderTilingMode tileMode = resolveVulkanTileMode(params);
     if (tileMode == GpuRenderTilingMode::Tiled) {
-      ok = impl_->renderTiledBootstrap(source, destination, window, params, time, alternateSourceRevision);
+      ok = impl_->renderTiledBootstrap(source, destination, window, params, time, alternateSourceRevision, reuseDeviceSource);
     } else {
-      ok = impl_->renderCoreBootstrap(source, destination, window, params, time, alternateSourceRevision);
+      auto coreSource = source;
+      if (!reuseDeviceSource) coreSource.immutableRevision = 0u;
+      ok = impl_->renderCoreBootstrap(coreSource, destination, window, params, time, alternateSourceRevision);
     }
   }
 

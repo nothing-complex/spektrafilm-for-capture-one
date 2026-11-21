@@ -100,7 +100,7 @@ def command_json(child, command):
 
 
 def run_case(executable, shape, scene, route, repetitions, timeout, simulated_cap_mib, hash_replies, tile_size,
-             source_change_interval, edit, before_request=None):
+             source_change_interval, edit, tile_mode=None, disable_halation_peak_cache=False, before_request=None):
     packed = route == "viewer"
     width, height = shape
     pixels = width * height
@@ -112,6 +112,10 @@ def run_case(executable, shape, scene, route, repetitions, timeout, simulated_ca
     if tile_size is not None:
         env["SPEKTRAFILM_VULKAN_TILE_WIDTH"] = str(tile_size[0])
         env["SPEKTRAFILM_VULKAN_TILE_HEIGHT"] = str(tile_size[1])
+    if tile_mode is not None:
+        env["SPEKTRAFILM_VULKAN_TILE_MODE"] = tile_mode
+    if disable_halation_peak_cache:
+        env["SPEKTRAFILM_VULKAN_TILED_HALATION_PEAK_CACHE"] = "0"
     child = subprocess.Popen([str(executable), args], cwd=executable.parent, env=env,
                              stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     # An unresponsive renderer cannot leave a benchmark child or blocked pipe behind.
@@ -194,7 +198,8 @@ def run_case(executable, shape, scene, route, repetitions, timeout, simulated_ca
 def run_overlap(executable, viewer_size, export_size, scene, args):
     sizes = {"viewer": viewer_size, "export": export_size}
     options = (args.repetitions, args.case_timeout, args.simulate_gpu_cap_mib,
-               args.hash_replies, args.tile_size, args.source_change_interval, args.edit)
+               args.hash_replies, args.tile_size, args.source_change_interval, args.edit,
+               args.tile_mode, args.disable_halation_peak_cache)
     serial = {route: run_case(executable, shape, scene, route, *options) for route, shape in sizes.items()}
     barrier = threading.Barrier(2, timeout=args.case_timeout)
 
@@ -266,6 +271,9 @@ def main():
     parser.add_argument("--simulate-gpu-cap-mib", type=int, help="Test-only cap for the renderer allocator. Does not change physical VRAM.")
     parser.add_argument("--hash-replies", action="store_true", help="Include the SHA-256 of each frame. Wall time then includes hashing.")
     parser.add_argument("--tile-size", type=dimensions, help="Override tile size in this worker for cases that use tiling.")
+    parser.add_argument("--tile-mode", choices=("legacy", "tiled"), help="Force the full-frame or tiled worker path.")
+    parser.add_argument("--disable-halation-peak-cache", action="store_true",
+                        help="Recompute the tiled halation peak on every request for comparison.")
     parser.add_argument("--source-change-interval", type=int, default=0,
                         help="Alternate two source charts every N requests. Zero uploads only the first source.")
     parser.add_argument("--overlap-preview", type=dimensions,
@@ -287,6 +295,8 @@ def main():
         "simulatedGpuAllocatorCapMiB": args.simulate_gpu_cap_mib,
         "hashedReplies": args.hash_replies,
         "tileSizeOverride": args.tile_size,
+        "tileModeOverride": args.tile_mode,
+        "halationPeakCacheDisabled": args.disable_halation_peak_cache,
         "sourceChangeInterval": args.source_change_interval,
         "timingScope": "Worker request and reply. Each measurement records whether it transferred input or used the resident source.",
         "memoryScope": "Worker process and renderer diagnostics. Driver workspace and Capture One host memory are outside this report.",
@@ -315,7 +325,7 @@ def main():
                 try:
                     case = run_case(executable, shape, scene, route, args.repetitions, args.case_timeout,
                                     args.simulate_gpu_cap_mib, args.hash_replies, args.tile_size, args.source_change_interval,
-                                    args.edit)
+                                    args.edit, args.tile_mode, args.disable_halation_peak_cache)
                 except Exception as error:
                     result["failure"] = {"route": route, "scene": scene, "size": shape, "reason": str(error)}
                     update_result(result, args.output)

@@ -45,6 +45,8 @@ struct RendererDiagnostics {
   double meteringMs = 0.0;
   bool meteringCacheHit = false;
   bool negativeDensityCacheHit = false;
+  double tiledHalationBoostMs = 0.0;
+  bool tiledHalationPeakCacheHit = false;
   double commandEncodingMs = 0.0;
   double commandBufferMs = 0.0;
   double gpuCommandBufferMs = 0.0;

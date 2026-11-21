@@ -799,7 +799,7 @@ FrameMetrics renderFrame(Renderer &renderer, const InputFrame &input, RenderPara
         ? (revision == input.revision ? cache->revision : input.revision) : 0u;
     writeProgress(progress, WorkerStage::Vulkan);
     const bool rendered = vulkan
-        ? vulkan->render(source, destination, frame, params, 0.0, alternateRevision)
+        ? vulkan->render(source, destination, frame, params, 0.0, alternateRevision, cache != nullptr)
         : renderer.render(source, destination, frame, params, 0.0);
     if (stop) stop->check();
     if (!rendered) {
@@ -957,6 +957,8 @@ void writeMetrics(const Renderer *renderer, uint64_t renderSequence, const Input
          << ",\"meteringMs\":" << d.meteringMs
          << ",\"meteringCacheHit\":" << (d.meteringCacheHit ? "true" : "false")
          << ",\"negativeDensityCacheHit\":" << (d.negativeDensityCacheHit ? "true" : "false")
+         << ",\"tiledHalationBoostMs\":" << d.tiledHalationBoostMs
+         << ",\"tiledHalationPeakCacheHit\":" << (d.tiledHalationPeakCacheHit ? "true" : "false")
          << ",\"commandEncodingMs\":" << d.commandEncodingMs
          << ",\"commandBufferMs\":" << d.commandBufferMs
          << ",\"gpuCommandBufferMs\":" << d.gpuCommandBufferMs
@@ -1149,7 +1151,7 @@ void processStream(const FrameLimit &limit) {
                         writeError("Invalid input pixel.", request);
                         continue;
                     }
-                    if (nativePreview) replacement.revision = ++enlarger.sequence;
+                    if (nativePreview || &limit == &kExportLimit) replacement.revision = ++enlarger.sequence;
                 }
                 if (replacesInput || !renderedArguments || args != *renderedArguments || (!packedPreview && !packedOutput.empty())) {
                     renderedArguments.reset();

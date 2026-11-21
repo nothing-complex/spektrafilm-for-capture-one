@@ -51,7 +51,8 @@ public:
     const RenderWindow &window,
     const RenderParams &params,
     double time,
-    uint64_t alternateSourceRevision
+    uint64_t alternateSourceRevision,
+    bool reuseDeviceSource = true
   );
 
 private:
