@@ -76,7 +76,7 @@ internal static class HostImageSource
         double Resolution, string ResolutionUnit, ExportMetadata Metadata, TiffCompressOption TiffCompression,
         RecipeNaming? Naming, string? SuggestedDirectory, string? ExactDirectory,
         bool AddSuffixToExistingFileName, bool SkipExistingOutput, SharpeningOutputControl Sharpening,
-        ExportWatermark? Watermark, SpektraExport.RecipeOmission Omissions)
+        ExportWatermark? Watermark, SpektraExport.RecipeOmission Omissions, PsdCropPath? CropPath)
     {
         internal string? SuggestedFilename => Naming?.Stem;
     }
@@ -233,6 +233,8 @@ internal static class HostImageSource
         var variant = selection.Variant;
         var metadata = ReadRecipeMetadata(variant, recipe);
         var format = ReadRecipeFormat.Value(recipe);
+        var cropPath = format == FileFormat.Psd && recipe.CropExportMethod == CropExportMethod.AsPath
+            ? ReadPsdCropPath(geometry) : null;
         var compression = format == FileFormat.Tiff ? recipe.TiffCompression switch
         {
             TiffCompressionMethod.None => TiffCompressOption.None,
@@ -257,7 +259,21 @@ internal static class HostImageSource
             scale.ScaledPixelWidth, scale.ScaledPixelHeight, scale.Scale, ignoreCrop, recipe.Resolution, recipe.ResolutionUnit.ToString(),
             metadata, compression, ReadRecipeNaming(selection, recipe), suggestedDirectory, exactDirectory,
             recipe.FileOverwriteAction == ProcessedFileOverwriteAction.Rename,
-            recipe.FileOverwriteAction == ProcessedFileOverwriteAction.Skip, sharpening, watermark, omissions);
+            recipe.FileOverwriteAction == ProcessedFileOverwriteAction.Skip, sharpening, watermark, omissions, cropPath);
+    }
+
+    private static PsdCropPath? ReadPsdCropPath(VariantGeometryTransformer geometry)
+    {
+        try
+        {
+            var canvas = geometry.CanvasSize;
+            return PsdCropPath.FromCanvas(CropInCanvas(geometry, canvas), canvas);
+        }
+        catch (Exception error) when (error is InvalidDataException or InvalidOperationException)
+        {
+            // An invalid crop still permits exporting the full image with a disclosure.
+            return null;
+        }
     }
 
     internal static string WatermarkProfilePath =>

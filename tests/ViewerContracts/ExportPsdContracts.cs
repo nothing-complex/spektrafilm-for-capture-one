@@ -1,5 +1,6 @@
 using System;
 using System.Buffers.Binary;
+using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
@@ -50,9 +51,16 @@ internal static partial class Program
             samples[index] = probe[(index * 7 + index / (width * 3)) % probe.Length];
         var image = BitmapSource.Create(width, height, 299.5, 304.25, PixelFormats.Rgb48, null, samples, width * 6);
         image.Freeze();
+        var canvas = new SizeF(642.5f, 452.5f);
+        var pathCrop = PsdCropPath.FromCanvas(RectangleF.FromLTRB(64.25f, 90.5f, 481.875f, 362f), canvas);
+        Check(pathCrop is { IsValid: true }
+            && PsdCropPath.FromCanvas(new RectangleF(-1, 4, 12, 12), canvas) is null
+            && PsdCropPath.FromCanvas(new RectangleF(1, 4, 0, 12), canvas) is null
+            && PsdCropPath.FromCanvas(new RectangleF(1, 4, 900, 12), canvas) is null,
+            "the full-canvas crop uses normalized coordinates and refuses degenerate or outside geometry");
         ExportPublication? publication = null;
         SpektraExport.SaveApproved(OutputPathGuard.Approve(path, source), image, CancellationToken.None,
-            metadata, profile, verified: receipt => publication = receipt);
+            metadata, profile, verified: receipt => publication = receipt, cropPath: pathCrop);
 
         var publishedBytes = File.ReadAllBytes(path);
         using (var file = File.OpenRead(path))
@@ -64,6 +72,11 @@ internal static partial class Program
             Check(Convert.ToHexString(SHA256.HashData(decoded.Resources[1039])) == profile.Sha256
                 && decoded.Resources[1060].AsSpan().SequenceEqual(Encoding.UTF8.GetBytes(metadata.CreateXmp(width, height))),
                 "PSD preserves the exact selected ICC and UTF-8 XMP resource");
+            (double X, double Y)[] expectedCorners = [(.10, .20), (.75, .20), (.75, .80), (.10, .80)];
+            Check(!decoded.Resources.ContainsKey(2999)
+                && decoded.ReadCropPath().Zip(expectedCorners).All(pair =>
+                    Math.Abs(pair.First.X - pair.Second.X) * width < .001 && Math.Abs(pair.First.Y - pair.Second.Y) * height < .001),
+                "the named edit path has all four expected canvas corners without forcing a clipping path");
         }
         Check(publication is { } receipt && receipt.Length == publishedBytes.Length
             && receipt.Sha256 == Convert.ToHexString(SHA256.HashData(publishedBytes)),
@@ -74,7 +87,7 @@ internal static partial class Program
         {
             var writes = 0;
             SpektraExport.SaveApproved(OutputPathGuard.Approve(path, source), image, cancellation.Token, metadata, profile,
-                reportWrite: _ => { if (++writes == 2) cancellation.Cancel(); });
+                reportWrite: _ => { if (++writes == 2) cancellation.Cancel(); }, cropPath: pathCrop);
             throw new InvalidOperationException("The canceled PSD writer published an incomplete image.");
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }

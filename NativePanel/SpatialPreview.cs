@@ -767,7 +767,8 @@ internal sealed class SpatialPreview : IDisposable
                 || recipe.TiffBits != batchRecipe.TiffBits || recipe.CropMode != batchRecipe.CropMode))
                 throw new InvalidOperationException("The selected Export Recipe changed during preparation. Start the batch again.");
             var omissions = recipes.Aggregate(SpektraExport.RecipeOmission.None, (flags, recipe) => flags | recipe.Omissions);
-            var policy = new SpektraExport.RecipeDelivery(batchRecipe.FormatId, batchRecipe.TiffBits, batchRecipe.CropMode, omissions);
+            var policy = new SpektraExport.RecipeDelivery(batchRecipe.FormatId, batchRecipe.TiffBits, batchRecipe.CropMode, omissions,
+                HasPsdCropPath: recipes.All(recipe => recipe.CropPath is not null));
             var skipExisting = policy.CanSkipRecipeOutput && recipes.Any(recipe => recipe.SkipExistingOutput && recipe.SuggestedFilename is not null);
             var picker = new OpenFolderDialog
             {
@@ -849,6 +850,7 @@ internal sealed class SpatialPreview : IDisposable
                     completedDelivery = policy with
                     {
                         Omissions = (completedDelivery?.Omissions ?? SpektraExport.RecipeOmission.None) | item.Snapshot.Recipe!.Omissions,
+                        HasPsdCropPath = (completedDelivery?.HasPsdCropPath ?? true) && item.Snapshot.Recipe!.CropPath is not null,
                     };
                     continue;
                 }
@@ -876,7 +878,7 @@ internal sealed class SpatialPreview : IDisposable
         finally
         {
             var deliveryNote = completedDelivery is { } completed
-                ? completed.SavedNote(SpektraExport.FormatFor(completed.Extension)) : null;
+                ? completed.SavedNote(SpektraExport.FormatFor(completed.Extension), batch: true) : null;
             var details = string.Join(Environment.NewLine, new[] { firstError, deliveryNote }.OfType<string>());
             var outcome = $"Saved {saved} of {selection.Length} images · {failed} failed · {canceled} canceled"
                 + (skipped > 0 ? $" · {skipped} skipped" : "");
@@ -1189,7 +1191,7 @@ internal sealed class SpatialPreview : IDisposable
                 }
                 work.Token.ThrowIfCancellationRequested();
                 var delivery = new SpektraExport.RecipeDelivery(recipe?.FormatId, recipe?.TiffBits ?? 0, recipe?.CropMode,
-                    recipe?.Omissions ?? SpektraExport.RecipeOmission.None);
+                    recipe?.Omissions ?? SpektraExport.RecipeOmission.None, HasPsdCropPath: recipe?.CropPath is not null);
                 var extension = interrupted is null ? delivery.Extension : Path.GetExtension(interrupted.Destination);
                 var suggestedFormat = SpektraExport.FormatFor(extension);
                 var dpi = recipe is null ? ExportResolution.DefaultDpi : ExportResolution.DotsPerInch(recipe.Resolution, recipe.ResolutionUnit);
@@ -1326,7 +1328,8 @@ internal sealed class SpatialPreview : IDisposable
                     var writeStarted = Stopwatch.GetTimestamp();
                     SpektraExport.SaveApproved(approved, output, work.Token, recipe?.Metadata, deliveryProfile,
                         recipe?.TiffCompression ?? TiffCompressOption.Zip, work.ReportEncoderWrite,
-                        publication => receipt = exportJobs.RecordPublication(receipt!, publication with { DeliveryNote = deliveryNote }));
+                        publication => receipt = exportJobs.RecordPublication(receipt!, publication with { DeliveryNote = deliveryNote }),
+                        cropPath: recipe?.CropPath);
                     StartupHook.Log("export.performance.v2", new
                     {
                         JobId = jobId,
@@ -1457,7 +1460,7 @@ internal sealed class SpatialPreview : IDisposable
                 Film = filmArguments, strength, encoding, OutputICC = profile.Sha256, profile.SrgbSha256,
                 Recipe = recipe is null ? null : new
                 {
-                    recipe.FormatId, recipe.CropMode, recipe.TiffBits, recipe.Width, recipe.Height, recipe.Scale, recipe.IgnoreCrop,
+                    recipe.FormatId, recipe.CropMode, recipe.CropPath, recipe.TiffBits, recipe.Width, recipe.Height, recipe.Scale, recipe.IgnoreCrop,
                     recipe.Resolution, recipe.ResolutionUnit, recipe.TiffCompression, recipe.Sharpening, recipe.Omissions,
                     Watermark = recipe.Watermark?.Identity,
                     Metadata = recipe.Metadata.CreateXmp(1, 1),

@@ -213,8 +213,14 @@ internal static partial class Program
             "PSD layer disclosures accompany format and crop-path substitutions");
         var batch = layered with { Omissions = SpektraExport.RecipeOmission.PsdLayers | SpektraExport.RecipeOmission.Watermark };
         Check(batch.BatchTitle(2, skipExisting: false)
-            == "Export 2 images as 16-bit PSD · Full image, crop path omitted · Omits recipe watermark, PSD layers",
+            == "Export 2 images as 16-bit PSD · Full image, unavailable crop paths omitted · Omits recipe watermark, PSD layers",
             "batch approval names the actual format, crop-path policy and all requested omissions before saving");
+        var editable = cropPath with { HasPsdCropPath = true };
+        Check(editable.SaveTitle(3000, 2000, "sRGB").Contains("editable crop path in PSD", StringComparison.Ordinal)
+            && editable.SavedNote(psd) == "Saved the full image with the editable crop path."
+            && editable.SavedNote(png) == cropPath.SavedNote(png)
+            && editable.BatchTitle(2, skipExisting: false).Contains("editable crop paths", StringComparison.Ordinal),
+            "approval and receipts distinguish a retained PSD path from an omitted path in alternate formats");
     }
 
     private static void TestExportFilenameSuggestion(string folder)

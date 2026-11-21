@@ -4,10 +4,32 @@ using System.Collections.Generic;
 using System.IO;
 
 // Independent reader for the flat, uncompressed RGB16 files produced by fixtures.
-internal sealed record PsdFixture(int Width, int Height, ushort[] Samples, Dictionary<ushort, byte[]> Resources)
+internal sealed record PsdFixture(int Width, int Height, ushort[] Samples, Dictionary<ushort, byte[]> Resources,
+    Dictionary<ushort, string> ResourceNames)
 {
     internal double DpiX => BinaryPrimitives.ReadUInt32BigEndian(Resources[1005]) / 65536d;
     internal double DpiY => BinaryPrimitives.ReadUInt32BigEndian(Resources[1005].AsSpan(8)) / 65536d;
+
+    internal (double X, double Y)[] ReadCropPath()
+    {
+        if (ResourceNames.GetValueOrDefault((ushort)2000) != "Crop" || !Resources.TryGetValue(2000, out var data)
+            || data.Length != 156 || BinaryPrimitives.ReadUInt16BigEndian(data) != 6
+            || BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(26)) != 0
+            || BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(28)) != 4)
+            throw new InvalidDataException("The fixture PSD does not have a named, closed crop path.");
+        var points = new (double X, double Y)[4];
+        for (var index = 0; index < points.Length; index++)
+        {
+            var record = data.AsSpan((index + 2) * 26, 26);
+            if (BinaryPrimitives.ReadUInt16BigEndian(record) != 2
+                || !record[2..10].SequenceEqual(record[10..18]) || !record[18..26].SequenceEqual(record[10..18]))
+                throw new InvalidDataException("The fixture PSD crop has a curved or invalid corner.");
+            var y = BinaryPrimitives.ReadInt32BigEndian(record[10..]) / 16777216d;
+            var x = BinaryPrimitives.ReadInt32BigEndian(record[14..]) / 16777216d;
+            points[index] = (x, y);
+        }
+        return points;
+    }
 
     internal static PsdFixture Read(Stream stream)
     {
@@ -35,12 +57,14 @@ internal sealed record PsdFixture(int Width, int Height, ushort[] Samples, Dicti
         var end = stream.Position + resourceSize;
         Require(resourceSize <= 16 * 1024 * 1024 && end <= stream.Length, "resource size");
         var resources = new Dictionary<ushort, byte[]>();
+        var names = new Dictionary<ushort, string>();
         while (stream.Position < end)
         {
             Require(ReadBytes(4).AsSpan().SequenceEqual("8BIM"u8), "resource signature");
             var id = Word();
-            var name = reader.ReadByte() + 1;
-            stream.Position += ((name + 1) & ~1) - 1;
+            var nameSize = reader.ReadByte();
+            names.Add(id, System.Text.Encoding.ASCII.GetString(ReadBytes(nameSize)));
+            if ((nameSize & 1) == 0) stream.Position++;
             var size = checked((int)Long());
             Require(stream.Position + size <= end, "resource extent");
             Require(resources.TryAdd(id, ReadBytes(size)), "duplicate resource");
@@ -60,6 +84,6 @@ internal sealed record PsdFixture(int Width, int Height, ushort[] Samples, Dicti
                     samples[(y * width + x) * 3 + channel] = BinaryPrimitives.ReadUInt16BigEndian(row.AsSpan(x * 2));
             }
         }
-        return new(width, height, samples, resources);
+        return new(width, height, samples, resources, names);
     }
 }

@@ -1751,7 +1751,9 @@
         "In a 170-assertion native 16.4 fixture, the Capture One Original Name watermark token produces the same bitmap as the literal RAW basename. Changing the recipe text inside the native Save picker changes the next recipe snapshot, while the accepted high-depth export keeps the previously captured token pixels. The ordinary token TIFF independently confirms placement and content. Source catalog and all nine recipe files verify.",
         "Batch fallback names include the selected extension. The folder approval combines omissions from all prepared recipe snapshots and names the 16-bit delivery before acceptance. Batch Skip protects exact existing supported recipe filenames in the approved folder. The 84-check licensed batch run verifies 16-bit PNG Original Name watermarks after recipe and selection changes, duplicate Skip receipts without renderer activity, and a successful TIFF alongside a skipped image. The original source catalog and all nine recipes verify.",
         "Support flattened RGB16 PSD in the shared export path. A 16-bit PSD recipe suggests its own container. Preserve exact rendered RGB samples, ICC, XMP and both DPI axes. Retry checks the container separately from the pixel buffer layout. Save and completed history explain omitted layers and editable crop paths.",
-        "Pass 12,611 Viewer and export checks and all nine host-independent Windows suites. ImageMagick reproduces both the synthetic exact low-bit fixture and all 18 million RGB16 samples of a retained native DNG film, diffusion, halation and scatter export. The Capture One panel and expanded PSD fixture build with zero warnings. This checkpoint has no new licensed in-app PSD result."
+        "Pass 12,611 Viewer and export checks and all nine host-independent Windows suites. ImageMagick reproduces both the synthetic exact low-bit fixture and all 18 million RGB16 samples of a retained native DNG film, diffusion, halation and scatter export. The Capture One panel and expanded PSD fixture build with zero warnings. This checkpoint has no new licensed in-app PSD result.",
+        "Embed an editable path named Crop for a valid Capture One Crop to Path PSD recipe. Snapshot the crop in full adjusted canvas coordinates before approval and hash it for retries. Keep the entire composited RGB16 image. Save and completed history distinguish a retained path from omissions due to invalid geometry or alternate formats.",
+        "ImageMagick independently decodes the named path and all four expected subpixel corners, and returns all 139,551 exact RGB16 samples. Both signed host reference builds match all 741 compiled host references with zero warnings. The extended licensed asymmetric crop fixture builds. The licensed runtime check remains open."
       ],
       "evidence_paths": [
         "NativePanel/SpektraFilmTool.cs",
@@ -1817,11 +1819,15 @@
         ".test-results/flat-psd-export-20261121/contracts/summary.json",
         ".test-results/flat-psd-export-20261121/independent-rgb16.json",
         ".test-results/flat-psd-export-20261121/retained-native-film-independently-decoded.json",
-        ".test-results/flat-psd-export-20261121/host-smoke-build.log"
+        ".test-results/flat-psd-export-20261121/host-smoke-build.log",
+        ".test-results/psd-crop-path-20261121/psd-contracts.log",
+        ".test-results/psd-crop-path-20261121/independent-verification.json",
+        ".test-results/psd-crop-path-20261121/reference-comparison.json",
+        ".test-results/psd-crop-path-20261121/contracts/summary.json"
       ],
       "remaining_work": [
         "Directory creation and the full location token matrix, automatic Overwrite behavior, tiling and other format and quality settings beyond the explicit 16-bit TIFF/PNG save policy remain open.",
-        "Run the flattened 16-bit PSD path inside the licensed host. Implement editable PSD crop paths and annotation, overlay and guide layers. Expand watermark tokens, output profiles, post-film Screen and Print sharpening, remaining delivery settings and sidecars. Explicit overwrite still requires Save approval."
+        "Run the flattened and editable crop-path PSD routes inside the licensed host and verify rotated and mirrored native geometry. Implement annotation, overlay and guide layers. Expand watermark tokens, output profiles, post-film Screen and Print sharpening, remaining delivery settings and sidecars. Explicit overwrite still requires Save approval."
       ],
       "original_acceptance_tests": [
         "Table-driven JPEG, PNG, TIFF 8/16-bit, unknown-format, custom ICC, image-folder/custom-folder/subfolder/token/suffix and duplicate-name cases.",

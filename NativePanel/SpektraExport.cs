@@ -34,7 +34,7 @@ internal static class SpektraExport
     }
 
     internal readonly record struct RecipeDelivery(string? Format, int TiffBits, string? CropMode,
-        RecipeOmission Omissions = RecipeOmission.None)
+        RecipeOmission Omissions = RecipeOmission.None, bool HasPsdCropPath = false)
     {
         internal string Extension => Format switch
         {
@@ -63,7 +63,7 @@ internal static class SpektraExport
             if (Format is null)
                 return $"Save 16-bit Spektrafilm export ({profile})";
             var prefix = RequiresFormatChange ? $"Recipe requests {RequestedFormat} · " : "";
-            var crop = CropPath ? " · full image, crop path omitted" : "";
+            var crop = CropPath ? HasPsdCropPath ? " · full image, editable crop path in PSD" : " · full image, crop path omitted" : "";
             var omissions = DescribeOmissions();
             var effects = omissions is null ? "" : $" · omits {omissions}";
             return $"{prefix}Save 16-bit TIFF, PNG or PSD{crop}{effects} · {width} × {height} · {profile}";
@@ -74,23 +74,31 @@ internal static class SpektraExport
             var format = FormatFor(Extension).ToString().ToUpperInvariant();
             var title = $"Export {count} images as 16-bit {format}";
             if (RequiresFormatChange) title += $" · Recipe requests {RequestedFormat}";
-            if (CropPath) title += " · Full image, crop path omitted";
+            if (CropPath) title += HasPsdCropPath ? " · Full image with editable crop paths" : " · Full image, unavailable crop paths omitted";
             if (DescribeOmissions() is { } omissions) title += $" · Omits {omissions}";
             if (skipExisting) title += " · Skip existing recipe files";
             return title;
         }
 
-        internal string? SavedNote(SpektraExport.Format outputFormat)
+        internal string? SavedNote(SpektraExport.Format outputFormat, bool batch = false)
         {
             var changed = RequiresFormatChange || CanSkipRecipeOutput && Format != outputFormat.ToString();
             var notes = new List<string>(3);
             if (changed)
                 notes.Add($"Recipe requested {RequestedFormat}. Saved 16-bit {outputFormat.ToString().ToUpperInvariant()}.");
             if (CropPath)
-                notes.Add("Saved the full image. The recipe’s crop path was omitted.");
+                notes.Add(CropPathNote(outputFormat, batch));
             if (DescribeOmissions() is { } omissions)
                 notes.Add($"The export omitted {omissions}.");
             return notes.Count == 0 ? null : string.Join(" ", notes);
+        }
+
+        private string CropPathNote(SpektraExport.Format outputFormat, bool batch)
+        {
+            if (HasPsdCropPath && outputFormat == SpektraExport.Format.Psd)
+                return batch ? "Saved the full images with their editable crop paths." : "Saved the full image with the editable crop path.";
+            return batch ? "Saved the full images. One or more recipe crop paths were omitted."
+                : "Saved the full image. The recipe’s crop path was omitted.";
         }
 
         private string? DescribeOmissions()
@@ -169,12 +177,12 @@ internal static class SpektraExport
 
     internal static void SaveApproved(OutputPathGuard.ApprovedDestination destination, BitmapSource image, CancellationToken stop,
         ExportMetadata? metadata = null, ExportColorProfile? outputProfile = null, TiffCompressOption tiffCompression = TiffCompressOption.Zip,
-        Action<int>? reportWrite = null, Action<ExportPublication>? verified = null) =>
-        SaveImage(destination.Path, image, stop, destination, metadata, outputProfile, tiffCompression, reportWrite, verified);
+        Action<int>? reportWrite = null, Action<ExportPublication>? verified = null, PsdCropPath? cropPath = null) =>
+        SaveImage(destination.Path, image, stop, destination, metadata, outputProfile, tiffCompression, reportWrite, verified, cropPath);
 
     private static void SaveImage(string path, BitmapSource image, CancellationToken stop, OutputPathGuard.ApprovedDestination? destination,
         ExportMetadata? metadata = null, ExportColorProfile? outputProfile = null, TiffCompressOption tiffCompression = TiffCompressOption.Zip,
-        Action<int>? reportWrite = null, Action<ExportPublication>? verified = null)
+        Action<int>? reportWrite = null, Action<ExportPublication>? verified = null, PsdCropPath? cropPath = null)
     {
         stop.ThrowIfCancellationRequested();
         var output = FormatFor(path);
@@ -189,7 +197,7 @@ internal static class SpektraExport
             stop.ThrowIfCancellationRequested();
             var monitored = stop.CanBeCanceled || reportWrite is not null ? new EncoderStream(stream, stop, reportWrite) : stream;
             if (output == Format.Psd)
-                PsdExport.WriteVerified(monitored, image, outputProfile, xmp, stop);
+                PsdExport.WriteVerified(monitored, image, outputProfile, xmp, stop, cropPath);
             else
                 EncodeWic(stream, monitored);
             if (verified is not null)

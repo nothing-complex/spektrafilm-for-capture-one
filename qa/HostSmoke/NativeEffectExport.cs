@@ -1339,12 +1339,23 @@ public static partial class StartupHook
                         cropMode.SetValue(selected, Enum.Parse(cropMode.PropertyType, "AsPath"));
                         annotations.SetValue(selected, true);
                         var pathRecipe = CaptureRecipe();
+                        var approvedPath = Prop(pathRecipe, "CropPath");
                         Check(Prop(pathRecipe, "FormatId") is "Psd" && Prop(pathRecipe, "CropMode") is "AsPath"
-                            && Dimensions(pathRecipe) == full && Prop(pathRecipe, "Omissions")?.ToString() == "PsdLayers",
+                            && Dimensions(pathRecipe) == full && approvedPath is not null
+                            && Prop(pathRecipe, "Omissions")?.ToString() == "PsdLayers",
                             "Capture One supplies a full-canvas PSD recipe with a crop path and annotation layer requested");
+                        var withPath = await Render("editable-psd-crop-path", ".psd", false, expectedGeometry: full,
+                            expectedCropPath: approvedPath);
+                        var pathParity = Difference(uncut, withPath);
+                        Check(pathParity.Mean < 8d / 65535 && pathParity.Maximum < .01,
+                            "the editable path preserves the complete high-depth film composite");
+                        var psdReceipt = Call(Field(spatial, "exportJobs")!, "ReadLatest")!;
+                        Check(Prop(psdReceipt, "DeliveryNote") as string
+                            == "Saved the full image with the editable crop path. The export omitted PSD layers.",
+                            "the native PSD receipt records the included path and omitted annotation layers");
                         var png = await Render("psd-crop-path-alternative", ".png", false, expectedGeometry: full);
-                        Check(offeredTitle?.StartsWith("Save 16-bit TIFF, PNG or PSD · full image, crop path omitted · omits PSD layers", StringComparison.Ordinal) == true,
-                            "the native Save title discloses the crop path and PSD layers before approval");
+                        Check(offeredTitle?.StartsWith("Save 16-bit TIFF, PNG or PSD · full image, editable crop path in PSD · omits PSD layers", StringComparison.Ordinal) == true,
+                            "the native Save title names the format that retains the crop path and discloses omitted layers");
                         const string note = "Recipe requested 16-bit PSD. Saved 16-bit PNG. Saved the full image. The recipe’s crop path was omitted. The export omitted PSD layers.";
                         var receipt = Call(Field(spatial, "exportJobs")!, "ReadLatest")!;
                         Check(Equals(Prop(receipt, "DeliveryNote"), note)
@@ -2204,7 +2215,7 @@ public static partial class StartupHook
             async Task<BitmapSource> Render(string kind, string extension, bool usePrevious, bool closeAfterAcceptance = false,
                 TiffCompressOption? expectedCompression = null, string? expectedNativeLocation = null,
                 string? fixtureOutputDirectory = null, string? fixtureOutputFileName = null, string? expectedProfileSha = null,
-                (int Width, int Height)? expectedGeometry = null)
+                (int Width, int Height)? expectedGeometry = null, object? expectedCropPath = null)
             {
                 var (width, height) = expectedGeometry ?? (expectedWidth, expectedHeight);
                 var before = routeCount;
@@ -2278,6 +2289,20 @@ public static partial class StartupHook
                     frame = BitmapSource.Create(psd.Width, psd.Height, psd.DpiX, psd.DpiY, PixelFormats.Rgb48,
                         null, psd.Samples, psd.Width * 6);
                     actualIcc = Convert.ToHexString(SHA256.HashData(psd.Resources[1039]));
+                    if (expectedCropPath is not null)
+                    {
+                        var left = (double)Prop(expectedCropPath, "Left")!;
+                        var top = (double)Prop(expectedCropPath, "Top")!;
+                        var right = (double)Prop(expectedCropPath, "Right")!;
+                        var bottom = (double)Prop(expectedCropPath, "Bottom")!;
+                        (double X, double Y)[] expected = [(left, top), (right, top), (right, bottom), (left, bottom)];
+                        Check(left > 0 && top > 0 && right < 1 && bottom < 1
+                            && psd.ReadCropPath().Zip(expected).All(pair => Math.Abs(pair.First.X - pair.Second.X) * width < .001
+                                && Math.Abs(pair.First.Y - pair.Second.Y) * height < .001),
+                            "the exported PSD contains the approved asymmetric crop in full-canvas coordinates");
+                    }
+                    else
+                        Check(!psd.Resources.ContainsKey(2000), "ordinary flattened PSD export does not add a crop path");
                 }
                 else
                 {

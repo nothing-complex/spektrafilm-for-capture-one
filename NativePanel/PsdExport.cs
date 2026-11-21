@@ -1,10 +1,32 @@
 using System;
 using System.Buffers.Binary;
+using System.Drawing;
 using System.IO;
 using System.Security.Cryptography;
 using System.Threading;
 using System.Windows;
 using System.Windows.Media.Imaging;
+
+internal readonly record struct PsdCropPath(double Left, double Top, double Right, double Bottom)
+{
+    internal bool IsValid => Left >= 0 && Top >= 0 && Right <= 1 && Bottom <= 1 && Right > Left && Bottom > Top;
+
+    internal static PsdCropPath? FromCanvas(RectangleF bounds, SizeF canvas)
+    {
+        if (!float.IsFinite(canvas.Width) || !float.IsFinite(canvas.Height) || canvas.Width < 1 || canvas.Height < 1)
+            return null;
+        // The native crop has already been constrained. Allow the float
+        // rectangle's final addition to round slightly past the canvas edge.
+        var right = (double)bounds.Left + bounds.Width;
+        var bottom = (double)bounds.Top + bounds.Height;
+        const double edgeTolerance = 0.002;
+        if (right - canvas.Width > edgeTolerance || bottom - canvas.Height > edgeTolerance)
+            return null;
+        var normalized = new PsdCropPath(bounds.Left / (double)canvas.Width, bounds.Top / (double)canvas.Height,
+            Math.Min(1, right / canvas.Width), Math.Min(1, bottom / canvas.Height));
+        return normalized.IsValid ? normalized : null;
+    }
+}
 
 internal static class PsdExport
 {
@@ -12,9 +34,10 @@ internal static class PsdExport
     private const int ResolutionResource = 1005;
     private const int IccResource = 1039;
     private const int XmpResource = 1060;
+    private const int SavedPathResource = 2000;
 
     internal static void WriteVerified(Stream stream, BitmapSource image, ExportColorProfile profile, byte[]? xmp,
-        CancellationToken stop)
+        CancellationToken stop, PsdCropPath? cropPath = null)
     {
         var width = image.PixelWidth;
         var height = image.PixelHeight;
@@ -29,7 +52,7 @@ internal static class PsdExport
         if (Convert.ToHexString(SHA256.HashData(icc)) != profile.Sha256)
             throw new InvalidDataException("The PSD export colour profile changed before encoding.");
 
-        var header = Header(image, icc, xmp);
+        var header = Header(image, icc, xmp, cropPath);
         stream.Write(header);
         WritePlanarPixels(stream, image, stop);
         stop.ThrowIfCancellationRequested();
@@ -42,7 +65,7 @@ internal static class PsdExport
             throw new InvalidDataException("The PSD header or metadata changed before publication.");
     }
 
-    private static byte[] Header(BitmapSource image, byte[] icc, byte[]? xmp)
+    private static byte[] Header(BitmapSource image, byte[] icc, byte[]? xmp, PsdCropPath? cropPath)
     {
         using var resources = new MemoryStream();
         using var resolution = new MemoryStream();
@@ -51,6 +74,7 @@ internal static class PsdExport
         WriteResource(resources, ResolutionResource, resolution.ToArray());
         WriteResource(resources, IccResource, icc);
         if (xmp is not null) WriteResource(resources, XmpResource, xmp);
+        if (cropPath is { } path) WriteResource(resources, SavedPathResource, EncodeCropPath(path), "Crop"u8);
 
         using var header = new MemoryStream();
         header.Write("8BPS"u8);
@@ -92,11 +116,43 @@ internal static class PsdExport
         }
     }
 
-    private static void WriteResource(Stream stream, ushort id, byte[] data)
+    private static byte[] EncodeCropPath(PsdCropPath path)
+    {
+        if (!path.IsValid)
+            throw new InvalidDataException("The PSD crop path is outside the delivered image.");
+        const int recordSize = 26;
+        var records = new byte[6 * recordSize];
+        BinaryPrimitives.WriteUInt16BigEndian(records, 6); // Fill rule
+        BinaryPrimitives.WriteUInt16BigEndian(records.AsSpan(recordSize + 2), 4); // Four closed knots
+        WriteKnot(2, path.Left, path.Top);
+        WriteKnot(3, path.Right, path.Top);
+        WriteKnot(4, path.Right, path.Bottom);
+        WriteKnot(5, path.Left, path.Bottom);
+        return records;
+
+        void WriteKnot(int index, double x, double y)
+        {
+            var knot = records.AsSpan(index * recordSize, recordSize);
+            BinaryPrimitives.WriteUInt16BigEndian(knot, 2); // Closed, unlinked knot
+            const int unit = 1 << 24;
+            var vertical = checked((int)Math.Round(y * unit));
+            var horizontal = checked((int)Math.Round(x * unit));
+            // A straight segment has its two control points on the anchor.
+            for (var offset = 2; offset < recordSize; offset += 8)
+            {
+                BinaryPrimitives.WriteInt32BigEndian(knot[offset..], vertical);
+                BinaryPrimitives.WriteInt32BigEndian(knot[(offset + 4)..], horizontal);
+            }
+        }
+    }
+
+    private static void WriteResource(Stream stream, ushort id, byte[] data, ReadOnlySpan<byte> name = default)
     {
         stream.Write("8BIM"u8);
         WriteUInt16(stream, id);
-        WriteUInt16(stream, 0); // Empty Pascal name and its even-byte padding.
+        stream.WriteByte(checked((byte)name.Length));
+        stream.Write(name);
+        if ((name.Length & 1) == 0) stream.WriteByte(0);
         WriteUInt32(stream, (uint)data.Length);
         stream.Write(data);
         if ((data.Length & 1) != 0) stream.WriteByte(0);
