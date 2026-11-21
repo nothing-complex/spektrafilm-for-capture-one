@@ -4,7 +4,7 @@ using System.Text.Json;
 
 internal static class DurableEditProbe
 {
-    internal static int Run(string directory)
+    internal static int Run(string directory, bool journalCandidate = false)
     {
         directory = Path.GetFullPath(directory);
         if (Directory.Exists(directory)) throw new IOException("Choose a new measurement directory.");
@@ -12,6 +12,7 @@ internal static class DurableEditProbe
         var catalog = Path.Combine(directory, "Measurement.cocatalogdb");
         var store = new VariantLookStore(root, catalog);
         var variants = Enumerable.Range(0, 64).Select(_ => Guid.NewGuid()).ToArray();
+        var journal = journalCandidate ? new DurableLookJournalProbe(directory) : null;
         var expected = new VariantLook[variants.Length];
         const int warmup = 256;
         const int measured = 10_000;
@@ -37,7 +38,7 @@ internal static class DurableEditProbe
             var prior = expected[variant];
             var beforeReadBytes = GC.GetAllocatedBytesForCurrentThread();
             var beforeRead = Stopwatch.GetTimestamp();
-            var stored = store.Read(variants[variant]);
+            var stored = journal is null ? store.Read(variants[variant]) : journal.ReadMirror(variants[variant]);
             var afterRead = Stopwatch.GetTimestamp();
             var afterReadBytes = GC.GetAllocatedBytesForCurrentThread();
             var matches = prior is null ? stored is null : VariantLookStore.Equivalent(stored, prior);
@@ -51,9 +52,11 @@ internal static class DurableEditProbe
             expected[variant] = look;
             var allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
             var start = Stopwatch.GetTimestamp();
-            store.Queue(variants[variant], look);
+            var staged = journal?.Prepare(variants[variant], look);
+            if (journal is null) store.Queue(variants[variant], look);
             var prepared = Stopwatch.GetTimestamp();
-            store.Flush();
+            if (journal is not null) journal.Commit(variants[variant], staged!);
+            else store.Flush();
             var committed = Stopwatch.GetTimestamp();
             if (index < warmup) continue;
             var sample = index - warmup;
@@ -68,13 +71,15 @@ internal static class DurableEditProbe
         }
         var reopened = new VariantLookStore(root, catalog);
         for (var index = 0; index < variants.Length; index++)
-            if (!VariantLookStore.Equivalent(reopened.Read(variants[index]), expected[index]))
+            if (!VariantLookStore.Equivalent(journal is null ? reopened.Read(variants[index]) : journal.ReadVerified(variants[index]), expected[index]))
                 throw new InvalidDataException("A saved variant did not round-trip.");
-        if (store.HasPending || Directory.EnumerateFiles(root, ".spektra-*.tmp", SearchOption.AllDirectories).Any())
+        if (journal is null && (store.HasPending || Directory.EnumerateFiles(root, ".spektra-*.tmp", SearchOption.AllDirectories).Any()))
             throw new InvalidDataException("A confirmed save left uncommitted state.");
         var report = JsonSerializer.Serialize(new
         {
             measured, warmup, variants = variants.Length,
+            storage = journal is null ? "current-store" : "experimental-journal-and-buffered-mirrors",
+            journalBytes = journal?.Bytes,
             readMs = Percentiles(reads), compareMs = Percentiles(comparisons),
             queueMs = Percentiles(prepare), flushMs = Percentiles(commit), queueAndFlushMs = Percentiles(total),
             managedBytesPerRead = readAllocations / (double)measured, managedBytesPerCompare = comparisonAllocations / (double)measured,

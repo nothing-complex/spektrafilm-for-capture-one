@@ -272,8 +272,8 @@ internal sealed class VariantLookStore
                     try
                     {
                         Directory.CreateDirectory(recoveryDirectory);
-                        PanelFiles.WriteCompactPreset(GetRecoveryPath(variant),
-                            new RecoveryCheckpoint(1, catalogKey, variant, pending.BaseHash, pending.Look));
+                        var recovery = PanelFiles.EncodeCompactPreset(new RecoveryCheckpoint(1, catalogKey, variant, pending.BaseHash, pending.Look));
+                        PanelFiles.WriteAtomically(GetRecoveryPath(variant), stream => stream.Write(recovery), discardOnProcessExit: true);
                         session.Pending[variant] = pending with { RecoveryDurable = true };
                         failures.Add($"{error.Message} The latest edit is protected in {GetRecoveryPath(variant)}.");
                     }
@@ -298,7 +298,7 @@ internal sealed class VariantLookStore
             if (edit.KeepPrevious && edit.BaseHash is not null)
                 SavePrevious(variant, path, edit.BaseHash);
             EnsureExpectedPrimary(variant, path, edit.BaseHash);
-        }, overwrite: edit.BaseHash is not null);
+        }, overwrite: edit.BaseHash is not null, discardOnProcessExit: true);
         session.KnownHash[variant] = edit.Hash;
         session.KnownLookHash[variant] = edit.Hash;
         primaryCache.Remember(variant, new CommittedLook(edit.Look, edit.Hash, edit.Hash));
@@ -444,7 +444,7 @@ internal sealed class VariantLookStore
             stream.Write(variant.ToByteArray());
             stream.Write(Convert.FromHexString(expectedHash));
             stream.Write(bytes);
-        });
+        }, discardOnProcessExit: true);
     }
 
     private VariantLook? ReadPrevious(Guid variant, BlockedLook issue)

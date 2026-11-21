@@ -112,7 +112,7 @@ internal static class PanelFiles
     {
         if (discardOnProcessExit && OperatingSystem.IsWindows())
         {
-            var handle = CreateFileW(path, ReadWriteDelete, 0, IntPtr.Zero, CreateNew, NormalFile, IntPtr.Zero);
+            var handle = CreateFileW(WindowsStagingPath(path), ReadWriteDelete, 0, IntPtr.Zero, CreateNew, NormalFile, IntPtr.Zero);
             if (!handle.IsInvalid)
             {
                 byte remove = 1;
@@ -123,6 +123,15 @@ internal static class PanelFiles
             handle.Dispose();
         }
         return (new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None), false);
+    }
+
+    private static string WindowsStagingPath(string path)
+    {
+        // The managed file APIs accept deep paths even when the host process has
+        // not opted in to long paths for direct Win32 calls.
+        if (path.Length < 260 || path.StartsWith(@"\\?\", StringComparison.Ordinal) || path.StartsWith(@"\\.\", StringComparison.Ordinal))
+            return path;
+        return path.StartsWith(@"\\", StringComparison.Ordinal) ? @"\\?\UNC\" + path[2..] : @"\\?\" + path;
     }
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = true)]

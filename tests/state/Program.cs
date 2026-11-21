@@ -6,6 +6,10 @@ using System.Text.Json.Nodes;
 
 if (args is ["--measure-durable-edits", var measurementDirectory])
     return DurableEditProbe.Run(measurementDirectory);
+if (args is ["--measure-look-journal", var journalMeasurementDirectory])
+    return DurableEditProbe.Run(journalMeasurementDirectory, journalCandidate: true);
+if (args is ["--hold-look-journal", var journalPath, var journalVariant, var journalStage, var journalMarker])
+    return DurableLookJournalProbe.Hold(journalPath, Guid.Parse(journalVariant), journalStage, journalMarker);
 if (args is ["--measure-diagnostic-log", var diagnosticsDirectory, var seconds])
     return await PanelLogContracts.SoakAsync(diagnosticsDirectory, int.Parse(seconds, System.Globalization.CultureInfo.InvariantCulture));
 if (args is ["--verify-compiled-controls", var parameterManifest])
@@ -61,7 +65,7 @@ if (args.Length != 0)
             Thread.Sleep(Timeout.Infinite);
         }
         PanelFiles.WriteAtomically(file, stream => JsonSerializer.Serialize(stream, Sample(2.4)),
-            args[4] == "before-replace" ? WaitForKill : null);
+            args[4] == "before-replace" ? WaitForKill : null, discardOnProcessExit: true);
         WaitForKill();
     }
     if (args[0] == "--batch-commit-boundary")
@@ -101,6 +105,8 @@ void Throws<T>(string name, Action action) where T : Exception
     catch (T) { assertions++; return; }
     throw new Exception("FAILED (no expected exception): " + name);
 }
+
+DurableLookJournalProbe.CheckRecovery(scratch, Check, StartChild);
 string StateFile(string root, Guid id) => Directory.GetFiles(root, id.ToString("N") + ".json", SearchOption.AllDirectories).Single();
 var root = Path.Combine(scratch, "Variant looks");
 var catalog = Path.Combine(scratch, "test.cocatalogdb");
@@ -164,15 +170,20 @@ Check("final guard failure preserves file", File.ReadAllBytes(stateFile).Sequenc
 Check("atomic write temporary files cleaned", Directory.GetFiles(Path.GetDirectoryName(stateFile)!, ".spektra-*.tmp").Length == 0);
 
 var boundaryId = Guid.NewGuid();
-store.Queue(boundaryId, Sample(.6));
-store.Flush();
-var boundaryFile = StateFile(root, boundaryId);
+var boundaryRoot = Path.Combine(scratch, new string('s', 140), "Variant looks");
+var boundaryStore = new VariantLookStore(boundaryRoot, catalog);
+boundaryStore.Queue(boundaryId, Sample(.6));
+boundaryStore.Flush();
+var boundaryFile = StateFile(boundaryRoot, boundaryId);
 var boundaryBytes = File.ReadAllBytes(boundaryFile);
-KillAtBoundary("before-replace", root, catalog, boundaryId, scratch);
+Check("interruption fixture uses a long Windows path", boundaryFile.Length >= 260);
+KillAtBoundary("before-replace", boundaryRoot, catalog, boundaryId, scratch);
 Check("process death after staged flush preserves committed bytes", File.ReadAllBytes(boundaryFile).SequenceEqual(boundaryBytes));
-RunChild("--verify", root, catalog, boundaryId.ToString(), "0.6");
-KillAtBoundary("after-replace", root, catalog, boundaryId, scratch);
-RunChild("--verify", root, catalog, boundaryId.ToString(), "2.4");
+if (OperatingSystem.IsWindows() && new DriveInfo(Path.GetPathRoot(boundaryFile)!).DriveFormat == "NTFS")
+    Check("process death on NTFS releases its own staging file", !Directory.EnumerateFiles(Path.GetDirectoryName(boundaryFile)!, ".spektra-*.tmp").Any());
+RunChild("--verify", boundaryRoot, catalog, boundaryId.ToString(), "0.6");
+KillAtBoundary("after-replace", boundaryRoot, catalog, boundaryId, scratch);
+RunChild("--verify", boundaryRoot, catalog, boundaryId.ToString(), "2.4");
 Check("process death after replace preserves exact published bytes", File.ReadAllBytes(boundaryFile).SequenceEqual(JsonSerializer.SerializeToUtf8Bytes(Sample(2.4))));
 
 var readLockedId = Guid.NewGuid();
