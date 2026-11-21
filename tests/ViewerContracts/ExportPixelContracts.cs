@@ -13,7 +13,7 @@ internal static partial class Program
     {
         var srgb = ExportColorProfile.Srgb;
         var profile = new ExportColorProfile.Profile("Same sRGB", new Uri("file:///watermark-test.icc"), srgb.Sha256);
-        var watermark = new ExportWatermark(9, 20, 4, 1, .5f,
+        var watermark = new ExportOverlay(9, 20, 4, 1, .5f,
             new byte[] { 20, 40, 240, 255, 255, 128, 16, 255, 255, 255, 255, 0, 10, 20, 100, 128 }, "test", profile);
         var crop = new Rectangle(10, 20, 5, 1);
         var overlay = watermark.Prepare(srgb, default);

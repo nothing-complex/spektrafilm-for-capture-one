@@ -32,6 +32,7 @@ internal static class SpektraExport
         Sharpening = 2,
         PsdLayers = 4,
         Guides = 8,
+        Annotations = 16,
     }
 
     internal readonly record struct RecipeDelivery(string? Format, int TiffBits, string? CropMode,
@@ -114,8 +115,9 @@ internal static class SpektraExport
             var names = new List<string>(4);
             if ((omissions & RecipeOmission.Watermark) != 0) names.Add("recipe watermark");
             if ((omissions & RecipeOmission.Sharpening) != 0) names.Add("recipe sharpening mode");
-            if ((omissions & RecipeOmission.PsdLayers) != 0) names.Add("PSD layers");
+            if ((omissions & RecipeOmission.PsdLayers) != 0) names.Add("PSD transparency overlay");
             if ((omissions & RecipeOmission.Guides) != 0) names.Add("recipe guides");
+            if ((omissions & RecipeOmission.Annotations) != 0) names.Add("recipe annotations");
             return string.Join(", ", names);
         }
     }

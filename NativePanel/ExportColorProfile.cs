@@ -87,13 +87,13 @@ internal sealed class ExportColorProfile
         return output;
     }
 
-    internal BitmapSource ConvertWatermark(BitmapSource image, Profile watermark)
+    internal BitmapSource ConvertOverlay(BitmapSource image, Profile overlay)
     {
         if (image.Format != PixelFormats.Rgba64)
-            throw new InvalidDataException("A recipe watermark requires 16-bit RGB and alpha.");
-        if (watermark.Sha256 == destination.Sha256)
+            throw new InvalidDataException("A recipe overlay requires 16-bit RGB and alpha.");
+        if (overlay.Sha256 == destination.Sha256)
             return image;
-        var output = new ColorConvertedBitmap(image, watermark.Context, Context, PixelFormats.Rgba64);
+        var output = new ColorConvertedBitmap(image, overlay.Context, Context, PixelFormats.Rgba64);
         output.Freeze();
         return output;
     }

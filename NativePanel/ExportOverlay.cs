@@ -1,11 +1,12 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Threading;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
-internal sealed record ExportWatermark(int X, int Y, int Width, int Height, float Opacity, byte[] Bgra,
+internal sealed record ExportOverlay(int X, int Y, int Width, int Height, float Opacity, byte[] Bgra,
     string PixelsSha256, ExportColorProfile.Profile Profile)
 {
     internal object Identity => new { X, Y, Width, Height, Opacity, PixelsSha256, Profile.Sha256 };
@@ -28,7 +29,7 @@ internal sealed record ExportWatermark(int X, int Y, int Width, int Height, floa
         if (Profile.Sha256 == delivery.Sha256)
             return rgba;
         var bitmap = BitmapSource.Create(Width, Height, 96, 96, PixelFormats.Rgba64, null, rgba, Width * 8);
-        var converted = delivery.ConvertWatermark(bitmap, Profile);
+        var converted = delivery.ConvertOverlay(bitmap, Profile);
         converted.CopyPixels(rgba, Width * 8, 0);
         return rgba;
     }
@@ -62,23 +63,42 @@ internal sealed record ExportWatermark(int X, int Y, int Width, int Height, floa
         }
     }
 
-    internal BitmapSource Composite(BitmapSource destination, Rectangle crop, ushort[] overlay, CancellationToken stop)
+    internal readonly record struct Prepared(string Name, ExportOverlay Source, ushort[] Pixels);
+
+    internal static BitmapSource Composite(BitmapSource destination, Rectangle crop, IReadOnlyList<Prepared> overlays,
+        CancellationToken stop, List<PsdLayer>? layers)
     {
-        if (Opacity == 0 || !crop.IntersectsWith(new Rectangle(X, Y, Width, Height)))
-            return destination;
         var channels = destination.Format == PixelFormats.Rgba64 ? 4 : 3;
         var stride = checked(crop.Width * channels * sizeof(ushort));
-        var samples = GC.AllocateUninitializedArray<ushort>(checked(crop.Width * crop.Height * channels));
-        stop.ThrowIfCancellationRequested();
-        destination.CopyPixels(samples, stride, 0);
-        Composite(samples, channels, crop, overlay, stop);
+        ushort[]? samples = null;
+        foreach (var overlay in overlays)
+        {
+            var source = overlay.Source;
+            if (source.Opacity == 0 || !crop.IntersectsWith(new Rectangle(source.X, source.Y, source.Width, source.Height)))
+                continue;
+            if (layers is not null)
+            {
+                if (source.PreparePsdLayer(overlay.Name, crop, overlay.Pixels, stop) is not { } layer)
+                    continue;
+                layers.Add(layer);
+                source = source with { Opacity = 1 };
+            }
+            if (samples is null)
+            {
+                stop.ThrowIfCancellationRequested();
+                samples = GC.AllocateUninitializedArray<ushort>(checked(crop.Width * crop.Height * channels));
+                destination.CopyPixels(samples, stride, 0);
+            }
+            source.Composite(samples, channels, crop, overlay.Pixels, stop);
+        }
+        if (samples is null) return destination;
         var output = BitmapSource.Create(crop.Width, crop.Height, destination.DpiX, destination.DpiY,
             destination.Format, null, samples, stride);
         output.Freeze();
         return output;
     }
 
-    internal (PsdLayer Layer, BitmapSource Merged)? ComposePsdLayer(BitmapSource background, Rectangle crop,
+    private PsdLayer? PreparePsdLayer(string name, Rectangle crop,
         ushort[] overlay, CancellationToken stop)
     {
         var bounds = Rectangle.Intersect(crop, new Rectangle(X, Y, Width, Height));
@@ -100,11 +120,10 @@ internal sealed record ExportWatermark(int X, int Y, int Width, int Height, floa
 
         // Bake the recipe opacity into 16-bit alpha so the layer and merged
         // preview agree even when the recipe opacity falls between PSD steps.
-        var bitmap = BitmapSource.Create(Width, Height, background.DpiX, background.DpiY, PixelFormats.Rgba64, null,
+        var bitmap = BitmapSource.Create(Width, Height, 96, 96, PixelFormats.Rgba64, null,
             overlay, checked(Width * 8));
         BitmapSource layer = local.Width == Width && local.Height == Height ? bitmap : new CroppedBitmap(bitmap, local);
         layer.Freeze();
-        var merged = (this with { Opacity = 1 }).Composite(background, crop, overlay, stop);
-        return (new PsdLayer("Watermark", bounds.Left - crop.Left, bounds.Top - crop.Top, layer), merged);
+        return new PsdLayer(name, bounds.Left - crop.Left, bounds.Top - crop.Top, layer);
     }
 }

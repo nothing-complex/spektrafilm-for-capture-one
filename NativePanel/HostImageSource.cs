@@ -76,7 +76,8 @@ internal static class HostImageSource
         double Resolution, string ResolutionUnit, ExportMetadata Metadata, TiffCompressOption TiffCompression,
         RecipeNaming? Naming, string? SuggestedDirectory, string? ExactDirectory,
         bool AddSuffixToExistingFileName, bool SkipExistingOutput, SharpeningOutputControl Sharpening,
-        ExportWatermark? Watermark, SpektraExport.RecipeOmission Omissions, PsdCropPath? CropPath, PsdGuide[]? Guides)
+        ExportOverlay? Watermark, ExportOverlay? Annotations, SpektraExport.RecipeOmission Omissions,
+        PsdCropPath? CropPath, PsdGuide[]? Guides)
     {
         internal string? SuggestedFilename => Naming?.Stem;
     }
@@ -247,10 +248,15 @@ internal static class HostImageSource
             : NativeExportWatermark.Capture(selection, recipe, settings, (float)scale.Scale, ignoreCrop, WatermarkProfilePath);
         if (recipe.WatermarkType != WatermarkType.None && watermark is null)
             omissions |= SpektraExport.RecipeOmission.Watermark;
+        ExportOverlay? annotations = null;
+        if (recipe.IncludeAnnotations && variant.HasAnnotations
+            && !NativeExportAnnotations.TryCapture(variant, geometry, settings, (float)scale.Scale, ignoreCrop,
+                ((ColorProfileLibrary)ColorProfilesProperty.GetValue(null)!).AnnotationsColorProfile, out annotations))
+            omissions |= SpektraExport.RecipeOmission.Annotations;
         var sharpening = recipe.SharpeningOutputControl;
         if (sharpening is not (SharpeningOutputControl.LensAndSharpening or SharpeningOutputControl.Lens or SharpeningOutputControl.Disabled))
             omissions |= SpektraExport.RecipeOmission.Sharpening;
-        if (format == FileFormat.Psd && (recipe.IncludeAnnotations || recipe.IncludeOverlay))
+        if (format == FileFormat.Psd && recipe.IncludeOverlay)
             omissions |= SpektraExport.RecipeOmission.PsdLayers;
         var guides = recipe.IncludeGuides ? NativeExportGuides.Capture(selection, recipe, geometry) : null;
         if (recipe.IncludeGuides && guides is null)
@@ -262,7 +268,7 @@ internal static class HostImageSource
             scale.ScaledPixelWidth, scale.ScaledPixelHeight, scale.Scale, ignoreCrop, recipe.Resolution, recipe.ResolutionUnit.ToString(),
             metadata, compression, ReadRecipeNaming(selection, recipe), suggestedDirectory, exactDirectory,
             recipe.FileOverwriteAction == ProcessedFileOverwriteAction.Rename,
-            recipe.FileOverwriteAction == ProcessedFileOverwriteAction.Skip, sharpening, watermark, omissions, cropPath, guides);
+            recipe.FileOverwriteAction == ProcessedFileOverwriteAction.Skip, sharpening, watermark, annotations, omissions, cropPath, guides);
     }
 
     private static PsdCropPath? ReadPsdCropPath(VariantGeometryTransformer geometry)

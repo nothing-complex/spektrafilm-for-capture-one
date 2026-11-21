@@ -20,7 +20,7 @@ internal static class NativeExportWatermark
                 new[] { typeof(ICoreVariant), typeof(IDestinationProcessingSettings), typeof(ICaptureOneDocument) }, null)
             ?.CreateDelegate<Func<ICoreVariant, IDestinationProcessingSettings, ICaptureOneDocument, string>>());
 
-    internal static ExportWatermark? Capture(HostProfile.Selection selection, IDestinationProcessingSettings recipe,
+    internal static ExportOverlay? Capture(HostProfile.Selection selection, IDestinationProcessingSettings recipe,
         IC_ProcessSettings settings, float scale, bool ignoreCrop, string profilePath)
     {
         try { return CaptureCore(selection, recipe, settings, scale, ignoreCrop, profilePath); }
@@ -32,7 +32,7 @@ internal static class NativeExportWatermark
         }
     }
 
-    private static ExportWatermark? CaptureCore(HostProfile.Selection selection, IDestinationProcessingSettings recipe,
+    private static ExportOverlay? CaptureCore(HostProfile.Selection selection, IDestinationProcessingSettings recipe,
         IC_ProcessSettings settings, float scale, bool ignoreCrop, string profilePath)
     {
         if (recipe.WatermarkType is not (WatermarkType.Text or WatermarkType.Image))
@@ -75,7 +75,7 @@ internal static class NativeExportWatermark
             for (var y = 0; y < height; y++)
                 Marshal.Copy(address + checked(y * stride), bytes, y * width * 4, width * 4);
             var profile = ExportColorProfile.Capture("Capture One watermark", profilePath);
-            return new ExportWatermark((int)MathF.Ceiling(overlay.horizontalPosition), (int)MathF.Ceiling(overlay.verticalPosition),
+            return new ExportOverlay((int)MathF.Ceiling(overlay.horizontalPosition), (int)MathF.Ceiling(overlay.verticalPosition),
                 width, height, overlay.opacity, bytes, Convert.ToHexString(SHA256.HashData(bytes)), profile);
         }
         finally { if (pinned) handle.DangerousRelease(); }

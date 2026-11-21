@@ -1256,6 +1256,7 @@ public static partial class StartupHook
                 var watermarkImage = type.GetProperty("WatermarkImageReference", Flags)!;
                 var sharpening = type.GetProperty("SharpeningOutputControl", Flags)!;
                 var annotations = type.GetProperty("IncludeAnnotations", Flags)!;
+                var overlay = type.GetProperty("IncludeOverlay", Flags)!;
                 var initialName = filename.GetValue(selected);
                 var initialFormat = format.GetValue(selected);
                 var initialBits = bits.GetValue(selected);
@@ -1264,6 +1265,7 @@ public static partial class StartupHook
                 var initialImage = watermarkImage.GetValue(selected);
                 var initialSharpening = sharpening.GetValue(selected);
                 var initialAnnotations = annotations.GetValue(selected);
+                var initialOverlay = overlay.GetValue(selected);
                 var counter = counterProperty ?? throw new MissingMemberException(document.GetType().FullName, "OutputCounter");
                 var increment = document.GetType().GetProperty("OutputCounterIncrement", Flags)!;
                 var firstLaunch = caseName == "first";
@@ -1342,6 +1344,7 @@ public static partial class StartupHook
                         format.SetValue(selected, Enum.Parse(format.PropertyType, "Psd"));
                         bits.SetValue(selected, 16);
                         annotations.SetValue(selected, false);
+                        overlay.SetValue(selected, false);
                         var psd = await Render("flat-psd-with-film", ".psd", true, expectedGeometry: full);
                         var psdParity = Difference(uncut, psd);
                         Check(offeredFilename?.EndsWith(".psd", StringComparison.OrdinalIgnoreCase) == true
@@ -1349,13 +1352,13 @@ public static partial class StartupHook
                             "the native PSD recipe suggests a Photoshop file and preserves high-depth film pixels");
 
                         cropMode.SetValue(selected, Enum.Parse(cropMode.PropertyType, "AsPath"));
-                        annotations.SetValue(selected, true);
+                        overlay.SetValue(selected, true);
                         var pathRecipe = CaptureRecipe();
                         var approvedPath = Prop(pathRecipe, "CropPath");
                         Check(Prop(pathRecipe, "FormatId") is "Psd" && Prop(pathRecipe, "CropMode") is "AsPath"
                             && Dimensions(pathRecipe) == full && approvedPath is not null
                             && Prop(pathRecipe, "Omissions")?.ToString() == "PsdLayers",
-                            "Capture One supplies a full-canvas PSD recipe with a crop path and annotation layer requested");
+                            "Capture One supplies a full-canvas PSD recipe with a crop path and transparency overlay requested");
                         var withPath = await Render("editable-psd-crop-path", ".psd", false, expectedGeometry: full,
                             expectedCropPath: approvedPath);
                         var pathParity = Difference(uncut, withPath);
@@ -1363,12 +1366,12 @@ public static partial class StartupHook
                             "the editable path preserves the complete high-depth film composite");
                         var psdReceipt = Call(Field(spatial, "exportJobs")!, "ReadLatest")!;
                         Check(Prop(psdReceipt, "DeliveryNote") as string
-                            == "Saved the full image with the editable crop path. The export omitted PSD layers.",
-                            "the native PSD receipt records the included path and omitted annotation layers");
+                            == "Saved the full image with the editable crop path. The export omitted PSD transparency overlay.",
+                            "the native PSD receipt records the included path and omitted transparency overlay");
                         var png = await Render("psd-crop-path-alternative", ".png", false, expectedGeometry: full);
-                        Check(offeredTitle?.StartsWith("Save 16-bit TIFF, PNG or PSD · full image, editable crop path in PSD · omits PSD layers", StringComparison.Ordinal) == true,
+                        Check(offeredTitle?.StartsWith("Save 16-bit TIFF, PNG or PSD · full image, editable crop path in PSD · omits PSD transparency overlay", StringComparison.Ordinal) == true,
                             "the native Save title names the format that retains the crop path and discloses omitted layers");
-                        const string note = "Recipe requested 16-bit PSD. Saved 16-bit PNG. Saved the full image. The recipe’s crop path was omitted. The export omitted PSD layers.";
+                        const string note = "Recipe requested 16-bit PSD. Saved 16-bit PNG. Saved the full image. The recipe’s crop path was omitted. The export omitted PSD transparency overlay.";
                         var receipt = Call(Field(spatial, "exportJobs")!, "ReadLatest")!;
                         Check(Equals(Prop(receipt, "DeliveryNote"), note)
                             && ((TextBlock)Field(spatial, "exportStatus")!).Text.Contains(note, StringComparison.Ordinal),
@@ -1376,7 +1379,45 @@ public static partial class StartupHook
                         var parity = Difference(uncut, png);
                         Check(parity.Mean < 8d / 65535 && parity.Maximum < .01,
                             "the PSD substitute preserves the same full-canvas effect pixels as the Ignore Crop reference TIFF");
+                        overlay.SetValue(selected, false);
+                        await CheckNativeAnnotationLayer();
                         Check(Read(counter) == 44, "manual substitution filenames do not consume another native counter step");
+
+                        async Task CheckNativeAnnotationLayer()
+                        {
+                            var original = Prop(variant, "Annotations")!;
+                            var fixture = Activator.CreateInstance(original.GetType())!;
+                            var lines = original.GetType().GetField("Lines", Flags)!;
+                            var strokes = (IList)Activator.CreateInstance(lines.FieldType)!;
+                            strokes.Add(Activator.CreateInstance(lines.FieldType.GetGenericArguments()[0],
+                                Color.FromArgb(255, 230, 65, 15), dimensions.Width * .025f, new List<Point>
+                                {
+                                    new(dimensions.Width * .26, dimensions.Height * .38),
+                                    new(dimensions.Width * .54, dimensions.Height * .42),
+                                    new(dimensions.Width * .66, dimensions.Height * .58),
+                                }));
+                            lines.SetValue(fixture, strokes);
+                            Call(variant, "SetAnnotations", fixture);
+                            try
+                            {
+                                annotations.SetValue(selected, true);
+                                var state = CaptureRecipe();
+                                Check(Prop(state, "Annotations") is not null && Prop(state, "Omissions")?.ToString() == "None",
+                                    "the recipe freezes visible native annotation strokes at approval");
+                                var annotatedPsd = await Render("editable-psd-annotations", ".psd", true, expectedGeometry: full,
+                                    expectedCropPath: approvedPath, expectedPsdBackground: uncut, expectedPsdOverlay: "Annotations");
+                                var annotatedPng = await Render("flattened-png-annotations", ".png", false, expectedGeometry: full);
+                                var outputParity = Difference(annotatedPsd, annotatedPng);
+                                Check(Difference(uncut, annotatedPsd).Mean > .0001
+                                    && outputParity.Mean < 8d / 65535 && outputParity.Maximum < .01,
+                                    "both commands retain the native annotations and agree on the RGB16 film composite");
+                            }
+                            finally
+                            {
+                                annotations.SetValue(selected, false);
+                                Call(variant, "SetAnnotations", original);
+                            }
+                        }
                     }
                     finally { crop.SetValue(variant, originalCrop); }
                 }
@@ -1392,6 +1433,7 @@ public static partial class StartupHook
                         watermarkImage.SetValue(selected, initialImage);
                         sharpening.SetValue(selected, initialSharpening);
                         annotations.SetValue(selected, initialAnnotations);
+                        overlay.SetValue(selected, initialOverlay);
                     }
                     finally { notifications.SetValue(selected, false); }
                 }
@@ -2228,7 +2270,7 @@ public static partial class StartupHook
                 TiffCompressOption? expectedCompression = null, string? expectedNativeLocation = null,
                 string? fixtureOutputDirectory = null, string? fixtureOutputFileName = null, string? expectedProfileSha = null,
                 (int Width, int Height)? expectedGeometry = null, object? expectedCropPath = null,
-                BitmapSource? expectedPsdBackground = null)
+                BitmapSource? expectedPsdBackground = null, string expectedPsdOverlay = "Watermark")
             {
                 var (width, height) = expectedGeometry ?? (expectedWidth, expectedHeight);
                 var before = routeCount;
@@ -2301,17 +2343,17 @@ public static partial class StartupHook
                     var psd = PsdFixture.Read(file);
                     if (expectedPsdBackground is not null)
                     {
-                        Check(psd.Layers is [var background, var watermark] && background.Name == "Background"
-                            && background.Width == width && background.Height == height && watermark.Name == "Watermark"
-                            && watermark.Samples.Length == (long)watermark.Width * watermark.Height * 4
-                            && watermark.Samples.Where((_, index) => (index & 3) == 3).Any(alpha => alpha is > 0 and < 65535),
-                            "the delivered PSD has a separate watermark with 16-bit alpha over the full film frame");
+                        Check(psd.Layers is [var background, var overlay] && background.Name == "Background"
+                            && background.Width == width && background.Height == height && overlay.Name == expectedPsdOverlay
+                            && overlay.Samples.Length == (long)overlay.Width * overlay.Height * 4
+                            && overlay.Samples.Where((_, index) => (index & 3) == 3).Any(alpha => alpha is > 0 and < 65535),
+                            $"the delivered PSD has a separate {expectedPsdOverlay} layer with 16-bit alpha over the full film frame");
                         var baseLayer = psd.Layers[0];
                         var baseFrame = BitmapSource.Create(baseLayer.Width, baseLayer.Height, psd.DpiX, psd.DpiY, PixelFormats.Rgb48,
                             null, baseLayer.Samples, baseLayer.Width * 6);
                         var baseParity = Difference(baseFrame, expectedPsdBackground);
                         Check(baseParity.Mean < 8d / 65535 && baseParity.Maximum < .01,
-                            "hiding the watermark reveals the separate high-depth film result");
+                            $"hiding the {expectedPsdOverlay} layer reveals the separate high-depth film result");
                     }
                     else
                         Check(psd.Layers.Length == 0, "no visible native watermark produces an ordinary flat PSD");

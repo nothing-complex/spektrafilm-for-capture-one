@@ -1310,34 +1310,35 @@ internal sealed class SpatialPreview : IDisposable
                     work.Token.ThrowIfCancellationRequested();
                     Advance(ExportStage.Encoding, "Writing the 16-bit export…", rendered.Crop.Width, rendered.Crop.Height);
                     var watermark = recipe?.Watermark;
+                    var annotations = recipe?.Annotations;
+                    var hasOverlays = watermark is not null || annotations is not null;
                     var convertsProfile = deliveryProfile.RequiresConversion;
-                    var editableWatermark = watermark is not null && outputContainer == SpektraExport.Format.Psd;
-                    var allocation = editableWatermark ? RenderAllocation.ProfileImageEncodingWithWatermark
+                    var editableOverlays = hasOverlays && outputContainer == SpektraExport.Format.Psd;
+                    var deferOverlays = convertsProfile || editableOverlays;
+                    var allocation = deferOverlays && hasOverlays ? RenderAllocation.ProfileImageEncodingWithOverlay
                         : !convertsProfile ? RenderAllocation.ImageEncoding
-                        : watermark is null ? RenderAllocation.ProfileImageEncoding : RenderAllocation.ProfileImageEncodingWithWatermark;
+                        : RenderAllocation.ProfileImageEncoding;
                     using var memory = RenderMemoryBudget.SystemMemory.Reserve(allocation,
                         (long)rendered.Crop.Width * rendered.Crop.Height, "Free memory or choose a smaller Export Recipe.");
                     using var watermarkMemory = watermark is null ? null : RenderMemoryBudget.SystemMemory.Reserve(
                         RenderAllocation.ImageEncoding, (long)watermark.Width * watermark.Height, "Choose a smaller recipe watermark.");
-                    var watermarkPixels = watermark?.Prepare(deliveryProfile, work.Token);
+                    using var annotationsMemory = annotations is null ? null : RenderMemoryBudget.SystemMemory.Reserve(
+                        RenderAllocation.ImageEncoding, (long)annotations.Width * annotations.Height, "Choose a smaller export size for the recipe annotations.");
+                    var overlays = new List<ExportOverlay.Prepared>(2);
+                    if (watermark is not null)
+                        overlays.Add(new("Watermark", watermark, watermark.Prepare(deliveryProfile, work.Token)));
+                    if (annotations is not null)
+                        overlays.Add(new("Annotations", annotations, annotations.Prepare(deliveryProfile, work.Token)));
                     var deliveryFormat = convertsProfile ? PixelFormats.Rgba64 : outputFormat;
                     var encodingStarted = Stopwatch.GetTimestamp();
                     var image = DecodeExport(source, pixels, strength, input.Space, encoding, deliveryFormat, rendered.Crop, work.Token, dpi,
-                        convertsProfile || editableWatermark ? null : watermark, watermarkPixels);
+                        deferOverlays ? null : overlays);
                     var blendAndCropMs = Stopwatch.GetElapsedTime(encodingStarted).TotalMilliseconds;
                     var profileSetupStarted = Stopwatch.GetTimestamp();
                     var output = deliveryProfile.ConvertSrgb(image, outputFormat);
-                    PsdLayer[]? layers = null;
-                    if (editableWatermark)
-                    {
-                        if (watermark!.ComposePsdLayer(output, rendered.Crop, watermarkPixels!, work.Token) is { } layered)
-                        {
-                            layers = [new PsdLayer("Background", 0, 0, output), layered.Layer];
-                            output = layered.Merged;
-                        }
-                    }
-                    else if (convertsProfile && watermark is not null)
-                        output = watermark.Composite(output, rendered.Crop, watermarkPixels!, work.Token);
+                    List<PsdLayer>? layers = editableOverlays ? [new PsdLayer("Background", 0, 0, output)] : null;
+                    if (deferOverlays && hasOverlays)
+                        output = ExportOverlay.Composite(output, rendered.Crop, overlays, work.Token, layers);
                     var profileSetupMs = Stopwatch.GetElapsedTime(profileSetupStarted).TotalMilliseconds;
                     var guides = outputContainer == SpektraExport.Format.Psd && recipe?.Guides is { Length: > 0 } availableGuides
                         ? PsdGuide.InOutput(availableGuides, source.Width, source.Height, rendered.Crop) : null;
@@ -1345,7 +1346,7 @@ internal sealed class SpatialPreview : IDisposable
                     SpektraExport.SaveApproved(approved, output, work.Token, recipe?.Metadata, deliveryProfile,
                         recipe?.TiffCompression ?? TiffCompressOption.Zip, work.ReportEncoderWrite,
                         publication => receipt = exportJobs.RecordPublication(receipt!, publication with { DeliveryNote = deliveryNote }),
-                        cropPath: recipe?.CropPath, guides: guides, layers: layers);
+                        cropPath: recipe?.CropPath, guides: guides, layers: layers is { Count: > 1 } ? layers : null);
                     StartupHook.Log("export.performance.v2", new
                     {
                         JobId = jobId,
@@ -1479,6 +1480,7 @@ internal sealed class SpatialPreview : IDisposable
                     recipe.FormatId, recipe.CropMode, recipe.CropPath, recipe.Guides, recipe.TiffBits, recipe.Width, recipe.Height, recipe.Scale, recipe.IgnoreCrop,
                     recipe.Resolution, recipe.ResolutionUnit, recipe.TiffCompression, recipe.Sharpening, recipe.Omissions,
                     Watermark = recipe.Watermark?.Identity,
+                    Annotations = recipe.Annotations?.Identity,
                     Metadata = recipe.Metadata.CreateXmp(1, 1),
                 },
             });
@@ -2395,14 +2397,16 @@ internal sealed class SpatialPreview : IDisposable
 
     private static BitmapSource DecodeExport(HostImageSource.Frame frame, byte[]? rendered, double strength,
         PreviewInputSpace space, string outputEncoding, PixelFormat format, System.Drawing.Rectangle crop, CancellationToken token, double dpi,
-        ExportWatermark? watermark, ushort[]? watermarkPixels)
+        IReadOnlyList<ExportOverlay.Prepared>? overlays)
     {
         var transform = new SrgbDelivery(space, outputEncoding, strength);
         var hasAlpha = format == PixelFormats.Rgba64;
         var channels = hasAlpha ? 4 : 3;
         var stride = checked(crop.Width * channels * sizeof(ushort));
         var pixels = ExportPixels.Encode(frame.Width, crop, frame.FloatBytes, rendered, transform, hasAlpha, token);
-        watermark?.Composite(pixels, channels, crop, watermarkPixels!, token);
+        if (overlays is not null)
+            foreach (var overlay in overlays)
+                overlay.Source.Composite(pixels, channels, crop, overlay.Pixels, token);
         var image = BitmapSource.Create(crop.Width, crop.Height, dpi, dpi, format, null, pixels, stride);
         image.Freeze();
         return image;

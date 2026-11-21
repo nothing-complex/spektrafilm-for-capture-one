@@ -28,7 +28,7 @@
     <Compile Include="../../NativePanel/PsdExport.cs" Link="PsdExport.cs" />
     <Compile Include="../../qa/PsdFixtureReader.cs" Link="PsdFixtureReader.cs" />
     <Compile Include="../../NativePanel/ExportColorProfile.cs" Link="ExportColorProfile.cs" />
-    <Compile Include="../../NativePanel/ExportWatermark.cs" Link="ExportWatermark.cs" />
+    <Compile Include="../../NativePanel/ExportOverlay.cs" Link="ExportOverlay.cs" />
     <Compile Include="../../NativePanel/PanelFiles.cs" Link="PanelFiles.cs" />
     <Compile Include="../../NativePanel/PanelPreferences.cs" Link="PanelPreferences.cs" />
     <Compile Include="../../NativePanel/OutputPathGuard.cs" Link="OutputPathGuard.cs" />

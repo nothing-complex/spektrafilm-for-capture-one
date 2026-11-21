@@ -1,5 +1,6 @@
 using System;
 using System.Buffers.Binary;
+using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Linq;
@@ -101,58 +102,74 @@ internal static partial class Program
             && !Directory.EnumerateFiles(folder, ".spektra-*.tmp").Any(),
             "canceling a partial PSD write keeps both the verified destination and the original");
 
-        TestPsdWatermark();
+        TestPsdOverlays();
         if (writeReference)
             WriteReference("expected-rgb16-be.bin", samples);
 
-        void TestPsdWatermark()
+        void TestPsdOverlays()
         {
             var output = Path.Combine(folder, "rgb16-watermark.psd");
             var captureProfile = new ExportColorProfile.Profile("Same ProPhoto RGB", new Uri("file:///watermark-test.icc"), profile.Sha256);
-            var watermark = new ExportWatermark(8, 24, 4, 2, .41314159f,
+            var watermark = new ExportOverlay(8, 24, 4, 2, .41314159f,
                 [0, 0, 255, 255, 0, 0, 255, 255, 1, 2, 3, 255, 4, 5, 6, 0,
                  0, 0, 255, 255, 0, 0, 255, 255, 7, 8, 9, 128, 10, 11, 12, 13], "test", captureProfile);
             var crop = new Rectangle(10, 20, width, height);
-            var overlay = watermark.Prepare(profile, CancellationToken.None);
-            var composed = watermark.ComposePsdLayer(image, crop, overlay, CancellationToken.None)
-                ?? throw new InvalidOperationException("The visible watermark requires its own PSD layer.");
-            PsdLayer[] layers = [new("Background", 0, 0, image), composed.Layer];
-            SpektraExport.SaveApproved(OutputPathGuard.Approve(output, source), composed.Merged, CancellationToken.None,
+            var annotation = new ExportOverlay(10, 25, 2, 1, 1, [31, 63, 29, 79, 141, 151, 214, 255],
+                "annotation", captureProfile);
+            List<PsdLayer> layers = [new("Background", 0, 0, image)];
+            var composed = ExportOverlay.Composite(image, crop, [new("Watermark", watermark, watermark.Prepare(profile, default)),
+                new("Annotations", annotation, annotation.Prepare(profile, default))], default, layers);
+            SpektraExport.SaveApproved(OutputPathGuard.Approve(output, source), composed, CancellationToken.None,
                 metadata, profile, cropPath: pathCrop, guides: guides, layers: layers);
 
             using var file = File.OpenRead(output);
             var decoded = PsdFixture.Read(file);
-            Check(decoded.Layers is [var background, var mark] && background.Name == "Background"
+            Check(decoded.Layers is [var background, var mark, var note] && background.Name == "Background"
                 && background.Left == 0 && background.Top == 0 && background.Width == width && background.Height == height
                 && background.Samples.AsSpan().SequenceEqual(samples)
-                && mark.Name == "Watermark" && mark.Left == 0 && mark.Top == 4 && mark.Width == 2 && mark.Height == 2,
-                "the layer stack preserves the complete RGB16 film frame beneath the crop-relative watermark");
+                && mark.Name == "Watermark" && mark.Left == 0 && mark.Top == 4 && mark.Width == 2 && mark.Height == 2
+                && note.Name == "Annotations" && note.Left == 0 && note.Top == 5 && note.Width == 2 && note.Height == 1,
+                "the layer stack preserves the complete RGB16 film frame beneath the independent crop-relative overlays");
             ushort Alpha(int alpha) => (ushort)Math.Round(alpha * 257 * (double)watermark.Opacity);
             ushort[] expectedOverlay = [771, 514, 257, Alpha(255), 1542, 1285, 1028, 0,
                 2313, 2056, 1799, Alpha(128), 3084, 2827, 2570, Alpha(13)];
             Check(decoded.Layers[1].Samples.AsSpan().SequenceEqual(expectedOverlay),
                 "clipped RGBA16 layer stores straight RGB and the exact calculated alpha");
+            ushort[] expectedNote = [7453, 16191, 7967, 20303, 54998, 38807, 36237, 65535];
+            Check(decoded.Layers[2].Samples.AsSpan().SequenceEqual(expectedNote),
+                "the annotation layer preserves the exact RGBA16 samples");
             var expectedMerged = (ushort[])samples.Clone();
-            for (var y = 0; y < 2; y++)
-            for (var x = 0; x < 2; x++)
-            {
-                var fg = (y * 2 + x) * 4;
-                var bg = ((y + 4) * width + x) * 3;
-                var alpha = expectedOverlay[fg + 3] / 65535d;
-                for (var channel = 0; channel < 3; channel++)
-                    expectedMerged[bg + channel] = (ushort)Math.Round(
-                        (1 - alpha) * samples[bg + channel] + alpha * expectedOverlay[fg + channel]);
-            }
+            BlendReference(expectedOverlay, 2, 4);
+            BlendReference(expectedNote, 1, 5);
             Check(decoded.Samples.AsSpan().SequenceEqual(expectedMerged)
                 && Convert.ToHexString(SHA256.HashData(decoded.Resources[1039])) == profile.Sha256,
                 "the RGB16 composite matches the layer stack with the same embedded ICC");
             foreach (var invisible in new[] { watermark with { X = 0 }, watermark with { Opacity = 0 },
                 watermark with { Bgra = new byte[watermark.Bgra.Length] } })
-                Check(invisible.ComposePsdLayer(image, crop, invisible.Prepare(profile, default), default) is null,
+            {
+                var hidden = new List<PsdLayer>();
+                Check(ReferenceEquals(ExportOverlay.Composite(image, crop, [new("Watermark", invisible,
+                    invisible.Prepare(profile, default))], default, hidden), image) && hidden.Count == 0,
                     "an invisible watermark leaves the ordinary flat PSD path available");
+            }
             if (!writeReference) return;
             WriteReference("expected-watermark-rgba16-be.bin", expectedOverlay);
+            WriteReference("expected-annotations-rgba16-be.bin", expectedNote);
             WriteReference("expected-merged-rgb16-be.bin", expectedMerged);
+
+            void BlendReference(ushort[] rgba, int rows, int top)
+            {
+                for (var y = 0; y < rows; y++)
+                for (var x = 0; x < 2; x++)
+                {
+                    var fg = (y * 2 + x) * 4;
+                    var bg = ((y + top) * width + x) * 3;
+                    var alpha = rgba[fg + 3] / 65535d;
+                    for (var channel = 0; channel < 3; channel++)
+                        expectedMerged[bg + channel] = (ushort)Math.Round(
+                            (1 - alpha) * expectedMerged[bg + channel] + alpha * rgba[fg + channel]);
+                }
+            }
         }
 
         void WriteReference(string name, ushort[] pixels)
