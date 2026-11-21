@@ -195,6 +195,7 @@ internal static partial class Program
             Check(title.StartsWith(expectedTitle, StringComparison.Ordinal) && title.Contains("3000 × 2000 · ProPhoto RGB", StringComparison.Ordinal)
                 && delivery.SavedNote(actual) == expectedNote
                 && delivery.CanSkipRecipeOutput == canSkipRecipeOutput
+                && delivery.CanWriteRecipeDestination == canSkipRecipeOutput
                 && delivery.Extension == (requested switch { "Png" => ".png", "Psd" => ".psd", "Psb" => ".psb", _ => ".tif" }),
                 $"{requested} {bits} recipe states the 16-bit delivery policy and actual saved format");
         }
@@ -244,6 +245,16 @@ internal static partial class Program
             && largeDocument.SavedNote(png)?.EndsWith("The export omitted recipe guides.", StringComparison.Ordinal) == true
             && SpektraExport.FilterFor(psb).EndsWith("|*.psb", StringComparison.Ordinal),
             "PSB follows the native naming and skip policy and retains the supported editable resources");
+        Check(editable.CanWriteRecipeDestination && largeDocument.CanWriteRecipeDestination
+            && !cropPath.CanWriteRecipeDestination && !optionalEffects.CanWriteRecipeDestination
+            && !(editable with { Format = "Tiff" }).CanWriteRecipeDestination
+            && !(guides with { Format = "Png" }).CanWriteRecipeDestination,
+            "using the recipe destination directly requires retaining the requested crop, guides and effects");
+        Check(PsdExport.FitsRecipe(6000, 4000, 800_000, 6_500)
+            && PsdExport.FitsRecipe(12000, 8000, 0, 6500)
+            && !PsdExport.FitsRecipe(12000, 8000, 130_000_000, 6500)
+            && !PsdExport.FitsRecipe(30001, 1, 0, 0),
+            "an oversized layered PSD keeps format selection available for PSB before rendering");
     }
 
     private static void TestExportFilenameSuggestion(string folder)

@@ -250,6 +250,11 @@ public static partial class StartupHook
                 return;
             }
             var exportFixture = Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT");
+            if (exportFixture == "recipe-destination")
+            {
+                await TestNativeRecipeDestination(exportHook!, panel, spatial, window);
+                return;
+            }
             if (exportFixture == "retry-source-approval")
             {
                 await TestNativeRetrySourceApproval(panel, spatial, window);

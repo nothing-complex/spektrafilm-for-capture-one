@@ -58,6 +58,18 @@ internal static class PsdExport
     private const int GuidesResource = 1032;
     private const int XmpResource = 1060;
     private const int SavedPathResource = 2000;
+    private const int MaxProfileBytes = 8 * 1024 * 1024;
+
+    internal static bool FitsRecipe(int width, int height, long overlayPixels, int xmpBytes)
+    {
+        if (width is < 1 or > 30_000 || height is < 1 or > 30_000) return false;
+        // Include a pixel of rounding allowance per axis, the merged image,
+        // a background layer when needed, and the maximum ICC and fixed headers.
+        var canvasPixels = (width + 1L) * (height + 1L);
+        var bytes = canvasPixels * (overlayPixels == 0 ? 6 : 12) + overlayPixels * 8
+            + xmpBytes + MaxProfileBytes + 4096L;
+        return bytes <= int.MaxValue;
+    }
 
     internal static void WriteVerified(Stream stream, BitmapSource image, ExportColorProfile profile, byte[]? xmp,
         CancellationToken stop, PsdCropPath? cropPath = null, IReadOnlyList<PsdGuide>? guides = null,
@@ -70,7 +82,7 @@ internal static class PsdExport
             throw new InvalidDataException($"Photoshop document dimensions must be between 1 and {maxDimension:N0} pixels.");
 
         using var profileStream = profile.Context.OpenProfileStream();
-        if (profileStream.Length is < 128 or > 8 * 1024 * 1024)
+        if (profileStream.Length is < 128 or > MaxProfileBytes)
             throw new InvalidDataException("The selected PSD colour profile has an invalid size.");
         var icc = new byte[checked((int)profileStream.Length)];
         profileStream.ReadExactly(icc);

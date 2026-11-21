@@ -50,6 +50,9 @@ internal static class SpektraExport
             _ => ".tif",
         };
         internal bool CanSkipRecipeOutput => Format is "Png" || Format is ("Tiff" or "Psd" or "Psb") && TiffBits == 16;
+        internal bool CanWriteRecipeDestination => CanSkipRecipeOutput && Omissions == RecipeOmission.None
+            && (!CropPath || HasPsdCropPath && Format is ("Psd" or "Psb"))
+            && (!HasPsdGuides || Format is ("Psd" or "Psb"));
         private bool CropPath => CropMode == "AsPath";
         private bool RequiresFormatChange => Format is not null && !CanSkipRecipeOutput;
 

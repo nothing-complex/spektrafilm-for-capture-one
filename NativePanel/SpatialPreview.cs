@@ -1071,8 +1071,8 @@ internal sealed class SpatialPreview : IDisposable
         }
     }
 
-    internal Task<bool> ExportAsync(bool useRecipeSize, Window? owner = null) =>
-        ExportWithDestinationAsync(useRecipeSize, owner, ChooseExportDestination);
+    internal Task<bool> ExportAsync(Window? owner) =>
+        RunExportWithDestinationAsync(true, owner, ChooseExportDestination, null, useRecipeDestination: true);
 
     private Task<bool> ExportWithDestinationAsync(bool useRecipeSize, Window? owner,
         Func<SaveFileDialog, Window?, string?> chooseDestination) =>
@@ -1120,7 +1120,8 @@ internal sealed class SpatialPreview : IDisposable
     }
 
     private async Task<bool> RunExportWithDestinationAsync(bool useRecipeSize, Window? owner,
-        Func<SaveFileDialog, Window?, string?> chooseDestination, ExportReceipt? interrupted, BatchExport? batch = null)
+        Func<SaveFileDialog, Window?, string?> chooseDestination, ExportReceipt? interrupted, BatchExport? batch = null,
+        bool useRecipeDestination = false)
     {
         if (exportActivity.Active is not null || (batch is null && (disposed || !enabled || exportActivity.BatchActive)))
             return false;
@@ -1152,6 +1153,10 @@ internal sealed class SpatialPreview : IDisposable
 
             async Task<bool> RunExportAsync()
             {
+                // Capture the native recipe and source at confirmation, before
+                // yielding to the Viewer drain or the filesystem.
+                var acceptedSnapshot = useRecipeDestination
+                    ? HostImageSource.CaptureForExport(window, target, input.Space, captureRecipe: true) : null;
                 var drainStarted = Stopwatch.GetTimestamp();
                 await DrainPreviewWorkersAsync(work.Token);
                 await HostImageSource.WaitForNativeDevelopmentAsync(work.Token);
@@ -1163,7 +1168,7 @@ internal sealed class SpatialPreview : IDisposable
                 work.Token.ThrowIfCancellationRequested();
                 if (batch is null && (disposed || owner is { IsVisible: false }))
                     return false;
-                var snapshot = batch?.Snapshot ?? HostImageSource.CaptureForExport(window, target,
+                var snapshot = batch?.Snapshot ?? acceptedSnapshot ?? HostImageSource.CaptureForExport(window, target,
                     input.Space, captureRecipe: useRecipeSize);
                 var recipe = snapshot.Recipe;
                 var deliveryProfile = batch?.DeliveryProfile ?? ExportColorProfile.ForRecipe(recipe?.ColorProfileName, recipe?.ColorProfilePath);
@@ -1204,35 +1209,52 @@ internal sealed class SpatialPreview : IDisposable
                     SuggestedFilename: { } stem, ExactDirectory: { } exactDirectory }
                     ? Path.Combine(exactDirectory, stem + extension) : null;
 
-                var picker = new SaveFileDialog
-                {
-                    Title = delivery.SaveTitle(recipe?.Width ?? 0, recipe?.Height ?? 0, deliveryProfile.Label),
-                    Filter = interrupted is null ? SpektraExport.FileFilter : SpektraExport.FilterFor(suggestedFormat),
-                    FilterIndex = interrupted is null ? (int)suggestedFormat + 1 : 1,
-                    FileName = interrupted is null ? suggestedName : Path.GetFileName(interrupted.Destination),
-                    DefaultExt = extension,
-                    AddExtension = true,
-                    OverwritePrompt = true,
-                };
-                if (interrupted is not null)
-                    picker.InitialDirectory = Path.GetDirectoryName(interrupted.Destination) ?? "";
-                else if (recipe?.SuggestedDirectory is { } directory)
-                    picker.InitialDirectory = directory;
                 if (skipPath is not null && ExistingRecipeOutput(skipPath, original) is { } existing)
                     return Skip(existing);
-                var destination = batch?.Destination?.Path ?? chooseDestination(picker, owner);
-                work.Token.ThrowIfCancellationRequested();
-                if (destination is null)
-                {
-                    if (interrupted is not null)
-                        exportActivity.Report(work, DescribePreviousExport(interrupted));
-                    return false;
-                }
 
-                var outputContainer = SpektraExport.FormatFor(destination);
+                var approved = batch?.Destination;
+                var offerLargeDocument = useRecipeDestination && recipe is { FormatId: "Psd" }
+                    && !PsdExport.FitsRecipe(recipe.Width, recipe.Height,
+                        OverlayPixels(recipe.Watermark) + OverlayPixels(recipe.TransparencyOverlay) + OverlayPixels(recipe.Annotations),
+                        Encoding.UTF8.GetByteCount(recipe.Metadata.CreateXmp(recipe.Width, recipe.Height)));
+                if (useRecipeDestination && delivery.CanWriteRecipeDestination && !offerLargeDocument
+                    && recipe is { SuggestedFilename: not null, ExactDirectory: { } destinationDirectory })
+                {
+                    var proposed = original.Approve(Path.Combine(destinationDirectory, suggestedName));
+                    if (!proposed.AlreadyExists)
+                        approved = proposed;
+                    else if (StringComparer.OrdinalIgnoreCase.Equals(skipPath, proposed.Path))
+                        return Skip(proposed);
+                }
+                if (approved is null)
+                {
+                    var picker = new SaveFileDialog
+                    {
+                        Title = (offerLargeDocument ? "Choose PSB for a large Photoshop document · " : "")
+                            + delivery.SaveTitle(recipe?.Width ?? 0, recipe?.Height ?? 0, deliveryProfile.Label),
+                        Filter = interrupted is null ? SpektraExport.FileFilter : SpektraExport.FilterFor(suggestedFormat),
+                        FilterIndex = interrupted is null ? (int)suggestedFormat + 1 : 1,
+                        FileName = interrupted is null ? suggestedName : Path.GetFileName(interrupted.Destination),
+                        DefaultExt = extension,
+                        AddExtension = true,
+                        OverwritePrompt = true,
+                        InitialDirectory = interrupted is null ? recipe?.SuggestedDirectory ?? ""
+                            : Path.GetDirectoryName(interrupted.Destination) ?? "",
+                    };
+                    var destination = chooseDestination(picker, owner);
+                    work.Token.ThrowIfCancellationRequested();
+                    if (destination is null)
+                    {
+                        if (interrupted is not null)
+                            exportActivity.Report(work, DescribePreviousExport(interrupted));
+                        return false;
+                    }
+                    approved = original.Approve(destination);
+                }
+                work.Token.ThrowIfCancellationRequested();
+                var outputContainer = SpektraExport.FormatFor(approved.Path);
                 if (interrupted is not null && suggestedFormat != outputContainer)
                     throw new InvalidOperationException("Use the original file format when retrying an interrupted export.");
-                var approved = batch?.Destination ?? original.Approve(destination);
                 if (approved.AlreadyExists && StringComparer.OrdinalIgnoreCase.Equals(skipPath, approved.Path))
                     return Skip(approved);
                 if (batch is null)
@@ -1389,6 +1411,8 @@ internal sealed class SpatialPreview : IDisposable
                     result.PixelWidth, result.PixelHeight, deliveryNote: deliveryNote);
                 StartupHook.Log($"Spektrafilm 16-bit export saved at {result.PixelWidth}x{result.PixelHeight}: {approved.Path}");
                 return true;
+
+                static long OverlayPixels(ExportOverlay? overlay) => overlay is null ? 0 : (long)overlay.Width * overlay.Height;
 
                 bool Skip(OutputPathGuard.ApprovedDestination existingOutput)
                 {

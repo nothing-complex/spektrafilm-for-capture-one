@@ -1117,7 +1117,7 @@ internal static class SpektraFilmTool
             return outcome.ReadOnly || outcome.Look?.Enabled != false;
         }
         internal Task<bool> ExportAsync(Window? owner) =>
-            IsSpektraExportActive ? opticalPreview.ExportAsync(useRecipeSize: true, owner) : Task.FromResult(false);
+            IsSpektraExportActive ? opticalPreview.ExportAsync(owner) : Task.FromResult(false);
         internal bool StocksReady => !disposed && options is not null;
         internal LaunchPhase ControlsLoadPhase => controlsLoadFailed ? LaunchPhase.Failed
             : StocksReady ? LaunchPhase.Ready : LaunchPhase.LoadingControls;

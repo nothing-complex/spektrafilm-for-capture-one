@@ -2619,39 +2619,8 @@ public static partial class StartupHook
                 throw new TimeoutException("The export's structured timing event did not reach the panel log.");
             }
 
-            void ShowNativeDialog(Func<bool> interact, Func<string?>? failureAfterHandling = null)
-            {
-                var started = Stopwatch.GetTimestamp();
-                var handled = false;
-                Exception? failure = null;
-                using var poll = new Forms.Timer { Interval = 40 };
-                poll.Tick += (_, _) =>
-                {
-                    try
-                    {
-                        if (Stopwatch.GetElapsedTime(started) >= TimeSpan.FromSeconds(50))
-                            throw new TimeoutException("The real Capture One Export dialog did not finish.");
-                        if (handled)
-                        {
-                            if (failureAfterHandling?.Invoke() is { } error)
-                                throw new InvalidOperationException(error);
-                            return;
-                        }
-                        handled = interact();
-                    }
-                    catch (Exception error)
-                    {
-                        poll.Stop();
-                        failure = error;
-                        ((Window?)Prop(bridge, "Dialog") ?? Prop(window, "ExportDialogWindow") as Window)?.Close();
-                    }
-                };
-                poll.Start();
-                try { ExecuteNativeExportCommand(normal); }
-                finally { poll.Stop(); }
-                if (failure is not null) throw failure;
-                Check(handled, "Capture One opened and handled its real native Export dialog");
-            }
+            void ShowNativeDialog(Func<bool> interact, Func<string?>? failureAfterHandling = null) =>
+                ShowNativeExportDialog(bridge!, window, normal, interact, failureAfterHandling);
         }
         finally
         {
@@ -2729,6 +2698,41 @@ public static partial class StartupHook
         var execute = command.GetType().GetMethod("Execute", Flags, null, new[] { typeof(bool) }, null)
             ?? throw new MissingMethodException(command.GetType().FullName, "Execute(Boolean)");
         execute.Invoke(command, new object[] { false });
+    }
+
+    private static void ShowNativeExportDialog(object bridge, object window, object command,
+        Func<bool> interact, Func<string?>? failureAfterHandling = null)
+    {
+        var started = Stopwatch.GetTimestamp();
+        var handled = false;
+        Exception? failure = null;
+        using var poll = new Forms.Timer { Interval = 40 };
+        poll.Tick += (_, _) =>
+        {
+            try
+            {
+                if (Stopwatch.GetElapsedTime(started) >= TimeSpan.FromSeconds(50))
+                    throw new TimeoutException("The real Capture One Export dialog did not finish.");
+                if (handled)
+                {
+                    if (failureAfterHandling?.Invoke() is { } error)
+                        throw new InvalidOperationException(error);
+                    return;
+                }
+                handled = interact();
+            }
+            catch (Exception error)
+            {
+                poll.Stop();
+                failure = error;
+                ((Window?)Prop(bridge, "Dialog") ?? Prop(window, "ExportDialogWindow") as Window)?.Close();
+            }
+        };
+        poll.Start();
+        try { ExecuteNativeExportCommand(command); }
+        finally { poll.Stop(); }
+        if (failure is not null) throw failure;
+        Check(handled, "Capture One opened and handled its real native Export dialog");
     }
 
     private static string NativeNameToken(string id)
