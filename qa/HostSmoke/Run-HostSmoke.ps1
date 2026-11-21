@@ -16,6 +16,7 @@ param(
     [switch] $ViewerLayouts,
     [switch] $FloatingWorkspaceLayout,
     [switch] $NativeWorkspaceSwitch,
+    [switch] $NativeWorkspaceOrder,
     [ValidateRange(0,200)][int] $ViewerChurn=0,
     [ValidateSet('1200','2048','4096','native')][string] $ViewerChurnResolution='2048',
     [ValidateRange(0,600)][int] $ViewerTelemetrySeconds=0,
@@ -138,6 +139,13 @@ if (($FloatingWorkspaceLayout -or $NativeWorkspaceSwitch) -and (!$NativeSettings
     throw 'Workspace verification requires a separate disposable catalog and native preferences backup.'
 }
 if ($NativeWorkspaceSwitch) { $SkipRestart=$true }
+if ($NativeWorkspaceOrder) {
+    if (!$NativeSettingsConfig -or $NativeWorkspaceSwitch -or $FloatingWorkspaceLayout -or $SkipRestart -or
+        $UpgradeFromPackage -or $NativeEffectExport -or $CatalogIsolation -or $ConcurrentCatalogs -or $CalibrationChart) {
+        throw 'Native workspace order needs its own disposable launch and restart with verified workspace backups.'
+    }
+    $CheckOrdinaryLaunch=$true
+}
 if ($NativeExportInterruption -and (!$NativeSettingsConfig -or $SkipRestart -or $NativeEffectExport -or $ColorMatrix -or
     $CatalogIsolation -or $ConcurrentCatalogs -or $SessionIsolation -or $ViewerLayouts -or $ViewerChurn -or
     $ViewerTelemetrySeconds -or $NativeLifetimeCycles -or $DurableSliderEdits -or $MetadataFixtureRoot -or
@@ -542,7 +550,8 @@ function Test-NativeRecipeHashes([string] $phase) {
     Write-Output "PASS $($recipeHashes.Count) native recipe files match their verified backup after $phase."
 }
 $workspaceHashes=@{}
-if ($NativeWorkspaceSwitch) {
+$workspaceFixtureName=$null
+if ($NativeWorkspaceSwitch -or $NativeWorkspaceOrder) {
     $workspaceRoot=Get-Item -LiteralPath (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'CaptureOne\Workspaces130') -Force
     if (!$workspaceRoot.PSIsContainer -or ($workspaceRoot.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
         throw 'The exact Capture One workspace directory was not found.'
@@ -560,9 +569,14 @@ if ($NativeWorkspaceSwitch) {
         $workspaceHashes[$item.Name]=$digest
     }
     $workspaceHashes | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $folder 'native-workspace-backup.json')
+    if ($NativeWorkspaceOrder) {
+        $workspaceFixtureName='SpektrafilmTabAudit'+[Guid]::NewGuid().ToString('N')
+        $workspaceFixturePath=Join-Path $workspaceRoot.FullName ($workspaceFixtureName+'.xml')
+        if (Test-Path -LiteralPath $workspaceFixturePath) { throw 'The workspace fixture file already exists.' }
+    }
 }
 function Test-NativeWorkspaceFiles {
-    if (!$NativeWorkspaceSwitch) { return }
+    if (!$NativeWorkspaceSwitch -and !$NativeWorkspaceOrder) { return }
     $actual=@(Get-ChildItem -LiteralPath $workspaceRoot.FullName -Force)
     if ($actual.Count -ne $workspaceHashes.Count) { throw "Native workspace inventory changed. Verified backup: $workspaceBackup" }
     foreach ($item in $actual) {
@@ -732,7 +746,7 @@ $names=@(
     'SPEKTRAFILM_HOST_VIEWER_STRESS','SPEKTRAFILM_HOST_VIEWER_CACHE_ALLOWANCE','SPEKTRAFILM_HOST_PANEL_INVENTORY','SPEKTRAFILM_EXPECTED_CONTROL_INVENTORY',
     'SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT','SPEKTRAFILM_HOST_MOVED_LOOK_BACKUP',
     'SPEKTRAFILM_SHOW_TOOL','SPEKTRAFILM_HOST_PROOF_TEST','SPEKTRAFILM_HOST_CATALOG_ISOLATION',
-    'SPEKTRAFILM_HOST_VIEWER_LAYOUTS','SPEKTRAFILM_HOST_FLOATING_WORKSPACE','SPEKTRAFILM_HOST_NATIVE_WORKSPACE_SWITCH',
+    'SPEKTRAFILM_HOST_VIEWER_LAYOUTS','SPEKTRAFILM_HOST_FLOATING_WORKSPACE','SPEKTRAFILM_HOST_NATIVE_WORKSPACE_SWITCH','SPEKTRAFILM_HOST_NATIVE_WORKSPACE_ORDER',
     'SPEKTRAFILM_HOST_DURABLE_EDITS','SPEKTRAFILM_HOST_SLIDER_INTERACTION','SPEKTRAFILM_HOST_OPTICAL_AVAILABILITY','SPEKTRAFILM_HOST_LOOK_BATCH','SPEKTRAFILM_HOST_BATCH_EXPORT','SPEKTRAFILM_HOST_VARIANT_LINEAGE','SPEKTRAFILM_HOST_SUPPORT_DIAGNOSTICS','SPEKTRAFILM_HOST_METADATA_FIXTURE',
     'SPEKTRAFILM_HOST_VIEWER_CHURN','SPEKTRAFILM_HOST_VIEWER_CHURN_RESOLUTION','SPEKTRAFILM_HOST_VIEWER_TELEMETRY_SECONDS','SPEKTRAFILM_HOST_EXPORT_INTERRUPTION',
     'SPEKTRAFILM_HOST_NATIVE_VIEWER_BASELINE','SPEKTRAFILM_HOST_OTHER_CATALOG',
@@ -764,6 +778,7 @@ try {
     $env:SPEKTRAFILM_HOST_VIEWER_LAYOUTS=if($ViewerLayouts){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_FLOATING_WORKSPACE=if($FloatingWorkspaceLayout){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_NATIVE_WORKSPACE_SWITCH=if($NativeWorkspaceSwitch){'1'}else{$null}
+    $env:SPEKTRAFILM_HOST_NATIVE_WORKSPACE_ORDER=$workspaceFixtureName
     $env:SPEKTRAFILM_HOST_DURABLE_EDITS=if($DurableSliderEdits){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_LOOK_BATCH=if($NativeLookBatchCrash){'crash'}elseif($NativeLookBatch){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_SLIDER_INTERACTION=if($NativeSliderInteraction){'1'}else{$null}
@@ -816,7 +831,7 @@ try {
                 $process.Refresh()
             }
             Get-Content -LiteralPath $result
-            if (($NativeVariantLineage -or ($NativeEffectRecipeRestart -and $phase -eq 'first')) -and !$process.HasExited) {
+            if (($NativeVariantLineage -or $NativeWorkspaceOrder -or ($NativeEffectRecipeRestart -and $phase -eq 'first')) -and !$process.HasExited) {
                 # Capture One owns persistence of its catalog settings and variants.
                 if (!$process.CloseMainWindow() -or !$process.WaitForExit(20000) -or $process.ExitCode -ne 0) {
                     throw 'Capture One did not finish a clean close of the disposable catalog.'
@@ -914,7 +929,16 @@ try {
     throw
 } finally {
     try {
-        if ($NativeSettingsConfig) { Restore-TestCatalogPreferences $profile $backup $fixtureCatalogs $folder ([bool]$ConcurrentCatalogs) ([bool]$NativeWorkspaceSwitch) }
+        if ($NativeSettingsConfig) { Restore-TestCatalogPreferences $profile $backup $fixtureCatalogs $folder ([bool]$ConcurrentCatalogs) ([bool]($NativeWorkspaceSwitch -or $NativeWorkspaceOrder)) }
+        if ($NativeWorkspaceOrder -and (Test-Path -LiteralPath $workspaceFixturePath)) {
+            $fixture=Get-Item -LiteralPath $workspaceFixturePath -Force
+            if ($fixture.FullName -cne $workspaceFixturePath -or $fixture.Directory.FullName -cne $workspaceRoot.FullName -or
+                $fixture.PSIsContainer -or ($fixture.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+                $workspaceHashes.ContainsKey($fixture.Name) -or $fixture.Name -cne ($workspaceFixtureName+'.xml')) {
+                throw 'The new workspace file could not be verified for cleanup.'
+            }
+            Remove-Item -LiteralPath $fixture.FullName
+        }
         Test-NativeWorkspaceFiles
         if ($MetadataFixtureRoot) { Test-FixtureRawFiles $MetadataFixtureRoot $metadataMarker }
     } catch {

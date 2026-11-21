@@ -46,6 +46,8 @@ Each Spektrafilm launch writes a status file under `%LOCALAPPDATA%/FilmToolsForC
 
 The PowerShell and portable launchers keep the workspace’s selected tab. Add `-ShowTool` to open the Spektrafilm tab immediately. The desktop shortcut opens that tab for you.
 
+Move the Spektrafilm tab using Capture One’s tab controls. Spektrafilm remembers its position in the active workspace and restores it the next time you open that workspace through the launcher.
+
 ## Saved looks
 
 Spektrafilm automatically saves every change to the selected Capture One variant, including the enable switch, stocks and sliders. Preview resolution, comparison and panel layout are separate from the look. Each change is committed immediately, so Capture One can reopen the last complete save after a crash. Choose the same catalog through the desktop shortcut to restore its saved looks. If Capture One cannot save a change to either location, stay open when prompted and restore access to storage so Spektrafilm can retry.

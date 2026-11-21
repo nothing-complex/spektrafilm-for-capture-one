@@ -14,10 +14,25 @@ internal sealed record FloatingPlacement(double Left, double Top, double Width, 
 
 internal sealed record FloatingToolLayout(bool Open, FloatingPlacement? Placement, double ScrollOffset);
 
+internal sealed record WorkspaceTabPlacement(string? Left, string? Right, int Index)
+{
+    internal int Resolve(IReadOnlyList<string?> tabs)
+    {
+        if (Right is not null)
+            for (var index = 0; index < tabs.Count; index++)
+                if (StringComparer.Ordinal.Equals(Right, tabs[index])) return index;
+        if (Left is not null)
+            for (var index = 0; index < tabs.Count; index++)
+                if (StringComparer.Ordinal.Equals(Left, tabs[index])) return index + 1;
+        return Math.Clamp(Index, 0, tabs.Count);
+    }
+}
+
 internal sealed record PanelPreferenceData(int Version = 1, string ViewerSize = "native", int DragSize = 1200,
     bool DraftSynthesis = false, FloatingPlacement? Floating = null, Dictionary<string, bool>? Sections = null,
     double FloatingScrollOffset = 0,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Dictionary<string, FloatingToolLayout>? FloatingWorkspaces = null)
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Dictionary<string, FloatingToolLayout>? FloatingWorkspaces = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Dictionary<string, WorkspaceTabPlacement>? WorkspaceTabs = null)
 {
     internal static string WorkspaceKey(int type, string? name, string? label)
     {
@@ -38,6 +53,15 @@ internal sealed record PanelPreferenceData(int Version = 1, string ViewerSize = 
             : new Dictionary<string, FloatingToolLayout>(FloatingWorkspaces, StringComparer.Ordinal);
         workspaces[workspace] = layout;
         return updated with { FloatingWorkspaces = workspaces };
+    }
+
+    internal PanelPreferenceData WithWorkspaceTab(string workspace, WorkspaceTabPlacement placement)
+    {
+        if (WorkspaceTabs?.GetValueOrDefault(workspace) == placement) return this;
+        var tabs = WorkspaceTabs is null ? new Dictionary<string, WorkspaceTabPlacement>(StringComparer.Ordinal)
+            : new Dictionary<string, WorkspaceTabPlacement>(WorkspaceTabs, StringComparer.Ordinal);
+        tabs[workspace] = placement;
+        return this with { WorkspaceTabs = tabs };
     }
 }
 

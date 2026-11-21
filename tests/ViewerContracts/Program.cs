@@ -575,11 +575,22 @@ internal static partial class Program
             PanelPreferenceData.WorkspaceKey(1, "DefaultWorkspace", "Localized label"), "localized built-in labels keep their stable workspace identity");
         reopened.Update(data => data.WithFloatingLayout(workspaceA, floating));
         reopened.Update(data => data.WithFloatingLayout(workspaceB, docked));
+        var tab = new WorkspaceTabPlacement("Exposure", "Color", 4);
+        var otherTab = new WorkspaceTabPlacement(null, "Library", 0);
+        reopened.Update(data => data.WithWorkspaceTab(workspaceA, tab).WithWorkspaceTab(workspaceB, otherTab));
         var workspacePreferences = new PanelPreferenceStore(path, messages.Add).Current;
         Check(workspacePreferences.FloatingLayout(workspaceA) == floating && workspacePreferences.FloatingLayout(workspaceB) == docked,
             "different native workspace identities retain their own placement, scroll and floating mode across reload");
         Check(workspacePreferences.FloatingLayout("3|Color") == docked && workspacePreferences.ViewerSize == "1600"
             && workspacePreferences.Sections?["child"] == true, "a new workspace inherits docked defaults without changing other preferences");
+        Check(workspacePreferences.WorkspaceTabs?.GetValueOrDefault(workspaceA) == tab
+            && workspacePreferences.WorkspaceTabs?.GetValueOrDefault(workspaceB) == otherTab,
+            "each custom workspace reopens with its own saved tab neighbors");
+        Check(tab.Resolve(new[] { "Library", "Styles", "Exposure", "Color" }) == 3
+            && tab.Resolve(new[] { "Library", "Exposure", "Styles" }) == 2
+            && tab.Resolve(new[] { "Library", "Styles" }) == 2
+            && otherTab.Resolve(new string?[] { null, "Library" }) == 1,
+            "tab placement follows stable neighbor IDs and falls back to a valid index when they disappear");
         Check(messages.Count == 0, "Reading a compatible preference file reported an error");
         const string future = "{\"Version\":99,\"Unknown\":true}";
         File.WriteAllText(path, future);

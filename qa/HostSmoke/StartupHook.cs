@@ -138,6 +138,11 @@ public static partial class StartupHook
                 await TestNativeWorkspaceSwitch(hook!, hosted);
                 return;
             }
+            if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_NATIVE_WORKSPACE_ORDER") is { Length: > 0 } workspaceFixture)
+            {
+                await TestNativeWorkspaceOrder(hook!, hosted, workspaceFixture);
+                return;
+            }
             if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_MOVED_LOOK_BACKUP") is { Length: > 0 } movedLookBackup)
             {
                 await TestMovedCatalogLook(panel, spatial, store, variant, movedLookBackup);
@@ -412,7 +417,7 @@ public static partial class StartupHook
         var actual = Prop(owner, "Current");
         var requested = Environment.GetEnvironmentVariable("SPEKTRAFILM_SHOW_TOOL") == "1";
         Check(ReferenceEquals(actual, requested || previous is null ? tool : previous),
-            requested ? "explicit tool launch selects Spektrafilm once" : "startup preserves the workspace's selected native tab");
+            requested ? "explicit tool launch selects Spektrafilm once" : "startup preserves the original tab selection");
         Check(((IEnumerable)Prop(owner, "Tabs")!).Cast<object>().Count(tab => ReferenceEquals(tab, tool)) == 1,
             "the live Capture One workspace has one Spektrafilm tab");
         hook.GetMethod("SelectTab", Flags)!.Invoke(null, new[] { owner, tool });

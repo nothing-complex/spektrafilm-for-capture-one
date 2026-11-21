@@ -14,6 +14,7 @@ using P1.C1.Core.Messaging;
 using P1.C1.Core.ModelEntities;
 using P1.C1.Framework.Messaging;
 using P1.C1.ViewModels.Controls.Inspector;
+using P1.C1.ViewModels.Tools.InspectorTool;
 using Forms = System.Windows.Forms;
 
 internal static class StartupHook
@@ -36,6 +37,7 @@ internal static class StartupHook
     private static InspectorPaletteViewModel? owner;
     private static InspectorPaletteTabViewModel? tab;
     private static SpektraFilmTool.HostedTool? hostedTool;
+    private static WorkspaceToolTab? workspaceTab;
     private static ExportHook? exportHook;
     private static IInspectorPaletteTabViewModel? previousTab;
     private static Forms.Form? window;
@@ -237,8 +239,12 @@ internal static class StartupHook
     private static void Attach(Forms.Form form, InspectorPaletteViewModel palette, ICaptureOneDocument document)
     {
         var bus = MessageBusProvider.DefaultInstance;
-        var lastUserTab = palette.Current;
-        var id = FindFreeTabSlot(palette.Tabs.Select(item => item.Name))
+        var priorSelection = palette.Current;
+        var legacyTabs = palette.Tabs.Select((item, index) => (Tab: item, Index: index))
+            .Where(item => IsLegacyFilmTab(item.Tab)).ToArray();
+        var selectedPlaceholder = legacyTabs.Any(item => ReferenceEquals(item.Tab, priorSelection));
+        var lastUserTab = selectedPlaceholder ? null : priorSelection;
+        var id = legacyTabs.FirstOrDefault().Tab?.Name ?? FindFreeTabSlot(palette.Tabs.Select(item => item.Name))
             ?? throw new InvalidOperationException($"Remove an unused custom tool tab to make room for {ProductName}.");
         var newTab = new FilmToolsTab(id, bus.GlobalBus, document)
         {
@@ -250,22 +256,38 @@ internal static class StartupHook
         try
         {
             hosted = SpektraFilmTool.Create(form, bus, document);
+            hosted.BindWorkspaceLayout();
             // The menu-level AddTool helper also emits a tour event and expects
             // a factory-registered caption. Add the hosted control to its area.
             newTab.ScrollAreaViewModel.AddTool(hosted.Tool);
-            palette.Tabs.Add(newTab);
+            foreach (var (placeholder, _) in legacyTabs)
+                palette.Tabs.Remove(placeholder);
+            var index = legacyTabs.Length == 0 ? palette.Tabs.Count : legacyTabs[0].Index;
+            if (hosted.WorkspaceManager?.ActiveWorkspace is { } workspace)
+            {
+                var key = PanelPreferenceData.WorkspaceKey(workspace.SettingsType, workspace.Name, workspace.Text);
+                if (PanelPreferences.Current.WorkspaceTabs?.GetValueOrDefault(key) is { } position)
+                    index = position.Resolve(palette.Tabs.Select(item => item.Name).ToArray());
+            }
+            palette.Tabs.Insert(index, newTab);
             var selected = showToolOnLaunch || lastUserTab is null ? newTab : lastUserTab;
             if (!ReferenceEquals(palette.Current, selected)) SelectTab(palette, selected);
         }
         catch
         {
-            if (ReferenceEquals(palette.Current, newTab))
-                SelectTab(palette, lastUserTab);
             palette.Tabs.Remove(newTab);
+            foreach (var (placeholder, index) in legacyTabs)
+                if (!palette.Tabs.Contains(placeholder)) palette.Tabs.Insert(index, placeholder);
+            if (!ReferenceEquals(palette.Current, priorSelection))
+                SelectTab(palette, priorSelection);
             hosted?.Dispose();
             newTab.Dispose();
             throw;
         }
+        foreach (var (placeholder, _) in legacyTabs)
+            if (placeholder is IDisposable cleanup) cleanup.Dispose();
+        if (legacyTabs.Length > 0)
+            Log($"Replaced {legacyTabs.Length} empty Spektrafilm tab entries in the active workspace.");
 
         owner = palette;
         tab = newTab;
@@ -276,9 +298,16 @@ internal static class StartupHook
         showToolOnLaunch = false;
         LogState($"Attached {ProductName} to the selected catalog as {id}.");
         AttachExport(form, hosted);
-        hosted.BindWorkspaceLayout();
+        if (hosted.WorkspaceManager is { } manager)
+            workspaceTab = new WorkspaceToolTab(manager, palette, newTab, hosted.Tool, lastUserTab);
         hosted.LoadControls();
     }
+
+    private static bool IsLegacyFilmTab(IInspectorPaletteTabViewModel tab) =>
+        tab is InspectorPaletteTabViewModel native && native.GetType() == typeof(InspectorPaletteTabViewModel)
+        && native.Text == ProductName && CustomTabIds.Contains(native.Name, StringComparer.Ordinal)
+        && !native.AllTools.Any() && !native.GetToolsSettings(DockableArea.PinnedArea).Any()
+        && !native.GetToolsSettings(DockableArea.ScrollableArea).Any();
 
     private static string? FindFreeTabSlot(IEnumerable<string?> occupied)
     {
@@ -389,6 +418,8 @@ internal static class StartupHook
         var oldTool = hostedTool;
         var oldExport = exportHook;
         var oldPrevious = previousTab;
+        workspaceTab?.Dispose();
+        workspaceTab = null;
         tab = null;
         owner = null;
         hostedTool = null;

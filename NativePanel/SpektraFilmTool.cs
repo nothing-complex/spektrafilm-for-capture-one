@@ -101,6 +101,7 @@ internal static class SpektraFilmTool
         }
 
         internal InspectorToolWpf Tool { get; }
+        internal IWorkspaceManager? WorkspaceManager => workspaceManager;
         internal ICaptureOneDocument Document => panel.Document;
         internal UserControl DockedContent { get; }
         private ContentControl Holder { get; }
