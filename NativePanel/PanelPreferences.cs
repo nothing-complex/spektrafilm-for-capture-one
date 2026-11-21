@@ -14,7 +14,8 @@ internal sealed record FloatingPlacement(double Left, double Top, double Width, 
 
 internal sealed record FloatingToolLayout(bool Open, FloatingPlacement? Placement, double ScrollOffset);
 
-internal sealed record WorkspaceTabPlacement(string? Left, string? Right, int Index)
+internal sealed record WorkspaceTabPlacement(string? Left, string? Right, int Index,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool Hidden = false)
 {
     internal int Resolve(IReadOnlyList<string?> tabs)
     {

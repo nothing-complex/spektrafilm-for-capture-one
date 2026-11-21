@@ -206,8 +206,9 @@ internal static class StartupHook
                 return;
             }
 
-            if (ReferenceEquals(form, window) && ReferenceEquals(palette, owner) && tab is not null && palette.Tabs.Contains(tab)
-                && hostedTool is { } existing && ReferenceEquals(existing.Document, document) && tab.AllTools.Contains(existing.Tool))
+            if (ReferenceEquals(form, window) && ReferenceEquals(palette, owner) && tab is not null
+                && hostedTool is { } existing && ReferenceEquals(existing.Document, document)
+                && (workspaceTab?.IsHidden == true || palette.Tabs.Contains(tab) && tab.AllTools.Contains(existing.Tool)))
             {
                 existing.CheckSelectionAndSave();
                 AdvanceWatchdog(existing.LookRecoveryPending);
@@ -244,8 +245,12 @@ internal static class StartupHook
             .Where(item => IsLegacyFilmTab(item.Tab)).ToArray();
         var selectedPlaceholder = legacyTabs.Any(item => ReferenceEquals(item.Tab, priorSelection));
         var lastUserTab = selectedPlaceholder ? null : priorSelection;
+        var manager = SpektraFilmTool.HostedTool.FindWorkspaceManager(form);
+        var key = manager?.ActiveWorkspace is { } workspace ? WorkspaceToolTab.Key(workspace) : null;
+        var placement = key is null ? null : PanelPreferences.Current.WorkspaceTabs?.GetValueOrDefault(key);
+        var hideTab = placement is { Hidden: true } && !showToolOnLaunch;
         var id = legacyTabs.FirstOrDefault().Tab?.Name ?? FindFreeTabSlot(palette.Tabs.Select(item => item.Name))
-            ?? throw new InvalidOperationException($"Remove an unused custom tool tab to make room for {ProductName}.");
+            ?? (hideTab ? CustomTabIds[0] : throw new InvalidOperationException($"Remove an unused custom tool tab to make room for {ProductName}."));
         var newTab = new FilmToolsTab(id, bus.GlobalBus, document)
         {
             IsVisible = true,
@@ -256,21 +261,20 @@ internal static class StartupHook
         try
         {
             hosted = SpektraFilmTool.Create(form, bus, document);
-            hosted.BindWorkspaceLayout();
+            hosted.BindWorkspaceLayout(manager);
             // The menu-level AddTool helper also emits a tour event and expects
             // a factory-registered caption. Add the hosted control to its area.
             newTab.ScrollAreaViewModel.AddTool(hosted.Tool);
             foreach (var (placeholder, _) in legacyTabs)
                 palette.Tabs.Remove(placeholder);
-            var index = legacyTabs.Length == 0 ? palette.Tabs.Count : legacyTabs[0].Index;
-            if (hosted.WorkspaceManager?.ActiveWorkspace is { } workspace)
+            if (!hideTab)
             {
-                var key = PanelPreferenceData.WorkspaceKey(workspace.SettingsType, workspace.Name, workspace.Text);
-                if (PanelPreferences.Current.WorkspaceTabs?.GetValueOrDefault(key) is { } position)
-                    index = position.Resolve(palette.Tabs.Select(item => item.Name).ToArray());
+                var index = placement?.Resolve(palette.Tabs.Select(item => item.Name).ToArray())
+                    ?? (legacyTabs.Length == 0 ? palette.Tabs.Count : legacyTabs[0].Index);
+                palette.Tabs.Insert(index, newTab);
             }
-            palette.Tabs.Insert(index, newTab);
-            var selected = showToolOnLaunch || lastUserTab is null ? newTab : lastUserTab;
+            var selected = hideTab ? lastUserTab ?? palette.Tabs.FirstOrDefault()
+                : showToolOnLaunch || lastUserTab is null ? newTab : lastUserTab;
             if (!ReferenceEquals(palette.Current, selected)) SelectTab(palette, selected);
         }
         catch
@@ -295,11 +299,14 @@ internal static class StartupHook
         previousTab = lastUserTab;
         window = form;
         window.FormClosing += OnFormClosing;
+        if (!hideTab && key is not null && placement is { Hidden: true })
+            PanelPreferences.Update(preferences => preferences.WithWorkspaceTab(key, placement with { Hidden = false }));
         showToolOnLaunch = false;
-        LogState($"Attached {ProductName} to the selected catalog as {id}.");
+        LogState(hideTab ? $"Attached {ProductName} to the selected catalog with its workspace tab hidden."
+            : $"Attached {ProductName} to the selected catalog as {id}.");
         AttachExport(form, hosted);
-        if (hosted.WorkspaceManager is { } manager)
-            workspaceTab = new WorkspaceToolTab(manager, palette, newTab, hosted.Tool, lastUserTab);
+        if (manager is not null)
+            workspaceTab = new WorkspaceToolTab(manager, bus.GlobalBus, palette, newTab, hosted.Tool, lastUserTab, hideTab ? key : null);
         hosted.LoadControls();
     }
 
@@ -418,6 +425,7 @@ internal static class StartupHook
         var oldTool = hostedTool;
         var oldExport = exportHook;
         var oldPrevious = previousTab;
+        var disposeHiddenTab = workspaceTab?.OwnsHiddenTab == true;
         workspaceTab?.Dispose();
         workspaceTab = null;
         tab = null;
@@ -449,6 +457,8 @@ internal static class StartupHook
                     oldOwner.Tabs.Remove(oldTab);
                     oldTab.Dispose();
                 }
+                else if (disposeHiddenTab)
+                    oldTab.Dispose();
             }
         }
         // The main form saves its palette before raising FormClosing. Refresh the

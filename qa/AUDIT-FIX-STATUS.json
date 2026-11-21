@@ -3235,7 +3235,8 @@
         "The production slot selector refuses all 18 occupied native IDs and selects only an available registered custom position. The real workspace contains one attached instance. Tests do not populate the user’s saved workspace with extra tabs.",
         "Licensed ordinary mode passed 197 initial and 201 restart assertions. An explicit tool-show launch passed 196 checks with a copied catalog.",
         "Verify exactly one attached tool after removing the live palette entry in the fixture and after Capture One's actual Default workspace menu command. Both native effect export routes remain connected after Default and the original workspace files verify.",
-        "Repair empty legacy Spektrafilm workspace entries only when custom ID, exact title, live tools and both serialized tool areas identify an empty placeholder. Persist native tab moves by workspace using neighboring tab IDs and a bounded index. Reattach directly at the saved position. Native workspace serialization omits the owned tab when it contains only Spektrafilm and preserves the selected native tab and all native tool rows. Capture One 16.4 passes 26 launch and 21 restart checks plus an ordinary launch with the fixture workspace active. The copied XML retains the six native tabs in order, the correct selection, and no empty Spektrafilm entry. Reopening with the launcher restores one live film tab at its saved position, the exact committed look and native Export. The source catalog and two original native workspace files verify. The 12,562 Windows contracts include persisted per-workspace positions and missing-neighbor fallback. Match all 693 host references with the signed 16.7.8.3529 build."
+        "Repair empty legacy Spektrafilm workspace entries only when custom ID, exact title, live tools and both serialized tool areas identify an empty placeholder. Persist native tab moves by workspace using neighboring tab IDs and a bounded index. Reattach directly at the saved position. Native workspace serialization omits the owned tab when it contains only Spektrafilm and preserves the selected native tab and all native tool rows. Capture One 16.4 passes 26 launch and 21 restart checks plus an ordinary launch with the fixture workspace active. The copied XML retains the six native tabs in order, the correct selection, and no empty Spektrafilm entry. Reopening with the launcher restores one live film tab at its saved position, the exact committed look and native Export. The source catalog and two original native workspace files verify. The 12,562 Windows contracts include persisted per-workspace positions and missing-neighbor fallback. Match all 693 host references with the signed 16.7.8.3529 build.",
+        "Observe Capture One's native removal notification and persist per-workspace hide only after confirmation disposes the actual attached tool. The original film session and native Export bridge remain active, other workspaces retain their own tabs, and an explicit launcher start restores and selects exactly one tab. The licensed context-menu fixture passes 28 initial, 17 passive restart and 18 explicit restore checks and retains the exact 0.73 EV saved edit. Independent decoding confirms a 3000 by 2000 RGBA16 PNG with embedded ICC from native RGB16 development and Vulkan film processing while the tab is hidden. Both original workspaces and the donor catalog verify. The Windows contracts pass 12,564 checks. The test runner now preserves the original XML whitespace of scoped workspace settings during restoration. Ordinary Capture One opens and closes the test catalog after that corrected restoration."
       ],
       "evidence_paths": [
         "NativePanel/StartupHook.cs",
@@ -3248,11 +3249,16 @@
         ".test-results/host-native-workspace-position-pass-20261121/native-workspace-order.json",
         ".test-results/host-native-workspace-position-pass-20261121/host-smoke.log",
         ".test-results/host-native-workspace-position-pass-20261121/ordinary.passed",
-        ".test-results/workspace-order-16.7-reference-20261121/compared-host-signatures.json"
+        ".test-results/workspace-order-16.7-reference-20261121/compared-host-signatures.json",
+        "qa/HostSmoke/NativeTabRemoval.cs",
+        ".test-results/host-native-tab-removal-format-repair-20261121/native-tab-removal.json",
+        ".test-results/host-native-tab-removal-format-repair-20261121/host-smoke.log",
+        ".test-results/tab-removal-ordinary-start-after-restore-20261121/ordinary-start.json",
+        ".test-results/tab-removal-16.7-reference-20261121/compared-host-signatures.json"
       ],
       "remaining_work": [
         "Prototype a registered factory identity in a disposable native host. The loader constructs a built-in tab and resolves tools by short CLR type name. Verify what survives a workspace save, restart and ordinary launch before replacing the verified temporary slot.",
-        "Test the actual native tool-tab removal command and explicit restore. Direct fixture removal and the native Default reset have separate evidence. Verify placement transfer when Save Workspace creates a different named workspace."
+        "Verify placement transfer when Save Workspace creates a different named workspace. An in-app reveal without relaunch remains an enhancement beyond the verified shortcut path."
       ],
       "original_acceptance_tests": [
         "all slots used, custom tab reorder, user removes plugin tab, saved workspace reopen with and without launcher, one-instance guarantee, no duplicated tab on retry."

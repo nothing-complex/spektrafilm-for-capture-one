@@ -591,6 +591,13 @@ internal static partial class Program
             && tab.Resolve(new[] { "Library", "Styles" }) == 2
             && otherTab.Resolve(new string?[] { null, "Library" }) == 1,
             "tab placement follows stable neighbor IDs and falls back to a valid index when they disappear");
+        reopened.Update(data => data.WithWorkspaceTab(workspaceA, tab with { Hidden = true }));
+        var hiddenTabs = new PanelPreferenceStore(path, messages.Add).Current.WorkspaceTabs!;
+        Check(hiddenTabs[workspaceA].Hidden && !hiddenTabs[workspaceB].Hidden && hiddenTabs[workspaceA].Index == tab.Index,
+            "removal retains placement and is scoped to one workspace");
+        reopened.Update(data => data.WithWorkspaceTab(workspaceA, hiddenTabs[workspaceA] with { Hidden = false }));
+        Check(new PanelPreferenceStore(path, messages.Add).Current.WorkspaceTabs?[workspaceA] == tab,
+            "restoring a tab clears the hidden flag and retains its position");
         Check(messages.Count == 0, "Reading a compatible preference file reported an error");
         const string future = "{\"Version\":99,\"Unknown\":true}";
         File.WriteAllText(path, future);

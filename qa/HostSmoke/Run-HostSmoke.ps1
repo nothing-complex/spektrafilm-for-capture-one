@@ -17,6 +17,7 @@ param(
     [switch] $FloatingWorkspaceLayout,
     [switch] $NativeWorkspaceSwitch,
     [switch] $NativeWorkspaceOrder,
+    [switch] $NativeTabRemoval,
     [ValidateRange(0,200)][int] $ViewerChurn=0,
     [ValidateSet('1200','2048','4096','native')][string] $ViewerChurnResolution='2048',
     [ValidateRange(0,600)][int] $ViewerTelemetrySeconds=0,
@@ -145,6 +146,11 @@ if ($NativeWorkspaceOrder) {
         throw 'Native workspace order needs its own disposable launch and restart with verified workspace backups.'
     }
     $CheckOrdinaryLaunch=$true
+}
+if ($NativeTabRemoval -and (!$NativeSettingsConfig -or $NativeWorkspaceSwitch -or $NativeWorkspaceOrder -or $FloatingWorkspaceLayout -or
+    $SkipRestart -or $ShowTool -or $CheckOrdinaryLaunch -or $UpgradeFromPackage -or $NativeEffectExport -or
+    $CatalogIsolation -or $ConcurrentCatalogs -or $CalibrationChart)) {
+    throw 'Native tab removal needs separate disposable launches with verified settings and workspace backups.'
 }
 if ($NativeExportInterruption -and (!$NativeSettingsConfig -or $SkipRestart -or $NativeEffectExport -or $ColorMatrix -or
     $CatalogIsolation -or $ConcurrentCatalogs -or $SessionIsolation -or $ViewerLayouts -or $ViewerChurn -or
@@ -380,12 +386,13 @@ function Restore-TestCatalogPreferences([string] $profile,[string] $backup,[stri
         }
         $rewroteWindowPreference=$changed.ContainsKey('MultipleSessions')
         $rewroteWorkspacePreferences=$changed.ContainsKey('WorkspaceActiveSettings') -or $changed.ContainsKey('WorkspaceCustomSettings')
-        function Restore-ScopedSettings([xml] $document) {
+        function Restore-ScopedSettings([xml] $document,[xml] $original=$before) {
             foreach ($name in $settingNames) {
                 if (!$changed.ContainsKey($name)) { continue }
-                $existing=$document.SelectSingleNode("$settingParent/setting[@name='$name']")
+                $settingPath="$settingParent/setting[@name='$name']"
+                $existing=$document.SelectSingleNode($settingPath)
                 if ($changed[$name]) {
-                    $node=$document.ImportNode($changed[$name],$true)
+                    $node=$document.ImportNode($original.SelectSingleNode($settingPath),$true)
                     if ($existing) { [void]$existing.ParentNode.ReplaceChild($node,$existing) }
                     else {
                         $parent=$document.SelectSingleNode($settingParent)
@@ -429,7 +436,10 @@ function Restore-TestCatalogPreferences([string] $profile,[string] $backup,[stri
                     }
                     [void]$entry.ParentNode.RemoveChild($entry)
                 }
-                Restore-ScopedSettings $preserved
+                $preservedBefore=[xml]::new()
+                $preservedBefore.PreserveWhitespace=$true
+                $preservedBefore.Load($backup)
+                Restore-ScopedSettings $preserved $preservedBefore
                 $preserved.Save($temp)
                 $candidate=[xml](Get-Content -Raw -LiteralPath $temp)
                 if($candidate.OuterXml -cne $after.OuterXml){throw 'The candidate did not preserve other Capture One preferences.'}
@@ -551,7 +561,7 @@ function Test-NativeRecipeHashes([string] $phase) {
 }
 $workspaceHashes=@{}
 $workspaceFixtureName=$null
-if ($NativeWorkspaceSwitch -or $NativeWorkspaceOrder) {
+if ($NativeWorkspaceSwitch -or $NativeWorkspaceOrder -or $NativeTabRemoval) {
     $workspaceRoot=Get-Item -LiteralPath (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'CaptureOne\Workspaces130') -Force
     if (!$workspaceRoot.PSIsContainer -or ($workspaceRoot.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
         throw 'The exact Capture One workspace directory was not found.'
@@ -576,7 +586,7 @@ if ($NativeWorkspaceSwitch -or $NativeWorkspaceOrder) {
     }
 }
 function Test-NativeWorkspaceFiles {
-    if (!$NativeWorkspaceSwitch -and !$NativeWorkspaceOrder) { return }
+    if (!$NativeWorkspaceSwitch -and !$NativeWorkspaceOrder -and !$NativeTabRemoval) { return }
     $actual=@(Get-ChildItem -LiteralPath $workspaceRoot.FullName -Force)
     if ($actual.Count -ne $workspaceHashes.Count) { throw "Native workspace inventory changed. Verified backup: $workspaceBackup" }
     foreach ($item in $actual) {
@@ -746,7 +756,7 @@ $names=@(
     'SPEKTRAFILM_HOST_VIEWER_STRESS','SPEKTRAFILM_HOST_VIEWER_CACHE_ALLOWANCE','SPEKTRAFILM_HOST_PANEL_INVENTORY','SPEKTRAFILM_EXPECTED_CONTROL_INVENTORY',
     'SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT','SPEKTRAFILM_HOST_MOVED_LOOK_BACKUP',
     'SPEKTRAFILM_SHOW_TOOL','SPEKTRAFILM_HOST_PROOF_TEST','SPEKTRAFILM_HOST_CATALOG_ISOLATION',
-    'SPEKTRAFILM_HOST_VIEWER_LAYOUTS','SPEKTRAFILM_HOST_FLOATING_WORKSPACE','SPEKTRAFILM_HOST_NATIVE_WORKSPACE_SWITCH','SPEKTRAFILM_HOST_NATIVE_WORKSPACE_ORDER',
+    'SPEKTRAFILM_HOST_VIEWER_LAYOUTS','SPEKTRAFILM_HOST_FLOATING_WORKSPACE','SPEKTRAFILM_HOST_NATIVE_WORKSPACE_SWITCH','SPEKTRAFILM_HOST_NATIVE_WORKSPACE_ORDER','SPEKTRAFILM_HOST_NATIVE_TAB_REMOVAL',
     'SPEKTRAFILM_HOST_DURABLE_EDITS','SPEKTRAFILM_HOST_SLIDER_INTERACTION','SPEKTRAFILM_HOST_OPTICAL_AVAILABILITY','SPEKTRAFILM_HOST_LOOK_BATCH','SPEKTRAFILM_HOST_BATCH_EXPORT','SPEKTRAFILM_HOST_VARIANT_LINEAGE','SPEKTRAFILM_HOST_SUPPORT_DIAGNOSTICS','SPEKTRAFILM_HOST_METADATA_FIXTURE',
     'SPEKTRAFILM_HOST_VIEWER_CHURN','SPEKTRAFILM_HOST_VIEWER_CHURN_RESOLUTION','SPEKTRAFILM_HOST_VIEWER_TELEMETRY_SECONDS','SPEKTRAFILM_HOST_EXPORT_INTERRUPTION',
     'SPEKTRAFILM_HOST_NATIVE_VIEWER_BASELINE','SPEKTRAFILM_HOST_OTHER_CATALOG',
@@ -779,6 +789,7 @@ try {
     $env:SPEKTRAFILM_HOST_FLOATING_WORKSPACE=if($FloatingWorkspaceLayout){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_NATIVE_WORKSPACE_SWITCH=if($NativeWorkspaceSwitch){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_NATIVE_WORKSPACE_ORDER=$workspaceFixtureName
+    $env:SPEKTRAFILM_HOST_NATIVE_TAB_REMOVAL=if($NativeTabRemoval){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_DURABLE_EDITS=if($DurableSliderEdits){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_LOOK_BATCH=if($NativeLookBatchCrash){'crash'}elseif($NativeLookBatch){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_SLIDER_INTERACTION=if($NativeSliderInteraction){'1'}else{$null}
@@ -801,11 +812,12 @@ try {
     $env:SPEKTRAFILM_HOST_NATIVE_DEVELOPMENT_DEADLINE=if($NativeDevelopmentDeadline){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_DEVELOPMENT_LEASE=if($DevelopmentLeaseFixtureDirectory){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_DEVICE_LOSS=if($DeviceLossFixtureDirectory){'1'}else{$null}
-    $phases=if($CatalogIsolation){@('A-first','B-first','A-restart','B-restart')}elseif($SkipRestart -or $ViewerLayouts){@('first')}else{@('first','restart')}
+    $phases=if($CatalogIsolation){@('A-first','B-first','A-restart','B-restart')}elseif($NativeTabRemoval){@('first','restart','restore-tab')}elseif($SkipRestart -or $ViewerLayouts){@('first')}else{@('first','restart')}
     if (!$SkipRestart -and !$CatalogIsolation -and !$ViewerLayouts -and !$DurableSliderEdits) { [IO.File]::WriteAllText((Join-Path $folder 'verify-grain-restart.marker'), 'test only') }
     foreach($phase in $phases){
         [IO.File]::WriteAllText((Join-Path $folder 'phase.txt'),$phase)
         if($phase -ne $phases[0]){Start-Sleep -Seconds 10}
+        if($NativeTabRemoval){$env:SPEKTRAFILM_SHOW_TOOL=if($phase -eq 'restore-tab'){'1'}else{$null}}
         if($CatalogIsolation){$catalog=$fixtureCatalogs[[int]($phase.StartsWith('B'))]}
         $env:SPEKTRAFILM_CATALOG=$catalog
         $phaseStarted=[DateTime]::UtcNow
@@ -831,7 +843,7 @@ try {
                 $process.Refresh()
             }
             Get-Content -LiteralPath $result
-            if (($NativeVariantLineage -or $NativeWorkspaceOrder -or ($NativeEffectRecipeRestart -and $phase -eq 'first')) -and !$process.HasExited) {
+            if (($NativeVariantLineage -or $NativeWorkspaceOrder -or $NativeTabRemoval -or ($NativeEffectRecipeRestart -and $phase -eq 'first')) -and !$process.HasExited) {
                 # Capture One owns persistence of its catalog settings and variants.
                 if (!$process.CloseMainWindow() -or !$process.WaitForExit(20000) -or $process.ExitCode -ne 0) {
                     throw 'Capture One did not finish a clean close of the disposable catalog.'
@@ -929,7 +941,7 @@ try {
     throw
 } finally {
     try {
-        if ($NativeSettingsConfig) { Restore-TestCatalogPreferences $profile $backup $fixtureCatalogs $folder ([bool]$ConcurrentCatalogs) ([bool]($NativeWorkspaceSwitch -or $NativeWorkspaceOrder)) }
+        if ($NativeSettingsConfig) { Restore-TestCatalogPreferences $profile $backup $fixtureCatalogs $folder ([bool]$ConcurrentCatalogs) ([bool]($NativeWorkspaceSwitch -or $NativeWorkspaceOrder -or $NativeTabRemoval)) }
         if ($NativeWorkspaceOrder -and (Test-Path -LiteralPath $workspaceFixturePath)) {
             $fixture=Get-Item -LiteralPath $workspaceFixturePath -Force
             if ($fixture.FullName -cne $workspaceFixturePath -or $fixture.Directory.FullName -cne $workspaceRoot.FullName -or

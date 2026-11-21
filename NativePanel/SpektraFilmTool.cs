@@ -101,7 +101,6 @@ internal static class SpektraFilmTool
         }
 
         internal InspectorToolWpf Tool { get; }
-        internal IWorkspaceManager? WorkspaceManager => workspaceManager;
         internal ICaptureOneDocument Document => panel.Document;
         internal UserControl DockedContent { get; }
         private ContentControl Holder { get; }
@@ -138,13 +137,26 @@ internal static class SpektraFilmTool
                 .DoShowActionMenu(new PanelActionMenu(() => floating is null ? "Float Tool" : "Show Floating Tool", ShowFloating, panel))
                 .Build();
 
-        internal void BindWorkspaceLayout()
+        internal static IWorkspaceManager? FindWorkspaceManager(System.Windows.Forms.Form window)
         {
             try
             {
-                var program = mainWindow.GetType().Assembly.GetType("P1.C1.Program");
-                workspaceManager = program?.GetProperty("WorkspaceManager", BindingFlags.Public | BindingFlags.Static)
+                var program = window.GetType().Assembly.GetType("P1.C1.Program");
+                return program?.GetProperty("WorkspaceManager", BindingFlags.Public | BindingFlags.Static)
                     ?.GetValue(null) as IWorkspaceManager;
+            }
+            catch (Exception error)
+            {
+                StartupHook.Log("Spektrafilm could not read workspace placement: " + error.GetBaseException().Message);
+                return null;
+            }
+        }
+
+        internal void BindWorkspaceLayout(IWorkspaceManager? manager)
+        {
+            try
+            {
+                workspaceManager = manager;
                 if (workspaceManager is not null)
                     workspaceManager.ActiveWorkspaceChanged += OnActiveWorkspaceChanged;
                 QueueWorkspaceLayout();

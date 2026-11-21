@@ -143,6 +143,11 @@ public static partial class StartupHook
                 await TestNativeWorkspaceOrder(hook!, hosted, workspaceFixture);
                 return;
             }
+            if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_NATIVE_TAB_REMOVAL") == "1")
+            {
+                await TestNativeTabRemoval(hook!, hosted, panel, spatial);
+                return;
+            }
             if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_MOVED_LOOK_BACKUP") is { Length: > 0 } movedLookBackup)
             {
                 await TestMovedCatalogLook(panel, spatial, store, variant, movedLookBackup);
@@ -416,6 +421,12 @@ public static partial class StartupHook
         var tool = hook.GetField("tab", Flags)!.GetValue(null)!;
         var actual = Prop(owner, "Current");
         var requested = Environment.GetEnvironmentVariable("SPEKTRAFILM_SHOW_TOOL") == "1";
+        if (hook.GetField("workspaceTab", Flags)!.GetValue(null) is { } workspace && Prop(workspace, "IsHidden") is true)
+        {
+            Check(!requested && !((IList)Prop(owner, "Tabs")!).Contains(tool) && !ReferenceEquals(actual, tool),
+                "a passive restart honors the explicitly hidden tab without changing the native selection");
+            return;
+        }
         Check(ReferenceEquals(actual, requested || previous is null ? tool : previous),
             requested ? "explicit tool launch selects Spektrafilm once" : "startup preserves the original tab selection");
         Check(((IEnumerable)Prop(owner, "Tabs")!).Cast<object>().Count(tab => ReferenceEquals(tab, tool)) == 1,
