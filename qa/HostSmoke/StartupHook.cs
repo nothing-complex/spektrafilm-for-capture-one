@@ -698,7 +698,11 @@ public static partial class StartupHook
             await Task.Delay(1400);
             var automatic = await WaitForSource(() => Field(spatial, "sourceSize") is string size
                 && Equals(Prop(spatial, "ViewerRenderSize"), size));
-            Check(ReferenceEquals(firstSource, automatic), "a stable cold Auto viewport keeps its first developed frame through the settle interval");
+            var firstRevision = Prop(Prop(Prop(firstSource, "Description")!, "Source")!, "AdjustmentKey");
+            var settledRevision = Prop(Prop(Prop(automatic, "Description")!, "Source")!, "AdjustmentKey");
+            Check(Equals(Field(spatial, "sourceSize"), Prop(expectedQuality, "SizeId"))
+                && (ReferenceEquals(firstSource, automatic) || !Equals(firstRevision, settledRevision)),
+                $"Auto keeps its first tier through settle and only develops a replacement for a native revision change ({firstRevision} to {settledRevision})");
             var projection = (double)Call(view, "ProjectedLongEdge", variant)!;
             var automaticEdge = Math.Max((int)Prop(automatic, "Width")!, (int)Prop(automatic, "Height")!);
             Check(automaticEdge is >= 720 and <= 4096 && (int)Prop(automatic, "BitDepth")! == 16,

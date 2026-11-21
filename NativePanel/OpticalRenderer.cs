@@ -1,8 +1,11 @@
 using System;
 using System.Buffers;
 using System.Buffers.Binary;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -20,6 +23,7 @@ internal readonly record struct OpticalRenderReceipt(int ProcessId, ulong Reques
 
 internal sealed class OpticalRenderer(bool export = false, bool nativePreview = false) : IDisposable, IAsyncDisposable
 {
+    private static readonly ConcurrentDictionary<OpticalRenderer, ResidentFrame> ViewerResidency = new();
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     private static readonly byte[] Hello = Encoding.ASCII.GetBytes(FormattableString.Invariant($"HELLO {RendererProtocol.Version}\n"));
     private Process? process;
@@ -109,6 +113,7 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
         var token = deadline.Token;
         var input = renderer.StandardInput.BaseStream;
         var output = renderer.StandardOutput.BaseStream;
+        GpuRenderPlan? admittedPlan = null;
         var newSource = sourceWidth != width || sourceHeight != height
             || source is null || !source.TryGetTarget(out var previous) || !ReferenceEquals(previous, rgba);
         var verb = newSource ? (displayPixels ? "FRAME8" : "FRAME") : (displayPixels ? "REUSE8" : "REUSE");
@@ -124,6 +129,8 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
             double? gpuWaitMs = null;
             if (negotiatedGpuPlan && await ReadGpuPlanAsync(renderer, width, height, options, token).ConfigureAwait(false) is { } plan)
             {
+                if (priority != GpuWorkPriority.Warmup)
+                    plan = await ReclaimIdleViewerMemoryAsync(renderer, width, height, options, plan, token).ConfigureAwait(false);
                 var queuedAt = Stopwatch.GetTimestamp();
                 try { await ReserveGpuAsync(renderer, plan, priority, token).ConfigureAwait(false); }
                 catch (OperationCanceledException) when (stop.IsCancellationRequested)
@@ -132,6 +139,7 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
                     throw;
                 }
                 gpuWaitMs = Stopwatch.GetElapsedTime(queuedAt).TotalMilliseconds;
+                admittedPlan = plan;
             }
             using var memory = RenderMemoryBudget.SystemMemory.Reserve(RenderAllocation.WorkerTransport, (long)width * height,
                 export ? "Free memory or choose a smaller output." : "Free memory or choose a smaller Viewer resolution.");
@@ -211,6 +219,12 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
                 sourceHeight = height;
             }
             LastRender = new OpticalRenderReceipt(processId, request, newSource, displayPixels, ParameterContract, AssetContract, gpuWaitMs);
+            if (nativePreview && admittedPlan is { } resident)
+            {
+                lock (sync)
+                    if (ReferenceEquals(process, renderer))
+                        ViewerResidency[this] = new(renderer, width, height, options, resident);
+            }
             return pixels;
         }
         catch (OperationCanceledException) when (synchronizedCancellation) { throw; }
@@ -266,8 +280,107 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
             || !value.TryGetProperty("estimatedFullFrameBytes", out var estimate) || estimate.ValueKind != JsonValueKind.Number
             || !estimate.TryGetInt64(out var bytesNeeded) || bytesNeeded is <= 0 or > 128L * 1024 * 1024 * 1024)
             throw new InvalidDataException("The renderer returned an invalid GPU adapter or memory estimate.");
-        return new(new(id, index), budget, bytesNeeded);
+        var reclaimable = value.TryGetProperty("reclaimableBytes", out var retained) && retained.ValueKind == JsonValueKind.Number
+            && retained.TryGetInt64(out var retainedBytes) && retainedBytes is > 0 and <= 128L * 1024 * 1024 * 1024 ? retainedBytes : 0;
+        return new(new(id, index), budget, bytesNeeded, reclaimable);
     }
+
+    private async Task<GpuRenderPlan> ReclaimIdleViewerMemoryAsync(Process child, int width, int height, string options,
+        GpuRenderPlan plan, CancellationToken token)
+    {
+        // Driver headroom alone cannot attribute another worker's residency.
+        // Use prior plans to avoid probing any idle pipe when there is room.
+        var candidates = ViewerResidency
+            .Where(entry => !ReferenceEquals(entry.Key, this) && entry.Value.Plan.Heap == plan.Heap
+                && entry.Key.requests.CurrentCount > 0).ToArray();
+        if (candidates.Length == 0 || Fits(candidates.Sum(entry => Math.Max(
+            entry.Value.Plan.EstimatedBytes, entry.Value.Plan.ReclaimableBytes))))
+            return plan;
+
+        var measured = new List<(OpticalRenderer Worker, ResidentFrame Frame, long Bytes)>();
+        foreach (var entry in candidates)
+        {
+            token.ThrowIfCancellationRequested();
+            var bytes = await entry.Key.MeasureIdleResidencyAsync(entry.Value).WaitAsync(token).ConfigureAwait(false);
+            if (bytes > 0)
+                measured.Add((entry.Key, entry.Value, bytes));
+        }
+        var residentBytes = measured.Sum(entry => entry.Bytes);
+        foreach (var entry in measured.OrderByDescending(entry => entry.Bytes))
+        {
+            if (Fits(residentBytes))
+                break;
+            token.ThrowIfCancellationRequested();
+            if (!await entry.Worker.RetireIdleAsync(entry.Frame).WaitAsync(token).ConfigureAwait(false))
+                continue;
+            residentBytes -= entry.Bytes;
+            StartupHook.Log($"Released an idle Spektrafilm Viewer worker with {entry.Bytes} reclaimable GPU bytes.");
+            plan = await ReadGpuPlanAsync(child, width, height, options, token).ConfigureAwait(false) ?? plan;
+        }
+        return plan;
+
+        bool Fits(long retained) => plan.EstimatedBytes <= plan.PlanningBytes
+            && retained <= plan.PlanningBytes - plan.EstimatedBytes;
+    }
+
+    private async Task<long> MeasureIdleResidencyAsync(ResidentFrame frame)
+    {
+        if (!requests.Wait(0))
+            return 0;
+        try
+        {
+            if (!StillResident(frame))
+                return 0;
+            using var probe = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+            probe.CancelAfter(TimeSpan.FromSeconds(1));
+            try
+            {
+                var plan = await ReadGpuPlanAsync(frame.Child, frame.Width, frame.Height, frame.Options, probe.Token).ConfigureAwait(false);
+                return plan is { } current && current.Heap == frame.Plan.Heap ? current.ReclaimableBytes : 0;
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or OperationCanceledException
+                or InvalidOperationException or JsonException)
+            {
+                // A partial plan reply cannot be left in the pipe for the next frame.
+                await StopIdleWorkerAsync(abort: true).ConfigureAwait(false);
+                return 0;
+            }
+        }
+        finally { requests.Release(); }
+    }
+
+    private async Task<bool> RetireIdleAsync(ResidentFrame frame)
+    {
+        if (!requests.Wait(0))
+            return false;
+        try
+        {
+            if (!StillResident(frame))
+                return false;
+            return await StopIdleWorkerAsync(abort: false).ConfigureAwait(false);
+        }
+        finally { requests.Release(); }
+    }
+
+    private bool StillResident(ResidentFrame frame) =>
+        ViewerResidency.TryGetValue(this, out var current) && ReferenceEquals(current, frame);
+
+    private async Task<bool> StopIdleWorkerAsync(bool abort)
+    {
+        try
+        {
+            await StopAsync(abort, keepRenderReceipt: true).ConfigureAwait(false);
+            return true;
+        }
+        catch (Exception error) when (error is TimeoutException or InvalidOperationException or IOException
+            or System.ComponentModel.Win32Exception)
+        {
+            StartupHook.Log("Could not release an idle Viewer renderer: " + error.GetBaseException().Message);
+            return false;
+        }
+    }
+
+    private sealed record ResidentFrame(Process Child, int Width, int Height, string Options, GpuRenderPlan Plan);
 
     private async Task ReserveGpuAsync(Process child, GpuRenderPlan plan, GpuWorkPriority priority, CancellationToken token)
     {
@@ -540,7 +653,7 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
         }
     }
 
-    private Task StopAsync(bool abort)
+    private Task StopAsync(bool abort, bool keepRenderReceipt = false)
     {
         lock (sync)
         {
@@ -548,7 +661,7 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
                 return shutdown;
             var lease = gpuAdmission;
             gpuAdmission = null;
-            var cancellation = ClearProcess();
+            var cancellation = ClearProcess(keepRenderReceipt);
             // Process exit is the resource boundary. Killing a worker only
             // requests termination and does not guarantee GPU resources are free.
             shutdown = Task.Run(() =>
@@ -559,8 +672,9 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
         }
     }
 
-    private EventWaitHandle? ClearProcess()
+    private EventWaitHandle? ClearProcess(bool keepRenderReceipt = false)
     {
+        ViewerResidency.TryRemove(this, out _);
         var cancellation = requestCancellation;
         requestCancellation = null;
         process = null;
@@ -572,7 +686,7 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
         negotiatedGpuPlan = false;
         ParameterContract = null;
         AssetContract = null;
-        LastRender = null;
+        if (!keepRenderReceipt) LastRender = null;
         return cancellation;
     }
 

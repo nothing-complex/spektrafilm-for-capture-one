@@ -17,6 +17,12 @@ internal static partial class Program
     {
         if (args.Length == 1 && args[0].EndsWith("stream")) { Worker(); return; }
         if (args.Length == 2 && args[0] == "--gpu") { await CheckGpu(args[1]); return; }
+        if (args is ["--gpu-idle-reclamation", var idleRuntime, var adapter, var heap, var idleReport])
+        {
+            await CheckPhysicalIdleWorker(idleRuntime, Guid.ParseExact(adapter, "N"),
+                int.Parse(heap, CultureInfo.InvariantCulture), idleReport);
+            return;
+        }
         if (args is ["--gpu-admission", var admissionRuntime, var admissionReport, var admissionScenario])
         {
             await CheckRealGpuAdmission(admissionRuntime, admissionReport, admissionScenario switch
@@ -34,6 +40,7 @@ internal static partial class Program
         {
             await CheckGpuAdmission();
             await CheckWorkerAdmission(scratch);
+            await CheckIdleWorkerReclamation(scratch);
             foreach (var malformed in new[] { "status", "fatal", "wrong-request", "length", "truncated", "truncated-header", "error-size",
                 "bad-error-text", "bad-device-lost", "bad-json", "old-version", "bad-json-type", "bad-contract", "bad-precision", "bad-endian", "bad-limits",
                 "bad-reply-layout", "bad-float-layout", "bad-packed-layout" })
@@ -471,6 +478,119 @@ internal static partial class Program
             "a queued worker can render after the retired worker actually exits");
     }
 
+    private static async Task CheckIdleWorkerReclamation(string scratch)
+    {
+        var root = Setup(scratch, "gpu-plan-resident");
+        var file = Path.Combine(root, "renderer", "trace.txt");
+        var rgba = Pixels(1);
+        await using var viewer = new OpticalRenderer(nativePreview: true);
+        var baseline = await viewer.RenderAsync(1, 1, rgba, [], default);
+        var initial = viewer.LastRender!.Value;
+        using var process = Process.GetProcessById(initial.ProcessId);
+
+        async Task Output(string scenario)
+        {
+            Setup(scratch, scenario);
+            await using var worker = new OpticalRenderer(export: true);
+            Check((await worker.RenderAsync(1, 1, rgba, [], default)).SequenceEqual(baseline),
+                "idle residency checks preserve output bytes under " + scenario);
+        }
+
+        await Output("gpu-plan-headroom");
+        await Output("gpu-plan-other-heap");
+        Setup(scratch, "gpu-plan");
+        await using (var warmup = new OpticalRenderer(nativePreview: true))
+            Check((await warmup.WarmPreviewAsync(1, 1, rgba, [], default, displayPixels: false)).SequenceEqual(baseline),
+                "speculative warmup renders without evicting another Viewer");
+        Check(!process.HasExited && File.ReadLines(file).Count(line => line.Contains(" PLAN ")) == 1,
+            "headroom, a different heap and optional warmup preserve the idle worker without probing its pipe");
+
+        Environment.SetEnvironmentVariable("SPEKTRAFILM_ROOT", root);
+        var unchanged = await viewer.RenderAsync(1, 1, rgba, [], default);
+        Check(unchanged.SequenceEqual(baseline) && viewer.LastRender is { SourceUploaded: false } warm
+            && warm.ProcessId == initial.ProcessId, "a warm Viewer still reuses the immutable source");
+
+        var viewerFolder = Path.Combine(root, "renderer");
+        var viewerScenario = Path.Combine(viewerFolder, "scenario.txt");
+        File.WriteAllText(viewerScenario, "gpu-plan-resident-gated");
+        var activeViewer = viewer.RenderAsync(1, 1, rgba, [], default);
+        await WaitForRequest(root, activeViewer);
+        var pressureRoot = Setup(scratch, "gpu-plan");
+        try
+        {
+            await using var waiting = new OpticalRenderer(export: true);
+            using var cancel = new CancellationTokenSource();
+            var pressure = waiting.RenderAsync(1, 1, rgba, [], cancel.Token);
+            var planMarker = Path.Combine(pressureRoot, "renderer", "plan-received");
+            var started = Stopwatch.GetTimestamp();
+            while (!File.Exists(planMarker) && !pressure.IsCompleted && Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(5))
+                await Task.Delay(10);
+            Check(File.Exists(planMarker) && !pressure.IsCompleted && !activeViewer.IsCompleted && !process.HasExited,
+                "a worker with a completed frame becomes ineligible for retirement while it is rendering another");
+            cancel.Cancel();
+            await Throws<OperationCanceledException>(() => pressure.WaitAsync(TimeSpan.FromSeconds(5)));
+        }
+        finally { File.WriteAllText(Path.Combine(viewerFolder, "release-response"), ""); }
+        Check((await activeViewer.WaitAsync(TimeSpan.FromSeconds(5))).SequenceEqual(baseline) && !process.HasExited,
+            "canceling the competing request keeps the active Viewer alive and intact");
+        File.WriteAllText(viewerScenario, "gpu-plan-resident");
+        var beforeProbe = File.ReadLines(file).Count(line => line.Contains(" PLAN "));
+        await Output("gpu-plan");
+        Check(process.HasExited && File.ReadLines(file).Count(line => line.Contains(" PLAN ")) == beforeProbe + 1,
+            "a tight same-heap request verifies reclaimable bytes and waits for the idle Viewer process to exit");
+        Check(viewer.LastRender?.ProcessId == initial.ProcessId, "idle reclamation retains the last completed frame receipt");
+        Environment.SetEnvironmentVariable("SPEKTRAFILM_ROOT", root);
+        var regenerated = await viewer.RenderAsync(1, 1, rgba, [], default);
+        Check(regenerated.SequenceEqual(baseline) && viewer.LastRender is { SourceUploaded: true } replacement
+            && replacement.ProcessId != initial.ProcessId, "the next Viewer change starts a clean worker and renders the same pixels");
+    }
+
+    private static async Task CheckPhysicalIdleWorker(string runtime, Guid adapter, int heap, string report)
+    {
+        const int width = 3000, height = 2000;
+        var previous = Environment.GetEnvironmentVariable("SPEKTRAFILM_ROOT");
+        var root = Path.GetFullPath(runtime);
+        Environment.SetEnvironmentVariable("SPEKTRAFILM_ROOT", root);
+        try
+        {
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+            await using var viewer = new OpticalRenderer(nativePreview: true);
+            var source = Pixels(width * height);
+            var options = new[] { "--stock", "kodak_portra_400", "--paper", "kodak_portra_endura",
+                "--camera-diffusion-family", "pro_mist", "--camera-diffusion-strength", "1.5", "--halation-amount", "1" };
+            Task<byte[]> Render() => viewer.RenderAsync(width, height, source, options, deadline.Token, displayPixels: true);
+            var expected = Convert.ToHexString(SHA256.HashData(await Render()));
+            using var child = Process.GetProcessById(viewer.LastRender!.Value.ProcessId);
+            var start = Stopwatch.GetTimestamp();
+            var warm = await Render();
+            var warmMs = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+            Check(viewer.LastRender is { SourceUploaded: false } warmReceipt && warmReceipt.ProcessId == child.Id
+                && Convert.ToHexString(SHA256.HashData(warm)) == expected, "the physical Viewer reuses its source before pressure");
+
+            var fake = Setup(Path.GetDirectoryName(Path.GetFullPath(report))!, "gpu-plan");
+            File.WriteAllText(Path.Combine(fake, "renderer", "gpu-target.txt"), $"{adapter:N}\n{heap}");
+            await using (var competing = new OpticalRenderer(export: true))
+                await competing.RenderAsync(1, 1, Pixels(1), [], deadline.Token);
+            Check(child.HasExited, "the GPU-backed Viewer worker exits before the synthetic same-heap pressure request completes");
+            var requestTrace = File.ReadAllLines(Path.Combine(fake, "renderer", "trace.txt"));
+            Check(requestTrace.Count(line => line.Contains(" PLAN ")) == 2, "the requester refreshes its plan after the physical worker exits");
+
+            Environment.SetEnvironmentVariable("SPEKTRAFILM_ROOT", root);
+            start = Stopwatch.GetTimestamp();
+            var after = await Render();
+            var restoredMs = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+            Check(viewer.LastRender is { SourceUploaded: true } replacement && replacement.ProcessId != child.Id
+                && Convert.ToHexString(SHA256.HashData(after)) == expected, "a fresh GPU worker delivers an identical packed reply after reclamation");
+            File.WriteAllText(report, JsonSerializer.Serialize(new
+            {
+                adapter, heap, width, height, expected, warmMs, restoredMs,
+                physicalViewerRetired = child.HasExited, syntheticPressure = true,
+            }));
+            Console.WriteLine($"PASS: {checks} physical idle worker reclamation assertions.");
+        }
+        finally { Environment.SetEnvironmentVariable("SPEKTRAFILM_ROOT", previous); }
+    }
+
     private static async Task CheckRealGpuAdmission(string root, string report, bool pressure)
     {
         const int viewerWidth = 3000, viewerHeight = 2000;
@@ -827,7 +947,16 @@ internal static partial class Program
             var verb = tokens[2];
             if (verb == "PLAN")
             {
-                Reply(output, 0, "{\"schema\":1,\"adapter\":\"3980bc7b9d534ba3ba9f62b5f7cb97c4\",\"heap\":0,\"sharedPlanningBytes\":100,\"estimatedFullFrameBytes\":80}"u8.ToArray(), request: request);
+                var target = File.Exists("gpu-target.txt") ? File.ReadAllLines("gpu-target.txt") : null;
+                var estimate = scenario switch { "gpu-plan-resident" or "gpu-plan-resident-gated" => 35, "gpu-plan-headroom" => 45, _ => 80 };
+                var gpuPlan = new
+                {
+                    schema = 1, adapter = target?[0] ?? "3980bc7b9d534ba3ba9f62b5f7cb97c4",
+                    heap = target is not null ? int.Parse(target[1], CultureInfo.InvariantCulture) : scenario == "gpu-plan-other-heap" ? 1 : 0,
+                    sharedPlanningBytes = 100, estimatedFullFrameBytes = estimate,
+                    reclaimableBytes = scenario == "gpu-plan-resident" && pixels.Length != 0 ? 50 : 0,
+                };
+                Reply(output, 0, JsonSerializer.SerializeToUtf8Bytes(gpuPlan), request: request);
                 File.WriteAllText("plan-received", "");
                 continue;
             }
@@ -873,9 +1002,10 @@ internal static partial class Program
                 Thread.Sleep(10000);
                 return;
             }
-            if (scenario is "hang" or "gated" or "gpu-plan" or "gpu-plan-gated") File.WriteAllText("request-received", "");
+            if (scenario is "hang" or "gated" or "gpu-plan" or "gpu-plan-gated" or "gpu-plan-resident-gated")
+                File.WriteAllText("request-received", "");
             if (scenario == "hang") { Thread.Sleep(10000); continue; }
-            if (scenario is "gated" or "gpu-plan-gated")
+            if (scenario is "gated" or "gpu-plan-gated" or "gpu-plan-resident-gated")
             {
                 var started = Stopwatch.GetTimestamp();
                 while (!File.Exists("release-response") && Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(10))

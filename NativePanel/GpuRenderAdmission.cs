@@ -8,7 +8,8 @@ internal enum GpuWorkPriority { Output, Interactive, Warmup }
 
 internal readonly record struct GpuHeapIdentity(Guid Adapter, int Heap);
 
-internal readonly record struct GpuRenderPlan(GpuHeapIdentity Heap, long PlanningBytes, long EstimatedBytes);
+internal readonly record struct GpuRenderPlan(GpuHeapIdentity Heap, long PlanningBytes, long EstimatedBytes,
+    long ReclaimableBytes = 0);
 
 internal sealed class GpuRenderAdmission
 {
