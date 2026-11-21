@@ -64,9 +64,6 @@ public static partial class StartupHook
             Check(Equals(Call(journal, "ReadLatest"), originalReceipt) && !File.Exists(next),
                 "closing Capture One's Export window before confirmation creates no photo job");
 
-            var panelAssembly = panel.GetType().Assembly;
-            object CurrentRecipe() => panelAssembly.GetType("HostImageSource", true)!
-                .GetMethod("ActiveRecipe", Flags)!.Invoke(null, new[] { window })!;
             var confirmedRecipe = CurrentRecipe();
             Check(Equals(Prop(confirmedRecipe, "ExactDirectory"), proof)
                 && Equals(Prop(confirmedRecipe, "SuggestedFilename"), "Native proof")
@@ -152,6 +149,8 @@ public static partial class StartupHook
 
         void Set(string name, object value) => saved[name].Property.SetValue(recipe, value);
         void Choose(string name, string value) => Set(name, Enum.Parse(saved[name].Property.PropertyType, value));
+        object CurrentRecipe() => panel.GetType().Assembly.GetType("HostImageSource", true)!
+            .GetMethod("ActiveRecipe", Flags)!.Invoke(null, new[] { window })!;
 
         async Task<object> VerifyBatchDestinations(string icc)
         {
@@ -190,7 +189,25 @@ public static partial class StartupHook
                 Check(skipped.Length == 2 && skipped.Select(row => row.Variant).ToHashSet().SetEquals(new[] { primary, secondary })
                     && File.ReadAllBytes(reserved).SequenceEqual(fixture),
                     "an all-skipped native batch closes the dialog and preserves the exact existing file");
-                return new { native, previousSettings = previousPair, skipped = skipped.Length };
+
+                Choose("FileOverwriteAction", "Rename");
+                var token = NativeNameToken("OriginalName");
+                Set("DestinationFilename", token);
+                Set("DestinationSubFolder", Path.Combine("By image", token, "Proofs"));
+                var nested = new[] { primary, secondary }.Select(id =>
+                {
+                    selection.Select(id, id);
+                    var current = CurrentRecipe();
+                    var stem = (string)Prop(current, "SuggestedFilename")!;
+                    return Path.Combine("By image", stem, "Proofs", stem + ".tif");
+                }).ToArray();
+                Check(Path.GetDirectoryName(nested[0]) != Path.GetDirectoryName(nested[1])
+                    && !Directory.Exists(Path.Combine(output, "By image")),
+                    "the recipe resolves two different image-token paths without creating output folders during preflight");
+                selection.Select(primary, primary, secondary);
+                ConfirmBatch();
+                var tokenFolders = VerifyPair(nested[0], nested[1], output);
+                return new { native, previousSettings = previousPair, skipped = skipped.Length, tokenFolders };
             }
             finally
             {
@@ -209,9 +226,9 @@ public static partial class StartupHook
                 return true;
             }, multiple: true);
 
-            object VerifyPair(string first, string second)
+            object VerifyPair(string first, string second, string? root = null)
             {
-                var paths = new[] { Path.Combine(proof, first), Path.Combine(proof, second) };
+                var paths = new[] { Path.Combine(root ?? proof, first), Path.Combine(root ?? proof, second) };
                 var entries = Receipts().Where(row => paths.Contains(row.Path) && row.Stage == "Completed").ToArray();
                 Check(entries.Length == 2 && entries.Select(row => row.Variant).ToHashSet().SetEquals(new[] { primary, secondary }),
                     "the two approved recipe paths each have one completed native job");

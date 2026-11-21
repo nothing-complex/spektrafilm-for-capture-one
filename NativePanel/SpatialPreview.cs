@@ -772,13 +772,13 @@ internal sealed class SpatialPreview : IDisposable
                 HasPsdCropPath: recipes.All(recipe => recipe.CropPath is not null),
                 HasPsdGuides: recipes.Any(recipe => recipe.Guides is { Length: > 0 }));
             var recipeDestination = confirmedRecipe is null ? null
-                : await Task.Run(() => ExistingBatchRecipeFolder(recipes, policy), token).WaitAsync(token);
+                : await Task.Run(() => ResolveBatchRecipeDestination(recipes, policy), token).WaitAsync(token);
             if (disposed || owner is { IsVisible: false } || exportActivity.BatchStopped)
             {
                 summary = "Batch export canceled.";
                 return saved;
             }
-            var destination = recipeDestination;
+            var destination = recipeDestination?.Folder;
             if (destination is null)
             {
                 var skipExisting = policy.CanSkipRecipeOutput && recipes.Any(recipe => recipe.SkipExistingOutput && recipe.SuggestedFilename is not null);
@@ -806,19 +806,25 @@ internal sealed class SpatialPreview : IDisposable
                 {
                     var recipe = item.Snapshot.Recipe!;
                     var name = SpektraExport.SuggestedOutputName(recipe.SuggestedFilename, item.Target.SourcePath, policy.Extension);
-                    var requestedPath = Path.Combine(folder, name);
+                    var relative = recipeDestination is null ? null : recipe.Location.RelativeSubfolder;
+                    var output = relative is null ? folder : Path.Combine(folder, relative);
+                    var requestedPath = Path.Combine(output, name);
                     var allowSkip = policy.CanSkipRecipeOutput && recipe.SkipExistingOutput && recipe.SuggestedFilename is not null
                         && !reserved.Contains(requestedPath);
+                    OutputPathGuard.ApprovedDestination Approve(string path) => recipeDestination is null ? item.Original.Approve(path)
+                        : item.Original.ApproveInBatch(path, folder, recipeDestination.Identity);
                     var approved = await Task.Run(() =>
                     {
                         token.ThrowIfCancellationRequested();
-                        if (allowSkip && ExistingRecipeOutput(requestedPath, item.Original) is { } existing)
+                        if (allowSkip && ExistingRecipeOutput(requestedPath, Approve) is { } existing)
                             return existing;
                         item.DeliveryProfile.VerifyFiles();
+                        if (relative is not null)
+                            OutputPathGuard.PrepareRecipeSubfolder(folder, recipeDestination!.Identity, relative, token);
                         if (recipeDestination is null || recipe.AddSuffixToExistingFileName)
-                            return ApproveNewBatchDestination(folder, name, item.Original, reserved, token,
+                            return ApproveNewBatchDestination(output, name, Approve, reserved, token,
                                 nativeSuffix: recipeDestination is not null);
-                        var exact = item.Original.Approve(requestedPath);
+                        var exact = Approve(requestedPath);
                         if (exact.AlreadyExists && allowSkip)
                             return exact;
                         if (exact.AlreadyExists || reserved.Contains(exact.Path))
@@ -840,7 +846,7 @@ internal sealed class SpatialPreview : IDisposable
             if (queue.Count == 0)
                 return saved;
             token.ThrowIfCancellationRequested();
-            var plan = ExportBatchPlan.Create(folder, entries.ToArray());
+            var plan = ExportBatchPlan.Create(folder, entries.ToArray(), recipeDestination?.Identity);
             exportJobs.SaveBatch(plan, token);
             interruptedBatch = plan;
             exportActivity.PersistBatchStop = () => CloseBatchPlan(plan);
@@ -966,13 +972,21 @@ internal sealed class SpatialPreview : IDisposable
                         occupied++;
                         continue;
                     }
-                    if (previous is { Publication: not null } && await CompletePublishedAsync(previous, token) is not null)
+                    if (previous is { Publication: not null })
                     {
-                        alreadySaved++;
-                        continue;
+                        if (plan.RootIdentity is { } publishedRoot)
+                            await Task.Run(() => OutputPathGuard.VerifyBatchFolder(Path.GetDirectoryName(entry.Destination)!,
+                                plan.Folder, publishedRoot), token).WaitAsync(token);
+                        if (await CompletePublishedAsync(previous, token) is not null)
+                        {
+                            alreadySaved++;
+                            continue;
+                        }
                     }
                     var source = await CaptureBatchSourceAsync(HostProfile.RecoverSelection(window, document, entry), token);
-                    var approved = await Task.Run(() => source.Original.Approve(entry.Destination), token).WaitAsync(token);
+                    var approved = await Task.Run(() => plan.RootIdentity is { } root
+                        ? source.Original.ApproveInBatch(entry.Destination, plan.Folder, root)
+                        : source.Original.Approve(entry.Destination), token).WaitAsync(token);
                     token.ThrowIfCancellationRequested();
                     if (approved.AlreadyExists)
                     {
@@ -1038,29 +1052,33 @@ internal sealed class SpatialPreview : IDisposable
 
     private static long OverlayPixels(ExportOverlay? overlay) => overlay is null ? 0 : (long)overlay.Width * overlay.Height;
 
-    private static string? ExistingBatchRecipeFolder(HostImageSource.RecipeInfo[] recipes, SpektraExport.RecipeDelivery policy)
+    private sealed record BatchRecipeDestination(string Folder, OutputPathGuard.DirectoryIdentity Identity);
+
+    private static BatchRecipeDestination? ResolveBatchRecipeDestination(HostImageSource.RecipeInfo[] recipes, SpektraExport.RecipeDelivery policy)
     {
-        if (!policy.CanWriteRecipeDestination || recipes[0].ExactDirectory is not { } folder
-            || recipes.Any(recipe => !StringComparer.OrdinalIgnoreCase.Equals(recipe.ExactDirectory, folder)
+        if (!policy.CanWriteRecipeDestination || recipes[0].Location.Root is not { } folder
+            || recipes.Any(recipe => !StringComparer.OrdinalIgnoreCase.Equals(recipe.Location.Root, folder)
+                || (!string.IsNullOrWhiteSpace(recipe.Subfolder) && recipe.Location.RelativeSubfolder is null)
                 || recipe.Naming is not { AdvanceCounter: null } || RequiresLargeDocument(recipe)))
             return null;
-        if (recipes[0].AddSuffixToExistingFileName)
-            return folder;
 
-        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var recipe in recipes)
+        if (!recipes[0].AddSuffixToExistingFileName)
         {
-            var name = recipe.SuggestedFilename! + policy.Extension;
-            var path = Path.Combine(folder, name);
-            if (recipe.SkipExistingOutput && File.Exists(path))
-                continue;
-            if (!names.Add(name) || File.Exists(path) || Directory.Exists(path))
-                return null;
+            var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var recipe in recipes)
+            {
+                var path = Path.Combine(folder, recipe.Location.RelativeSubfolder ?? "", recipe.SuggestedFilename! + policy.Extension);
+                if (recipe.SkipExistingOutput && File.Exists(path))
+                    continue;
+                if (!paths.Add(path) || File.Exists(path) || Directory.Exists(path))
+                    return null;
+            }
         }
-        return folder;
+        return new(folder, OutputPathGuard.CaptureDirectory(folder));
     }
 
-    private static OutputPathGuard.ApprovedDestination ApproveNewBatchDestination(string folder, string filename, OutputPathGuard.OriginalFile original,
+    private static OutputPathGuard.ApprovedDestination ApproveNewBatchDestination(string folder, string filename,
+        Func<string, OutputPathGuard.ApprovedDestination> approve,
         IReadOnlySet<string> reserved, CancellationToken token, bool nativeSuffix)
     {
         var stem = Path.GetFileNameWithoutExtension(filename);
@@ -1072,7 +1090,7 @@ internal sealed class SpatialPreview : IDisposable
             var name = suffix == 0 ? filename : stem + separator + suffix.ToString(CultureInfo.InvariantCulture) + extension;
             var path = Path.Combine(folder, name);
             if (reserved.Contains(path) || File.Exists(path) || Directory.Exists(path)) continue;
-            var approved = original.Approve(path);
+            var approved = approve(path);
             if (approved.AlreadyExists) continue;
             return approved;
         }
@@ -1256,7 +1274,7 @@ internal sealed class SpatialPreview : IDisposable
                     SuggestedFilename: { } stem, ExactDirectory: { } exactDirectory }
                     ? Path.Combine(exactDirectory, stem + extension) : null;
 
-                if (skipPath is not null && ExistingRecipeOutput(skipPath, original) is { } existing)
+                if (skipPath is not null && ExistingRecipeOutput(skipPath, original.Approve) is { } existing)
                     return Skip(existing);
 
                 var approved = batch?.Destination;
@@ -1592,13 +1610,13 @@ internal sealed class SpatialPreview : IDisposable
     private static FileStream OpenForFingerprint(string path) => new(path, FileMode.Open, FileAccess.Read, FileShare.Read,
         128 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
 
-    private static OutputPathGuard.ApprovedDestination? ExistingRecipeOutput(string path, OutputPathGuard.OriginalFile original)
+    private static OutputPathGuard.ApprovedDestination? ExistingRecipeOutput(string path, Func<string, OutputPathGuard.ApprovedDestination> approve)
     {
         if (!File.Exists(path))
             return null;
         try
         {
-            var approved = original.Approve(path);
+            var approved = approve(path);
             return approved.AlreadyExists ? approved : null;
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)

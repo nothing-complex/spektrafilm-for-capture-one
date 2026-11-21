@@ -1779,7 +1779,8 @@
         "A separate current-source 16.4 watermark fixture passes 200 licensed checks. ImageMagick independently opens the PSD's 144 by 72 RGBA16 watermark and separate RGB16 film layer. The merged image and film layer average 0.158 and 0.161 codes per RGB16 sample from their paired TIFFs across 18 million samples each. The source catalog and all nine recipe files verify.",
         "Licensed Capture One 16.4 Export with Previous Settings produces the rotated 2000 × 3000 PSD, and the native Export dialog produces the horizontally mirrored 3000 × 2000 PSB. Both preserve native 16-bit film pixels, the transformed asymmetric crop path and the positioned Overlay layer. ImageMagick independently reopens all layers, checks 18 million RGB16 background codes per file against the expected transform and verifies that merged pixels outside the overlay remain exact. The fixture passes 200 checks on launch and 78 after restart with the original catalog and all nine recipe files intact.",
         "For a supported single-photo recipe with an exact existing destination and native filename, Capture One Export and Export with Previous Settings now use the recipe directly after capturing the source and recipe at confirmation. Keep explicit Save for omissions, unresolved destinations, substitutions, occupied overwrite targets and PSD recipes whose upper size estimate requires selecting PSB. Add Suffix and Skip preserve pre-existing files. The production command bindings, with no substituted Save callback, passed 31 licensed checks on 16.4. An independent reader checked 18 million RGB16 samples per TIFF, PNG and PSD, with all low-byte values and exact recipe ICC.",
-        "Use the exact existing recipe folder for a supported native multi-selection when the folder is shared, filenames resolve without counters and the existing-file policy can be honored. Compare the recipe configuration captured at confirmation with each prepared variant. Both real native commands exported two variants directly on Capture One 16.4, retained exact ICC and 16-bit codes and preserved the occupied filename. Batch token paths that resolve to different folders and native counters remain open."
+        "Use the exact existing recipe folder for a supported native multi-selection when the folder is shared, filenames resolve without counters and the existing-file policy can be honored. Compare the recipe configuration captured at confirmation with each prepared variant. Both real native commands exported two variants directly on Capture One 16.4, retained exact ICC and 16-bit codes and preserved the occupied filename. Batch token paths that resolve to different folders and native counters remain open.",
+        "Native Export resolves the Original Name token per image, creates the missing relative subfolders beneath the same existing recipe base after confirmation and saves separate RGB48 TIFFs without a folder picker. The 60-check licensed fixture uses actual native commands. Independent reopening verifies 16-bit output, all low-byte codes and the exact recipe ICC for both paths. A real junction is rejected before directory creation or write approval."
       ],
       "evidence_paths": [
         "NativePanel/SpektraFilmTool.cs",
@@ -1892,10 +1893,13 @@
         ".test-results/host-native-recipe-direct-verified-20261121/first-native-recipe-verified.json",
         ".test-results/host-native-batch-recipe-direct-20261121/native-recipe-destination.json",
         ".test-results/host-native-batch-recipe-direct-20261121/independent-native-batch.json",
-        ".test-results/host-native-batch-recipe-direct-20261121/first-native-recipe-verified.json"
+        ".test-results/host-native-batch-recipe-direct-20261121/first-native-recipe-verified.json",
+        ".test-results/host-native-per-image-recipe-20261121/first.passed",
+        ".test-results/host-native-per-image-recipe-20261121/independent-native-token-folders.json",
+        ".test-results/pinned-recipe-junction-20261121/result.json"
       ],
       "remaining_work": [
-        "Directory creation and the full location token matrix, automatic Overwrite behavior, tiling and other format and quality settings beyond the explicit 16-bit TIFF/PNG save policy remain open.",
+        "Single-photo folder creation, batches with different or missing base folders, counter-based batch filenames, the wider location token matrix, automatic Overwrite, tiling and other format and quality settings remain open.",
         "Verify editable guides with a licensed Studio or Enterprise document and selected native PSB recipes on an admitted Capture One 16.7 host. Cover 16.7 mask export metadata, watermark tokens, output profiles, post-film Screen and Print sharpening, remaining delivery settings and sidecars. Explicit overwrite still requires Save approval."
       ],
       "original_acceptance_tests": [
@@ -3899,7 +3903,8 @@
         "Before atomic publication, record the verified output SHA-256, length and delivery note in the Encoding receipt. Explicit single and batch recovery complete the original job when the approved output still has those bytes. Pass 12,593 Windows checks with separate processes stopped immediately before and immediately after actual 16-bit TIFF publication. Recovery preserves the earlier TIFF before the rename and completes the original batch job after the rename. Same-length modified files and canceled checks preserve the existing file and Encoding receipt. Signed 16.7.8.3529 references match all 741 compiled host members.",
         "Write the batch plan with the crash-owned Windows staging file and check the batch cancellation token before publication. Pass 12,603 Windows assertions. A hard stop while the shared writer holds a flushed stage preserves the previous closed queue and releases the stage. A hard stop after the production journal publishes the plan and before any item starts restores both approved paths and their original verification descriptors. No original, output or unrelated stage is modified. The licensed attempt exited before panel readiness and all nine recipe hashes and the donor catalog verified.",
         "Use an extended normalized path for the Win32 staging open that marks temporary files for removal on process exit. A Windows state fixture verifies that a forcibly stopped writer releases its stage on a deep NTFS path. The shared-writer regression passes all 12,603 Viewer and export assertions. This proves the staging path behavior independently of the host's own recipe path support.",
-        "Both native commands journal one immutable output per image in a shared recipe folder without folder approval. Duplicate stems use Capture One numeric suffixes. An all-skipped batch writes separate read-only receipts, preserves the file and closes the native confirmation. The 51-check fixture observes saved film on one selected variant and native-only processing on the other."
+        "Both native commands journal one immutable output per image in a shared recipe folder without folder approval. Duplicate stems use Capture One numeric suffixes. An all-skipped batch writes separate read-only receipts, preserves the file and closes the native confirmation. The 51-check fixture observes saved film on one selected variant and native-only processing on the other.",
+        "Version 2 batch plans pin the approved Windows directory identity and persist the exact per-photo destination. Older flat plans still reopen. A licensed batch started from native Previous Settings, reached active encoding, was interrupted and reopened all four job IDs. It reconciled a published TIFF, rendered the unchanged pending TIFF and kept its prior Skip decision after the skipped file moved. Only three native metadata refresh timestamps are excluded from the model comparison. The 53-check negative fixture still rejects actual native adjustment edits. The 20 first-run and 23 restart assertions verify all original recipe files and the donor catalog."
       ],
       "evidence_paths": [
         "NativePanel/SpatialPreview.cs",
@@ -3995,12 +4000,16 @@
         ".test-results/paired-look-flush-probe-20261121/viewer-regression.log",
         ".test-results/host-native-batch-recipe-direct-20261121/first.passed",
         ".test-results/host-native-batch-recipe-direct-20261121/native-recipe-destination.json",
-        ".test-results/host-native-batch-recipe-direct-20261121/independent-native-batch.json"
+        ".test-results/host-native-batch-recipe-direct-20261121/independent-native-batch.json",
+        ".test-results/host-native-token-recovery-complete-20261121/first.passed",
+        ".test-results/host-native-token-recovery-complete-20261121/restart.passed",
+        ".test-results/host-native-token-recovery-complete-20261121/independent-token-recovery.json",
+        ".test-results/host-native-token-source-revision-20261121/first.passed"
       ],
       "remaining_work": [
-        "Extend verified retry tests to other mask families and external camera ICC files resolved through the native profile library. Verify a stop during native batch plan preparation ahead of the journal write and other native stages. Isolate the intermittent native fingerprint mismatch across a hard restart with the redacted model fingerprints. Measure descriptor preparation on large network-backed originals.",
+        "Extend verified retry tests to other mask families and external camera ICC files resolved through the native profile library. Verify a stop during native batch plan preparation ahead of the journal write and other native stages. Extend restart fingerprint coverage beyond the demonstrated metadata timestamp case. Verify re-rendering of the interrupted image after a changed film setting is restored. Measure descriptor preparation on large network-backed originals.",
         "Test genuine disk-full and OS/power interruption. The delete disposition covers the active Windows writer. Filesystems or permissions without disposition support, and the interval between releasing the flag and publishing the output, still need crash coverage. Verify native notification presentation across Windows focus and notification settings. Preflight errors remain modal before acceptance.",
-        "Complete licensed restart checks for the persisted Skip after its file is moved away and for single and batch receipt reconciliation after publication. The known batch fixture reached its first-phase assertions. Follow-up launches exited before the panel attached. The test-hook-only Viewer baseline also exited before assertions with the same exit code."
+        "Complete licensed single-photo receipt reconciliation after publication and cover additional batch publication timing cases. The native token-path run now verifies batch reconciliation and retained Skip after its file was moved away."
       ],
       "original_acceptance_tests": [
         "Close dialog during each stage: documented continuation/cancellation and no dangling native command.",

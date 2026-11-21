@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Windows.Media;
@@ -153,28 +154,35 @@ internal static class SpektraExport
 
     private static bool Occupied(string path) => File.Exists(path) || Directory.Exists(path);
 
-    internal static (string? Suggested, string? Exact) ExistingRecipeLocation(string? root, string? subfolder, bool hasSubfolder)
+    internal sealed record RecipeLocation(string? Root, string? Suggested, string? Exact, string? RelativeSubfolder);
+
+    internal static RecipeLocation ResolveRecipeLocation(string? root, string? subfolder, bool hasSubfolder)
     {
-        if (string.IsNullOrWhiteSpace(root) || !Path.IsPathFullyQualified(root)) return default;
+        var relative = hasSubfolder ? RecipeSubfolder(subfolder) : null;
+        var unresolved = new RecipeLocation(null, null, null, relative);
+        if (string.IsNullOrWhiteSpace(root) || !Path.IsPathFullyQualified(root)) return unresolved;
         try
         {
             var baseDirectory = Path.GetFullPath(root);
-            if (!Directory.Exists(baseDirectory)) return default;
-            if (!hasSubfolder) return (baseDirectory, baseDirectory);
-            if (!string.IsNullOrWhiteSpace(subfolder) && !Path.IsPathRooted(subfolder))
-            {
-                var candidate = Path.GetFullPath(subfolder, baseDirectory);
-                var relative = Path.GetRelativePath(baseDirectory, candidate);
-                if (relative != ".." && !relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)
-                    && !Path.IsPathRooted(relative) && Directory.Exists(candidate))
-                    return (candidate, candidate);
-            }
-            return (baseDirectory, null);
+            if (!Directory.Exists(baseDirectory)) return unresolved;
+            if (!hasSubfolder) return new(baseDirectory, baseDirectory, baseDirectory, null);
+            var candidate = relative is null ? null : Path.Combine(baseDirectory, relative);
+            if (Directory.Exists(candidate))
+                return new(baseDirectory, candidate, candidate, relative);
+            return new(baseDirectory, baseDirectory, null, relative);
         }
         catch (Exception error) when (error is IOException or ArgumentException or NotSupportedException)
         {
-            return default;
+            return unresolved;
         }
+    }
+
+    internal static string? RecipeSubfolder(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || Path.IsPathRooted(path)) return null;
+        var parts = path.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length == 0 || parts.Any(part => part.EndsWith('.') || part.EndsWith(' ')
+            || part.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) ? null : Path.Combine(parts);
     }
 
     internal static Format FormatFor(string path) => Path.GetExtension(path).ToLowerInvariant() switch

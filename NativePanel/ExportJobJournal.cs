@@ -50,10 +50,11 @@ internal sealed record ExportBatchEntry(Guid JobId, Guid ImageId, Guid VariantId
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool SkipExisting = false);
 
 internal sealed record ExportBatchPlan(int Version, Guid Id, DateTime AcceptedUtc, string Folder, ExportBatchEntry[] Entries,
-    bool Closed = false)
+    bool Closed = false,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] OutputPathGuard.DirectoryIdentity? RootIdentity = null)
 {
-    internal static ExportBatchPlan Create(string folder, ExportBatchEntry[] entries) =>
-        new(1, Guid.NewGuid(), DateTime.UtcNow, folder, entries);
+    internal static ExportBatchPlan Create(string folder, ExportBatchEntry[] entries, OutputPathGuard.DirectoryIdentity? rootIdentity = null) =>
+        new(rootIdentity is null ? 1 : 2, Guid.NewGuid(), DateTime.UtcNow, folder, entries, RootIdentity: rootIdentity);
 }
 
 internal sealed record ExportReceipt([property: JsonRequired] int Version, [property: JsonRequired] Guid JobId,
@@ -174,7 +175,9 @@ internal sealed class ExportJobJournal(string directory, Action<string> log)
 
     private static void ValidateBatch(ExportBatchPlan plan)
     {
-        if (plan.Version != 1 || plan.Id == Guid.Empty || !Path.IsPathFullyQualified(plan.Folder)
+        if (plan.Version is not (1 or 2) || plan.Id == Guid.Empty || !Path.IsPathFullyQualified(plan.Folder)
+            || plan.Version == 1 && plan.RootIdentity is not null
+            || plan.Version == 2 && (plan.RootIdentity is not { } root || !Path.IsPathFullyQualified(root.FinalName))
             || plan.AcceptedUtc.Ticks > DateTime.MaxValue.Ticks - MaxBatchEntries
             || plan.Entries is not { Length: > 0 and <= MaxBatchEntries })
             throw new InvalidDataException("The saved export batch is invalid.");
@@ -185,10 +188,13 @@ internal sealed class ExportJobJournal(string directory, Action<string> log)
         {
             if (item is null || item.JobId == Guid.Empty || !ids.Add(item.JobId) || item.VariantId == Guid.Empty || !variants.Add(item.VariantId)
                 || item.ImageId == Guid.Empty || !Path.IsPathFullyQualified(item.OriginalPath) || !Path.IsPathFullyQualified(item.Destination)
-                || !StringComparer.OrdinalIgnoreCase.Equals(Path.GetDirectoryName(Path.GetFullPath(item.Destination)), plan.Folder)
                 || item.Retry is { Valid: false } || item.SkipExisting && item.Retry is not null)
                 throw new InvalidDataException("A saved export batch item is invalid.");
             var destination = Path.GetFullPath(item.Destination);
+            var parent = Path.GetDirectoryName(destination);
+            if (parent is null || (plan.RootIdentity is null ? !StringComparer.OrdinalIgnoreCase.Equals(parent, plan.Folder)
+                : !OutputPathGuard.AtOrBelow(parent, Path.GetFullPath(plan.Folder))))
+                throw new InvalidDataException("A saved export batch item is outside the approved folder.");
             if (!paths.TryAdd(destination, item.SkipExisting) && (!item.SkipExisting || !paths[destination]))
                 throw new InvalidDataException("Two batch items would write to the same destination.");
         }

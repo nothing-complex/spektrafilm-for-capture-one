@@ -20,6 +20,66 @@ internal static class OutputPathGuard
     internal static ApprovedDestination Approve(string destination, string original) =>
         new OriginalFile(original).Approve(destination);
 
+    internal static bool AtOrBelow(string directory, string root)
+    {
+        var path = System.IO.Path.TrimEndingDirectorySeparator(directory);
+        var basePath = System.IO.Path.TrimEndingDirectorySeparator(root);
+        if (SamePath(path, basePath)) return true;
+        var prefix = System.IO.Path.EndsInDirectorySeparator(basePath) ? basePath : basePath + System.IO.Path.DirectorySeparatorChar;
+        return path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+    }
+
+    internal sealed record DirectoryIdentity(string FinalName, FileIdentity? FileId);
+
+    internal static DirectoryIdentity CaptureDirectory(string path)
+    {
+        var info = Describe(path)!;
+        if (!info.IsDirectory) throw new IOException("Choose an existing batch output folder.");
+        return new(info.FinalName, info.Identity);
+    }
+
+    internal static void PrepareRecipeSubfolder(string root, DirectoryIdentity identity, string relative, CancellationToken stop)
+    {
+        if (SpektraExport.RecipeSubfolder(relative) != relative)
+            throw new IOException("The Export Recipe returned an invalid output subfolder.");
+        var approved = VerifyDirectory(root, identity);
+        var current = approved.FinalName;
+        foreach (var component in relative.Split(System.IO.Path.DirectorySeparatorChar))
+        {
+            stop.ThrowIfCancellationRequested();
+            var candidate = System.IO.Path.Combine(current, component);
+            var folder = Describe(candidate, allowMissing: true);
+            if (folder is null)
+            {
+                Directory.CreateDirectory(candidate);
+                folder = Describe(candidate)!;
+            }
+            if (!folder.IsDirectory || !SamePath(candidate, folder.FinalName))
+                throw new IOException("A recipe subfolder redirects outside its expected location. Choose another output folder.");
+            current = folder.FinalName;
+        }
+    }
+
+    private static DirectoryIdentity VerifyDirectory(string current, DirectoryIdentity approved)
+    {
+        var observed = CaptureDirectory(current);
+        if (!SamePath(observed.FinalName, approved.FinalName) || observed.FileId != approved.FileId)
+            throw new IOException("The approved batch output folder has changed.");
+        return observed;
+    }
+
+    internal static void VerifyBatchFolder(string folder, string root, DirectoryIdentity identity) =>
+        VerifyBatchFolder(folder, root, identity, CaptureDirectory(folder).FinalName);
+
+    private static void VerifyBatchFolder(string folder, string root, DirectoryIdentity identity, string finalFolder)
+    {
+        var approved = VerifyDirectory(root, identity);
+        var relative = System.IO.Path.GetRelativePath(root, folder);
+        var expected = relative == "." ? approved.FinalName : System.IO.Path.Combine(approved.FinalName, relative);
+        if (!AtOrBelow(folder, root) || !AtOrBelow(finalFolder, approved.FinalName) || !SamePath(finalFolder, expected))
+            throw new IOException("The batch output folder changed or contains a redirected recipe subfolder.");
+    }
+
     internal sealed class OriginalFile
     {
         private readonly PathInfo captured;
@@ -33,6 +93,8 @@ internal static class OutputPathGuard
 
         internal string Path { get; }
         internal ApprovedDestination Approve(string destination) => new(destination, this);
+        internal ApprovedDestination ApproveInBatch(string destination, string root, DirectoryIdentity identity) =>
+            new(destination, this, (root, identity));
 
         internal FileStream OpenRead()
         {
@@ -69,7 +131,7 @@ internal static class OutputPathGuard
         private readonly PathInfo directory;
         private readonly PathInfo? existing;
 
-        internal ApprovedDestination(string destination, OriginalFile original)
+        internal ApprovedDestination(string destination, OriginalFile original, (string Path, DirectoryIdentity Identity)? approvedRoot = null)
         {
             Path = System.IO.Path.GetFullPath(destination);
             this.original = original;
@@ -80,6 +142,8 @@ internal static class OutputPathGuard
             directory = Describe(selectedDirectory)!;
             if (!directory.IsDirectory)
                 throw new IOException("Choose a file in an existing output folder.");
+            if (approvedRoot is { } batch)
+                VerifyBatchFolder(selectedDirectory, batch.Path, batch.Identity, directory.FinalName);
             resolvedDestination = System.IO.Path.Combine(directory.FinalName, System.IO.Path.GetFileName(Path));
             existing = Describe(Path, allowMissing: true);
             CheckOriginal(source, existing);

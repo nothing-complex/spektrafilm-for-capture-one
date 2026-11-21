@@ -287,18 +287,50 @@ internal static partial class Program
         var root = Directory.CreateDirectory(Path.Combine(folder, "recipe-root")).FullName;
         var nested = Directory.CreateDirectory(Path.Combine(root, "Prints", "Proofs")).FullName;
         var outside = Directory.CreateDirectory(Path.Combine(folder, "recipe-root-other")).FullName;
-        Check(SpektraExport.ExistingRecipeLocation(root, Path.Combine("Prints", "Proofs"), true) == (nested, nested),
+        var relative = Path.Combine("Prints", "Proofs");
+        Check(SpektraExport.ResolveRecipeLocation(root, relative, true) == new SpektraExport.RecipeLocation(root, nested, nested, relative),
             "the recipe suggests an existing nested output folder");
-        Check(SpektraExport.ExistingRecipeLocation(root, "Uncreated", true) == (root, null) && !Directory.Exists(Path.Combine(root, "Uncreated")),
-            "an absent recipe subfolder leaves Save at the root without creating folders");
-        Check(SpektraExport.ExistingRecipeLocation(root, Path.Combine("..", "recipe-root-other"), true) == (root, null)
-            && SpektraExport.ExistingRecipeLocation(root, outside, true) == (root, null),
-            "a recipe subfolder cannot redirect the dialog away from its output root");
-        Check(SpektraExport.ExistingRecipeLocation(root, null, true) == (root, null)
-            && SpektraExport.ExistingRecipeLocation(root, null, false) == (root, root),
+        var uncreated = Path.Combine("Uncreated", "Proofs");
+        Check(SpektraExport.ResolveRecipeLocation(root, uncreated, true) == new SpektraExport.RecipeLocation(root, root, null, uncreated)
+            && !Directory.Exists(Path.Combine(root, uncreated)),
+            "an absent subfolder preserves its relative recipe path without creating folders during capture");
+        var unresolved = new SpektraExport.RecipeLocation(root, root, null, null);
+        Check(SpektraExport.ResolveRecipeLocation(root, Path.Combine("..", "recipe-root-other"), true) == unresolved
+            && SpektraExport.ResolveRecipeLocation(root, Path.Combine("Prints", "..", "Proofs"), true) == unresolved
+            && SpektraExport.ResolveRecipeLocation(root, outside, true) == unresolved,
+            "a recipe subfolder cannot supply parent traversal or a replacement root");
+        Check(SpektraExport.ResolveRecipeLocation(root, null, true) == unresolved
+            && SpektraExport.ResolveRecipeLocation(root, null, false) == new SpektraExport.RecipeLocation(root, root, root, null),
             "an unresolved subfolder is a Save hint while a recipe with no subfolder uses the exact root");
-        Check(SpektraExport.ExistingRecipeLocation("relative-root", "Prints", true) == (null, null),
-            "a relative recipe root is left to Save's ordinary location selection");
+        Check(SpektraExport.ResolveRecipeLocation("relative-root", "Prints", true) == new SpektraExport.RecipeLocation(null, null, null, "Prints"),
+            "an unavailable recipe root still retains the subfolder for the explicitly selected batch base");
+        var cancellation = new CancellationToken(true);
+        var identity = OutputPathGuard.CaptureDirectory(root);
+        var canceled = false;
+        try { OutputPathGuard.PrepareRecipeSubfolder(root, identity, uncreated, cancellation); }
+        catch (OperationCanceledException) { canceled = true; }
+        Check(canceled && !Directory.Exists(Path.Combine(root, "Uncreated")), "canceling before batch preparation creates no recipe directory");
+        OutputPathGuard.PrepareRecipeSubfolder(root, identity, uncreated, CancellationToken.None);
+        Check(Directory.Exists(Path.Combine(root, uncreated)), "approval creates the exact nested recipe directories beneath the chosen folder");
+        var source = Path.Combine(root, "original.raw");
+        File.WriteAllText(source, "original");
+        var original = new OutputPathGuard.OriginalFile(source);
+        var output = original.ApproveInBatch(Path.Combine(root, uncreated, "export.tif"), root, identity);
+        Check(output.Path == Path.Combine(root, uncreated, "export.tif") && !output.AlreadyExists,
+            "the destination guard captures the approved nested output");
+        var refused = false;
+        try { original.ApproveInBatch(Path.Combine(outside, "export.tif"), root, identity); }
+        catch (IOException) { refused = true; }
+        Check(refused, "the destination guard rejects a sibling with the same approved prefix");
+        var replaceable = Directory.CreateDirectory(Path.Combine(folder, "replaceable-root")).FullName;
+        var replacedIdentity = OutputPathGuard.CaptureDirectory(replaceable);
+        Directory.Move(replaceable, replaceable + "-prior");
+        Directory.CreateDirectory(replaceable);
+        refused = false;
+        try { OutputPathGuard.PrepareRecipeSubfolder(replaceable, replacedIdentity, "Next", CancellationToken.None); }
+        catch (IOException) { refused = true; }
+        Check(refused && !Directory.Exists(Path.Combine(replaceable, "Next")),
+            "a physically replaced root cannot create folders under a previous batch approval");
     }
 
     private static void TestExportActivity()
@@ -395,6 +427,21 @@ internal static partial class Program
         try { writer.SaveBatch(conflicting); }
         catch (InvalidDataException) { rejected = true; }
         Check(rejected, "no writing entry can share a skipped destination in the same approved batch");
+
+        var nested = entries[0] with { Destination = Path.Combine(approved, "Proofs", "Landscape", "first.tif") };
+        var identity = OutputPathGuard.CaptureDirectory(Directory.CreateDirectory(approved).FullName);
+        var nestedPlan = ExportBatchPlan.Create(approved, new[] { nested, entries[1] }, identity);
+        writer.SaveBatch(nestedPlan);
+        var recoveredTree = reader.ReadPendingBatch();
+        Check(recoveredTree?.Entries.SequenceEqual(nestedPlan.Entries) == true && recoveredTree.RootIdentity == identity,
+            "a version two retry retains the approved root identity and exact recipe subfolder");
+        rejected = false;
+        try
+        {
+            writer.SaveBatch(nestedPlan with { Entries = new[] { nested with { Destination = Path.Combine(approved + "-other", "escape.tif") } } });
+        }
+        catch (InvalidDataException) { rejected = true; }
+        Check(rejected, "the batch journal rejects a path that only shares the approved folder prefix");
     }
 
     private static void TestExportJobJournal(string folder)

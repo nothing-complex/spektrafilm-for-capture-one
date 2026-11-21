@@ -4,13 +4,14 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using Microsoft.Win32;
 
 public static partial class StartupHook
 {
@@ -21,7 +22,9 @@ public static partial class StartupHook
     {
         var recipe = ReadSelectedRecipeForTest(bridge, out var suppress);
         var type = recipe.GetType();
-        var fields = new[] { "FileType", "TiffBits", "FileOverwriteAction", "DestinationFilename" }
+        var fields = new[] { "FileType", "TiffBits", "FileOverwriteAction", "DestinationFilename", "DestinationRootFolder",
+            "DestinationCustomRootFolder", "DestinationSubFolder", "CropExportMethod", "WatermarkType",
+            "SharpeningOutputControl", "IncludeOverlay", "IncludeAnnotations", "IncludeGuides" }
             .Select(name => type.GetProperty(name, Flags)!).ToDictionary(p => p.Name, p => (Property: p, Value: p.GetValue(recipe)));
         void Set(string name, object value) => fields[name].Property.SetValue(recipe, value);
         void Choose(string name, string value) => Set(name, Enum.Parse(fields[name].Property.PropertyType, value));
@@ -31,8 +34,18 @@ public static partial class StartupHook
             Choose("FileType", "Tiff");
             Set("TiffBits", 16);
             Choose("FileOverwriteAction", "Skip");
-            Set("DestinationFilename", NativeNameToken("OriginalName"));
-            await VerifyNativeBatchRecovery(panel, spatial, window);
+            var token = NativeNameToken("OriginalName");
+            Set("DestinationFilename", token);
+            Choose("DestinationRootFolder", "CustomPath");
+            Set("DestinationCustomRootFolder", Directory.CreateDirectory(Path.Combine(folder, "batch-recovery")).FullName);
+            Set("DestinationSubFolder", Path.Combine("Proofs", token));
+            Choose("CropExportMethod", "Default");
+            Choose("WatermarkType", "None");
+            Choose("SharpeningOutputControl", "LensAndSharpening");
+            Set("IncludeOverlay", false);
+            Set("IncludeAnnotations", false);
+            Set("IncludeGuides", false);
+            await VerifyNativeBatchRecovery(bridge, panel, spatial, window);
         }
         finally
         {
@@ -41,7 +54,7 @@ public static partial class StartupHook
         }
     }
 
-    private static async Task VerifyNativeBatchRecovery(object panel, object spatial, object window)
+    private static async Task VerifyNativeBatchRecovery(object bridge, object panel, object spatial, object window)
     {
         const double secondExposure = -.55;
         var phase = File.ReadAllText(Path.Combine(folder, "phase.txt"));
@@ -58,6 +71,28 @@ public static partial class StartupHook
         {
             using var stream = File.OpenRead(path);
             return Convert.ToHexString(SHA256.HashData(stream));
+        }
+        void RecordModelFields(string label, Guid id)
+        {
+            var variants = (IDictionary)Field(selected, "variants")!;
+            var variant = variants[id]!;
+            var host = panel.GetType().Assembly.GetType("HostImageSource", true)!;
+            var revision = host.GetMethod("ReadRevision", Flags)!.Invoke(null, new[] { variant })!;
+            var model = (string)Prop(Prop(variant, "Settings")!, "ModelCoreRepresentation")!;
+            var fields = model.Split('\n')
+                .Select(line => (Line: line, Field: Regex.Match(line, "^\\s*\"([A-Za-z0-9_]+)\"\\s*:")))
+                .Where(row => row.Field.Success)
+                .GroupBy(row => row.Field.Groups[1].Value, StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => Convert.ToHexString(SHA256.HashData(
+                    Encoding.UTF8.GetBytes(string.Join("\n", group.Select(row => row.Line))))));
+            var identity = host.GetMethod("TryReadNativeIdentity", Flags)!.Invoke(null, new[] { variant, revision, (object)true });
+            var timestampShapes = model.Split('\n')
+                .Where(line => Regex.IsMatch(line, "\"(?:lastMetadataModificationDate|rawMetadataModificationDate|xMPMetadataModificationDate)\""))
+                .Select(line => Regex.Replace(line.Trim(), "[0-9]", "0")).ToArray();
+            File.WriteAllText(Path.Combine(folder, label + "-batch-model-fields.json"), JsonSerializer.Serialize(new
+            {
+                identity, fields, timestampShapes,
+            }));
         }
 
         if (phase == "first")
@@ -82,14 +117,17 @@ public static partial class StartupHook
             Check(Prop(captured, "FormatId") is "Tiff" && Prop(captured, "TiffBits") is 16
                 && Prop(captured, "SkipExistingOutput") is true && Prop(captured, "SuggestedFilename") is string,
                 "the fourth variant has a named 16-bit TIFF recipe with native Skip");
-            var protectedFile = Path.Combine(output, (string)Prop(captured, "SuggestedFilename")! + ".tif");
+            var stem = (string)Prop(captured, "SuggestedFilename")!;
+            var protectedFolder = Directory.CreateDirectory(Path.Combine(output, "Proofs", stem)).FullName;
+            var protectedFile = Path.Combine(protectedFolder, stem + ".tif");
             File.WriteAllBytes(protectedFile, new byte[] { 31, 12, 8, 47 });
             var protectedSha = Digest(protectedFile);
             selected.Select(order[0], order);
-            var running = (Task<int>)Call(panel, "ExportSelectedImagesWithOwnerAsync", null,
-                (Func<OpenFolderDialog, Window?, string?>)((_, _) => output), false)!;
+            RecordModelFields("first-planned", order[1]);
+            var previous = Field(Field(bridge, "previous")!, "command")!;
+            ExecuteNativeExportCommand(previous, multiple: true);
             var wait = Stopwatch.StartNew();
-            while (!running.IsCompleted && wait.Elapsed < TimeSpan.FromSeconds(75))
+            while (Prop(bridge, "Busy") is true && wait.Elapsed < TimeSpan.FromSeconds(75))
             {
                 if (Plan() is { } plan && Call(journal, "ReadLatest") is { } current
                     && Equals(Prop(current, "VariantId"), order[1]) && Prop(current, "Stage")?.ToString() == "Encoding"
@@ -101,6 +139,9 @@ public static partial class StartupHook
                         "the verified destinations and read-only Skip decision reached disk before rendering");
                     var paths = entries.Select(item => (string)Prop(item, "Destination")!).ToArray();
                     var jobs = entries.Select(item => (Guid)Prop(item, "JobId")!).ToArray();
+                    Check(Prop(plan, "Version") is 2 && Prop(plan, "RootIdentity") is not null && paths.All(path =>
+                            Path.GetDirectoryName(path) == Path.Combine(output, "Proofs", Path.GetFileNameWithoutExtension(path))),
+                        "native Previous Settings persists all four resolved locations and the approved root identity");
                     Check(entries.Select(item => (Guid)Prop(item, "VariantId")!).SequenceEqual(order)
                         && Prop(Call(journal, "ReadBatchItem", plan, entries[0])!, "Stage")?.ToString() == "Completed"
                         && File.Exists(paths[0]) && !File.Exists(paths[1]) && !File.Exists(paths[2])
@@ -109,6 +150,7 @@ public static partial class StartupHook
                     using var process = Process.GetCurrentProcess();
                     var receipt = new InterruptedBatchFixture((Guid)Prop(plan, "Id")!, order, jobs, paths,
                         Digest(paths[0]), protectedSha, bytes, process.Id);
+                    RecordModelFields("first-encoding", order[1]);
                     File.WriteAllText(evidence, JsonSerializer.Serialize(receipt));
                     File.WriteAllText(Path.Combine(folder, "first.passed"), $"PASS {checks} checks before interrupted native batch encoding");
                     process.Kill();
@@ -122,12 +164,15 @@ public static partial class StartupHook
         var interrupted = JsonSerializer.Deserialize<InterruptedBatchFixture>(File.ReadAllText(evidence))!;
         var savedPlan = Plan() ?? throw new InvalidOperationException("The pending batch was missing on restart.");
         var savedEntries = Entries(savedPlan);
+        RecordModelFields("restart-opened", interrupted.Variants[1]);
         string? Stage(int i) => Call(journal, "ReadBatchItem", savedPlan, savedEntries[i]) is { } receipt
             ? Prop(receipt, "Stage")?.ToString() : null;
         Check(interrupted.Process != Environment.ProcessId && interrupted.Written > 1_048_576
             && Equals(Prop(savedPlan, "Id"), interrupted.Id)
-            && savedEntries.Select(item => (Guid)Prop(item, "JobId")!).SequenceEqual(interrupted.Jobs),
-            "restart recovers the same batch and all four accepted job identities");
+            && savedEntries.Select(item => (Guid)Prop(item, "JobId")!).SequenceEqual(interrupted.Jobs)
+            && savedEntries.Select(item => (string)Prop(item, "Destination")!).SequenceEqual(interrupted.Paths)
+            && Prop(savedPlan, "RootIdentity") is not null,
+            "restart recovers all four job identities and their exact nested destinations");
         Check(resultButton.Visibility == Visibility.Visible && Stage(0) == "Completed" && Stage(1) == "Encoding"
             && Stage(2) is null && Stage(3) is null && Digest(interrupted.Paths[0]) == interrupted.FirstSha256
             && Prop(savedEntries[3], "SkipExisting") is true && Digest(interrupted.Paths[3]) == interrupted.SkippedSha256,
@@ -157,6 +202,7 @@ public static partial class StartupHook
             selected.Select(interrupted.Variants[1], interrupted.Variants[1]);
             exposure.SetValue(exposureSlider, secondExposure);
             selected.Select(interrupted.Variants[0], interrupted.Variants[0]);
+            RecordModelFields("restart-restored", interrupted.Variants[1]);
             Check(await Resume(true).WaitAsync(TimeSpan.FromSeconds(80)) == 1 && Stage(1) == "Completed",
                 "restoring the interrupted look completes its original job");
         }

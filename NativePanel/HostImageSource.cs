@@ -33,6 +33,10 @@ internal static class HostImageSource
     private static readonly Regex HighResolutionCounterLine = new(
         "^[ \\t]*\"highresProcessCounter\"[ \\t]*:[ \\t]*([0-9]+)[ \\t]*,?[ \\t]*\\r?$",
         RegexOptions.Multiline | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
+    private static readonly Regex MetadataTimestampLine = new(
+        "^[ \\t]*\"(?<field>lastMetadataModificationDate|rawMetadataModificationDate|xMPMetadataModificationDate)\"[ \\t]*:[ \\t]*"
+        + "(?:-?[0-9]+(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|\"[^\"\\r\\n]*\"|null)[ \\t]*,?[ \\t]*\\r?(?:\\n|\\z)",
+        RegexOptions.Multiline | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
     private static readonly Lazy<Func<IGeometryTransformer, ICoreImage, IDestinationProcessingSettings, int, bool, ScaleCalc>> RecipeScale =
         new(() => NativeRecipeScale.Bind<IGeometryTransformer, ICoreImage, IDestinationProcessingSettings, ScaleCalc>(typeof(ScaleCalcHelpers)));
     private static readonly Lazy<Func<IDestinationProcessingSettings, FileFormat>> ReadRecipeFormat =
@@ -74,12 +78,14 @@ internal static class HostImageSource
         string CropMode, string RootFolderMode, string CustomRootFolder, string Subfolder, string Filename,
         string Suffix, int TiffBits, int JpegQuality, int Width, int Height, double Scale, bool IgnoreCrop,
         double Resolution, string ResolutionUnit, ExportMetadata Metadata, TiffCompressOption TiffCompression,
-        RecipeNaming? Naming, string? SuggestedDirectory, string? ExactDirectory,
+        RecipeNaming? Naming, SpektraExport.RecipeLocation Location,
         bool AddSuffixToExistingFileName, bool SkipExistingOutput, SharpeningOutputControl Sharpening,
         ExportOverlay? Watermark, ExportOverlay? TransparencyOverlay, ExportOverlay? Annotations, SpektraExport.RecipeOmission Omissions,
         PsdCropPath? CropPath, PsdGuide[]? Guides)
     {
         internal string? SuggestedFilename => Naming?.Stem;
+        internal string? SuggestedDirectory => Location.Suggested;
+        internal string? ExactDirectory => Location.Exact;
 
         internal bool MatchesBatchRecipe(RecipeInfo other) =>
             Name == other.Name && FormatId == other.FormatId && TiffBits == other.TiffBits && CropMode == other.CropMode
@@ -272,12 +278,12 @@ internal static class HostImageSource
         var guides = recipe.IncludeGuides ? NativeExportGuides.Capture(selection, recipe, geometry) : null;
         if (recipe.IncludeGuides && guides is null)
             omissions |= SpektraExport.RecipeOmission.Guides;
-        var (suggestedDirectory, exactDirectory) = ReadRecipeLocation(selection, recipe);
+        var location = ReadRecipeLocation(selection, recipe);
         return new RecipeInfo(recipe.Name, formatId, recipe.ColorProfileName, recipe.ColorProfilePath,
             recipe.CropExportMethod.ToString(), recipe.DestinationRootFolder.ToString(), recipe.DestinationCustomRootFolder,
             recipe.DestinationSubFolder, recipe.DestinationFilename, recipe.DestinationSubName, recipe.TiffBits, recipe.JpegQuality,
             scale.ScaledPixelWidth, scale.ScaledPixelHeight, scale.Scale, ignoreCrop, recipe.Resolution, recipe.ResolutionUnit.ToString(),
-            metadata, compression, ReadRecipeNaming(selection, recipe), suggestedDirectory, exactDirectory,
+            metadata, compression, ReadRecipeNaming(selection, recipe), location,
             recipe.FileOverwriteAction == ProcessedFileOverwriteAction.Rename,
             recipe.FileOverwriteAction == ProcessedFileOverwriteAction.Skip, sharpening, watermark, transparencyOverlay, annotations,
             omissions, cropPath, guides);
@@ -300,10 +306,10 @@ internal static class HostImageSource
     internal static string WatermarkProfilePath =>
         ((ColorProfileLibrary)ColorProfilesProperty.GetValue(null)!).WatermarkProfilePath;
 
-    private static (string? Suggested, string? Exact) ReadRecipeLocation(HostProfile.Selection selection, IDestinationProcessingSettings recipe)
+    private static SpektraExport.RecipeLocation ReadRecipeLocation(HostProfile.Selection selection, IDestinationProcessingSettings recipe)
     {
         var variant = selection.Variant;
-        if (variant.CoreImage is not { } image) return default;
+        if (variant.CoreImage is not { } image) return new(null, null, null, null);
         var root = recipe.DestinationRootFolder.ToString() switch
         {
             "CustomPath" => recipe.DestinationCustomRootFolder,
@@ -329,7 +335,7 @@ internal static class HostImageSource
         {
             // A missing native preview still permits the manual Save location.
         }
-        return SpektraExport.ExistingRecipeLocation(root, subfolder, hasSubfolder);
+        return SpektraExport.ResolveRecipeLocation(root, subfolder, hasSubfolder);
     }
 
     private static RecipeNaming? ReadRecipeNaming(HostProfile.Selection selection, IDestinationProcessingSettings recipe)
@@ -489,10 +495,21 @@ internal static class HostImageSource
         if (!long.TryParse(counter.ValueSpan, NumberStyles.None, CultureInfo.InvariantCulture, out var value)
             || value != expectedRevision.HighRes)
             return null;
-        var normalizedModel = model.Remove(counter.Index, counter.Length);
+        var normalizedModel = NormalizeMetadataTimestamps(model.Remove(counter.Index, counter.Length));
         var identitySha256 = $"{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(normalizedModel)))}:{masksSha256}:{profilesSha256}";
         return ReadRevision(variant) == expectedRevision
             ? identitySha256 : null;
+    }
+
+    private static string NormalizeMetadataTimestamps(string model)
+    {
+        // Merely reopening a catalog can refresh these bookkeeping dates.
+        // Durable verification separately binds the RAW bytes, native model,
+        // profile and mask content, and the metadata in the delivery recipe.
+        var fields = MetadataTimestampLine.Matches(model);
+        if (fields.Select(field => field.Groups["field"].Value).Distinct(StringComparer.Ordinal).Count() != fields.Count)
+            return model;
+        return MetadataTimestampLine.Replace(model, "");
     }
 
     private static PropertyInfo HostProperty(string name) =>
