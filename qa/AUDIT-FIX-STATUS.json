@@ -1749,7 +1749,9 @@
         "Capture the recipe sharpening mode and call Capture One's own RAW-development overrides for Disable All and the stored lens-only mode. Retain full-canvas geometry, the working ICC and the native variant's saved settings. Include the mode in the verified retry identity. Pass 77 licensed checks and independently compare all 18 million 16-bit samples per matched-sRGB TIFF. Disable All and lens-only match ordinary native exports within a mean of 0.050 and 0.061 codes respectively, and the two modes differ by 113.32 codes on average with diffraction correction enabled. Both native Spektrafilm commands produce the same high-depth film result with sharpening disabled. Verify the TIFF and PNG ICC and the donor and recipe hashes. Pass 12,572 Windows contracts and match 715 compiled references across 16.4 and signed 16.7.8.3529.",
         "Capture immutable native text or image watermark pixels, opacity, full-canvas placement and working ICC before approval. Convert the mark to the approved delivery profile and composite after film and crop in RGB16 or RGBA16. Bind the watermark identity to verified retries. Pass 166 licensed 16.4 assertions against ordinary Capture One on sRGB, Adobe RGB, an asymmetric RAW crop and Ignore Crop. Both native commands write the film result with the watermark. The paired watermark-region comparisons differ by a mean of 19 to 135 codes on the 16-bit scale. Unmarked areas average less than 0.1 code of change, in line with ordinary Capture One repeatability. Pass 12,576 managed checks and match all 741 compiled references against signed 16.7.8.3529.",
         "In a 170-assertion native 16.4 fixture, the Capture One Original Name watermark token produces the same bitmap as the literal RAW basename. Changing the recipe text inside the native Save picker changes the next recipe snapshot, while the accepted high-depth export keeps the previously captured token pixels. The ordinary token TIFF independently confirms placement and content. Source catalog and all nine recipe files verify.",
-        "Batch fallback names include the selected extension. The folder approval combines omissions from all prepared recipe snapshots and names the 16-bit delivery before acceptance. Batch Skip protects exact existing supported recipe filenames in the approved folder. The 84-check licensed batch run verifies 16-bit PNG Original Name watermarks after recipe and selection changes, duplicate Skip receipts without renderer activity, and a successful TIFF alongside a skipped image. The original source catalog and all nine recipes verify."
+        "Batch fallback names include the selected extension. The folder approval combines omissions from all prepared recipe snapshots and names the 16-bit delivery before acceptance. Batch Skip protects exact existing supported recipe filenames in the approved folder. The 84-check licensed batch run verifies 16-bit PNG Original Name watermarks after recipe and selection changes, duplicate Skip receipts without renderer activity, and a successful TIFF alongside a skipped image. The original source catalog and all nine recipes verify.",
+        "Support flattened RGB16 PSD in the shared export path. A 16-bit PSD recipe suggests its own container. Preserve exact rendered RGB samples, ICC, XMP and both DPI axes. Retry checks the container separately from the pixel buffer layout. Save and completed history explain omitted layers and editable crop paths.",
+        "Pass 12,611 Viewer and export checks and all nine host-independent Windows suites. ImageMagick reproduces both the synthetic exact low-bit fixture and all 18 million RGB16 samples of a retained native DNG film, diffusion, halation and scatter export. The Capture One panel and expanded PSD fixture build with zero warnings. This checkpoint has no new licensed in-app PSD result."
       ],
       "evidence_paths": [
         "NativePanel/SpektraFilmTool.cs",
@@ -1810,11 +1812,16 @@
         ".test-results/host-native-watermark-unavailable-20261121/host-smoke.log",
         ".test-results/host-native-watermark-token-20261121/host-smoke.log",
         ".test-results/native-watermark-16.7-accessor-20261121/reference-drift.json",
-        ".test-results/host-native-batch-recipe-policy-20261121/host-smoke.log"
+        ".test-results/host-native-batch-recipe-policy-20261121/host-smoke.log",
+        "NativePanel/PsdExport.cs",
+        ".test-results/flat-psd-export-20261121/contracts/summary.json",
+        ".test-results/flat-psd-export-20261121/independent-rgb16.json",
+        ".test-results/flat-psd-export-20261121/retained-native-film-independently-decoded.json",
+        ".test-results/flat-psd-export-20261121/host-smoke-build.log"
       ],
       "remaining_work": [
         "Directory creation and the full location token matrix, automatic Overwrite behavior, tiling and other format and quality settings beyond the explicit 16-bit TIFF/PNG save policy remain open.",
-        "Expand watermark coverage to remaining text tokens and other delivery profiles and formats. Implement and compare post-film Screen and Print output sharpening, PSD paths and layers, and the remaining delivery settings and sidecars. The 16-bit alternative discloses unavailable watermarks and unsupported settings. Explicit overwrite still requires Save approval."
+        "Run the flattened 16-bit PSD path inside the licensed host. Implement editable PSD crop paths and annotation, overlay and guide layers. Expand watermark tokens, output profiles, post-film Screen and Print sharpening, remaining delivery settings and sidecars. Explicit overwrite still requires Save approval."
       ],
       "original_acceptance_tests": [
         "Table-driven JPEG, PNG, TIFF 8/16-bit, unknown-format, custom ICC, image-folder/custom-folder/subfolder/token/suffix and duplicate-name cases.",

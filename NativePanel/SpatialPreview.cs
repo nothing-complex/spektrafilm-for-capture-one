@@ -876,7 +876,7 @@ internal sealed class SpatialPreview : IDisposable
         finally
         {
             var deliveryNote = completedDelivery is { } completed
-                ? completed.SavedNote(completed.Extension == ".png" ? PixelFormats.Rgba64 : PixelFormats.Rgb48) : null;
+                ? completed.SavedNote(SpektraExport.FormatFor(completed.Extension)) : null;
             var details = string.Join(Environment.NewLine, new[] { firstError, deliveryNote }.OfType<string>());
             var outcome = $"Saved {saved} of {selection.Length} images · {failed} failed · {canceled} canceled"
                 + (skipped > 0 ? $" · {skipped} skipped" : "");
@@ -1191,7 +1191,7 @@ internal sealed class SpatialPreview : IDisposable
                 var delivery = new SpektraExport.RecipeDelivery(recipe?.FormatId, recipe?.TiffBits ?? 0, recipe?.CropMode,
                     recipe?.Omissions ?? SpektraExport.RecipeOmission.None);
                 var extension = interrupted is null ? delivery.Extension : Path.GetExtension(interrupted.Destination);
-                var png = extension.Equals(".png", StringComparison.OrdinalIgnoreCase);
+                var suggestedFormat = SpektraExport.FormatFor(extension);
                 var dpi = recipe is null ? ExportResolution.DefaultDpi : ExportResolution.DotsPerInch(recipe.Resolution, recipe.ResolutionUnit);
                 var suggestedName = SpektraExport.SuggestedOutputName(recipe?.SuggestedFilename, target.SourcePath, extension,
                     recipe?.SuggestedDirectory, recipe?.AddSuffixToExistingFileName == true);
@@ -1202,9 +1202,8 @@ internal sealed class SpatialPreview : IDisposable
                 var picker = new SaveFileDialog
                 {
                     Title = delivery.SaveTitle(recipe?.Width ?? 0, recipe?.Height ?? 0, deliveryProfile.Label),
-                    Filter = interrupted is null ? SpektraExport.FileFilter
-                        : png ? "16-bit PNG image|*.png" : "16-bit TIFF image|*.tif;*.tiff",
-                    FilterIndex = interrupted is null && png ? 2 : 1,
+                    Filter = interrupted is null ? SpektraExport.FileFilter : SpektraExport.FilterFor(suggestedFormat),
+                    FilterIndex = interrupted is null ? (int)suggestedFormat + 1 : 1,
                     FileName = interrupted is null ? suggestedName : Path.GetFileName(interrupted.Destination),
                     DefaultExt = extension,
                     AddExtension = true,
@@ -1225,7 +1224,8 @@ internal sealed class SpatialPreview : IDisposable
                     return false;
                 }
 
-                if (interrupted is not null && SpektraExport.PixelFormatFor(interrupted.Destination) != SpektraExport.PixelFormatFor(destination))
+                var outputContainer = SpektraExport.FormatFor(destination);
+                if (interrupted is not null && suggestedFormat != outputContainer)
                     throw new InvalidOperationException("Use the original file format when retrying an interrupted export.");
                 var approved = batch?.Destination ?? original.Approve(destination);
                 if (approved.AlreadyExists && StringComparer.OrdinalIgnoreCase.Equals(skipPath, approved.Path))
@@ -1236,8 +1236,8 @@ internal sealed class SpatialPreview : IDisposable
                         snapshot.VerifyRetryModel(verifiedNativeModel);
                     deliveryProfile.Prepare();
                 }
-                var outputFormat = SpektraExport.PixelFormatFor(approved.Path);
-                var deliveryNote = delivery.SavedNote(outputFormat);
+                var outputFormat = SpektraExport.PixelFormatFor(outputContainer);
+                var deliveryNote = delivery.SavedNote(outputContainer);
                 receipt = batch is { Plan: { } plan, Entry: { } entry }
                     ? exportJobs.BeginBatchItem(plan, entry)
                     : exportJobs.AcceptRetry(work.VariantId, approved.Path, interrupted?.JobId);
@@ -1334,8 +1334,8 @@ internal sealed class SpatialPreview : IDisposable
                         SourceBitDepth = source.BitDepth,
                         InputEncoding = input.Id,
                         FilmEncoding = encoding,
-                        OutputFormat = outputFormat == PixelFormats.Rgba64 ? "PNG" : "TIFF",
-                        TiffCompression = outputFormat == PixelFormats.Rgb48 ? (recipe?.TiffCompression ?? TiffCompressOption.Zip).ToString() : null,
+                        OutputFormat = outputContainer.ToString().ToUpperInvariant(),
+                        TiffCompression = outputContainer == SpektraExport.Format.Tiff ? (recipe?.TiffCompression ?? TiffCompressOption.Zip).ToString() : null,
                         OutputWidth = output.PixelWidth,
                         OutputHeight = output.PixelHeight,
                         ViewerDrainMs = viewerDrainMs,

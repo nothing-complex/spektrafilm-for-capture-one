@@ -57,6 +57,19 @@ internal static partial class Program
             Console.WriteLine($"PASS: {assertions} native encoder cancellation checks.");
             return;
         }
+        if (args is ["--psd-delivery", var psdResults])
+        {
+            Directory.CreateDirectory(psdResults);
+            TestPsdDelivery(psdResults, writeReference: true);
+            Console.WriteLine($"PASS: {assertions} flat PSD export assertions.");
+            return;
+        }
+        if (args is ["--psd-from-test-tiff", var testTiff, var testPsd])
+        {
+            TestPsdFromTiff(testTiff, testPsd);
+            Console.WriteLine($"PASS: {assertions} saved film TIFF to PSD comparisons.");
+            return;
+        }
         if (args is ["--hold-guarded-export-stage", var stagingDirectory])
         {
             HoldGuardedExportStage(stagingDirectory);
@@ -117,6 +130,7 @@ internal static partial class Program
         TestExport(folder);
         TestExportFilenameSuggestion(folder);
         TestRecipeDelivery();
+        TestPsdDelivery(folder);
         TestExportFolderSuggestion(folder);
         TestTiffCompression(folder);
         TestExportProfiles(folder);
@@ -156,14 +170,20 @@ internal static partial class Program
 
     private static void TestRecipeDelivery()
     {
+        const SpektraExport.Format tiff = SpektraExport.Format.Tiff;
+        const SpektraExport.Format png = SpektraExport.Format.Png;
+        const SpektraExport.Format psd = SpektraExport.Format.Psd;
         foreach (var (requested, bits, actual, expectedTitle, expectedNote, canSkipRecipeOutput) in new[]
         {
-            ("Tiff", 16, PixelFormats.Rgb48, "Save 16-bit TIFF or PNG", (string?)null, true),
-            ("Tiff", 8, PixelFormats.Rgb48, "Recipe requests 8-bit TIFF", "Recipe requested 8-bit TIFF. Saved 16-bit TIFF.", false),
-            ("Png", 0, PixelFormats.Rgba64, "Save 16-bit TIFF or PNG", null, true),
-            ("Png", 0, PixelFormats.Rgb48, "Save 16-bit TIFF or PNG", "Recipe requested PNG. Saved 16-bit TIFF.", true),
-            ("Jpeg", 0, PixelFormats.Rgb48, "Recipe requests JPEG", "Recipe requested JPEG. Saved 16-bit TIFF.", false),
-            ("123", 0, PixelFormats.Rgba64, "Recipe requests a different file format", "Recipe requested a different file format. Saved 16-bit PNG.", false),
+            ("Tiff", 16, tiff, "Save 16-bit TIFF, PNG or PSD", (string?)null, true),
+            ("Tiff", 8, tiff, "Recipe requests 8-bit TIFF", "Recipe requested 8-bit TIFF. Saved 16-bit TIFF.", false),
+            ("Png", 0, png, "Save 16-bit TIFF, PNG or PSD", null, true),
+            ("Png", 0, tiff, "Save 16-bit TIFF, PNG or PSD", "Recipe requested PNG. Saved 16-bit TIFF.", true),
+            ("Jpeg", 0, tiff, "Recipe requests JPEG", "Recipe requested JPEG. Saved 16-bit TIFF.", false),
+            ("123", 0, png, "Recipe requests a different file format", "Recipe requested a different file format. Saved 16-bit PNG.", false),
+            ("Psd", 16, psd, "Save 16-bit TIFF, PNG or PSD", null, true),
+            ("Psd", 8, psd, "Recipe requests 8-bit PSD", "Recipe requested 8-bit PSD. Saved 16-bit PSD.", false),
+            ("Psd", 16, tiff, "Save 16-bit TIFF, PNG or PSD", "Recipe requested 16-bit PSD. Saved 16-bit TIFF.", true),
         })
         {
             var delivery = new SpektraExport.RecipeDelivery(requested, bits, "Respect");
@@ -171,29 +191,29 @@ internal static partial class Program
             Check(title.StartsWith(expectedTitle, StringComparison.Ordinal) && title.Contains("3000 × 2000 · ProPhoto RGB", StringComparison.Ordinal)
                 && delivery.SavedNote(actual) == expectedNote
                 && delivery.CanSkipRecipeOutput == canSkipRecipeOutput
-                && delivery.Extension == (requested == "Png" ? ".png" : ".tif"),
+                && delivery.Extension == (requested switch { "Png" => ".png", "Psd" => ".psd", _ => ".tif" }),
                 $"{requested} {bits} recipe states the 16-bit delivery policy and actual saved format");
         }
         var cropPath = new SpektraExport.RecipeDelivery("Psd", 16, "AsPath");
         Check(cropPath.SaveTitle(3000, 2000, "sRGB").Contains("full image, crop path omitted", StringComparison.Ordinal)
-            && cropPath.SavedNote(PixelFormats.Rgba64) ==
-                "Recipe requested PSD. Saved 16-bit PNG. Saved the full image. The recipe’s crop path was omitted.",
+            && cropPath.SavedNote(png) ==
+                "Recipe requested 16-bit PSD. Saved 16-bit PNG. Saved the full image. The recipe’s crop path was omitted.",
             "a crop path substitution is disclosed before and after delivery");
         var direct = new SpektraExport.RecipeDelivery(null, 0, null);
-        Check(direct.SavedNote(PixelFormats.Rgb48) is null && direct.SaveTitle(0, 0, "sRGB").Contains("(sRGB)", StringComparison.Ordinal),
+        Check(direct.SavedNote(tiff) is null && direct.SaveTitle(0, 0, "sRGB").Contains("(sRGB)", StringComparison.Ordinal),
             "a direct panel save has no native recipe substitution");
         var optionalEffects = new SpektraExport.RecipeDelivery("Tiff", 16, "Respect",
             SpektraExport.RecipeOmission.Watermark | SpektraExport.RecipeOmission.Sharpening);
         Check(optionalEffects.SaveTitle(3000, 2000, "sRGB").Contains("omits recipe watermark, recipe sharpening mode", StringComparison.Ordinal)
-            && optionalEffects.SavedNote(PixelFormats.Rgb48) == "The export omitted recipe watermark, recipe sharpening mode.",
+            && optionalEffects.SavedNote(tiff) == "The export omitted recipe watermark, recipe sharpening mode.",
             "a matching output format still discloses active recipe pixel effects in Save and completed history");
         var layered = cropPath with { Omissions = SpektraExport.RecipeOmission.PsdLayers };
         Check(layered.SaveTitle(3000, 2000, "sRGB").Contains("crop path omitted · omits PSD layers", StringComparison.Ordinal)
-            && layered.SavedNote(PixelFormats.Rgba64)?.EndsWith("The export omitted PSD layers.", StringComparison.Ordinal) == true,
+            && layered.SavedNote(png)?.EndsWith("The export omitted PSD layers.", StringComparison.Ordinal) == true,
             "PSD layer disclosures accompany format and crop-path substitutions");
         var batch = layered with { Omissions = SpektraExport.RecipeOmission.PsdLayers | SpektraExport.RecipeOmission.Watermark };
         Check(batch.BatchTitle(2, skipExisting: false)
-            == "Export 2 images as 16-bit TIFF · Recipe requests PSD · Full image, crop path omitted · Omits recipe watermark, PSD layers",
+            == "Export 2 images as 16-bit PSD · Full image, crop path omitted · Omits recipe watermark, PSD layers",
             "batch approval names the actual format, crop-path policy and all requested omissions before saving");
     }
 

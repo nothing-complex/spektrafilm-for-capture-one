@@ -10,7 +10,19 @@ using System.Windows.Media.Imaging;
 
 internal static class SpektraExport
 {
-    internal const string FileFilter = "16-bit TIFF image|*.tif|16-bit PNG image|*.png";
+    private const string TiffFilter = "16-bit TIFF image|*.tif;*.tiff";
+    private const string PngFilter = "16-bit PNG image|*.png";
+    private const string PsdFilter = "16-bit Photoshop document|*.psd";
+    internal const string FileFilter = TiffFilter + "|" + PngFilter + "|" + PsdFilter;
+
+    internal enum Format { Tiff, Png, Psd }
+
+    internal static string FilterFor(Format format) => format switch
+    {
+        Format.Png => PngFilter,
+        Format.Psd => PsdFilter,
+        _ => TiffFilter,
+    };
 
     [Flags]
     internal enum RecipeOmission
@@ -24,8 +36,13 @@ internal static class SpektraExport
     internal readonly record struct RecipeDelivery(string? Format, int TiffBits, string? CropMode,
         RecipeOmission Omissions = RecipeOmission.None)
     {
-        internal string Extension => Format == "Png" ? ".png" : ".tif";
-        internal bool CanSkipRecipeOutput => Format is "Png" || Format is "Tiff" && TiffBits == 16;
+        internal string Extension => Format switch
+        {
+            "Png" => ".png",
+            "Psd" => ".psd",
+            _ => ".tif",
+        };
+        internal bool CanSkipRecipeOutput => Format is "Png" || Format is ("Tiff" or "Psd") && TiffBits == 16;
         private bool CropPath => CropMode == "AsPath";
         private bool RequiresFormatChange => Format is not null && !CanSkipRecipeOutput;
 
@@ -35,7 +52,8 @@ internal static class SpektraExport
             "Tiff" => "TIFF with a different bit depth",
             "Png" => "PNG",
             "Jpeg" or "JpegQuickProof" => "JPEG",
-            "Psd" => "PSD",
+            "Psd" when TiffBits is 8 or 16 => $"{TiffBits}-bit PSD",
+            "Psd" => "PSD with a different bit depth",
             "Dng" => "DNG",
             _ => "a different file format",
         };
@@ -48,12 +66,12 @@ internal static class SpektraExport
             var crop = CropPath ? " · full image, crop path omitted" : "";
             var omissions = DescribeOmissions();
             var effects = omissions is null ? "" : $" · omits {omissions}";
-            return $"{prefix}Save 16-bit TIFF or PNG{crop}{effects} · {width} × {height} · {profile}";
+            return $"{prefix}Save 16-bit TIFF, PNG or PSD{crop}{effects} · {width} × {height} · {profile}";
         }
 
         internal string BatchTitle(int count, bool skipExisting)
         {
-            var format = Extension == ".png" ? "PNG" : "TIFF";
+            var format = FormatFor(Extension).ToString().ToUpperInvariant();
             var title = $"Export {count} images as 16-bit {format}";
             if (RequiresFormatChange) title += $" · Recipe requests {RequestedFormat}";
             if (CropPath) title += " · Full image, crop path omitted";
@@ -62,13 +80,12 @@ internal static class SpektraExport
             return title;
         }
 
-        internal string? SavedNote(PixelFormat outputFormat)
+        internal string? SavedNote(SpektraExport.Format outputFormat)
         {
-            var png = outputFormat == PixelFormats.Rgba64;
-            var changed = RequiresFormatChange || Format is "Png" && !png || Format is "Tiff" && png;
+            var changed = RequiresFormatChange || CanSkipRecipeOutput && Format != outputFormat.ToString();
             var notes = new List<string>(3);
             if (changed)
-                notes.Add($"Recipe requested {RequestedFormat}. Saved 16-bit {(png ? "PNG" : "TIFF")}.");
+                notes.Add($"Recipe requested {RequestedFormat}. Saved 16-bit {outputFormat.ToString().ToUpperInvariant()}.");
             if (CropPath)
                 notes.Add("Saved the full image. The recipe’s crop path was omitted.");
             if (DescribeOmissions() is { } omissions)
@@ -133,12 +150,16 @@ internal static class SpektraExport
         }
     }
 
-    internal static PixelFormat PixelFormatFor(string path) => Path.GetExtension(path).ToLowerInvariant() switch
+    internal static Format FormatFor(string path) => Path.GetExtension(path).ToLowerInvariant() switch
     {
-        ".tif" or ".tiff" => PixelFormats.Rgb48,
-        ".png" => PixelFormats.Rgba64,
-        _ => throw new InvalidOperationException("Choose 16-bit TIFF or PNG for the Spektrafilm file."),
+        ".tif" or ".tiff" => Format.Tiff,
+        ".png" => Format.Png,
+        ".psd" => Format.Psd,
+        _ => throw new InvalidOperationException("Choose 16-bit TIFF, PNG or PSD for the Spektrafilm file."),
     };
+
+    internal static PixelFormat PixelFormatFor(Format format) => format == Format.Png ? PixelFormats.Rgba64 : PixelFormats.Rgb48;
+    internal static PixelFormat PixelFormatFor(string path) => PixelFormatFor(FormatFor(path));
 
     internal static void Save(string path, BitmapSource image, CancellationToken stop, string? originalPath = null)
     {
@@ -156,32 +177,44 @@ internal static class SpektraExport
         Action<int>? reportWrite = null, Action<ExportPublication>? verified = null)
     {
         stop.ThrowIfCancellationRequested();
-        var format = PixelFormatFor(path);
+        var output = FormatFor(path);
+        var format = PixelFormatFor(output);
         if (image.Format != format)
             throw new InvalidDataException($"Spektrafilm export requires unpremultiplied {format} pixels.");
 
-        var png = format == PixelFormats.Rgba64;
-        BitmapEncoder encoder = png
-            ? new PngBitmapEncoder()
-            : new TiffBitmapEncoder { Compression = tiffCompression };
         outputProfile ??= ExportColorProfile.Srgb;
-        var profile = new ReadOnlyCollection<ColorContext>(new[] { outputProfile.Context });
         var xmp = metadata is null ? null : Encoding.UTF8.GetBytes(metadata.CreateXmp(image.PixelWidth, image.PixelHeight));
-        BitmapMetadata? tiff = null;
-        if (!png)
-        {
-            tiff = new BitmapMetadata("tiff");
-            tiff.SetQuery("/ifd/{ushort=274}", (ushort)1);
-            if (xmp is not null)
-                tiff.SetQuery("/ifd/{ushort=700}", xmp);
-        }
-        encoder.Frames.Add(BitmapFrame.Create(image, null, tiff, profile));
         void Encode(Stream stream)
         {
             stop.ThrowIfCancellationRequested();
+            var monitored = stop.CanBeCanceled || reportWrite is not null ? new EncoderStream(stream, stop, reportWrite) : stream;
+            if (output == Format.Psd)
+                PsdExport.WriteVerified(monitored, image, outputProfile, xmp, stop);
+            else
+                EncodeWic(stream, monitored);
+            if (verified is not null)
+                verified(ExportPublication.Read(stream, stop));
+        }
+
+        void EncodeWic(Stream stream, Stream monitored)
+        {
+            var png = output == Format.Png;
+            BitmapEncoder encoder = png
+                ? new PngBitmapEncoder()
+                : new TiffBitmapEncoder { Compression = tiffCompression };
+            var profile = new ReadOnlyCollection<ColorContext>(new[] { outputProfile.Context });
+            BitmapMetadata? tiff = null;
+            if (!png)
+            {
+                tiff = new BitmapMetadata("tiff");
+                tiff.SetQuery("/ifd/{ushort=274}", (ushort)1);
+                if (xmp is not null)
+                    tiff.SetQuery("/ifd/{ushort=700}", xmp);
+            }
+            encoder.Frames.Add(BitmapFrame.Create(image, null, tiff, profile));
             try
             {
-                encoder.Save(stop.CanBeCanceled || reportWrite is not null ? new EncoderStream(stream, stop, reportWrite) : stream);
+                encoder.Save(monitored);
             }
             catch (Exception error) when (stop.IsCancellationRequested)
             {
@@ -206,8 +239,6 @@ internal static class SpektraExport
             // Verify the stored UTF-8 packet and container encoding directly.
             if (xmp is not null && !(png ? PngXmp.Contains(stream, xmp) : EncodedXmp.TiffContains(stream, xmp)))
                 throw new InvalidDataException("The encoded image did not preserve the export metadata.");
-            if (verified is not null)
-                verified(ExportPublication.Read(stream, stop));
         }
         if (destination is null)
             PanelFiles.WriteAtomically(path, Encode, beforeCommit: stop.ThrowIfCancellationRequested);

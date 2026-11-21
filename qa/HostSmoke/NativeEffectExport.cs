@@ -860,7 +860,7 @@ public static partial class StartupHook
                     {
                         var receipt = Call(Field(spatial, "exportJobs")!, "ReadLatest")!;
                         var note = $"Recipe requested {requested}. Saved 16-bit TIFF.";
-                        Check(offeredTitle?.StartsWith($"Recipe requests {requested} · Save 16-bit TIFF or PNG", StringComparison.Ordinal) == true,
+                        Check(offeredTitle?.StartsWith($"Recipe requests {requested} · Save 16-bit TIFF, PNG or PSD", StringComparison.Ordinal) == true,
                             $"Save discloses the {requested} substitution before publication");
                         var describe = spatial.GetType().GetMethod("DescribePreviousExport", Flags)!;
                         Check(Equals(Prop(receipt, "DeliveryNote"), note)
@@ -1239,12 +1239,14 @@ public static partial class StartupHook
                 var filename = type.GetProperty("DestinationFilename", Flags)!;
                 var format = type.GetProperty("FileType", Flags)!;
                 var cropMode = type.GetProperty("CropExportMethod", Flags)!;
+                var bits = type.GetProperty("TiffBits", Flags)!;
                 var watermark = type.GetProperty("WatermarkType", Flags)!;
                 var watermarkImage = type.GetProperty("WatermarkImageReference", Flags)!;
                 var sharpening = type.GetProperty("SharpeningOutputControl", Flags)!;
                 var annotations = type.GetProperty("IncludeAnnotations", Flags)!;
                 var initialName = filename.GetValue(selected);
                 var initialFormat = format.GetValue(selected);
+                var initialBits = bits.GetValue(selected);
                 var initialCropMode = cropMode.GetValue(selected);
                 var initialWatermark = watermark.GetValue(selected);
                 var initialImage = watermarkImage.GetValue(selected);
@@ -1326,6 +1328,14 @@ public static partial class StartupHook
                         var uncut = await Render("ignore-crop-reference", ".tif", true, expectedGeometry: full);
 
                         format.SetValue(selected, Enum.Parse(format.PropertyType, "Psd"));
+                        bits.SetValue(selected, 16);
+                        annotations.SetValue(selected, false);
+                        var psd = await Render("flat-psd-with-film", ".psd", true, expectedGeometry: full);
+                        var psdParity = Difference(uncut, psd);
+                        Check(offeredFilename?.EndsWith(".psd", StringComparison.OrdinalIgnoreCase) == true
+                            && psdParity.Mean < 8d / 65535 && psdParity.Maximum < .01,
+                            "the native PSD recipe suggests a Photoshop file and preserves high-depth film pixels");
+
                         cropMode.SetValue(selected, Enum.Parse(cropMode.PropertyType, "AsPath"));
                         annotations.SetValue(selected, true);
                         var pathRecipe = CaptureRecipe();
@@ -1333,9 +1343,9 @@ public static partial class StartupHook
                             && Dimensions(pathRecipe) == full && Prop(pathRecipe, "Omissions")?.ToString() == "PsdLayers",
                             "Capture One supplies a full-canvas PSD recipe with a crop path and annotation layer requested");
                         var png = await Render("psd-crop-path-alternative", ".png", false, expectedGeometry: full);
-                        Check(offeredTitle?.StartsWith("Recipe requests PSD · Save 16-bit TIFF or PNG · full image, crop path omitted · omits PSD layers", StringComparison.Ordinal) == true,
-                            "the native Save title discloses the format, crop path and PSD layers before approval");
-                        const string note = "Recipe requested PSD. Saved 16-bit PNG. Saved the full image. The recipe’s crop path was omitted. The export omitted PSD layers.";
+                        Check(offeredTitle?.StartsWith("Save 16-bit TIFF, PNG or PSD · full image, crop path omitted · omits PSD layers", StringComparison.Ordinal) == true,
+                            "the native Save title discloses the crop path and PSD layers before approval");
+                        const string note = "Recipe requested 16-bit PSD. Saved 16-bit PNG. Saved the full image. The recipe’s crop path was omitted. The export omitted PSD layers.";
                         var receipt = Call(Field(spatial, "exportJobs")!, "ReadLatest")!;
                         Check(Equals(Prop(receipt, "DeliveryNote"), note)
                             && ((TextBlock)Field(spatial, "exportStatus")!).Text.Contains(note, StringComparison.Ordinal),
@@ -1352,6 +1362,7 @@ public static partial class StartupHook
                     try
                     {
                         format.SetValue(selected, initialFormat);
+                        bits.SetValue(selected, initialBits);
                         filename.SetValue(selected, initialName);
                         cropMode.SetValue(selected, initialCropMode);
                         watermark.SetValue(selected, initialWatermark);
@@ -2259,13 +2270,28 @@ public static partial class StartupHook
                 if (expectedSuggestedFile is not null && kind is ("film-only" or "previous-with-effects"))
                     Check(offeredFilename == expectedSuggestedFile, $"{kind} offers the captured native recipe name in Save");
                 using var file = File.OpenRead(destination);
-                var frame = BitmapDecoder.Create(file, BitmapCreateOptions.PreservePixelFormat | BitmapCreateOptions.IgnoreColorProfile,
-                    BitmapCacheOption.OnLoad).Frames[0];
-                Check(frame.Format == (extension == ".tif" ? PixelFormats.Rgb48 : PixelFormats.Rgba64)
-                    && frame.PixelWidth == width && frame.PixelHeight == height && frame.ColorContexts is { Count: 1 },
+                BitmapSource frame;
+                string actualIcc;
+                if (extension == ".psd")
+                {
+                    var psd = PsdFixture.Read(file);
+                    frame = BitmapSource.Create(psd.Width, psd.Height, psd.DpiX, psd.DpiY, PixelFormats.Rgb48,
+                        null, psd.Samples, psd.Width * 6);
+                    actualIcc = Convert.ToHexString(SHA256.HashData(psd.Resources[1039]));
+                }
+                else
+                {
+                    var wic = BitmapDecoder.Create(file, BitmapCreateOptions.PreservePixelFormat | BitmapCreateOptions.IgnoreColorProfile,
+                        BitmapCacheOption.OnLoad).Frames[0];
+                    Check(wic.ColorContexts is { Count: 1 }, $"{kind} embeds one selected recipe ICC");
+                    using var icc = wic.ColorContexts![0].OpenProfileStream();
+                    actualIcc = Convert.ToHexString(SHA256.HashData(icc));
+                    frame = wic;
+                }
+                Check(frame.Format == (extension == ".png" ? PixelFormats.Rgba64 : PixelFormats.Rgb48)
+                    && frame.PixelWidth == width && frame.PixelHeight == height,
                     $"{kind} reopens as the expected 16-bit format at the selected recipe dimensions");
-                using var icc = frame.ColorContexts![0].OpenProfileStream();
-                Check(Convert.ToHexString(SHA256.HashData(icc)) == (expectedProfileSha ?? iccSha), $"{kind} embeds the exact selected recipe ICC");
+                Check(actualIcc == (expectedProfileSha ?? iccSha), $"{kind} embeds the exact selected recipe ICC");
                 if (extension == ".tif")
                 {
                     var compressionTag = (frame.Metadata as BitmapMetadata)?.GetQuery("/ifd/{ushort=259}");
@@ -2291,7 +2317,7 @@ public static partial class StartupHook
                     && detail.GetProperty("InputEncoding").GetString() == inputEncoding
                     && detail.GetProperty("OutputWidth").GetInt32() == width
                     && detail.GetProperty("OutputHeight").GetInt32() == height
-                    && detail.GetProperty("OutputFormat").GetString() == (extension == ".tif" ? "TIFF" : "PNG")
+                    && detail.GetProperty("OutputFormat").GetString() == (extension switch { ".psd" => "PSD", ".tif" => "TIFF", _ => "PNG" })
                     && detail.GetProperty("TiffCompression").GetString() == (extension == ".tif"
                         ? (expectedCompression ?? compression).ToString() : null)
                     && detail.GetProperty("TransformsDeliveryProfile").ValueKind is JsonValueKind.True or JsonValueKind.False
