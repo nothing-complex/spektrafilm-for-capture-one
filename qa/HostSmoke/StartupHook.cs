@@ -237,6 +237,11 @@ public static partial class StartupHook
                 return;
             }
             var exportFixture = Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT");
+            if (exportFixture == "selection")
+            {
+                await TestNativeExportSelection(hookField, hosted, panel, spatial, window);
+                return;
+            }
             if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_EXPORT_INTERRUPTION") is { } interruption
                 && interruption is "DevelopingSource" or "RenderingFilm" or "Encoding")
             {
@@ -516,7 +521,10 @@ public static partial class StartupHook
     }
 
     private static bool DismissOwnedMessageBox(Forms.Form owner, string caption, Forms.DialogResult choice, Action show,
-        string? expectedMessage = null)
+        string? expectedMessage = null) => DismissOwnedMessageBox(owner.Handle, caption, choice, show, expectedMessage);
+
+    private static bool DismissOwnedMessageBox(nint ownerHandle, string caption, Forms.DialogResult choice, Action show,
+        string? expectedMessage)
     {
         const uint ownerWindow = 4;
         const uint getDefaultId = 0x0400;
@@ -524,7 +532,6 @@ public static partial class StartupHook
         const int hasDefaultId = 0x534b0000;
         const uint abortIfHung = 2;
         var defaultButtonId = (int)choice;
-        var ownerHandle = owner.Handle;
         var opened = 0;
         var matched = 0;
         using var watcher = new System.Threading.Timer(_ =>
@@ -2001,7 +2008,7 @@ public static partial class StartupHook
             {
                 try
                 {
-                    Call(bridge, "BindConfirmation", invalidCommand, false);
+                    Call(bridge, "BindConfirmation", invalidCommand, false, Call(bridge, "CaptureOffer", false));
                     throw new InvalidOperationException("The confirmation adapter accepted an invalid command.");
                 }
                 catch (TargetInvocationException error) when (error.InnerException is InvalidOperationException)

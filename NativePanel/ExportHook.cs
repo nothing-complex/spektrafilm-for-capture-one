@@ -120,11 +120,11 @@ internal sealed class ExportHook : IDisposable
         }
     }
 
-    private bool UseNativeConfirmation(bool editMultiple, Guid[]? offered)
+    private bool UseNativeConfirmation(bool editMultiple, (Guid Primary, Guid[]? Members) offered)
     {
         if (disposed || !IsApprovedDocument() || Busy)
             return false;
-        if (offered is not null && !offered.SequenceEqual(HostProfile.CaptureSelectedVariants(window, document)))
+        if (!MatchesOffer(offered))
         {
             Warn("Capture One’s selection changed. Reopen Export for the new selection.");
             return false;
@@ -135,6 +135,22 @@ internal sealed class ExportHook : IDisposable
             _ = ExportAsync(IsBatchSelection(editMultiple));
         // Spektrafilm closes the native dialog only after its accepted file is saved.
         return false;
+    }
+
+    private Guid? SelectedPrimary => (document as ISelectedCollectionsProvider)?.PrimarySelectedCollectionSelection?.PrimaryVariant?.UUID;
+
+    private (Guid Primary, Guid[]? Members) CaptureOffer(bool editMultiple)
+    {
+        var primary = SelectedPrimary ?? throw new InvalidOperationException("Select an image before opening Export.");
+        return (primary, editMultiple ? HostProfile.CaptureSelectedVariants(window, document) : null);
+    }
+
+    private bool MatchesOffer((Guid Primary, Guid[]? Members) offered)
+    {
+        if (SelectedPrimary != offered.Primary) return false;
+        if (offered.Members is null) return true;
+        try { return offered.Members.SequenceEqual(HostProfile.CaptureSelectedVariants(window, document)); }
+        catch (InvalidOperationException) { return false; }
     }
 
     private void ExportWithPrevious(Command command, bool editMultiple)
@@ -180,9 +196,9 @@ internal sealed class ExportHook : IDisposable
         return false;
     }
 
-    private IDisposable BindConfirmation(System.Windows.Input.ICommand command, bool editMultiple)
+    private IDisposable BindConfirmation(System.Windows.Input.ICommand command, bool editMultiple,
+        (Guid Primary, Guid[]? Members) offered)
     {
-        var offered = editMultiple ? HostProfile.CaptureSelectedVariants(window, document) : null;
         try
         {
             return NativeExportConfirmation.Attach(command, () => UseNativeConfirmation(editMultiple, offered), Fail);
@@ -210,10 +226,11 @@ internal sealed class ExportHook : IDisposable
     {
         if (exportWindow.GetValue(window) is not null)
             throw new InvalidOperationException("Close Capture One’s other Export window before exporting with Spektrafilm.");
+        var offered = CaptureOffer(editMultiple);
         var factory = new ExportDialogFactory(document, MessageBusProvider.DefaultInstance, editMultiple);
         try
         {
-            confirmation = BindConfirmation(factory.DialogVM.ExportCommand, editMultiple);
+            confirmation = BindConfirmation(factory.DialogVM.ExportCommand, editMultiple, offered);
             dialog = factory.ExportDialogWindow;
             dialog.Title += " – " + StartupHook.ProductName;
             exportWindow.SetValue(window, dialog);

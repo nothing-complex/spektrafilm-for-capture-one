@@ -41,6 +41,7 @@ param(
     [switch] $ViewerCacheAllowance,
     [switch] $PanelInventory,
     [switch] $NativeEffectExport,
+    [switch] $NativeExportSelection,
     [switch] $NativeEffectExportMatrix,
     [switch] $NativeEffectGrain,
     [switch] $NativeEffectCompression,
@@ -62,6 +63,13 @@ param(
 )
 $ErrorActionPreference='Stop'
 if ($NativeLookBatchCrash) { $NativeLookBatch=$true }
+if ($NativeExportSelection) {
+    if (!$NativeSettingsConfig -or $PackagedRuntime -or $UpgradeFromPackage -or $NativeBatchExport -or
+        $NativeEffectExport -or $CatalogIsolation -or $ConcurrentCatalogs -or $SessionIsolation -or $ColorMatrix) {
+        throw 'Native Export selection verification needs a copied catalog and a verified preferences backup.'
+    }
+    $SkipRestart=$true
+}
 if ($NativeSliderInteraction -or $NativeOpticalAvailability -or $ViewerCacheAllowance) {
     if (!$NativeSettingsConfig -or $PackagedRuntime -or $UpgradeFromPackage -or $NativeEffectExport -or $NativeBatchExport -or $CatalogIsolation) {
         throw 'Native control and Viewer cache checks need a copied catalog and verified preferences backup.'
@@ -493,7 +501,7 @@ if ($NativeSettingsConfig) {
 }
 $nativeRecipes=$null
 $recipeHashes=@{}
-if ($NativeBatchExport -or $NativeEffectCompression -or $NativeEffectOutputProfiles -or $NativeEffectFolders -or $NativeEffectSourceRevision -or $NativeEffectMaskedSource -or $NativeEffectProfileSidecars -or $NativeEffectRecipeRestart) {
+if ($NativeBatchExport -or $NativeExportSelection -or $NativeEffectCompression -or $NativeEffectOutputProfiles -or $NativeEffectFolders -or $NativeEffectSourceRevision -or $NativeEffectMaskedSource -or $NativeEffectProfileSidecars -or $NativeEffectRecipeRestart) {
     $nativeRecipes=Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'CaptureOne\Recipes143'
     $recipeRoot=Get-Item -LiteralPath $nativeRecipes -Force
     if (!$recipeRoot.PSIsContainer -or ($recipeRoot.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
@@ -743,7 +751,7 @@ try {
     $env:SPEKTRAFILM_HOST_VIEWER_STRESS=if($ViewerStress){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_VIEWER_CACHE_ALLOWANCE=if($ViewerCacheAllowance){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_PANEL_INVENTORY=if($PanelInventory){'1'}else{$null}
-    $env:SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT=if($NativeEffectExportMatrix){'matrix'}elseif($NativeEffectClone){'clone'}elseif($NativeEffectGrain){'grain'}elseif($NativeEffectCompression){'compression'}elseif($NativeEffectOutputProfiles){'profiles'}elseif($NativeEffectFolders){'folders'}elseif($NativeEffectPanelModes){'panel-modes'}elseif($NativeEffectSourceRevision){'source-revision'}elseif($NativeEffectMaskedSource){'masked-source'}elseif($NativeEffectProfileSidecars){'profile-sidecars'}elseif($NativeEffectRecipeRestart){'recipe-restart'}elseif($NativeEffectExport){'1'}else{$null}
+    $env:SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT=if($NativeExportSelection){'selection'}elseif($NativeEffectExportMatrix){'matrix'}elseif($NativeEffectClone){'clone'}elseif($NativeEffectGrain){'grain'}elseif($NativeEffectCompression){'compression'}elseif($NativeEffectOutputProfiles){'profiles'}elseif($NativeEffectFolders){'folders'}elseif($NativeEffectPanelModes){'panel-modes'}elseif($NativeEffectSourceRevision){'source-revision'}elseif($NativeEffectMaskedSource){'masked-source'}elseif($NativeEffectProfileSidecars){'profile-sidecars'}elseif($NativeEffectRecipeRestart){'recipe-restart'}elseif($NativeEffectExport){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_MOVED_LOOK_BACKUP=$SavedLooksBackup
     $env:SPEKTRAFILM_EXPECTED_CONTROL_INVENTORY=Join-Path $root 'qa\panel-controls.json'
     $env:SPEKTRAFILM_SHOW_TOOL=if($ShowTool){'1'}else{$null}
