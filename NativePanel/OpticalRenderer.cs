@@ -69,7 +69,14 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
             await shutdown.WaitAsync(linked.Token).ConfigureAwait(false);
             return await RenderCoreAsync(width, height, rgba, arguments, linked.Token, displayPixels, priority).ConfigureAwait(false);
         }
-        finally { requests.Release(); }
+        finally
+        {
+            var lease = TakeGpuLease();
+            requests.Release();
+            // A queued job can check this worker's residency as soon as the
+            // lease is released, so publish its idle state first.
+            lease?.Dispose();
+        }
     }
 
     private void ValidateRequest(int width, int height, byte[] rgba, string[] arguments, bool displayPixels)
@@ -132,13 +139,19 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
                 if (priority != GpuWorkPriority.Warmup)
                     plan = await ReclaimIdleViewerMemoryAsync(renderer, width, height, options, plan, token).ConfigureAwait(false);
                 var queuedAt = Stopwatch.GetTimestamp();
-                try { await ReserveGpuAsync(renderer, plan, priority, token).ConfigureAwait(false); }
+                bool queued;
+                try { queued = await ReserveGpuAsync(renderer, plan, priority, token).ConfigureAwait(false); }
                 catch (OperationCanceledException) when (stop.IsCancellationRequested)
                 {
                     synchronizedCancellation = true;
                     throw;
                 }
                 gpuWaitMs = Stopwatch.GetElapsedTime(queuedAt).TotalMilliseconds;
+                if (queued && priority != GpuWorkPriority.Warmup)
+                {
+                    plan = await ReadGpuPlanAsync(renderer, width, height, options, token).ConfigureAwait(false) ?? plan;
+                    plan = await ReclaimIdleViewerMemoryAsync(renderer, width, height, options, plan, token).ConfigureAwait(false);
+                }
                 admittedPlan = plan;
             }
             using var memory = RenderMemoryBudget.SystemMemory.Reserve(RenderAllocation.WorkerTransport, (long)width * height,
@@ -249,7 +262,6 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
         {
             if (frameInFlight)
                 await StopAsync(abort: true).ConfigureAwait(false);
-            ReleaseGpu(renderer);
         }
     }
 
@@ -382,34 +394,30 @@ internal sealed class OpticalRenderer(bool export = false, bool nativePreview = 
 
     private sealed record ResidentFrame(Process Child, int Width, int Height, string Options, GpuRenderPlan Plan);
 
-    private async Task ReserveGpuAsync(Process child, GpuRenderPlan plan, GpuWorkPriority priority, CancellationToken token)
+    private async Task<bool> ReserveGpuAsync(Process child, GpuRenderPlan plan, GpuWorkPriority priority, CancellationToken token)
     {
-        var lease = await GpuRenderAdmission.Shared.AcquireAsync(plan, priority, token).ConfigureAwait(false);
+        var reservation = await GpuRenderAdmission.Shared.AcquireAsync(plan, priority, token).ConfigureAwait(false);
         lock (sync)
         {
             if (ReferenceEquals(process, child) && !disposed && !token.IsCancellationRequested)
             {
-                gpuAdmission = lease;
-                return;
+                gpuAdmission = reservation.Lease;
+                return reservation.Queued;
             }
         }
-        lease.Dispose();
+        reservation.Dispose();
         token.ThrowIfCancellationRequested();
         throw new ObjectDisposedException(nameof(OpticalRenderer));
     }
 
-    private void ReleaseGpu(Process child)
+    private IDisposable? TakeGpuLease()
     {
-        IDisposable? lease = null;
         lock (sync)
         {
-            if (ReferenceEquals(process, child))
-            {
-                lease = gpuAdmission;
-                gpuAdmission = null;
-            }
+            var lease = gpuAdmission;
+            gpuAdmission = null;
+            return lease;
         }
-        lease?.Dispose();
     }
 
     private static async Task DiscardReplyAsync(Stream output, int length, CancellationToken stop)

@@ -1119,7 +1119,8 @@
         "Reuse the camera diffusion output for the later print diffusion output after the existing compute barrier. Keep the boosted halation and print inputs separate after a wider reuse experiment changed actual tiled pixels. The retained change matches audit.29 across 16 complete Viewer and float export payloads at 24 and 45 MP, including repeated exposure changes and source replacement. It saves 291,776,000 and 425,201,600 transient bytes respectively. Peak worker commit falls by around 0.27 and 0.38 GiB. NVIDIA and Intel renderer smoke suites pass.",
         "Record the actual Vulkan memory heap for every transient buffer. Credit only the selected device-local heap when using its reported budget. The wider RTX suite excludes up to 137,362,784 prior cached bytes from that credit, while all 16 complete 24 and 45 MP Viewer and float export replies match audit.30. Both physical adapters also pass the warmed graph and synthetic pressure contracts. The same worker passes 129 licensed native stacked-effects and profile assertions on both launches and verifies all nine recipe files against their backups.",
         "A numbered pre-render request reports the selected Vulkan device UUID and heap, driver budget and usage, retained and reclaimable allocation bytes, and the next full-frame estimate before pixel upload. Separate the shared reported heap budget from each worker's existing conservative tile-planning ceiling. The worker still checks current memory again after admission.",
-        "When a same-heap interactive or output request is short of shared headroom, probe idle Viewer workers for their reclaimable bytes. Only a worker still idle and owning the same residency record can be retired. Refresh the requesting plan after process exit. Active jobs and speculative warm-up are protected. Pass 192 managed client checks and retire a real RTX 3090 Viewer rendering a 3000 × 2000 frame under a synthetic competing budget. The next worker produces byte-identical pixels. The warm request took 8.09 ms and the first request after reclamation took 417.78 ms. Pass 32 existing physical Vulkan checks."
+        "When a same-heap interactive or output request is short of shared headroom, probe idle Viewer workers for their reclaimable bytes. Only a worker still idle and owning the same residency record can be retired. Refresh the requesting plan after process exit. Active jobs and speculative warm-up are protected. Pass 192 managed client checks and retire a real RTX 3090 Viewer rendering a 3000 × 2000 frame under a synthetic competing budget. The next worker produces byte-identical pixels. The warm request took 8.09 ms and the first request after reclamation took 417.78 ms. Pass 32 existing physical Vulkan checks.",
+        "Refresh admission for interactive or export requests that actually spent time in the queue. Release a completed worker's pipe turn before waking the queued job, which rechecks and can retire that now-idle same-heap worker. Pass 196 managed checks and eight physical idle-worker assertions on RTX 3090. An initially active 6 MP Viewer finishes under a competing simulated budget, then its worker exits before the output resumes. The finished frame and its regenerated packed output match byte for byte."
       ],
       "evidence_paths": [
         "qa/renderer-benchmark.py",
@@ -1160,11 +1161,13 @@
         "tests/renderer/Program.cs",
         ".test-results/renderer-idle-reclamation-final-20261121.log",
         ".test-results/managed-idle-physical-reclamation-20261121.json",
-        ".test-results/managed-idle-physical-regression-20261121.log"
+        ".test-results/managed-idle-physical-regression-20261121.log",
+        ".test-results/queued-viewer-residency-20261121/idle-result.json",
+        ".test-results/queued-viewer-residency-20261121/physical-regression.log"
       ],
       "remaining_work": [
         "Calibrate all optics graphs, shared GPU activity and system memory on real 4/6/8 GB hardware from different vendors.",
-        "Complete idle residency accounting across active plans, including a worker that becomes idle while a request waits. Model incremental tile allocations rather than the full-frame estimate. Measure physical memory pressure across independent host processes and discrete and shared-memory devices.",
+        "Complete idle residency accounting across simultaneously active plans. Model incremental tile allocations rather than the full-frame estimate. Measure physical memory pressure across independent host processes and discrete and shared-memory devices.",
         "The latest 45 MP jointly enabled optics graph uses 10.60 GiB of reported live transient allocations with 1465 px support and a 7 GiB planning target. Profile per-graph scratch by heap, bound working tiles and model temporary overlap when a user actually replaces a large RAW."
       ],
       "original_acceptance_tests": [
@@ -3457,7 +3460,8 @@
         "The later 16.4 source fixture distinguishes a high-resolution-only counter advance on a plain variant from a genuine edit. It reads the native model under the host reader lock and checks unchanged state with only the known numeric high-resolution generation field removed. The original RGB16 development stays the authorized source. In 50 launch and 50 restart assertions, a counter-only update completed, a real exposure edit with the same counter shape failed, and the ordinary source-change retry and preexisting TIFF protection remained effective. Both builds match 583 compiled native references. A fresh copy of the earlier failing catalog passes 100 first-launch and 72 restart recipe assertions. The spontaneous event did not recur. Both source catalogs and all nine recipes verify.",
         "Extend the verified identity to native local adjustments with resolved ordinary masks. Copy the layer model under Capture One reader locks and independently hash each enabled mask's serialized native buffer in place. The in-development path still uses the original high-depth source snapshot. The masked fixture passes 56 launch and 56 restart assertions, including a native fill, local exposure, counter-only update, and an invert whose normalized model is identical. The mask byte change rejects the approved job and preserves the existing PNG. A deliberate retry reflects the new mask and matches the unmasked reference. All nine recipe files and the original catalog verify. Pass the 50-assertion plain-source regression and match 603 managed host references with signed 16.7.8.3529.",
         "Extend the comparison to local ICC and LCC profile bytes resolved from the current native variant and layers. The old serialized-only ICC inventory missed an active profile. The 42-check ICC fixture replaces valid bytes under the same live ID, proves Capture One resolves the replacement, and verifies an approved export fails with its existing PNG intact. The 47-check LCC fixture uses Capture One's importer and LCC creator on a synthetic flat-field RAW, verifies the exact loaded sidecar and tests a counter-only update with the visible correction retained. An independent reader verifies all three LCC fixture files at RGBA16 with the selected recipe ICC. The plain-source 50-check regression passes. The source catalog, original sidecar and native recipes verify. The signed 16.7 reference build matches all 627 compiled host references.",
-        "An interactive Viewer job or output can retire only confirmed idle workers on its Vulkan heap under estimated pressure. Warm-up does not trigger reclamation, and a canceled contender keeps an active Viewer intact. The managed client waits for actual process exit and refreshes the driver plan. The RTX 3090 controlled fixture reopens a 6 MP packed Viewer render byte-exact after retirement. Pass 59 licensed Viewer stress assertions and preserve the donor catalog, including native motion, renderer recovery, durable edits and Export remaining connected. The corrected Auto fixture checks both the native revision and the selected quality tier, and the passing launch retains the original frame at the same revision."
+        "An interactive Viewer job or output can retire only confirmed idle workers on its Vulkan heap under estimated pressure. Warm-up does not trigger reclamation, and a canceled contender keeps an active Viewer intact. The managed client waits for actual process exit and refreshes the driver plan. The RTX 3090 controlled fixture reopens a 6 MP packed Viewer render byte-exact after retirement. Pass 59 licensed Viewer stress assertions and preserve the donor catalog, including native motion, renderer recovery, durable edits and Export remaining connected. The corrected Auto fixture checks both the native revision and the selected quality tier, and the passing launch retains the original frame at the same revision.",
+        "After waiting in the GPU queue, a managed interactive or export worker checks for a Viewer that became idle. Controlled same-heap pressure verifies true process exit after the active Viewer delivers its last frame. Pass the RTX 3090 overlap and pressure cases with byte-exact packed Viewer and full float export replies."
       ],
       "evidence_paths": [
         "NativePanel/SpatialPreview.cs",
@@ -3500,10 +3504,12 @@
         ".test-results/source-revision-semantics-20261120/live-sidecar-reference-comparison.json",
         ".test-results/managed-idle-physical-reclamation-20261121.json",
         ".test-results/renderer-idle-reclamation-final-20261121.log",
-        ".test-results/host-viewer-idle-gpu-verified-20261121/host-smoke.log"
+        ".test-results/host-viewer-idle-gpu-verified-20261121/host-smoke.log",
+        ".test-results/queued-viewer-residency-20261121/contention-room.json",
+        ".test-results/queued-viewer-residency-20261121/contention-pressure.json"
       ],
       "remaining_work": [
-        "Finish admission across separate host processes and account for workers that become idle after a contender is queued. Collect a synchronized, unheld p50/p95 comparison using the managed scheduler across more GPUs, parent memory, tile allocations and cancellation stages.",
+        "Finish admission across separate host processes. Collect a synchronized, unheld p50/p95 comparison using the managed scheduler across more GPUs, parent memory, tile allocations and cancellation stages. Verify the queue-stage change in the licensed Viewer and export routes.",
         "Verify the naturally occurring in-development counter update as distinct from the earlier before-development wait, and measure normal, masked and sidecar source comparison overhead. Extend physical coverage to additional mask families, including luma and repair layers, and independently verify external profile-library changes and a same-ID LCC payload change. Pending edits, missing handles, unresolved local profiles, an unavailable lock and changed checksums keep the strict export guard."
       ],
       "original_acceptance_tests": [
@@ -3595,7 +3601,8 @@
         "Tagged Windows packaging reruns the mandatory host-independent suites and Vulkan smoke before assembling a ZIP, reinspects the committed source after tests and records the summary checksum. Six manifest contracts reject missing, failed, skipped, duplicate and unsupported claimed results.",
         "The clean, locally tagged 366e25e clone refused packaging without an exact tag. The first tagged run correctly refused a failed contract caused by a deep Windows fixture path. The short-path clone passed all ten mandatory contracts and physical Vulkan smoke, validating a 152-entry ZIP against its manifest. No tag or ZIP was published.",
         "Both GitHub-hosted Windows runners on draft PR #1 uploaded their host-independent JSON receipts through the pinned action. The downloaded summaries each contain nine passing contracts and explicit not-run reasons for Vulkan and licensed Capture One.",
-        "A genuine outside fork opened PR 2 against experimental/unchecked-capture-one without upstream write access. The contributor branch predates the audit workflow and currently lists only a skipped third-party check. Fork submission works, while fork-triggered Windows contract execution is still unverified."
+        "A genuine outside fork opened PR 2 against experimental/unchecked-capture-one without upstream write access. The contributor branch predates the audit workflow and currently lists only a skipped third-party check. Fork submission works, while fork-triggered Windows contract execution is still unverified.",
+        "Add the ordinary-only disposable host startup baseline with both managed hooks and build prerequisites removed. It exits with -1 before opening the catalog on the unlocked interactive workstation with the default Windows temp path. The donor and exact native preferences hashes verify. This isolates the current startup failure from the Spektrafilm panel and QA startup hook."
       ],
       "evidence_paths": [
         ".github/workflows/contracts.yml",
@@ -3612,7 +3619,8 @@
         "ReleaseManifest.ps1",
         ".test-results/contracts-release-required-checks-20261120/manifest.log",
         "D:/Library AI testing/sf-tag-gate-20261120/.test-results/tagged-release-proof.json",
-        "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44675783266"
+        "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44675783266",
+        ".test-results/host-ordinary-launch-only-20261121/proof-settings-receipt.json"
       ],
       "remaining_work": [
         "Observe the read-only Windows contract workflow on a fork PR targeting a branch which contains the audited workflow. Keep licensed 16.4 and 16.7 compatibility evidence separate."

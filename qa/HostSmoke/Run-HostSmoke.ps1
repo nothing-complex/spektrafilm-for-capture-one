@@ -36,6 +36,7 @@ param(
     [string] $MetadataFixtureRoot,
     [switch] $SkipRestart,
     [switch] $CheckOrdinaryLaunch,
+    [switch] $OrdinaryLaunchOnly,
     [switch] $ShowTool,
     [switch] $ColorMatrix,
     [switch] $NativeSourceMutations,
@@ -70,6 +71,12 @@ param(
     [string] $ResultsDirectory
 )
 $ErrorActionPreference='Stop'
+if ($OrdinaryLaunchOnly) {
+    $allowed=@('OrdinaryLaunchOnly','SourceCatalog','CaptureOnePath','NativeSettingsConfig','ResultsDirectory')
+    if (!$NativeSettingsConfig -or ($PSBoundParameters.Keys | Where-Object { $_ -notin $allowed })) {
+        throw 'An ordinary-only launch needs a disposable catalog and verified preferences backup, without other fixture modes.'
+    }
+}
 if ($NativeLookBatchCrash) { $NativeLookBatch=$true }
 if ($NativeExportSelection) {
     if (!$NativeSettingsConfig -or $PackagedRuntime -or $UpgradeFromPackage -or $NativeBatchExport -or
@@ -533,13 +540,13 @@ if ($PackagedRuntime) {
     $panelBuild=Join-Path $runtimeSource 'panel\NativePanel.dll'
     $rendererBuild=Join-Path $runtimeSource 'renderer'
 }
-if (!$PackagedRuntime -and !$DevelopmentLeaseFixtureDirectory -and !$candidatePanel) {
+if (!$OrdinaryLaunchOnly -and !$PackagedRuntime -and !$DevelopmentLeaseFixtureDirectory -and !$candidatePanel) {
     Assert-CurrentManagedBuild $panelBuild (Join-Path $root 'NativePanel') @((Join-Path $root 'capture-one-hosts.json'))
 }
-if (!$UpgradeFromPackage -and !$PSBoundParameters.ContainsKey('TestHookPath')) {
+if (!$OrdinaryLaunchOnly -and !$UpgradeFromPackage -and !$PSBoundParameters.ContainsKey('TestHookPath')) {
     Assert-CurrentManagedBuild $TestHookPath $PSScriptRoot @()
 }
-if(!(Test-Path -LiteralPath (Join-Path $rendererBuild 'parameter-capabilities.json') -PathType Leaf)){
+if(!$OrdinaryLaunchOnly -and !(Test-Path -LiteralPath (Join-Path $rendererBuild 'parameter-capabilities.json') -PathType Leaf)){
     throw 'Run Build-Windows.ps1 to build the renderer and generate its parameter capabilities before testing the host.'
 }
 if ($NativeSettingsConfig) {
@@ -791,17 +798,19 @@ if ($UpgradeFromPackage) {
     return
 }
 $runtime=Join-Path $folder 'runtime'
-[void][IO.Directory]::CreateDirectory($runtime)
-Copy-Item -LiteralPath (Join-Path $runtimeSource 'stocks.json') -Destination $runtime
-Copy-Item -LiteralPath (Join-Path $runtimeSource 'profiles') -Destination $runtime -Recurse
-Copy-Item -LiteralPath $rendererBuild -Destination (Join-Path $runtime 'renderer') -Recurse
-Copy-Item -LiteralPath $panelBuild -Destination $runtime
-if ($PackagedRuntime) {
-    Copy-Item -LiteralPath (Join-Path $runtimeSource 'build-manifest.json') -Destination $runtime
-}
 $testHook=Join-Path $runtime 'HostSmoke.dll'
-if(!(Test-Path -LiteralPath $TestHookPath -PathType Leaf)){throw 'Build qa/HostSmoke and NativePanel first.'}
-Copy-Item -LiteralPath $TestHookPath -Destination $testHook
+if (!$OrdinaryLaunchOnly) {
+    [void][IO.Directory]::CreateDirectory($runtime)
+    Copy-Item -LiteralPath (Join-Path $runtimeSource 'stocks.json') -Destination $runtime
+    Copy-Item -LiteralPath (Join-Path $runtimeSource 'profiles') -Destination $runtime -Recurse
+    Copy-Item -LiteralPath $rendererBuild -Destination (Join-Path $runtime 'renderer') -Recurse
+    Copy-Item -LiteralPath $panelBuild -Destination $runtime
+    if ($PackagedRuntime) {
+        Copy-Item -LiteralPath (Join-Path $runtimeSource 'build-manifest.json') -Destination $runtime
+    }
+    if(!(Test-Path -LiteralPath $TestHookPath -PathType Leaf)){throw 'Build qa/HostSmoke and NativePanel first.'}
+    Copy-Item -LiteralPath $TestHookPath -Destination $testHook
+}
 $names=@(
     'DOTNET_STARTUP_HOOKS','SPEKTRAFILM_ROOT','SPEKTRAFILM_CATALOG','SPEKTRAFILM_DATA_ROOT',
     'SPEKTRAFILM_PANEL_LOG','SPEKTRAFILM_HOST_SMOKE','SPEKTRAFILM_LAUNCH_ID','SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX',
@@ -821,7 +830,7 @@ foreach($name in $names){$prior[$name]=[Environment]::GetEnvironmentVariable($na
 $testError=$null
 $captureOneDirectory=Split-Path -LiteralPath (Resolve-Path -LiteralPath $CaptureOnePath).ProviderPath
 try {
-    $env:DOTNET_STARTUP_HOOKS=if($ViewerNativeBaseline){$testHook}else{(Join-Path $runtime 'NativePanel.dll')+';'+$testHook}
+    $env:DOTNET_STARTUP_HOOKS=if($OrdinaryLaunchOnly){$null}elseif($ViewerNativeBaseline){$testHook}else{(Join-Path $runtime 'NativePanel.dll')+';'+$testHook}
     $env:SPEKTRAFILM_ROOT=$runtime
     $env:SPEKTRAFILM_CATALOG=$catalog
     $env:SPEKTRAFILM_DATA_ROOT=$folder
@@ -864,8 +873,8 @@ try {
     $env:SPEKTRAFILM_HOST_NATIVE_DEVELOPMENT_DEADLINE=if($NativeDevelopmentDeadline){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_DEVELOPMENT_LEASE=if($DevelopmentLeaseFixtureDirectory){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_DEVICE_LOSS=if($DeviceLossFixtureDirectory){'1'}else{$null}
-    $phases=if($CatalogIsolation){@('A-first','B-first','A-restart','B-restart')}elseif($NativeTabRemoval){@('first','restart','restore-tab')}elseif($SkipRestart -or $ViewerLayouts){@('first')}else{@('first','restart')}
-    if (!$SkipRestart -and !$CatalogIsolation -and !$ViewerLayouts -and !$DurableSliderEdits) { [IO.File]::WriteAllText((Join-Path $folder 'verify-grain-restart.marker'), 'test only') }
+    $phases=if($OrdinaryLaunchOnly){@()}elseif($CatalogIsolation){@('A-first','B-first','A-restart','B-restart')}elseif($NativeTabRemoval){@('first','restart','restore-tab')}elseif($SkipRestart -or $ViewerLayouts){@('first')}else{@('first','restart')}
+    if (!$OrdinaryLaunchOnly -and !$SkipRestart -and !$CatalogIsolation -and !$ViewerLayouts -and !$DurableSliderEdits) { [IO.File]::WriteAllText((Join-Path $folder 'verify-grain-restart.marker'), 'test only') }
     foreach($phase in $phases){
         [IO.File]::WriteAllText((Join-Path $folder 'phase.txt'),$phase)
         if($phase -ne $phases[0]){Start-Sleep -Seconds 10}
@@ -948,8 +957,8 @@ try {
         [IO.File]::WriteAllText((Join-Path $folder 'native-older-backup-relocation.json'), ($evidence | ConvertTo-Json -Compress))
         Write-Output 'PASS native relocation carried the look of a variant created after the original catalog backup.'
     }
-    if($CheckOrdinaryLaunch){
-        Start-Sleep -Seconds 10
+    if($CheckOrdinaryLaunch -or $OrdinaryLaunchOnly){
+        if (!$OrdinaryLaunchOnly) { Start-Sleep -Seconds 10 }
         $phaseStarted=[DateTime]::UtcNow
         [Environment]::SetEnvironmentVariable('DOTNET_STARTUP_HOOKS',$null,'Process')
         $env:SPEKTRAFILM_LAUNCH_ID=[Guid]::NewGuid().ToString('N')
@@ -959,7 +968,7 @@ try {
             $deadline=[DateTime]::UtcNow.AddSeconds(90)
             do {
                 $process.Refresh()
-                if($process.HasExited){throw 'Ordinary Capture One exited before opening the test catalog.'}
+                if($process.HasExited){throw "Ordinary Capture One exited before opening the test catalog (exit $($process.ExitCode))."}
                 $title=$process.MainWindowTitle
                 if($title -like '*Host Smoke*'){break}
                 if([DateTime]::UtcNow -gt $deadline){throw "Ordinary Capture One did not open the disposable catalog. Last title: $title"}
@@ -969,6 +978,9 @@ try {
             try { Wait-SpektrafilmPanel $process $status $env:SPEKTRAFILM_LAUNCH_ID 2 | Out-Null } catch { $failure=$_.Exception.Message }
             if($failure -notlike '*did not report the Spektrafilm startup hook*' -or (Test-Path -LiteralPath $status)){
                 throw "Ordinary launch unexpectedly reported startup state: $failure"
+            }
+            if (!$process.CloseMainWindow() -or !$process.WaitForExit(20000) -or $process.ExitCode -ne 0) {
+                throw 'Ordinary Capture One did not finish a clean close of the disposable catalog.'
             }
             $message="PASS ordinary Capture One opened $title without a Spektrafilm startup report."
             [IO.File]::WriteAllText((Join-Path $folder 'ordinary.passed'),$message)

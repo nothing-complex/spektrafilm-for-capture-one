@@ -416,6 +416,7 @@ internal static partial class Program
         GpuRenderPlan Plan(long amount) => new(heap, 100, amount);
         using var first = await coordinator.AcquireAsync(Plan(60), GpuWorkPriority.Interactive, default);
         using var second = await coordinator.AcquireAsync(Plan(20), GpuWorkPriority.Interactive, default);
+        Check(!first.Queued && !second.Queued, "immediately admitted work does not need a second GPU plan");
         using var cancellation = new CancellationTokenSource();
         var warm = coordinator.AcquireAsync(Plan(70), GpuWorkPriority.Warmup, default);
         var interactive = coordinator.AcquireAsync(Plan(60), GpuWorkPriority.Interactive, default);
@@ -431,7 +432,7 @@ internal static partial class Program
         Check(!interactive.IsCompleted && !warm.IsCompleted && !output.IsCompleted, "smaller waiting work cannot overtake an accepted output");
         second.Dispose();
         using var outputLease = await output.WaitAsync(TimeSpan.FromSeconds(2));
-        Check(!interactive.IsCompleted && !warm.IsCompleted, "accepted output has first priority");
+        Check(outputLease.Queued && !interactive.IsCompleted && !warm.IsCompleted, "accepted output keeps its queued state and has first priority");
         outputLease.Dispose();
         using var interactiveLease = await interactive.WaitAsync(TimeSpan.FromSeconds(2));
         Check(!warm.IsCompleted, "interactive work goes ahead of an earlier optional warmup");
@@ -516,6 +517,7 @@ internal static partial class Program
         var activeViewer = viewer.RenderAsync(1, 1, rgba, [], default);
         await WaitForRequest(root, activeViewer);
         var pressureRoot = Setup(scratch, "gpu-plan");
+        var beforeProbe = File.ReadLines(file).Count(line => line.Contains(" PLAN "));
         try
         {
             await using var waiting = new OpticalRenderer(export: true);
@@ -529,20 +531,41 @@ internal static partial class Program
                 "a worker with a completed frame becomes ineligible for retirement while it is rendering another");
             cancel.Cancel();
             await Throws<OperationCanceledException>(() => pressure.WaitAsync(TimeSpan.FromSeconds(5)));
+            Check(!activeViewer.IsCompleted && !process.HasExited, "canceling a queued contender leaves the active Viewer intact");
+
+            var remaining = Setup(scratch, "gpu-plan");
+            await using var next = new OpticalRenderer(export: true);
+            var accepted = next.RenderAsync(1, 1, rgba, [], default);
+            await WaitForPlan(remaining, accepted, CancellationToken.None);
+            await Task.Delay(100);
+            Check(!accepted.IsCompleted && !activeViewer.IsCompleted && !process.HasExited,
+                "a second output waits without interrupting the active Viewer");
+            File.WriteAllText(viewerScenario, "gpu-plan-resident");
+            File.WriteAllText(Path.Combine(viewerFolder, "release-response"), "");
+            Check((await activeViewer.WaitAsync(TimeSpan.FromSeconds(5))).SequenceEqual(baseline)
+                && (await accepted.WaitAsync(TimeSpan.FromSeconds(5))).SequenceEqual(baseline),
+                "the active Viewer and the queued output both deliver exact pixels");
+            var requests = File.ReadAllLines(Path.Combine(remaining, "renderer", "trace.txt"));
+            Check(requests.Count(line => line.Contains(" PLAN ")) == 3 && process.HasExited,
+                "the queued request refreshes admission and retires the newly idle worker before output");
         }
         finally { File.WriteAllText(Path.Combine(viewerFolder, "release-response"), ""); }
-        Check((await activeViewer.WaitAsync(TimeSpan.FromSeconds(5))).SequenceEqual(baseline) && !process.HasExited,
-            "canceling the competing request keeps the active Viewer alive and intact");
-        File.WriteAllText(viewerScenario, "gpu-plan-resident");
-        var beforeProbe = File.ReadLines(file).Count(line => line.Contains(" PLAN "));
-        await Output("gpu-plan");
-        Check(process.HasExited && File.ReadLines(file).Count(line => line.Contains(" PLAN ")) == beforeProbe + 1,
-            "a tight same-heap request verifies reclaimable bytes and waits for the idle Viewer process to exit");
+        Check(File.ReadLines(file).Count(line => line.Contains(" PLAN ")) == beforeProbe + 1,
+            "the contender verifies residency once the Viewer is idle");
         Check(viewer.LastRender?.ProcessId == initial.ProcessId, "idle reclamation retains the last completed frame receipt");
         Environment.SetEnvironmentVariable("SPEKTRAFILM_ROOT", root);
         var regenerated = await viewer.RenderAsync(1, 1, rgba, [], default);
         Check(regenerated.SequenceEqual(baseline) && viewer.LastRender is { SourceUploaded: true } replacement
             && replacement.ProcessId != initial.ProcessId, "the next Viewer change starts a clean worker and renders the same pixels");
+    }
+
+    private static async Task WaitForPlan(string root, Task render, CancellationToken token)
+    {
+        var path = Path.Combine(root, "renderer", "plan-received");
+        var started = Stopwatch.GetTimestamp();
+        while (!File.Exists(path) && !render.IsCompleted && Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(5))
+            await Task.Delay(10, token);
+        Check(File.Exists(path), "competing renderer negotiated a GPU plan");
     }
 
     private static async Task CheckPhysicalIdleWorker(string runtime, Guid adapter, int heap, string report)
@@ -554,7 +577,21 @@ internal static partial class Program
         try
         {
             using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(45));
-            await using var viewer = new OpticalRenderer(nativePreview: true);
+            var holdsReply = false;
+            var viewerOnGpu = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var releaseViewer = new ManualResetEventSlim();
+            await using var viewer = new OpticalRenderer(nativePreview: true)
+            {
+                ReportProgress = stage =>
+                {
+                    if (stage == RendererStage.Vulkan && Volatile.Read(ref holdsReply))
+                    {
+                        viewerOnGpu.TrySetResult();
+                        if (!releaseViewer.Wait(TimeSpan.FromSeconds(10), deadline.Token))
+                            throw new TimeoutException("The fixture did not release the active Viewer reply.");
+                    }
+                }
+            };
             var source = Pixels(width * height);
             var options = new[] { "--stock", "kodak_portra_400", "--paper", "kodak_portra_endura",
                 "--camera-diffusion-family", "pro_mist", "--camera-diffusion-strength", "1.5", "--halation-amount", "1" };
@@ -581,10 +618,45 @@ internal static partial class Program
             var restoredMs = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
             Check(viewer.LastRender is { SourceUploaded: true } replacement && replacement.ProcessId != child.Id
                 && Convert.ToHexString(SHA256.HashData(after)) == expected, "a fresh GPU worker delivers an identical packed reply after reclamation");
+
+            using var activeChild = Process.GetProcessById(viewer.LastRender!.Value.ProcessId);
+            var editedOptions = options.Concat(new[] { "--film-exposure", ".12" }).ToArray();
+            Task<byte[]> RenderEdit() => viewer.RenderAsync(width, height, source, editedOptions, deadline.Token, displayPixels: true);
+            Volatile.Write(ref holdsReply, true);
+            var active = RenderEdit();
+            string queued;
+            Task<byte[]> contender;
+            try
+            {
+                await viewerOnGpu.Task.WaitAsync(deadline.Token);
+                queued = Setup(Path.GetDirectoryName(Path.GetFullPath(report))!, "gpu-plan");
+                File.WriteAllText(Path.Combine(queued, "renderer", "gpu-target.txt"), $"{adapter:N}\n{heap}");
+                await using var competing = new OpticalRenderer(export: true);
+                contender = competing.RenderAsync(1, 1, Pixels(1), [], deadline.Token);
+                await WaitForPlan(queued, contender, deadline.Token);
+                await Task.Delay(100, deadline.Token);
+                Check(!active.IsCompleted && !contender.IsCompleted && !activeChild.HasExited,
+                    "same-heap pressure waits while the physical Viewer still owns its render");
+                releaseViewer.Set();
+                await contender;
+            }
+            finally
+            {
+                releaseViewer.Set();
+                Volatile.Write(ref holdsReply, false);
+            }
+            var queuedTrace = File.ReadAllLines(Path.Combine(queued, "renderer", "trace.txt"));
+            Check(activeChild.HasExited && queuedTrace.Count(line => line.Contains(" PLAN ")) == 3,
+                "the queued contender waits for physical Viewer exit and refreshes its plan again");
+            var editedHash = Convert.ToHexString(SHA256.HashData(await active));
+            Environment.SetEnvironmentVariable("SPEKTRAFILM_ROOT", root);
+            var freshEdit = Convert.ToHexString(SHA256.HashData(await RenderEdit()));
+            Check(editedHash == freshEdit && editedHash != expected, "the edited physical frame remains byte-exact after a queued reclamation");
             File.WriteAllText(report, JsonSerializer.Serialize(new
             {
                 adapter, heap, width, height, expected, warmMs, restoredMs,
                 physicalViewerRetired = child.HasExited, syntheticPressure = true,
+                queuedViewerRetired = activeChild.HasExited, editedHash, queuedPlanCount = queuedTrace.Count(line => line.Contains(" PLAN ")),
             }));
             Console.WriteLine($"PASS: {checks} physical idle worker reclamation assertions.");
         }

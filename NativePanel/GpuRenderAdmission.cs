@@ -10,6 +10,10 @@ internal readonly record struct GpuHeapIdentity(Guid Adapter, int Heap);
 
 internal readonly record struct GpuRenderPlan(GpuHeapIdentity Heap, long PlanningBytes, long EstimatedBytes,
     long ReclaimableBytes = 0);
+internal readonly record struct GpuRenderReservation(IDisposable Lease, bool Queued) : IDisposable
+{
+    public void Dispose() => Lease.Dispose();
+}
 
 internal sealed class GpuRenderAdmission
 {
@@ -17,19 +21,21 @@ internal sealed class GpuRenderAdmission
     private readonly object sync = new();
     private readonly Dictionary<GpuHeapIdentity, HeapQueue> queues = new();
 
-    internal async Task<IDisposable> AcquireAsync(GpuRenderPlan plan, GpuWorkPriority priority, CancellationToken token)
+    internal async Task<GpuRenderReservation> AcquireAsync(GpuRenderPlan plan, GpuWorkPriority priority, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
         var job = new Job(plan, priority);
+        bool queued;
         lock (sync)
         {
             if (!queues.TryGetValue(plan.Heap, out var queue))
                 queues.Add(plan.Heap, queue = new());
             queue.Waiting.Add(job);
             Admit(queue);
+            queued = !job.Ready.Task.IsCompleted;
         }
         using var cancellation = token.Register(() => Cancel(job, token));
-        return await job.Ready.Task.ConfigureAwait(false);
+        return new(await job.Ready.Task.ConfigureAwait(false), queued);
     }
 
     private void Cancel(Job job, CancellationToken token)
