@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Security.AccessControl;
+using System.Security.Cryptography;
 using System.Security.Principal;
 using System.Threading;
 using System.Windows.Media;
@@ -12,6 +13,7 @@ using System.Windows.Media.Imaging;
 internal static partial class Program
 {
     private const int InterruptedStageBytes = 1024 * 1024;
+    private const string PublicationNote = "The recipe requested PNG. Saved 16-bit TIFF.";
 
     private static void TestCrashOwnedExportStage(string folder)
     {
@@ -63,6 +65,110 @@ internal static partial class Program
             Thread.Sleep(TimeSpan.FromSeconds(25));
             throw new TimeoutException("The test did not stop the staging process.");
         }, CancellationToken.None);
+    }
+
+    private static void TestInterruptedPublication(string folder)
+    {
+        foreach (var point in new[] { "before", "after" })
+        {
+            var directory = Directory.CreateDirectory(Path.Combine(folder, $"publication-{point}-{Guid.NewGuid():N}")).FullName;
+            var original = Path.Combine(directory, "original.raw");
+            var destination = Path.Combine(directory, "existing.tif");
+            var unrelated = Path.Combine(directory, ".spektra-unrelated.tmp");
+            File.WriteAllText(original, "source");
+            File.WriteAllText(destination, "previous");
+            File.WriteAllText(unrelated, "unrelated");
+            var journal = new ExportJobJournal(Path.Combine(directory, "journal"), _ => { });
+            var start = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false, CreateNoWindow = true };
+            if (Path.GetFileNameWithoutExtension(start.FileName).Equals("dotnet", StringComparison.OrdinalIgnoreCase))
+                start.ArgumentList.Add(typeof(Program).Assembly.Location);
+            start.ArgumentList.Add("--hold-verified-export");
+            start.ArgumentList.Add(directory);
+            start.ArgumentList.Add(point);
+            using var child = Process.Start(start) ?? throw new InvalidOperationException("Could not start the publication fixture.");
+            ExportReceipt? receipt = null;
+            try
+            {
+                var ready = Path.Combine(directory, "verified.ready");
+                Check(SpinWait.SpinUntil(() => child.HasExited || File.Exists(ready), TimeSpan.FromSeconds(15))
+                    && !child.HasExited && File.Exists(ready), $"a separate process reached the boundary {point} atomic publication");
+                receipt = journal.ReadLatest();
+                Check(receipt is { Stage: ExportStage.Encoding, Width: 32, Height: 24, Publication.Valid: true }
+                    && receipt.Publication.DeliveryNote == PublicationNote, "the encoding receipt already contains the verified bytes and delivery details");
+            }
+            finally
+            {
+                if (!child.HasExited) child.Kill();
+                Check(child.WaitForExit(10000), "the owned publication fixture stopped");
+            }
+            Check(Directory.EnumerateFiles(directory, ".spektra-*.tmp").SequenceEqual(new[] { unrelated })
+                && File.ReadAllText(original) == "source" && File.ReadAllText(unrelated) == "unrelated",
+                "the hard stop leaves the original and unrelated file intact and clears owned staging");
+            if (point == "before")
+            {
+                Check(File.ReadAllText(destination) == "previous" && journal.CompletePublished(receipt!, CancellationToken.None) is null
+                    && journal.ReadLatest() == receipt, "a persisted proof alone cannot complete an export before atomic publication");
+                continue;
+            }
+
+            var published = File.ReadAllBytes(destination);
+            Check(published.LongLength == receipt!.Publication!.Length
+                && Convert.ToHexString(SHA256.HashData(published)) == receipt.Publication.Sha256,
+                "the proof matches an independently read published 16-bit TIFF");
+            var changed = (byte[])published.Clone();
+            changed[^1] ^= 1;
+            File.WriteAllBytes(destination, changed);
+            Check(journal.CompletePublished(receipt, CancellationToken.None) is null && journal.ReadLatest() == receipt
+                && File.ReadAllBytes(destination).SequenceEqual(changed), "an edited file with the same length is preserved and cannot complete the old job");
+            File.WriteAllBytes(destination, published);
+            using var stop = new CancellationTokenSource();
+            stop.Cancel();
+            var canceled = false;
+            try { journal.CompletePublished(receipt, stop.Token); }
+            catch (OperationCanceledException) { canceled = true; }
+            Check(canceled && journal.ReadLatest() == receipt, "canceling verification keeps the Encoding receipt");
+
+            var completed = journal.CompletePublished(receipt, CancellationToken.None);
+            Check(completed is { Stage: ExportStage.Completed, Width: 32, Height: 24, Publication: null, Retry: null }
+                && completed.JobId == receipt.JobId && completed.DeliveryNote == PublicationNote && completed == journal.ReadLatest()
+                && completed.BatchId == receipt.BatchId && completed.BatchId is not null && journal.ReadPendingBatch() is null
+                && File.ReadAllBytes(destination).SequenceEqual(published),
+                "recovery closes the one-item batch under its original job ID and leaves the TIFF byte-exact");
+        }
+    }
+
+    private static void HoldVerifiedExport(string directory, string point)
+    {
+        var destination = Path.Combine(directory, "existing.tif");
+        var approved = OutputPathGuard.Approve(destination, Path.Combine(directory, "original.raw"));
+        var journal = new ExportJobJournal(Path.Combine(directory, "journal"), _ => { });
+        ExportReceipt accepted;
+        if (point == "after")
+        {
+            var entry = new ExportBatchEntry(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(),
+                Path.Combine(directory, "original.raw"), destination, null);
+            var plan = ExportBatchPlan.Create(directory, new[] { entry });
+            journal.SaveBatch(plan);
+            accepted = journal.BeginBatchItem(plan, entry);
+        }
+        else
+            accepted = journal.Accept(Guid.NewGuid(), destination);
+        var receipt = journal.Report(accepted, ExportStage.Encoding, width: 32, height: 24);
+        var pixels = Enumerable.Range(0, 32 * 24 * 3).Select(i => (ushort)(i * 61)).ToArray();
+        var image = BitmapSource.Create(32, 24, 96, 96, PixelFormats.Rgb48, null, pixels, 32 * 6);
+        SpektraExport.SaveApproved(approved, image, CancellationToken.None, verified: proof =>
+        {
+            journal.RecordPublication(receipt, proof with { DeliveryNote = PublicationNote });
+            if (point == "before") SignalWait();
+        });
+        SignalWait();
+
+        void SignalWait()
+        {
+            File.WriteAllText(Path.Combine(directory, "verified.ready"), point);
+            Thread.Sleep(TimeSpan.FromSeconds(25));
+            throw new TimeoutException("The test did not stop the publication process.");
+        }
     }
 
     private static void TestExportStorageFailures(string folder)

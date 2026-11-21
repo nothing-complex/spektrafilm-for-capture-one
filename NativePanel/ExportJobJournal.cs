@@ -1,9 +1,12 @@
 using System;
+using System.Buffers;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading;
 
 [JsonConverter(typeof(JsonStringEnumConverter<ExportStage>))]
 internal enum ExportStage { Accepted, WaitingForViewer, DevelopingSource, RenderingFilm, Encoding, Completed, Canceled, Failed, Skipped }
@@ -11,7 +14,35 @@ internal enum ExportStage { Accepted, WaitingForViewer, DevelopingSource, Render
 internal sealed record ExportRetryDescriptor(bool FollowRecipe, string NativeModel, string Original, string Delivery)
 {
     internal bool Valid => IsDigest(NativeModel) && IsDigest(Original) && IsDigest(Delivery);
-    private static bool IsDigest(string? value) => value is { Length: 64 } && value.All(Uri.IsHexDigit);
+    internal static bool IsDigest(string? value) => value is { Length: 64 } && value.All(Uri.IsHexDigit);
+}
+
+internal sealed record ExportPublication(long Length, string Sha256, string? DeliveryNote = null)
+{
+    internal bool Valid => Length > 0 && ExportRetryDescriptor.IsDigest(Sha256) && DeliveryNote is not { Length: > 2048 };
+
+    internal static ExportPublication Read(Stream stream, CancellationToken stop)
+    {
+        var length = stream.Length;
+        stream.Position = 0;
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        var buffer = ArrayPool<byte>.Shared.Rent(256 * 1024);
+        try
+        {
+            long remaining = length;
+            while (remaining > 0)
+            {
+                stop.ThrowIfCancellationRequested();
+                var count = (int)Math.Min(remaining, buffer.Length);
+                stream.ReadExactly(buffer.AsSpan(0, count));
+                hash.AppendData(buffer.AsSpan(0, count));
+                remaining -= count;
+            }
+            stop.ThrowIfCancellationRequested();
+            return new ExportPublication(length, Convert.ToHexString(hash.GetHashAndReset()));
+        }
+        finally { ArrayPool<byte>.Shared.Return(buffer); }
+    }
 }
 
 internal sealed record ExportBatchEntry(Guid JobId, Guid ImageId, Guid VariantId, string OriginalPath, string Destination,
@@ -32,7 +63,8 @@ internal sealed record ExportReceipt([property: JsonRequired] int Version, [prop
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? DeliveryNote = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ExportRetryDescriptor? Retry = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? RetryOf = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? BatchId = null)
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? BatchId = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ExportPublication? Publication = null)
 {
     internal bool Finished => Stage is ExportStage.Completed or ExportStage.Canceled or ExportStage.Failed or ExportStage.Skipped;
 }
@@ -165,6 +197,7 @@ internal sealed class ExportJobJournal(string directory, Action<string> log)
         && receipt.Destination is { Length: > 0 } && Path.IsPathFullyQualified(receipt.Destination) && Enum.IsDefined(receipt.Stage)
         && receipt.AcceptedUtc <= receipt.UpdatedUtc && Path.GetFileName(path) == Name(receipt)
         && (receipt.Retry is null || receipt.Retry.Valid)
+        && (receipt.Publication is null || receipt is { Stage: ExportStage.Encoding, Width: > 0, Height: > 0, Publication.Valid: true })
         && (receipt.RetryOf is null || receipt.RetryOf != Guid.Empty && receipt.RetryOf != receipt.JobId)
         && receipt.BatchId != Guid.Empty;
 
@@ -216,18 +249,65 @@ internal sealed class ExportJobJournal(string directory, Action<string> log)
         return next;
     }
 
+    internal ExportReceipt RecordPublication(ExportReceipt receipt, ExportPublication publication)
+    {
+        if (receipt is not { Stage: ExportStage.Encoding, Width: > 0, Height: > 0, Publication: null } || !publication.Valid)
+            throw new InvalidOperationException("A verified publication belongs to an export that is encoding.");
+        var next = receipt with { Publication = publication };
+        Save(next);
+        return next;
+    }
+
+    internal ExportReceipt? CompletePublished(ExportReceipt receipt, CancellationToken stop)
+    {
+        if (receipt is not { Stage: ExportStage.Encoding, Publication: { Valid: true } publication })
+            return null;
+        stop.ThrowIfCancellationRequested();
+        FileStream file;
+        try
+        {
+            file = new FileStream(receipt.Destination, FileMode.Open, FileAccess.Read, FileShare.Read,
+                128 * 1024, FileOptions.SequentialScan);
+        }
+        catch (Exception error) when (error is FileNotFoundException or DirectoryNotFoundException) { return null; }
+        using (file)
+        {
+            if (file.Length != publication.Length ||
+                !StringComparer.OrdinalIgnoreCase.Equals(ExportPublication.Read(file, stop).Sha256, publication.Sha256))
+                return null;
+            lock (FileGate)
+            {
+                stop.ThrowIfCancellationRequested();
+                var path = Path.Combine(directory, Name(receipt));
+                var current = PanelFiles.ReadPreset<ExportReceipt>(path);
+                if (!ValidReceipt(current, path) || current != receipt)
+                    throw new InvalidOperationException("The saved export changed while its output was being checked.");
+                var next = AdvanceReceipt(receipt, ExportStage.Completed, deliveryNote: publication.DeliveryNote);
+                WriteReceipt(next);
+                return next;
+            }
+        }
+    }
+
     internal ExportReceipt Report(ExportReceipt current, ExportStage stage, int width = 0, int height = 0,
+        string? error = null, string? deliveryNote = null)
+    {
+        var next = AdvanceReceipt(current, stage, width, height, error, deliveryNote);
+        Save(next);
+        return next;
+    }
+
+    private static ExportReceipt AdvanceReceipt(ExportReceipt current, ExportStage stage, int width = 0, int height = 0,
         string? error = null, string? deliveryNote = null)
     {
         if (current.Finished || stage <= current.Stage || !Enum.IsDefined(stage))
             throw new InvalidOperationException("The Spektrafilm export stage cannot move backwards or change after completion.");
         var now = DateTime.UtcNow;
-        var next = current with { Stage = stage, UpdatedUtc = now < current.UpdatedUtc ? current.UpdatedUtc : now, Width = width == 0 ? current.Width : width,
+        return current with { Stage = stage, UpdatedUtc = now < current.UpdatedUtc ? current.UpdatedUtc : now, Width = width == 0 ? current.Width : width,
             Height = height == 0 ? current.Height : height, Error = error is { Length: > 1000 } ? error[..1000] : error,
             DeliveryNote = stage == ExportStage.Completed ? deliveryNote : null,
-            Retry = stage is ExportStage.Completed or ExportStage.Canceled or ExportStage.Failed or ExportStage.Skipped ? null : current.Retry };
-        Save(next);
-        return next;
+            Retry = stage is ExportStage.Completed or ExportStage.Canceled or ExportStage.Failed or ExportStage.Skipped ? null : current.Retry,
+            Publication = null };
     }
 
     private void Save(ExportReceipt receipt)

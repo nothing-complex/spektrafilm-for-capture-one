@@ -206,7 +206,8 @@ internal sealed class SpatialPreview : IDisposable
         var exportControls = new StackPanel();
         interruptedBatch = exportActivity.BatchActive ? null : exportJobs.ReadPendingBatch();
         var latest = exportActivity.Active is null ? exportJobs.ReadLatest() : null;
-        interruptedExport = latest is { Finished: false, Retry.Valid: true, BatchId: null } ? latest : null;
+        interruptedExport = latest is { Finished: false, BatchId: null } && (latest.Retry is { Valid: true } || latest.Publication is not null)
+            ? latest : null;
         exportStatus.Text = exportActivity.Message ?? (interruptedBatch is null ? DescribePreviousExport(latest)
             : "Interrupted batch · Review pending exports.");
         exportControls.Children.Add(exportStatus);
@@ -646,7 +647,7 @@ internal sealed class SpatialPreview : IDisposable
     {
         if (disposed) return;
         enabled = value;
-        retryExport.IsEnabled = value;
+        retryExport.IsEnabled = value || interruptedExport?.Publication is not null;
         if (enabled)
         {
             RequestRefresh();
@@ -676,6 +677,8 @@ internal sealed class SpatialPreview : IDisposable
             RequestRefresh();
         }
         retryExport.Visibility = !busy && interruptedBatch is null && interruptedExport is not null ? Visibility.Visible : Visibility.Collapsed;
+        retryExport.IsEnabled = enabled || interruptedExport?.Publication is not null;
+        retryExport.Content = interruptedExport?.Publication is not null ? "Check interrupted export…" : "Retry interrupted export…";
         resumeExportBatch.Visibility = discardExportBatch.Visibility = !busy && interruptedBatch is not null
             ? Visibility.Visible : Visibility.Collapsed;
     }
@@ -916,6 +919,7 @@ internal sealed class SpatialPreview : IDisposable
         if (disposed || OutputRenderActive || interruptedBatch is not { } plan) return 0;
         var saved = 0;
         var occupied = 0;
+        var alreadySaved = 0;
         var pending = plan.Entries.Length;
         var approvedRecovery = false;
         string? detail = null;
@@ -933,11 +937,17 @@ internal sealed class SpatialPreview : IDisposable
                 token.ThrowIfCancellationRequested();
                 try
                 {
-                    if (exportJobs.ReadBatchItem(plan, entry) is { Finished: true }) continue;
+                    var previous = exportJobs.ReadBatchItem(plan, entry);
+                    if (previous is { Finished: true }) continue;
                     if (entry.SkipExisting)
                     {
                         RecordBatchSkip(plan, entry);
                         occupied++;
+                        continue;
+                    }
+                    if (previous is { Publication: not null } && await CompletePublishedAsync(previous, token) is not null)
+                    {
+                        alreadySaved++;
                         continue;
                     }
                     var source = await CaptureBatchSourceAsync(HostProfile.RecoverSelection(window, document, entry), token);
@@ -991,7 +1001,9 @@ internal sealed class SpatialPreview : IDisposable
         }
         finally
         {
-            var summary = approvedRecovery ? $"Resumed batch · {saved} saved · {occupied} existing files preserved · {pending} pending"
+            var summary = approvedRecovery ? $"Resumed batch · {saved} saved"
+                + (alreadySaved > 0 ? $" · {alreadySaved} already saved" : "")
+                + $" · {occupied} skipped · {pending} pending"
                 : "Interrupted batch · Review pending exports.";
             exportActivity.EndBatch(detail is null ? summary : summary + Environment.NewLine + detail);
         }
@@ -1062,10 +1074,46 @@ internal sealed class SpatialPreview : IDisposable
         Func<SaveFileDialog, Window?, string?> chooseDestination) =>
         RunExportWithDestinationAsync(useRecipeSize, owner, chooseDestination, null);
 
-    private Task<bool> RetryInterruptedExportAsync(Func<SaveFileDialog, Window?, string?> chooseDestination) =>
-        interruptedExport is { Retry: { } retry } interrupted
-            ? RunExportWithDestinationAsync(retry.FollowRecipe, Window.GetWindow(retryExport), chooseDestination, interrupted)
-            : Task.FromResult(false);
+    private Task<ExportReceipt?> CompletePublishedAsync(ExportReceipt receipt, CancellationToken stop) =>
+        Task.Run(() => exportJobs.CompletePublished(receipt, stop), stop).WaitAsync(stop);
+
+    private async Task<bool> RetryInterruptedExportAsync(Func<SaveFileDialog, Window?, string?> chooseDestination)
+    {
+        if (disposed || OutputRenderActive || interruptedExport is not { } interrupted) return false;
+        if (interrupted.Publication is not null)
+        {
+            using var check = new ExportOperation(interrupted.VariantId);
+            exportActivity.Begin(check);
+            try
+            {
+                exportActivity.Report(check, "Checking the interrupted export’s output file…");
+                if (await CompletePublishedAsync(interrupted, lifetime.Token) is { } completed)
+                {
+                    interruptedExport = null;
+                    exportActivity.Report(check, DescribePreviousExport(completed));
+                    return true;
+                }
+            }
+            catch (OperationCanceledException) { return false; }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException or JsonException or InvalidOperationException)
+            {
+                exportActivity.Report(check, "Could not confirm the export’s output file. " + error.GetBaseException().Message);
+                return false;
+            }
+            finally { exportActivity.End(check); }
+        }
+        if (interrupted.Retry is not { } retry)
+        {
+            exportActivity.Report(null, "Could not confirm the export’s output file. Start a new export.");
+            return false;
+        }
+        if (!enabled)
+        {
+            exportActivity.Report(null, "Enable Spektrafilm to retry the interrupted render.");
+            return false;
+        }
+        return await RunExportWithDestinationAsync(retry.FollowRecipe, Window.GetWindow(retryExport), chooseDestination, interrupted);
+    }
 
     private async Task<bool> RunExportWithDestinationAsync(bool useRecipeSize, Window? owner,
         Func<SaveFileDialog, Window?, string?> chooseDestination, ExportReceipt? interrupted, BatchExport? batch = null)
@@ -1277,7 +1325,8 @@ internal sealed class SpatialPreview : IDisposable
                     var profileSetupMs = Stopwatch.GetElapsedTime(profileSetupStarted).TotalMilliseconds;
                     var writeStarted = Stopwatch.GetTimestamp();
                     SpektraExport.SaveApproved(approved, output, work.Token, recipe?.Metadata, deliveryProfile,
-                        recipe?.TiffCompression ?? TiffCompressOption.Zip, work.ReportEncoderWrite);
+                        recipe?.TiffCompression ?? TiffCompressOption.Zip, work.ReportEncoderWrite,
+                        publication => receipt = exportJobs.RecordPublication(receipt!, publication with { DeliveryNote = deliveryNote }));
                     StartupHook.Log("export.performance.v2", new
                     {
                         JobId = jobId,

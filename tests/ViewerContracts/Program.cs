@@ -62,6 +62,11 @@ internal static partial class Program
             HoldGuardedExportStage(stagingDirectory);
             return;
         }
+        if (args is ["--hold-verified-export", var publicationDirectory, var point])
+        {
+            HoldVerifiedExport(publicationDirectory, point);
+            return;
+        }
         if (args is ["--display-profile-patches", var alternateIcc, var patchReport])
         {
             MeasureWpfDisplayPatches(alternateIcc, patchReport);
@@ -102,6 +107,7 @@ internal static partial class Program
         TestOutputProtection(folder);
         TestExportStorageFailures(folder);
         TestCrashOwnedExportStage(folder);
+        TestInterruptedPublication(folder);
         TestSectionPreferences(folder);
         TestScheduling().GetAwaiter().GetResult();
         TestNativeCallbackOwnership().GetAwaiter().GetResult();

@@ -148,12 +148,12 @@ internal static class SpektraExport
 
     internal static void SaveApproved(OutputPathGuard.ApprovedDestination destination, BitmapSource image, CancellationToken stop,
         ExportMetadata? metadata = null, ExportColorProfile? outputProfile = null, TiffCompressOption tiffCompression = TiffCompressOption.Zip,
-        Action<int>? reportWrite = null) =>
-        SaveImage(destination.Path, image, stop, destination, metadata, outputProfile, tiffCompression, reportWrite);
+        Action<int>? reportWrite = null, Action<ExportPublication>? verified = null) =>
+        SaveImage(destination.Path, image, stop, destination, metadata, outputProfile, tiffCompression, reportWrite, verified);
 
     private static void SaveImage(string path, BitmapSource image, CancellationToken stop, OutputPathGuard.ApprovedDestination? destination,
         ExportMetadata? metadata = null, ExportColorProfile? outputProfile = null, TiffCompressOption tiffCompression = TiffCompressOption.Zip,
-        Action<int>? reportWrite = null)
+        Action<int>? reportWrite = null, Action<ExportPublication>? verified = null)
     {
         stop.ThrowIfCancellationRequested();
         var format = PixelFormatFor(path);
@@ -206,6 +206,8 @@ internal static class SpektraExport
             // Verify the stored UTF-8 packet and container encoding directly.
             if (xmp is not null && !(png ? PngXmp.Contains(stream, xmp) : EncodedXmp.TiffContains(stream, xmp)))
                 throw new InvalidDataException("The encoded image did not preserve the export metadata.");
+            if (verified is not null)
+                verified(ExportPublication.Read(stream, stop));
         }
         if (destination is null)
             PanelFiles.WriteAtomically(path, Encode, beforeCommit: stop.ThrowIfCancellationRequested);

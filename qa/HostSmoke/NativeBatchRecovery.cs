@@ -162,8 +162,8 @@ public static partial class StartupHook
         }
         else
         {
-            Check(Stage(1) == "Skipped" && Digest(interrupted.Paths[1]) == secondPublished,
-                "recovery preserves output published immediately before process termination");
+            Check(Stage(1) == "Completed" && Digest(interrupted.Paths[1]) == secondPublished,
+                "recovery verifies and completes output published immediately before process termination");
         }
         Check(Plan() is null && Digest(interrupted.Paths[0]) == interrupted.FirstSha256 && Digest(interrupted.Paths[2]) == thirdSha
             && !File.Exists(interrupted.Paths[3]) && Digest(movedSkipFile) == interrupted.SkippedSha256
