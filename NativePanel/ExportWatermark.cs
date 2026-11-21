@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.Threading;
+using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
@@ -75,5 +76,35 @@ internal sealed record ExportWatermark(int X, int Y, int Width, int Height, floa
             destination.Format, null, samples, stride);
         output.Freeze();
         return output;
+    }
+
+    internal (PsdLayer Layer, BitmapSource Merged)? ComposePsdLayer(BitmapSource background, Rectangle crop,
+        ushort[] overlay, CancellationToken stop)
+    {
+        var bounds = Rectangle.Intersect(crop, new Rectangle(X, Y, Width, Height));
+        if (bounds.Width <= 0 || bounds.Height <= 0 || Opacity == 0)
+            return null;
+        var visible = false;
+        var local = new Int32Rect(bounds.Left - X, bounds.Top - Y, bounds.Width, bounds.Height);
+        for (var y = local.Y; y < local.Y + local.Height; y++)
+        {
+            stop.ThrowIfCancellationRequested();
+            var alpha = (y * Width + local.X) * 4 + 3;
+            for (var x = 0; x < local.Width; x++, alpha += 4)
+            {
+                overlay[alpha] = (ushort)Math.Round(overlay[alpha] * (double)Opacity);
+                visible |= overlay[alpha] != 0;
+            }
+        }
+        if (!visible) return null;
+
+        // Bake the recipe opacity into 16-bit alpha so the layer and merged
+        // preview agree even when the recipe opacity falls between PSD steps.
+        var bitmap = BitmapSource.Create(Width, Height, background.DpiX, background.DpiY, PixelFormats.Rgba64, null,
+            overlay, checked(Width * 8));
+        BitmapSource layer = local.Width == Width && local.Height == Height ? bitmap : new CroppedBitmap(bitmap, local);
+        layer.Freeze();
+        var merged = (this with { Opacity = 1 }).Composite(background, crop, overlay, stop);
+        return (new PsdLayer("Watermark", bounds.Left - crop.Left, bounds.Top - crop.Top, layer), merged);
     }
 }

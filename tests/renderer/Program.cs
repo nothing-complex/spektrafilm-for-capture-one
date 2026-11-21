@@ -347,7 +347,13 @@ internal static partial class Program
                 using var canceled = new CancellationTokenSource(); canceled.Cancel();
                 await Throws<OperationCanceledException>(() => NativeLutExporter.ExportAsync(plan, 65, 1, canceled.Token));
             }
+            Directory.Delete(scratch, recursive: true);
             Console.WriteLine($"PASS: {checks} renderer client checks; no GPU or Capture One required.");
+        }
+        catch
+        {
+            Console.Error.WriteLine($"Renderer contract artifacts retained in {scratch}");
+            throw;
         }
         finally { Environment.SetEnvironmentVariable("SPEKTRAFILM_ROOT", previous); }
     }

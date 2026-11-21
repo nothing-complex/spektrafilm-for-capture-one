@@ -3,10 +3,12 @@ using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
 
-// Independent reader for the flat, uncompressed RGB16 files produced by fixtures.
+// Independent reader for the uncompressed RGB16 files produced by fixtures.
 internal sealed record PsdFixture(int Width, int Height, ushort[] Samples, Dictionary<ushort, byte[]> Resources,
-    Dictionary<ushort, string> ResourceNames)
+    Dictionary<ushort, string> ResourceNames, PsdFixture.Layer[] Layers)
 {
+    internal sealed record Layer(string Name, int Left, int Top, int Width, int Height, ushort[] Samples);
+
     internal double DpiX => BinaryPrimitives.ReadUInt32BigEndian(Resources[1005]) / 65536d;
     internal double DpiY => BinaryPrimitives.ReadUInt32BigEndian(Resources[1005].AsSpan(8)) / 65536d;
 
@@ -90,7 +92,9 @@ internal sealed record PsdFixture(int Width, int Height, ushort[] Samples, Dicti
             Require(resources.TryAdd(id, ReadBytes(size)), "duplicate resource");
             stream.Position += size & 1;
         }
-        Require(stream.Position == end && Long() == 0 && Word() == 0, "flattened raw composite");
+        Require(stream.Position == end, "resource boundary");
+        var layers = ReadLayers();
+        Require(Word() == 0, "raw composite");
         var pixels = checked(width * height);
         Require(stream.Length - stream.Position == (long)pixels * 6, "sample count");
         var samples = new ushort[pixels * 3];
@@ -104,6 +108,61 @@ internal sealed record PsdFixture(int Width, int Height, ushort[] Samples, Dicti
                     samples[(y * width + x) * 3 + channel] = BinaryPrimitives.ReadUInt16BigEndian(row.AsSpan(x * 2));
             }
         }
-        return new(width, height, samples, resources, names);
+        return new(width, height, samples, resources, names, layers);
+
+        Layer[] ReadLayers()
+        {
+            var blockLength = Long();
+            if (blockLength == 0) return [];
+            var blockEnd = stream.Position + blockLength;
+            Require(blockEnd < stream.Length && Long() == 0 && Long() == 0, "layer and mask framing");
+            Require(ReadBytes(8).AsSpan().SequenceEqual("8BIMLr16"u8), "16-bit layer tag");
+            var length = Long();
+            var layerEnd = stream.Position + length;
+            Require(layerEnd <= blockEnd && blockEnd - layerEnd < 4, "layer tag extent");
+            var layers = new Layer[Word()];
+            var counts = new int[layers.Length];
+            for (var index = 0; index < layers.Length; index++)
+            {
+                var top = checked((int)Long());
+                var left = checked((int)Long());
+                var bottom = checked((int)Long());
+                var right = checked((int)Long());
+                var channels = Word();
+                Require(channels is 3 or 4 && bottom <= height && right <= width && bottom > top && right > left, "layer bounds");
+                var pixels = checked((bottom - top) * (right - left));
+                for (var channel = 0; channel < channels; channel++)
+                    Require(Word() == (channel == 3 ? ushort.MaxValue : channel)
+                        && Long() == 2 + pixels * 2L, "layer channel");
+                Require(ReadBytes(8).AsSpan().SequenceEqual("8BIMnorm"u8)
+                    && ReadBytes(4).AsSpan().SequenceEqual(new byte[] { 255, 0, 8, 0 }), "normal visible layer");
+                var extra = Long();
+                var extraEnd = stream.Position + extra;
+                Require(extraEnd <= layerEnd && Long() == 0 && Long() == 0, "layer extra data");
+                var name = System.Text.Encoding.ASCII.GetString(ReadBytes(reader.ReadByte()));
+                stream.Position = extraEnd;
+                counts[index] = channels;
+                layers[index] = new(name, left, top, right - left, bottom - top, new ushort[pixels * channels]);
+            }
+            for (var index = 0; index < layers.Length; index++)
+            {
+                var layer = layers[index];
+                var row = new byte[layer.Width * 2];
+                for (var channel = 0; channel < counts[index]; channel++)
+                {
+                    Require(Word() == 0, "raw layer channel");
+                    for (var y = 0; y < layer.Height; y++)
+                    {
+                        stream.ReadExactly(row);
+                        for (var x = 0; x < layer.Width; x++)
+                            layer.Samples[(y * layer.Width + x) * counts[index] + channel] =
+                                BinaryPrimitives.ReadUInt16BigEndian(row.AsSpan(x * 2));
+                    }
+                }
+            }
+            Require(stream.Position == layerEnd && ReadBytes((int)(blockEnd - layerEnd)).AsSpan().IndexOfAnyExcept((byte)0) < 0,
+                "layer block padding");
+            return layers;
+        }
     }
 }

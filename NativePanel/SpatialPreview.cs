@@ -1311,7 +1311,9 @@ internal sealed class SpatialPreview : IDisposable
                     Advance(ExportStage.Encoding, "Writing the 16-bit export…", rendered.Crop.Width, rendered.Crop.Height);
                     var watermark = recipe?.Watermark;
                     var convertsProfile = deliveryProfile.RequiresConversion;
-                    var allocation = !convertsProfile ? RenderAllocation.ImageEncoding
+                    var editableWatermark = watermark is not null && outputContainer == SpektraExport.Format.Psd;
+                    var allocation = editableWatermark ? RenderAllocation.ProfileImageEncodingWithWatermark
+                        : !convertsProfile ? RenderAllocation.ImageEncoding
                         : watermark is null ? RenderAllocation.ProfileImageEncoding : RenderAllocation.ProfileImageEncodingWithWatermark;
                     using var memory = RenderMemoryBudget.SystemMemory.Reserve(allocation,
                         (long)rendered.Crop.Width * rendered.Crop.Height, "Free memory or choose a smaller Export Recipe.");
@@ -1321,11 +1323,20 @@ internal sealed class SpatialPreview : IDisposable
                     var deliveryFormat = convertsProfile ? PixelFormats.Rgba64 : outputFormat;
                     var encodingStarted = Stopwatch.GetTimestamp();
                     var image = DecodeExport(source, pixels, strength, input.Space, encoding, deliveryFormat, rendered.Crop, work.Token, dpi,
-                        convertsProfile ? null : watermark, watermarkPixels);
+                        convertsProfile || editableWatermark ? null : watermark, watermarkPixels);
                     var blendAndCropMs = Stopwatch.GetElapsedTime(encodingStarted).TotalMilliseconds;
                     var profileSetupStarted = Stopwatch.GetTimestamp();
                     var output = deliveryProfile.ConvertSrgb(image, outputFormat);
-                    if (convertsProfile && watermark is not null)
+                    PsdLayer[]? layers = null;
+                    if (editableWatermark)
+                    {
+                        if (watermark!.ComposePsdLayer(output, rendered.Crop, watermarkPixels!, work.Token) is { } layered)
+                        {
+                            layers = [new PsdLayer("Background", 0, 0, output), layered.Layer];
+                            output = layered.Merged;
+                        }
+                    }
+                    else if (convertsProfile && watermark is not null)
                         output = watermark.Composite(output, rendered.Crop, watermarkPixels!, work.Token);
                     var profileSetupMs = Stopwatch.GetElapsedTime(profileSetupStarted).TotalMilliseconds;
                     var guides = outputContainer == SpektraExport.Format.Psd && recipe?.Guides is { Length: > 0 } availableGuides
@@ -1334,7 +1345,7 @@ internal sealed class SpatialPreview : IDisposable
                     SpektraExport.SaveApproved(approved, output, work.Token, recipe?.Metadata, deliveryProfile,
                         recipe?.TiffCompression ?? TiffCompressOption.Zip, work.ReportEncoderWrite,
                         publication => receipt = exportJobs.RecordPublication(receipt!, publication with { DeliveryNote = deliveryNote }),
-                        cropPath: recipe?.CropPath, guides: guides);
+                        cropPath: recipe?.CropPath, guides: guides, layers: layers);
                     StartupHook.Log("export.performance.v2", new
                     {
                         JobId = jobId,

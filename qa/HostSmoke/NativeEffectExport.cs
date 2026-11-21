@@ -964,6 +964,18 @@ public static partial class StartupHook
                     Check(Difference(imageWithoutFilm, tiff).Mean > .01 && commandParity.Mean < 8d / 65535 && commandParity.Maximum < .01,
                         "native Export and Previous Settings agree on the same processed RGB16 image and watermark");
 
+                    Choose("WatermarkType", "None");
+                    var filmOnly = await Render("film-without-watermark", ".tif", false, expectedCompression: filmCompression,
+                        expectedProfileSha: filmProfile);
+                    Choose("WatermarkType", "Image");
+                    Choose("FileType", "Psd");
+                    var layered = await Render("psd-with-film-and-watermark", ".psd", true, expectedProfileSha: filmProfile,
+                        expectedPsdBackground: filmOnly);
+                    var layerParity = Difference(tiff, layered);
+                    Check(layerParity.Mean < 8d / 65535 && layerParity.Maximum < .01,
+                        "PSD's merged film and watermark match the RGB16 TIFF from the same native recipe");
+                    Choose("FileType", "Tiff");
+
                     Value(0, 0);
                     const float centerX = .44f, centerY = .53f, cropWidth = .55f, cropHeight = .65f;
                     crop.SetValue(variant, Activator.CreateInstance(crop.PropertyType,
@@ -2215,7 +2227,8 @@ public static partial class StartupHook
             async Task<BitmapSource> Render(string kind, string extension, bool usePrevious, bool closeAfterAcceptance = false,
                 TiffCompressOption? expectedCompression = null, string? expectedNativeLocation = null,
                 string? fixtureOutputDirectory = null, string? fixtureOutputFileName = null, string? expectedProfileSha = null,
-                (int Width, int Height)? expectedGeometry = null, object? expectedCropPath = null)
+                (int Width, int Height)? expectedGeometry = null, object? expectedCropPath = null,
+                BitmapSource? expectedPsdBackground = null)
             {
                 var (width, height) = expectedGeometry ?? (expectedWidth, expectedHeight);
                 var before = routeCount;
@@ -2286,6 +2299,22 @@ public static partial class StartupHook
                 if (extension == ".psd")
                 {
                     var psd = PsdFixture.Read(file);
+                    if (expectedPsdBackground is not null)
+                    {
+                        Check(psd.Layers is [var background, var watermark] && background.Name == "Background"
+                            && background.Width == width && background.Height == height && watermark.Name == "Watermark"
+                            && watermark.Samples.Length == (long)watermark.Width * watermark.Height * 4
+                            && watermark.Samples.Where((_, index) => (index & 3) == 3).Any(alpha => alpha is > 0 and < 65535),
+                            "the delivered PSD has a separate watermark with 16-bit alpha over the full film frame");
+                        var baseLayer = psd.Layers[0];
+                        var baseFrame = BitmapSource.Create(baseLayer.Width, baseLayer.Height, psd.DpiX, psd.DpiY, PixelFormats.Rgb48,
+                            null, baseLayer.Samples, baseLayer.Width * 6);
+                        var baseParity = Difference(baseFrame, expectedPsdBackground);
+                        Check(baseParity.Mean < 8d / 65535 && baseParity.Maximum < .01,
+                            "hiding the watermark reveals the separate high-depth film result");
+                    }
+                    else
+                        Check(psd.Layers.Length == 0, "no visible native watermark produces an ordinary flat PSD");
                     frame = BitmapSource.Create(psd.Width, psd.Height, psd.DpiX, psd.DpiY, PixelFormats.Rgb48,
                         null, psd.Samples, psd.Width * 6);
                     actualIcc = Convert.ToHexString(SHA256.HashData(psd.Resources[1039]));

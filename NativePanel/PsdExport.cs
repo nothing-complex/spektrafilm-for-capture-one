@@ -4,8 +4,10 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 using System.Windows;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
 internal readonly record struct PsdCropPath(double Left, double Top, double Right, double Bottom)
@@ -47,6 +49,8 @@ internal readonly record struct PsdGuide(bool Vertical, double Fraction)
     }
 }
 
+internal readonly record struct PsdLayer(string Name, int Left, int Top, BitmapSource Image);
+
 internal static class PsdExport
 {
     private const int MaximumDimension = 30_000;
@@ -57,7 +61,8 @@ internal static class PsdExport
     private const int SavedPathResource = 2000;
 
     internal static void WriteVerified(Stream stream, BitmapSource image, ExportColorProfile profile, byte[]? xmp,
-        CancellationToken stop, PsdCropPath? cropPath = null, IReadOnlyList<PsdGuide>? guides = null)
+        CancellationToken stop, PsdCropPath? cropPath = null, IReadOnlyList<PsdGuide>? guides = null,
+        IReadOnlyList<PsdLayer>? layers = null)
     {
         var width = image.PixelWidth;
         var height = image.PixelHeight;
@@ -72,21 +77,28 @@ internal static class PsdExport
         if (Convert.ToHexString(SHA256.HashData(icc)) != profile.Sha256)
             throw new InvalidDataException("The PSD export colour profile changed before encoding.");
 
-        var header = Header(image, icc, xmp, cropPath, guides);
+        var layerHeader = LayerHeader(layers, width, height, out var layerLength, out var layerPadding);
+        var header = Header(image, icc, xmp, cropPath, guides, layerLength);
         stream.Write(header);
-        WritePlanarPixels(stream, image, stop);
+        stream.Write(layerHeader);
+        if (layers is not null)
+            foreach (var layer in layers)
+                WritePlanarPixels(stream, layer.Image, stop, layerChannels: true);
+        if (layerPadding != 0) WriteUInt16(stream, 0);
+        WriteUInt16(stream, 0); // Uncompressed merged image.
+        WritePlanarPixels(stream, image, stop, layerChannels: false);
         stop.ThrowIfCancellationRequested();
-        if (stream.Length != header.LongLength + (long)width * height * 6)
+        if (stream.Length != header.LongLength + layerLength + 2 + (long)width * height * 6)
             throw new InvalidDataException("The PSD encoder did not preserve the expected 16-bit pixel count.");
         stream.Position = 0;
-        var actual = new byte[header.Length];
-        stream.ReadExactly(actual);
-        if (!actual.AsSpan().SequenceEqual(header))
-            throw new InvalidDataException("The PSD header or metadata changed before publication.");
+        VerifyBytes(stream, header);
+        VerifyBytes(stream, layerHeader);
+        stream.Position = header.LongLength + layerLength;
+        VerifyBytes(stream, [0, 0]);
     }
 
     private static byte[] Header(BitmapSource image, byte[] icc, byte[]? xmp, PsdCropPath? cropPath,
-        IReadOnlyList<PsdGuide>? guides)
+        IReadOnlyList<PsdGuide>? guides, uint layerLength)
     {
         using var resources = new MemoryStream();
         using var resolution = new MemoryStream();
@@ -111,20 +123,93 @@ internal static class PsdExport
         WriteUInt32(header, 0); // RGB does not have a color mode data block.
         WriteUInt32(header, (uint)resources.Length);
         resources.WriteTo(header);
-        WriteUInt32(header, 0); // Flattened document, no layers or masks.
-        WriteUInt16(header, 0); // Uncompressed planar samples.
+        WriteUInt32(header, layerLength);
         return header.ToArray();
     }
 
-    private static void WritePlanarPixels(Stream stream, BitmapSource image, CancellationToken stop)
+    private static byte[] LayerHeader(IReadOnlyList<PsdLayer>? layers, int width, int height, out uint length, out int padding)
+    {
+        length = 0;
+        padding = 0;
+        if (layers is not { Count: > 0 }) return [];
+        if (layers.Count > short.MaxValue)
+            throw new InvalidDataException("Too many layers for the PSD export.");
+
+        using var records = new MemoryStream();
+        WriteUInt16(records, (ushort)layers.Count);
+        long pixelsLength = 0;
+        foreach (var layer in layers)
+        {
+            var image = layer.Image;
+            var channels = ChannelCount(image);
+            if (layer.Left < 0 || layer.Top < 0
+                || image.PixelWidth > width - layer.Left || image.PixelHeight > height - layer.Top
+                || layer.Name.Length is < 1 or > 255)
+                throw new InvalidDataException("A PSD layer has an invalid canvas position or name.");
+
+            WriteUInt32(records, (uint)layer.Top);
+            WriteUInt32(records, (uint)layer.Left);
+            WriteUInt32(records, (uint)(layer.Top + image.PixelHeight));
+            WriteUInt32(records, (uint)(layer.Left + image.PixelWidth));
+            WriteUInt16(records, (ushort)channels);
+            var channelLength = checked((uint)(2 + (long)image.PixelWidth * image.PixelHeight * 2));
+            for (var channel = 0; channel < channels; channel++)
+            {
+                WriteUInt16(records, channel == 3 ? ushort.MaxValue : (ushort)channel); // -1 is transparency.
+                WriteUInt32(records, channelLength);
+                pixelsLength += channelLength;
+            }
+            records.Write("8BIMnorm"u8);
+            records.Write([255, 0, 8, 0]); // Full opacity, normal non-clipping pixel layer.
+            var name = Encoding.ASCII.GetBytes(layer.Name);
+            var nameLength = (1 + name.Length + 3) & ~3;
+            WriteUInt32(records, (uint)(8 + nameLength));
+            WriteUInt32(records, 0); // Layer mask.
+            WriteUInt32(records, 0); // Blending ranges.
+            records.WriteByte((byte)name.Length);
+            records.Write(name);
+            for (var index = 1 + name.Length; index < nameLength; index++)
+                records.WriteByte(0);
+        }
+
+        var dataLength = records.Length + pixelsLength;
+        padding = (int)((4 - dataLength % 4) % 4);
+        const int taggedHeaderLength = 20;
+        if (dataLength + padding + taggedHeaderLength > uint.MaxValue)
+            throw new InvalidDataException("The layers exceed the PSD size limit. Choose a smaller export size.");
+        length = (uint)(dataLength + padding + taggedHeaderLength);
+        using var header = new MemoryStream();
+        WriteUInt32(header, 0); // Default layer block is empty for a 16-bit PSD.
+        WriteUInt32(header, 0); // No global layer mask.
+        header.Write("8BIMLr16"u8);
+        WriteUInt32(header, (uint)dataLength);
+        records.WriteTo(header);
+        return header.ToArray();
+    }
+
+    private static void VerifyBytes(Stream stream, ReadOnlySpan<byte> expected)
+    {
+        var actual = new byte[expected.Length];
+        stream.ReadExactly(actual);
+        if (!actual.AsSpan().SequenceEqual(expected))
+            throw new InvalidDataException("The PSD header or metadata changed before publication.");
+    }
+
+    private static int ChannelCount(BitmapSource image) => image.Format == PixelFormats.Rgb48 ? 3
+        : image.Format == PixelFormats.Rgba64 ? 4
+        : throw new InvalidDataException("PSD layers require RGB16 or RGBA16 samples.");
+
+    private static void WritePlanarPixels(Stream stream, BitmapSource image, CancellationToken stop, bool layerChannels)
     {
         var width = image.PixelWidth;
-        var stride = checked(width * 6);
+        var channels = layerChannels ? ChannelCount(image) : 3;
+        var stride = checked(width * channels * 2);
         var rowsPerBlock = Math.Min(image.PixelHeight, Math.Max(1, 256 * 1024 / stride));
-        var interleaved = new ushort[rowsPerBlock * width * 3];
+        var interleaved = new ushort[rowsPerBlock * width * channels];
         var plane = new byte[rowsPerBlock * width * 2];
-        for (var channel = 0; channel < 3; channel++)
+        for (var channel = 0; channel < channels; channel++)
         {
+            if (layerChannels) WriteUInt16(stream, 0);
             for (var row = 0; row < image.PixelHeight; row += rowsPerBlock)
             {
                 stop.ThrowIfCancellationRequested();
@@ -132,7 +217,7 @@ internal static class PsdExport
                 image.CopyPixels(new Int32Rect(0, row, width, rows), interleaved, stride, 0);
                 var samples = rows * width;
                 for (var index = 0; index < samples; index++)
-                    BinaryPrimitives.WriteUInt16BigEndian(plane.AsSpan(index * 2, 2), interleaved[index * 3 + channel]);
+                    BinaryPrimitives.WriteUInt16BigEndian(plane.AsSpan(index * 2, 2), interleaved[index * channels + channel]);
                 stream.Write(plane.AsSpan(0, samples * 2));
             }
         }

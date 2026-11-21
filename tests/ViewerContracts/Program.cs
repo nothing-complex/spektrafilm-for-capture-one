@@ -61,7 +61,7 @@ internal static partial class Program
         {
             Directory.CreateDirectory(psdResults);
             TestPsdDelivery(psdResults, writeReference: true);
-            Console.WriteLine($"PASS: {assertions} flat PSD export assertions.");
+            Console.WriteLine($"PASS: {assertions} PSD export assertions.");
             return;
         }
         if (args is ["--psd-from-test-tiff", var testTiff, var testPsd])

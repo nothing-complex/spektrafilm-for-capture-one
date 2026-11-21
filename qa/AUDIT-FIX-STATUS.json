@@ -1755,7 +1755,8 @@
         "Embed an editable path named Crop for a valid Capture One Crop to Path PSD recipe. Snapshot the crop in full adjusted canvas coordinates before approval and hash it for retries. Keep the entire composited RGB16 image. Save and completed history distinguish a retained path from omissions due to invalid geometry or alternate formats.",
         "ImageMagick independently decodes the named path and all four expected subpixel corners, and returns all 139,551 exact RGB16 samples. Both signed host reference builds match all 741 compiled host references with zero warnings. The extended licensed asymmetric crop fixture builds. The licensed runtime check remains open.",
         "Support editable recipe guides in PSD through Capture One's own guide calculator and its Advanced Guides feature check. Snapshot positions in the full canvas before approval, hash them for retries, map them to the delivered crop and store them as an editable Photoshop grid-and-guides resource. Disclose omitted guides in alternate formats or when the native recipe data is unavailable.",
-        "Standalone signed 16.4 and 16.7 guide calculations match across percentage, pixel and inch values for the full canvas and a crop, including native physical rounding. An invalid stored unit is rejected. Both panel builds match 771 CLR host references. ImageMagick extracts the expected guide resource, crop path and all 139,551 exact RGB16 samples. All nine Windows suites pass, including 12,617 Viewer/export assertions. Licensed interactive guide export is still open."
+        "Standalone signed 16.4 and 16.7 guide calculations match across percentage, pixel and inch values for the full canvas and a crop, including native physical rounding. An invalid stored unit is rejected. Both panel builds match 771 CLR host references. ImageMagick extracts the expected guide resource, crop path and all 139,551 exact RGB16 samples. All nine Windows suites pass, including 12,617 Viewer/export assertions. Licensed interactive guide export is still open.",
+        "Place the captured recipe watermark in an editable RGBA16 PSD layer above the full RGB16 film frame. Clip to the delivered canvas and use the same opacity-adjusted straight alpha in the layer and merged preview. Preserve the selected ICC, XMP, DPI, guides and path. TIFF and PNG keep the existing composited route. Both builds match 771 host references. The 14-check PSD fixture and ImageMagick verify exact independent decoding of the background, watermark samples and merged image. All nine host-independent Windows suites pass, including 12,623 Viewer and export checks. The expanded licensed watermark fixture builds but requires host startup."
       ],
       "evidence_paths": [
         "NativePanel/SpektraFilmTool.cs",
@@ -1831,11 +1832,15 @@
         ".test-results/psd-guides-20261121/native-projection-16.7.json",
         ".test-results/psd-guides-20261121/reference-comparison.json",
         ".test-results/psd-guides-20261121/independent-guides.json",
-        ".test-results/psd-guides-20261121/contracts/summary.json"
+        ".test-results/psd-guides-20261121/contracts/summary.json",
+        ".test-results/psd-layers-20261121/independent-layers.json",
+        ".test-results/psd-layers-20261121/contracts-native-acl/summary.json",
+        ".test-results/psd-layers-20261121/source-renderer-gpu-smoke.log",
+        ".test-results/psd-layers-20261121/reference-comparison.json"
       ],
       "remaining_work": [
         "Directory creation and the full location token matrix, automatic Overwrite behavior, tiling and other format and quality settings beyond the explicit 16-bit TIFF/PNG save policy remain open.",
-        "Run the flattened and editable crop-path PSD routes inside the licensed host and verify rotated and mirrored native geometry. Run editable guides with a licensed Studio or Enterprise document. Implement annotation and overlay layers. Expand watermark tokens, output profiles, post-film Screen and Print sharpening, remaining delivery settings and sidecars. Explicit overwrite still requires Save approval."
+        "Run the flattened, watermark-layer and editable crop-path PSD routes inside the licensed host and verify rotated and mirrored native geometry. Run editable guides with a licensed Studio or Enterprise document. Implement annotation and overlay layers. Expand watermark tokens, output profiles, post-film Screen and Print sharpening, remaining delivery settings and sidecars. Explicit overwrite still requires Save approval."
       ],
       "original_acceptance_tests": [
         "Table-driven JPEG, PNG, TIFF 8/16-bit, unknown-format, custom ICC, image-folder/custom-folder/subfolder/token/suffix and duplicate-name cases.",

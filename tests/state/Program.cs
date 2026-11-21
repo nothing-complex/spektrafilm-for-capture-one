@@ -120,6 +120,7 @@ if (args.Length != 0)
 
 var scratch = Path.Combine(AppContext.BaseDirectory, "state-contracts-" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(scratch);
+Console.WriteLine($"State contract artifacts in {scratch} are kept if the run fails.");
 int assertions = 0;
 void Check(string name, bool value)
 {
@@ -993,7 +994,8 @@ using (var closeClipboard = new CancellationTokenSource())
         Check("closing the support tool cancels clipboard retries", clipboardWrites == 1);
     }
 }
-Console.WriteLine($"PASS: {assertions} state/recovery assertions, including separate-process recovery. Fixtures: {scratch}");
+Directory.Delete(scratch, recursive: true);
+Console.WriteLine($"PASS: {assertions} state/recovery assertions, including separate-process recovery.");
 return 0;
 
 static VariantLook Sample(double exposure) => new(new("kodak_portra_400", "kodak_portra_endura", exposure, .2, 1,

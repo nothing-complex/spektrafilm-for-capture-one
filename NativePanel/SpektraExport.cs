@@ -185,13 +185,13 @@ internal static class SpektraExport
     internal static void SaveApproved(OutputPathGuard.ApprovedDestination destination, BitmapSource image, CancellationToken stop,
         ExportMetadata? metadata = null, ExportColorProfile? outputProfile = null, TiffCompressOption tiffCompression = TiffCompressOption.Zip,
         Action<int>? reportWrite = null, Action<ExportPublication>? verified = null, PsdCropPath? cropPath = null,
-        IReadOnlyList<PsdGuide>? guides = null) =>
-        SaveImage(destination.Path, image, stop, destination, metadata, outputProfile, tiffCompression, reportWrite, verified, cropPath, guides);
+        IReadOnlyList<PsdGuide>? guides = null, IReadOnlyList<PsdLayer>? layers = null) =>
+        SaveImage(destination.Path, image, stop, destination, metadata, outputProfile, tiffCompression, reportWrite, verified, cropPath, guides, layers);
 
     private static void SaveImage(string path, BitmapSource image, CancellationToken stop, OutputPathGuard.ApprovedDestination? destination,
         ExportMetadata? metadata = null, ExportColorProfile? outputProfile = null, TiffCompressOption tiffCompression = TiffCompressOption.Zip,
         Action<int>? reportWrite = null, Action<ExportPublication>? verified = null, PsdCropPath? cropPath = null,
-        IReadOnlyList<PsdGuide>? guides = null)
+        IReadOnlyList<PsdGuide>? guides = null, IReadOnlyList<PsdLayer>? layers = null)
     {
         stop.ThrowIfCancellationRequested();
         var output = FormatFor(path);
@@ -206,7 +206,7 @@ internal static class SpektraExport
             stop.ThrowIfCancellationRequested();
             var monitored = stop.CanBeCanceled || reportWrite is not null ? new EncoderStream(stream, stop, reportWrite) : stream;
             if (output == Format.Psd)
-                PsdExport.WriteVerified(monitored, image, outputProfile, xmp, stop, cropPath, guides);
+                PsdExport.WriteVerified(monitored, image, outputProfile, xmp, stop, cropPath, guides, layers);
             else
                 EncodeWic(stream, monitored);
             if (verified is not null)
