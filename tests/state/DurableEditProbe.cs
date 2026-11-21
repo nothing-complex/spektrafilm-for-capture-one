@@ -15,10 +15,14 @@ internal static class DurableEditProbe
         var expected = new VariantLook[variants.Length];
         const int warmup = 256;
         const int measured = 10_000;
+        var reads = new double[measured];
+        var comparisons = new double[measured];
         var prepare = new double[measured];
         var commit = new double[measured];
         var total = new double[measured];
         var allocations = 0L;
+        var readAllocations = 0L;
+        var comparisonAllocations = 0L;
         var patch = new Dictionary<string, double>(StringComparer.Ordinal);
         var optics = new Dictionary<string, double>(StringComparer.Ordinal);
         for (var index = 0; index < 32; index++)
@@ -31,8 +35,15 @@ internal static class DurableEditProbe
         {
             var variant = index % variants.Length;
             var prior = expected[variant];
+            var beforeReadBytes = GC.GetAllocatedBytesForCurrentThread();
+            var beforeRead = Stopwatch.GetTimestamp();
             var stored = store.Read(variants[variant]);
-            if (prior is null ? stored is not null : !VariantLookStore.Equivalent(stored, prior))
+            var afterRead = Stopwatch.GetTimestamp();
+            var afterReadBytes = GC.GetAllocatedBytesForCurrentThread();
+            var matches = prior is null ? stored is null : VariantLookStore.Equivalent(stored, prior);
+            var afterComparison = Stopwatch.GetTimestamp();
+            var afterComparisonBytes = GC.GetAllocatedBytesForCurrentThread();
+            if (!matches)
                 throw new InvalidDataException("The previous committed look did not reload exactly.");
             var look = new VariantLook(new("kodak_portra_400", "kodak_portra_endura", (index % 1141) / 100d - 5, .2, 1,
                 "print", "hanatos2025", false, patch), new(optics, new() { ["input-color"] = "srgb" }, new()),
@@ -46,10 +57,14 @@ internal static class DurableEditProbe
             var committed = Stopwatch.GetTimestamp();
             if (index < warmup) continue;
             var sample = index - warmup;
+            reads[sample] = Stopwatch.GetElapsedTime(beforeRead, afterRead).TotalMilliseconds;
+            comparisons[sample] = Stopwatch.GetElapsedTime(afterRead, afterComparison).TotalMilliseconds;
             prepare[sample] = Stopwatch.GetElapsedTime(start, prepared).TotalMilliseconds;
             commit[sample] = Stopwatch.GetElapsedTime(prepared, committed).TotalMilliseconds;
             total[sample] = Stopwatch.GetElapsedTime(start, committed).TotalMilliseconds;
             allocations += GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+            readAllocations += afterReadBytes - beforeReadBytes;
+            comparisonAllocations += afterComparisonBytes - afterReadBytes;
         }
         var reopened = new VariantLookStore(root, catalog);
         for (var index = 0; index < variants.Length; index++)
@@ -60,7 +75,9 @@ internal static class DurableEditProbe
         var report = JsonSerializer.Serialize(new
         {
             measured, warmup, variants = variants.Length,
+            readMs = Percentiles(reads), compareMs = Percentiles(comparisons),
             queueMs = Percentiles(prepare), flushMs = Percentiles(commit), queueAndFlushMs = Percentiles(total),
+            managedBytesPerRead = readAllocations / (double)measured, managedBytesPerCompare = comparisonAllocations / (double)measured,
             managedBytesPerEdit = allocations / (double)measured,
         }, new JsonSerializerOptions { WriteIndented = true });
         File.WriteAllText(Path.Combine(directory, "measurement.json"), report);

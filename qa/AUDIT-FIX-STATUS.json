@@ -1599,7 +1599,8 @@
         "Repeated 10,000 licensed WPF writes after adding the verified previous generation. Every accepted edit matched the file and the latest state of all four RAW variants survived forced termination. The event/save p50 was 5.66 ms, p95 6.47 ms, p99 7.29 ms and maximum 24.54 ms with the Viewer worker paused. The previous save path had p95 3.76 ms.",
         "Observed 100 actual WPF edit and save acknowledgements with the Viewer running during 100 licensed visits. P50 was 6.01 ms, p95 7.02 ms, p99 7.34 ms and maximum 7.65 ms. Every edit was read back from its variant and no pending writes remained.",
         "Immediate slider persistence flushes only the edited variant. Equal pending values retain their verified recovery state. The standalone Windows fixture commits a second image while another primary is held in an exclusive lock, checks that the earlier recovery bytes and timestamp remain exact, and passes 271 state assertions. The licensed four-RAW fixture reproduces this with actual slider controls and verifies exact published values after recovering access. It passes all 222 checks on launch and restart.",
-        "The changed save path passes a new 10,000-movement licensed run over 100 visits across four RAW variants. Every acknowledged value is read from its saved bytes. Restart after terminating the disposable process restores the last values and master switches with byte-identical files. Fixture latency was 4.70 ms at p50, 5.45 ms at p95 and 6.09 ms at p99 with the Viewer paused."
+        "The changed save path passes a new 10,000-movement licensed run over 100 visits across four RAW variants. Every acknowledged value is read from its saved bytes. Restart after terminating the disposable process restores the last values and master switches with byte-identical files. Fixture latency was 4.70 ms at p50, 5.45 ms at p95 and 6.09 ms at p99 with the Viewer paused.",
+        "Bound the validated look cache to 64 committed snapshots per live store. Reuse a snapshot only after hashing the current bytes and return a defensive copy. Use typed record and ordinal dictionary equality for look comparisons. All 880 state assertions pass, including separate-process recovery, same-size external changes with restored timestamps and previous-generation preservation. In paired 10,000-edit storage runs across 64 variants, read p95 dropped from 0.2061 to 0.1193 ms and equality p95 from 0.0622 to 0.0050 ms. Durable queue and flush p95 stayed near 5.5 ms."
       ],
       "evidence_paths": [
         "NativePanel/VariantLookStore.cs",
@@ -1622,7 +1623,11 @@
         ".test-results/contracts-scoped-variant-save-20261120/StateContracts.log",
         ".test-results/host-scoped-variant-save-native-final-20261120/host-smoke.log",
         ".test-results/host-scoped-save-10000-edits-20261120/edit-latency.json",
-        ".test-results/host-scoped-save-10000-edits-20261120/restart.passed"
+        ".test-results/host-scoped-save-10000-edits-20261120/restart.passed",
+        ".test-results/durable-hot-look-contracts-20261121.log",
+        ".test-results/durable-hot-look-baseline-20261121/measurement.json",
+        ".test-results/durable-hot-look-candidate-20261121/measurement.json",
+        ".test-results/look-read-16.7-reference-20261121/reference-drift.json"
       ],
       "remaining_work": [
         "Evaluate an ordered durable generation journal and background compaction against the measured WPF latency. Preserve every acknowledged edit and normal backup semantics. Measure live Viewer contention separately.",

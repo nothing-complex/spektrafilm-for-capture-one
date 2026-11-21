@@ -868,6 +868,10 @@ void TestPreviousGeneration(VariantLookStore looks, string lookRoot, string cata
     looks.Queue(variant, Sample(2.1)); looks.Flush();
     Check("previous generation preserves exact accepted JSON", File.ReadAllBytes(previous).AsSpan(52).SequenceEqual(priorBytes));
     Check("typed valid returns current value", looks.ReadOutcome(variant) is { State: LookLoadState.Valid, Look.Look.Exposure: 2.1 });
+    var borrowed = looks.Read(variant)!;
+    borrowed.Look.Development["example"] = -5;
+    borrowed.Optics.Numbers["exposure"] = 73;
+    Check("changing a returned look leaves its cached committed state untouched", VariantLookStore.Equivalent(looks.Read(variant), Sample(2.1)));
     using (var locked = new FileStream(primary, FileMode.Open, FileAccess.Read, FileShare.None))
         Check("typed transient lock does not fall back to old value", looks.ReadOutcome(variant) is { State: LookLoadState.TransientIo, Look: null });
 
@@ -926,6 +930,31 @@ void TestPreviousGeneration(VariantLookStore looks, string lookRoot, string cata
     looks.Flush();
     Check("retry updates both verified generations", looks.Read(lockedPreviousVariant)?.Look.Exposure == 2
         && PanelFiles.DecodePreset<VariantLook>(File.ReadAllBytes(lockedPrevious).AsSpan(52)).Look.Exposure == 1);
+
+    var cached = StateFile(lookRoot, lockedPreviousVariant);
+    var previousWriteTime = File.GetLastWriteTimeUtc(cached);
+    var replacement = PanelFiles.EncodeCompactPreset(Sample(3));
+    Check("external fixture retains the cached file's size", new FileInfo(cached).Length == replacement.Length);
+    File.WriteAllBytes(cached, replacement);
+    File.SetLastWriteTimeUtc(cached, previousWriteTime);
+    Check("same-size change with the original timestamp reloads the actual new bytes", looks.Read(lockedPreviousVariant)?.Look.Exposure == 3);
+    looks.Queue(lockedPreviousVariant, Sample(4));
+    looks.Flush();
+    Check("the ordinary save backs up the reloaded external generation verbatim",
+        File.ReadAllBytes(lockedPrevious).AsSpan(52).SequenceEqual(replacement));
+
+    var sample = Sample(.4);
+    var typed = sample with { Look = sample.Look with { Development = new() { ["first"] = 1, ["second"] = 2 } } };
+    var reordered = typed with { Look = typed.Look with { Development = new(StringComparer.Ordinal) { ["second"] = 2, ["first"] = 1 } } };
+    var otherCase = typed with { Look = typed.Look with { Development = new(StringComparer.OrdinalIgnoreCase) { ["First"] = 1, ["second"] = 2 } } };
+    Check("look equality compares map values independent of insertion order", VariantLookStore.Equivalent(typed, reordered));
+    Check("look equality treats key case literally even with a case-insensitive dictionary",
+        !VariantLookStore.Equivalent(typed, otherCase));
+    Check("look equality retains enabled, stock, grain and optics differences",
+        !VariantLookStore.Equivalent(typed, typed with { Enabled = !typed.Enabled })
+        && !VariantLookStore.Equivalent(typed, typed with { Look = typed.Look with { Film = typed.Look.Film + "-other" } })
+        && !VariantLookStore.Equivalent(typed, typed with { Grain = new GrainControls(4, 25, 50) })
+        && !VariantLookStore.Equivalent(typed, typed with { Optics = typed.Optics with { Switches = new() { ["test"] = true } } }));
 }
 
 static void RunChild(params string[] arguments)

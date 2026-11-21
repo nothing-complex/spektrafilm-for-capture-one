@@ -6,7 +6,6 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 
 internal sealed record GrainControls([property: JsonRequired] int Type, [property: JsonRequired] double Impact,
@@ -33,6 +32,7 @@ internal sealed class VariantLookStore
     private readonly string catalogKey;
     private readonly Session session;
     private readonly Dictionary<Guid, BlockedLook> blocked;
+    private readonly PrimaryCache primaryCache = new();
     internal GrainReceiptStore GrainReceipts { get; }
     internal VariantLookBatchJournal BatchHistory { get; }
     internal string CatalogIdentity => catalogKey;
@@ -116,15 +116,16 @@ internal sealed class VariantLookStore
                 return Clone(edit.Look);
             try
             {
-                VariantLook? primary;
-                string? hash;
-                try { primary = ReadPrimary(variant, out hash); }
+                CommittedLook? stored;
+                try { stored = ReadPrimary(variant); }
                 catch (Exception error) when (error is JsonException or InvalidDataException)
                 {
                     throw Block(variant, error, canRecoverPrevious: true);
                 }
+                var primary = stored?.Look;
+                var hash = stored?.Hash;
                 session.KnownHash[variant] = hash;
-                session.KnownLookHash[variant] = primary is null ? null : LookHash(primary);
+                session.KnownLookHash[variant] = stored?.LookHash;
                 var recoveryPath = GetRecoveryPath(variant);
                 RecoveryCheckpoint? recovery;
                 try { recovery = PanelFiles.ReadPreset<RecoveryCheckpoint>(recoveryPath); }
@@ -152,7 +153,7 @@ internal sealed class VariantLookStore
                 }
                 if (primary is null && File.Exists(GetPreviousPath(variant)))
                     throw Block(variant, new InvalidDataException("The current saved look is missing."), canRecoverPrevious: true);
-                return primary;
+                return primary is null ? null : Clone(primary);
             }
             catch (LookUnsupportedException error) { throw Block(variant, error); }
             catch (Exception error) when ((error is JsonException or InvalidDataException) && !blocked.ContainsKey(variant))
@@ -300,6 +301,7 @@ internal sealed class VariantLookStore
         }, overwrite: edit.BaseHash is not null);
         session.KnownHash[variant] = edit.Hash;
         session.KnownLookHash[variant] = edit.Hash;
+        primaryCache.Remember(variant, new CommittedLook(edit.Look, edit.Hash, edit.Hash));
         session.Pending.Remove(variant);
         TryDeleteRecovery(variant);
     }
@@ -345,15 +347,20 @@ internal sealed class VariantLookStore
         lock (session) { if (!blocked.ContainsKey(variant)) Block(variant, error); }
     }
 
-    private VariantLook? ReadPrimary(Guid variant, out string? hash)
+    private CommittedLook? ReadPrimary(Guid variant)
     {
-        hash = null;
         try
         {
-            var saved = PanelFiles.ReadPreset<VariantLook>(GetPath(variant), out var digest, CheckVersion);
+            using var file = File.OpenRead(GetPath(variant));
+            var bytes = PanelFiles.ReadPresetBytes(file);
+            var digest = Digest(bytes);
+            // Compare exact file bytes before reusing the validated snapshot.
+            if (primaryCache.Find(variant, digest) is { } cached) return cached;
+            var saved = PanelFiles.DecodePreset<VariantLook>(bytes, CheckVersion);
             LookStateValidation.Validate(saved);
-            hash = digest;
-            return saved;
+            var stored = new CommittedLook(saved, digest, LookHash(saved));
+            primaryCache.Remember(variant, stored);
+            return stored;
         }
         catch (FileNotFoundException) { return null; }
         catch (DirectoryNotFoundException) { return null; }
@@ -495,8 +502,33 @@ internal sealed class VariantLookStore
 
     private static string Digest(ReadOnlySpan<byte> json) => Convert.ToHexString(SHA256.HashData(json));
     private static string LookHash(VariantLook look) => Digest(JsonSerializer.SerializeToUtf8Bytes(look));
-    internal static bool Equivalent(VariantLook? first, VariantLook second) => first is not null &&
-        JsonNode.DeepEquals(JsonSerializer.SerializeToNode(first), JsonSerializer.SerializeToNode(second));
+    internal static bool Equivalent(VariantLook? first, VariantLook second)
+    {
+        if (first is null) return false;
+        if (ReferenceEquals(first, second)) return true;
+        if (first.Version != second.Version || first.Enabled != second.Enabled || first.Grain != second.Grain)
+            return false;
+        var film = second.Look;
+        var optics = second.Optics;
+        return (first.Look with { Development = film.Development }) == film
+            && (first.Optics with { Numbers = optics.Numbers, Selections = optics.Selections, Switches = optics.Switches }) == optics
+            && SameValues(first.Look.Development, film.Development)
+            && SameValues(first.Optics.Numbers, optics.Numbers)
+            && SameValues(first.Optics.Selections, optics.Selections)
+            && SameValues(first.Optics.Switches, optics.Switches);
+    }
+
+    private static bool SameValues<T>(Dictionary<string, T> first, Dictionary<string, T> second)
+    {
+        if (ReferenceEquals(first, second)) return true;
+        if (first.Count != second.Count) return false;
+        if (second.Comparer != StringComparer.Ordinal && second.Comparer != EqualityComparer<string>.Default)
+            second = new Dictionary<string, T>(second, StringComparer.Ordinal);
+        foreach (var (key, value) in first)
+            if (!second.TryGetValue(key, out var other) || !EqualityComparer<T>.Default.Equals(value, other))
+                return false;
+        return true;
+    }
     private string GetPath(Guid variant) => Path.Combine(directory, variant.ToString("N") + ".json");
     private string GetPreviousPath(Guid variant) => Path.Combine(directory, variant.ToString("N") + ".previous.look");
     private string GetRecoveryPath(Guid variant) => Path.Combine(recoveryDirectory, variant.ToString("N") + ".pending.json");
@@ -514,6 +546,39 @@ internal sealed class VariantLookStore
         internal readonly Dictionary<Guid, SavedVariantIdentity> VerifiedIdentities = new();
         internal readonly Dictionary<Guid, BlockedLook> Blocked = new();
     }
+
+    private sealed class PrimaryCache
+    {
+        private const int Capacity = 64;
+        private readonly LinkedList<(Guid Variant, CommittedLook Look)> recent = new();
+        private readonly Dictionary<Guid, LinkedListNode<(Guid Variant, CommittedLook Look)>> committed = new();
+
+        internal CommittedLook? Find(Guid variant, string digest)
+        {
+            if (!committed.TryGetValue(variant, out var node) || node.Value.Look.Hash != digest)
+                return null;
+            recent.Remove(node);
+            recent.AddFirst(node);
+            return node.Value.Look;
+        }
+
+        internal void Remember(Guid variant, CommittedLook look)
+        {
+            if (committed.TryGetValue(variant, out var node))
+            {
+                recent.Remove(node);
+                node.Value = (variant, look);
+                recent.AddFirst(node);
+                return;
+            }
+            committed.Add(variant, recent.AddFirst((variant, look)));
+            if (committed.Count <= Capacity) return;
+            committed.Remove(recent.Last!.Value.Variant);
+            recent.RemoveLast();
+        }
+    }
+
+    private sealed record CommittedLook(VariantLook Look, string Hash, string LookHash);
     private sealed record BlockedLook(LookLoadState State, string Message, bool CanRecoverPrevious,
         string? ObservedHash, bool ArchivedPrimary);
     private sealed record PendingEdit(VariantLook Look, string? BaseHash, byte[] Json, string Hash, bool RecoveryDurable = false, bool KeepPrevious = true);
