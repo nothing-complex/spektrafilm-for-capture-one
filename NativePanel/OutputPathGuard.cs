@@ -155,6 +155,9 @@ internal static class OutputPathGuard
         internal void Write(Action<Stream> write, CancellationToken stop = default)
         {
             stop.ThrowIfCancellationRequested();
+            // Keep the original readable and deny writers and renames until publication.
+            // A filesystem may report identical timestamps for rapid rewrites.
+            using var originalLease = original.OpenRead();
             Verify();
             // Use the resolved folder for the sibling temporary file. For a new name,
             // the final rename itself refuses an intervening destination creation.

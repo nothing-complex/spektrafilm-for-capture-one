@@ -949,8 +949,8 @@ internal static partial class Program
             stream.WriteByte(93);
             File.WriteAllText(raw, "RAW3");
             File.SetLastWriteTimeUtc(raw, originalTime);
-        }), "An in-place RAW rewrite with a preserved timestamp passed the final guard");
-        Check(File.ReadAllText(priorOutput) == "PREVIOUS" && File.ReadAllText(moved) == "RAW1"
+        }), "Publication allowed the original RAW to be rewritten");
+        Check(File.ReadAllText(raw) == "RAW2" && File.ReadAllText(priorOutput) == "PREVIOUS" && File.ReadAllText(moved) == "RAW1"
             && !Directory.EnumerateFiles(folder, ".spektra-*.tmp").Any(),
             "Rejecting a changed RAW altered unrelated bytes or left a staging file");
         new OutputPathGuard.OriginalFile(raw).Approve(priorOutput).Write(stream => stream.WriteByte(94));

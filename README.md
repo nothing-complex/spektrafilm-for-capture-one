@@ -1,5 +1,7 @@
 # Spektrafilm for Capture One
 
+<p align="center"><a href="https://ko-fi.com/lukakauzlaric">Support this project on Ko-fi</a></p>
+
 <img src="assets/Spektrafilm.png" width="96" alt="Film strip icon with an orange viewfinder" />
 
 An independent Windows tool that brings the spektrafilm film and print simulation into Capture One. Develop your RAW in Capture One, adjust the film look in a docked or floating panel, and export the result as a 16-bit image.
@@ -10,7 +12,7 @@ Capture One provides older installers in your account when your license supports
 
 ## Install and open
 
-1. Download **Spektrafilm-for-Capture-One-v0.1.1-windows-x64.zip** from [GitHub Releases](https://github.com/nothing-complex/spektrafilm-for-capture-one/releases/latest) and extract it.
+1. Download **Spektrafilm-for-Capture-One-v0.2.0-windows-x64.zip** from [GitHub Releases](https://github.com/nothing-complex/spektrafilm-for-capture-one/releases/latest) and extract it.
 2. Run **Install Spektrafilm for Capture One.cmd**. It installs under your Windows account and creates the **Spektrafilm for Capture One** desktop shortcut. A fresh install uses `%LOCALAPPDATA%\Programs\Spektrafilm for Capture One`.
 3. Close Capture One. Use the new shortcut and choose the catalog database inside your catalog folder. The launcher backs up the closed database before opening it.
 4. Select a photo and open the **Spektrafilm for Capture One** tab with the film-strip icon. Allow the Viewer to develop the first frame.
