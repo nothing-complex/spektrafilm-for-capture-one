@@ -121,8 +121,9 @@ internal sealed class ExportJobJournal(string directory, Action<string> log)
         }
     }
 
-    internal void SaveBatch(ExportBatchPlan plan)
+    internal void SaveBatch(ExportBatchPlan plan, CancellationToken stop = default)
     {
+        stop.ThrowIfCancellationRequested();
         ValidateBatch(plan);
         var data = JsonSerializer.SerializeToUtf8Bytes(plan);
         if (data.Length > MaxBatchBytes)
@@ -130,7 +131,8 @@ internal sealed class ExportJobJournal(string directory, Action<string> log)
         lock (FileGate)
         {
             Directory.CreateDirectory(Path.GetDirectoryName(BatchPath)!);
-            PanelFiles.WriteAtomically(BatchPath, stream => stream.Write(data));
+            PanelFiles.WriteAtomically(BatchPath, stream => stream.Write(data),
+                beforeCommit: stop.ThrowIfCancellationRequested, discardOnProcessExit: true);
         }
     }
 

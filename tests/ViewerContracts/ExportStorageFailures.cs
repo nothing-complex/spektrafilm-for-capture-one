@@ -6,6 +6,7 @@ using System.Linq;
 using System.Security.AccessControl;
 using System.Security.Cryptography;
 using System.Security.Principal;
+using System.Text.Json;
 using System.Threading;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -25,12 +26,7 @@ internal static partial class Program
         File.WriteAllText(destination, "previous");
         File.WriteAllText(unrelated, "unrelated");
 
-        var start = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false, CreateNoWindow = true };
-        if (Path.GetFileNameWithoutExtension(start.FileName).Equals("dotnet", StringComparison.OrdinalIgnoreCase))
-            start.ArgumentList.Add(typeof(Program).Assembly.Location);
-        start.ArgumentList.Add("--hold-guarded-export-stage");
-        start.ArgumentList.Add(directory);
-        using var child = Process.Start(start) ?? throw new InvalidOperationException("Could not start the export staging fixture.");
+        using var child = StartStorageFixture("--hold-guarded-export-stage", directory);
         try
         {
             var ready = Path.Combine(directory, "ready");
@@ -79,13 +75,7 @@ internal static partial class Program
             File.WriteAllText(destination, "previous");
             File.WriteAllText(unrelated, "unrelated");
             var journal = new ExportJobJournal(Path.Combine(directory, "journal"), _ => { });
-            var start = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false, CreateNoWindow = true };
-            if (Path.GetFileNameWithoutExtension(start.FileName).Equals("dotnet", StringComparison.OrdinalIgnoreCase))
-                start.ArgumentList.Add(typeof(Program).Assembly.Location);
-            start.ArgumentList.Add("--hold-verified-export");
-            start.ArgumentList.Add(directory);
-            start.ArgumentList.Add(point);
-            using var child = Process.Start(start) ?? throw new InvalidOperationException("Could not start the publication fixture.");
+            using var child = StartStorageFixture("--hold-verified-export", directory, point);
             ExportReceipt? receipt = null;
             try
             {
@@ -168,6 +158,95 @@ internal static partial class Program
             File.WriteAllText(Path.Combine(directory, "verified.ready"), point);
             Thread.Sleep(TimeSpan.FromSeconds(25));
             throw new TimeoutException("The test did not stop the publication process.");
+        }
+    }
+
+    private static Process StartStorageFixture(params string[] arguments)
+    {
+        var start = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false, CreateNoWindow = true };
+        if (Path.GetFileNameWithoutExtension(start.FileName).Equals("dotnet", StringComparison.OrdinalIgnoreCase))
+            start.ArgumentList.Add(typeof(Program).Assembly.Location);
+        foreach (var argument in arguments) start.ArgumentList.Add(argument);
+        return Process.Start(start) ?? throw new InvalidOperationException("Could not start the export storage fixture.");
+    }
+
+    private static void TestInterruptedBatchApproval(string folder)
+    {
+        var directory = Directory.CreateDirectory(Path.Combine(folder, "batch-approval-" + Guid.NewGuid().ToString("N"))).FullName;
+        var batchFolder = Path.Combine(directory, "batch");
+        var original = Path.Combine(directory, "original.raw");
+        File.WriteAllText(original, "original bytes");
+        var entries = new[] { "first", "second" }.Select(name =>
+            new ExportBatchEntry(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), original,
+                Path.Combine(directory, name + ".tif"), new(true, new string('A', 64), new string('B', 64), new string('C', 64)))).ToArray();
+        var plan = ExportBatchPlan.Create(directory, entries);
+        var journal = new ExportJobJournal(directory, _ => { });
+        journal.SaveBatch(plan with { Id = Guid.NewGuid(), Closed = true });
+        var pending = Path.Combine(batchFolder, "pending.json");
+        var previous = File.ReadAllBytes(pending);
+        var unrelated = Path.Combine(batchFolder, ".spektra-unrelated.tmp");
+        File.WriteAllText(unrelated, "unrelated bytes");
+        File.WriteAllBytes(Path.Combine(directory, "approved-fixture.json"), JsonSerializer.SerializeToUtf8Bytes(plan));
+
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        var canceled = false;
+        try { journal.SaveBatch(plan, cancellation.Token); }
+        catch (OperationCanceledException) { canceled = true; }
+        Check(canceled && journal.ReadPendingBatch() is null && File.ReadAllBytes(pending).SequenceEqual(previous),
+            "canceling batch approval preserves the preceding closed queue exactly");
+
+        foreach (var point in new[] { "before", "after" })
+        {
+            var ready = Path.Combine(directory, point + ".ready");
+            using var child = StartStorageFixture("--hold-batch-approval", directory, point);
+            try
+            {
+                Check(SpinWait.SpinUntil(() => child.HasExited || File.Exists(ready), TimeSpan.FromSeconds(15))
+                    && !child.HasExited && File.Exists(ready), $"the batch approval process reached {point} publication");
+                if (point == "before")
+                    Check(File.ReadAllBytes(pending).SequenceEqual(previous), "a flushed batch stage cannot replace the previous queue early");
+            }
+            finally
+            {
+                if (!child.HasExited) child.Kill();
+                Check(child.WaitForExit(10000), "the batch approval process stopped");
+            }
+            var reopened = new ExportJobJournal(directory, _ => { });
+            if (point == "before")
+                Check(reopened.ReadPendingBatch() is null && File.ReadAllBytes(pending).SequenceEqual(previous),
+                    "a stop before batch publication leaves no recoverable uncommitted queue");
+            else
+                Check(reopened.ReadPendingBatch() is { } saved && saved.Id == plan.Id && saved.Entries.SequenceEqual(entries)
+                    && entries.All(entry => reopened.ReadBatchItem(saved, entry) is null),
+                    "a stop immediately after approval recovers every exact destination and descriptor before the first job starts");
+            Check(Directory.EnumerateFiles(batchFolder, ".spektra-*.tmp").SequenceEqual(new[] { unrelated })
+                && File.ReadAllText(unrelated) == "unrelated bytes" && File.ReadAllText(original) == "original bytes"
+                && entries.All(entry => !File.Exists(entry.Destination)),
+                "batch approval touches neither original nor output and releases its own interrupted stage");
+        }
+    }
+
+    private static void HoldBatchApproval(string directory, string point)
+    {
+        var path = Path.Combine(directory, "approved-fixture.json");
+        var bytes = File.ReadAllBytes(path);
+        if (point == "before")
+        {
+            // Hold the same crash-owned atomic writer as SaveBatch immediately before publication.
+            PanelFiles.WriteAtomically(Path.Combine(directory, "batch", "pending.json"), stream => stream.Write(bytes),
+                beforeCommit: SignalWait, discardOnProcessExit: true);
+            return;
+        }
+        var journal = new ExportJobJournal(directory, _ => { });
+        journal.SaveBatch(PanelFiles.DecodePreset<ExportBatchPlan>(bytes));
+        SignalWait();
+
+        void SignalWait()
+        {
+            File.WriteAllText(Path.Combine(directory, point + ".ready"), point);
+            Thread.Sleep(TimeSpan.FromSeconds(25));
+            throw new TimeoutException("The test did not stop batch approval.");
         }
     }
 

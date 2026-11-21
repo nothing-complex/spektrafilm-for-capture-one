@@ -823,7 +823,7 @@ internal sealed class SpatialPreview : IDisposable
                 return saved;
             token.ThrowIfCancellationRequested();
             var plan = ExportBatchPlan.Create(folder, entries.ToArray());
-            exportJobs.SaveBatch(plan);
+            exportJobs.SaveBatch(plan, token);
             interruptedBatch = plan;
             exportActivity.PersistBatchStop = () => CloseBatchPlan(plan);
             for (var index = 0; index < queue.Count; index++)

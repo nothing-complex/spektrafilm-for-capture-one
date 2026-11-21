@@ -67,6 +67,11 @@ internal static partial class Program
             HoldVerifiedExport(publicationDirectory, point);
             return;
         }
+        if (args is ["--hold-batch-approval", var batchDirectory, var batchPoint])
+        {
+            HoldBatchApproval(batchDirectory, batchPoint);
+            return;
+        }
         if (args is ["--display-profile-patches", var alternateIcc, var patchReport])
         {
             MeasureWpfDisplayPatches(alternateIcc, patchReport);
@@ -129,6 +134,7 @@ internal static partial class Program
         TestExportStorageFailures(folder);
         TestCrashOwnedExportStage(folder);
         TestInterruptedPublication(folder);
+        TestInterruptedBatchApproval(folder);
         TestSectionPreferences(folder);
         TestScheduling().GetAwaiter().GetResult();
         TestNativeCallbackOwnership().GetAwaiter().GetResult();
