@@ -59,6 +59,7 @@ param(
     [switch] $OriginalAvailabilityProbe,
     [switch] $NativeOriginalReplacement,
     [switch] $NativeDeliveryProfileApproval,
+    [switch] $NativeRetrySourceApproval,
     [switch] $NativeDevelopmentDeadline,
     [string] $DevelopmentLeaseFixtureDirectory,
     [string] $DeviceLossFixtureDirectory,
@@ -206,9 +207,10 @@ if ($OriginalAvailabilityProbe -and !$CalibrationChart) {
 if ($NativeOriginalReplacement -and (!$CalibrationChart -or $OriginalAvailabilityProbe -or $NativeEffectExport -or $NativeBatchExport -or $PackagedRuntime)) {
     throw 'Original replacement requires its own disposable calibration launch with the source build.'
 }
-if ($NativeDeliveryProfileApproval) {
-    if (!$NativeSettingsConfig -or $NativeBatchExport -or $NativeEffectExport -or $PackagedRuntime) {
-        throw 'Delivery profile approval requires an isolated source build and verified native settings backup.'
+if ($NativeDeliveryProfileApproval -or $NativeRetrySourceApproval) {
+    if (!$NativeSettingsConfig -or $NativeBatchExport -or $NativeEffectExport -or $PackagedRuntime -or
+        ($NativeDeliveryProfileApproval -and $NativeRetrySourceApproval)) {
+        throw 'Run one approval fixture at a time with an isolated source build and verified native settings backup.'
     }
     $SkipRestart=$true
 }
@@ -530,7 +532,7 @@ if ($NativeSettingsConfig) {
 }
 $nativeRecipes=$null
 $recipeHashes=@{}
-if ($NativeBatchExport -or $NativeExportSelection -or $NativeOriginalReplacement -or $NativeDeliveryProfileApproval -or $NativeEffectCompression -or $NativeEffectOutputProfiles -or $NativeEffectFolders -or $NativeEffectSourceRevision -or $NativeEffectMaskedSource -or $NativeEffectProfileSidecars -or $NativeEffectRecipeRestart) {
+if ($NativeBatchExport -or $NativeExportSelection -or $NativeOriginalReplacement -or $NativeDeliveryProfileApproval -or $NativeRetrySourceApproval -or $NativeEffectCompression -or $NativeEffectOutputProfiles -or $NativeEffectFolders -or $NativeEffectSourceRevision -or $NativeEffectMaskedSource -or $NativeEffectProfileSidecars -or $NativeEffectRecipeRestart) {
     $nativeRecipes=Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'CaptureOne\Recipes143'
     $recipeRoot=Get-Item -LiteralPath $nativeRecipes -Force
     if (!$recipeRoot.PSIsContainer -or ($recipeRoot.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
@@ -626,7 +628,7 @@ if ($NativeVariantLineage) {
     $preVariantBackup = Save-CatalogBackup $catalog
 }
 $originalProfileHashes=@{}
-if (($NativeEffectProfileSidecars -and !$CalibrationChart) -or $ViewerCropProfile) {
+if (($NativeEffectProfileSidecars -and !$CalibrationChart) -or $NativeRetrySourceApproval -or $ViewerCropProfile) {
     $iccSource=Join-Path (Split-Path -Parent $source) 'Adjustments\ICC'
     $profileRoot=Get-Item -LiteralPath $iccSource -Force
     if (!$profileRoot.PSIsContainer -or ($profileRoot.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Pass a closed catalog with real local ICC sidecars.' }
@@ -786,7 +788,7 @@ try {
     $env:SPEKTRAFILM_HOST_VIEWER_STRESS=if($ViewerStress){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_VIEWER_CACHE_ALLOWANCE=if($ViewerCacheAllowance){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_PANEL_INVENTORY=if($PanelInventory){'1'}else{$null}
-    $env:SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT=if($NativeDeliveryProfileApproval){'delivery-approval'}elseif($NativeExportSelection){'selection'}elseif($NativeEffectExportMatrix){'matrix'}elseif($NativeEffectClone){'clone'}elseif($NativeEffectGrain){'grain'}elseif($NativeEffectCompression){'compression'}elseif($NativeEffectOutputProfiles){'profiles'}elseif($NativeEffectFolders){'folders'}elseif($NativeEffectPanelModes){'panel-modes'}elseif($NativeEffectSourceRevision){'source-revision'}elseif($NativeEffectMaskedSource){'masked-source'}elseif($NativeEffectProfileSidecars){'profile-sidecars'}elseif($NativeEffectRecipeRestart){'recipe-restart'}elseif($NativeEffectExport){'1'}else{$null}
+    $env:SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT=if($NativeRetrySourceApproval){'retry-source-approval'}elseif($NativeDeliveryProfileApproval){'delivery-approval'}elseif($NativeExportSelection){'selection'}elseif($NativeEffectExportMatrix){'matrix'}elseif($NativeEffectClone){'clone'}elseif($NativeEffectGrain){'grain'}elseif($NativeEffectCompression){'compression'}elseif($NativeEffectOutputProfiles){'profiles'}elseif($NativeEffectFolders){'folders'}elseif($NativeEffectPanelModes){'panel-modes'}elseif($NativeEffectSourceRevision){'source-revision'}elseif($NativeEffectMaskedSource){'masked-source'}elseif($NativeEffectProfileSidecars){'profile-sidecars'}elseif($NativeEffectRecipeRestart){'recipe-restart'}elseif($NativeEffectExport){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_MOVED_LOOK_BACKUP=$SavedLooksBackup
     $env:SPEKTRAFILM_EXPECTED_CONTROL_INVENTORY=Join-Path $root 'qa\panel-controls.json'
     $env:SPEKTRAFILM_SHOW_TOOL=if($ShowTool){'1'}else{$null}

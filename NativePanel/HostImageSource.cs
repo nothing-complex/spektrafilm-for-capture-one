@@ -507,6 +507,13 @@ internal static class HostImageSource
             return TryReadNativeIdentity(variant, current, verifyLibraryProfiles: true);
         }
 
+        internal void VerifyRetryModel(string expected)
+        {
+            if (!string.Equals(ReadRetryModel(), expected, StringComparison.Ordinal))
+                throw new ExportSourceChangedException(
+                    "Capture One source adjustments or camera profiles changed during the retry. Restore them or start a new export.");
+        }
+
         internal Frame RenderNativePreview(CancellationToken token) =>
             Render(new RenderOptions(NativePreviewEdgeLimit, RenderPurpose.NativePreview), token).Image;
 
@@ -518,6 +525,10 @@ internal static class HostImageSource
 
         internal ExportFrame RenderExport(int? maxLongEdge, CancellationToken token, bool followRecipeSize = false) =>
             Render(new RenderOptions(maxLongEdge ?? RenderFrameLimits.MaxHighDepthEdge, RenderPurpose.Export, followRecipeSize, maxLongEdge is not null), token);
+
+        internal ExportFrame RenderVerifiedExport(CancellationToken token, bool followRecipeSize, string verifiedModel) =>
+            Render(new RenderOptions(RenderFrameLimits.MaxHighDepthEdge, RenderPurpose.Export, followRecipeSize,
+                VerifiedModel: verifiedModel), token);
 
         private ExportFrame Render(RenderOptions options, CancellationToken token)
         {
@@ -547,6 +558,8 @@ internal static class HostImageSource
                     workToken.ThrowIfCancellationRequested();
                     CheckRevision(source, description.VariantId, description.AdjustmentKey, options.ForExport,
                         "before image development", nativeIdentity);
+                    if (options.VerifiedModel is { } modelBeforeDevelopment)
+                        VerifyRetryModel(modelBeforeDevelopment);
                     // A timed-out caller can return while the native callback still owns the profile pathname.
                     using var sourceProfile = new FileStream(profilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
                     if (!string.Equals(Convert.ToHexString(SHA256.HashData(sourceProfile)), description.ProfileSha256, StringComparison.Ordinal))
@@ -649,6 +662,8 @@ internal static class HostImageSource
                 throw new InvalidOperationException($"Capture One could not develop the {(options.ForExport ? "export source" : "preview")} ({result}).");
             CheckRevision(source, description.VariantId, description.AdjustmentKey, options.ForExport,
                 "during image development", nativeIdentity);
+            if (options.VerifiedModel is { } modelAfterDevelopment)
+                VerifyRetryModel(modelAfterDevelopment);
             if (options.ForExport) CheckOriginalImage(source.CoreImage, target);
             var imageFrame = CopyPixels(bitmap, pixelLimit, token, options.Purpose, description);
             var pixelCrop = options.ForExport ? ViewerGeometry.ScaleCrop(crop, canvas, imageFrame.Width, imageFrame.Height)
@@ -696,7 +711,7 @@ internal static class HostImageSource
     private enum RenderPurpose { Draft, ScaledPreview, NativePreview, Export }
 
     private readonly record struct RenderOptions(int MaxDimension, RenderPurpose Purpose, bool FollowRecipeSize = false,
-        bool CallerLimitsExportEdge = false)
+        bool CallerLimitsExportEdge = false, string? VerifiedModel = null)
     {
         internal bool ForExport => Purpose == RenderPurpose.Export;
     }

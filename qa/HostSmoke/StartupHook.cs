@@ -250,6 +250,11 @@ public static partial class StartupHook
                 return;
             }
             var exportFixture = Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT");
+            if (exportFixture == "retry-source-approval")
+            {
+                await TestNativeRetrySourceApproval(panel, spatial, window);
+                return;
+            }
             if (exportFixture == "delivery-approval")
             {
                 await TestNativeDeliveryProfileApproval(exportHook!, panel, spatial);

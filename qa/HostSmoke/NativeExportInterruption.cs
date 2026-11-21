@@ -38,6 +38,21 @@ public static partial class StartupHook
             (Func<SaveFileDialog, Window?, string?>)((_, _) => path))!;
         Task<bool> Retry(Func<SaveFileDialog, Window?, string?> choose) =>
             (Task<bool>)Call(spatial, "RetryInterruptedExportAsync", choose)!;
+        void RecordModelFingerprint()
+        {
+            var host = panel.GetType().Assembly.GetType("HostProfile", true)!;
+            var selection = host.GetMethod("ReadSelection", Flags)!.Invoke(null, new[] { Field(spatial, "window") })!;
+            var settings = Prop(Prop(selection, "Variant")!, "Settings")!;
+            var model = (string)Prop(settings, "ModelCoreRepresentation")!;
+            // This fixture records identity without retaining the model values.
+            var fields = model.Split('\n')
+                .Select(line => (Line: line, Match: System.Text.RegularExpressions.Regex.Match(line, "^\\s*\"([A-Za-z0-9_]+)\"\\s*:")))
+                .Where(field => field.Match.Success)
+                .GroupBy(field => field.Match.Groups[1].Value, StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => Convert.ToHexString(SHA256.HashData(
+                    System.Text.Encoding.UTF8.GetBytes(string.Join("\n", group.Select(field => field.Line))))));
+            File.WriteAllText(Path.Combine(folder, phase + "-retry-model-fields.json"), JsonSerializer.Serialize(fields));
+        }
         var variant = (Guid)Field(panel, "displayedVariant")!;
         if (phase == "first")
         {
@@ -71,6 +86,7 @@ public static partial class StartupHook
                         Check(!writing.IsCompleted, "the approved export is still in progress when the disposable process is stopped");
                         Check(Prop(current, "Retry") is { } descriptor && Prop(descriptor, "Valid") is true,
                             "the original, native model and delivery digests are durable before the process stops");
+                        RecordModelFingerprint();
                         var marker = Path.Combine(folder, "validated-interruption");
                         File.WriteAllText(marker, $"PASS {checks} checks before abrupt stop during {stage}");
                         File.Move(marker, Path.Combine(folder, "first.passed"));
@@ -118,6 +134,7 @@ public static partial class StartupHook
             && !offeredWhileChanged && !File.Exists(retry) && Equals(Prop(Read()!, "JobId"), interrupted.Job),
             "a changed look refuses the retry before opening Save or accepting another output");
         exposureValue.SetValue(exposure, interrupted.Exposure);
+        RecordModelFingerprint();
         var offered = false;
         string SelectedDestination(SaveFileDialog picker)
         {

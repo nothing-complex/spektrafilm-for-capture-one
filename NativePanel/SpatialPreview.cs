@@ -1081,10 +1081,12 @@ internal sealed class SpatialPreview : IDisposable
                 var deliveryProfile = batch?.DeliveryProfile ?? ExportColorProfile.ForRecipe(recipe?.ColorProfileName, recipe?.ColorProfilePath);
                 await using var heldSource = interrupted is null ? null : await Task.Run(original.OpenRead, work.Token);
                 ExportRetryDescriptor? retry = null;
+                string? verifiedNativeModel = null;
                 if (interrupted is not null)
                 {
                     exportActivity.Report(work, "Checking the interrupted export…");
-                    retry = await CaptureRetryDescriptorAsync(snapshot, snapshot.ReadRetryModel(), original, args, strength, encoding,
+                    verifiedNativeModel = snapshot.ReadRetryModel();
+                    retry = await CaptureRetryDescriptorAsync(snapshot, verifiedNativeModel, original, args, strength, encoding,
                         deliveryProfile, useRecipeSize, work.Token, heldSource);
                     var expected = interrupted.Retry!;
                     if (retry is null)
@@ -1145,7 +1147,11 @@ internal sealed class SpatialPreview : IDisposable
                 if (approved.AlreadyExists && StringComparer.OrdinalIgnoreCase.Equals(skipPath, approved.Path))
                     return Skip(approved);
                 if (batch is null)
+                {
+                    if (verifiedNativeModel is not null)
+                        snapshot.VerifyRetryModel(verifiedNativeModel);
                     deliveryProfile.Prepare();
+                }
                 var outputFormat = SpektraExport.PixelFormatFor(approved.Path);
                 var deliveryNote = delivery.SavedNote(outputFormat);
                 receipt = batch is { Plan: { } plan, Entry: { } entry }
@@ -1172,7 +1178,9 @@ internal sealed class SpatialPreview : IDisposable
                 var result = await Task.Run(async () =>
                 {
                     var developStarted = Stopwatch.GetTimestamp();
-                    var rendered = snapshot.RenderExport(null, work.Token, useRecipeSize);
+                    var rendered = verifiedNativeModel is null
+                        ? snapshot.RenderExport(null, work.Token, useRecipeSize)
+                        : snapshot.RenderVerifiedExport(work.Token, useRecipeSize, verifiedNativeModel);
                     var developMs = Stopwatch.GetElapsedTime(developStarted).TotalMilliseconds;
                     var source = rendered.Image;
                     if (source.BitDepth < 16 || source.Description is not { } description

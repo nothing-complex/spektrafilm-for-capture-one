@@ -60,39 +60,8 @@ public static partial class StartupHook
             ((CheckBox)Field(panel, "enableSpektraFilm")!).IsChecked = true;
             Call(spatial, "SetEnabled", true);
             File.WriteAllBytes(profile, approved);
-            var scheduler = (SemaphoreSlim)panel.GetType().Assembly.GetType("HostImageSource", true)!
-                .GetField("SchedulerSlot", Flags)!.GetValue(null)!;
-            var held = false;
             var probePath = Path.Combine(folder, "profile-retry-probe.png");
-            Func<SaveFileDialog, Window?, string?> chooseProbe = (_, _) =>
-            {
-                held = scheduler.Wait(0);
-                if (!held) throw new InvalidOperationException("The fixture could not reserve native development.");
-                return probePath;
-            };
-            var probe = (Task<bool>)Call(spatial, "ExportWithDestinationAsync", true, null, chooseProbe)!;
-            object? descriptor = null;
-            try
-            {
-                var started = Stopwatch.GetTimestamp();
-                while (!probe.IsCompleted && Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(15))
-                {
-                    if (Call(jobs, "ReadLatest") is { } saved && Prop(saved, "Stage")?.ToString() == "DevelopingSource")
-                    {
-                        descriptor = Prop(saved, "Retry");
-                        break;
-                    }
-                    await Task.Delay(25);
-                }
-                Check(held && descriptor is not null, "the native job durably captures the approved ICC before developing");
-                Call(Field(spatial, "exportWork")!, "Cancel");
-            }
-            finally { if (held) scheduler.Release(); }
-            Check(!await probe.WaitAsync(TimeSpan.FromSeconds(30)) && !File.Exists(probePath),
-                "the fixture captured a retry descriptor without writing an image");
-            var interrupted = Call(jobs, "Accept", primary, probePath)!;
-            interrupted = Call(jobs, "RecordRetry", interrupted, descriptor!)!;
-            spatial.GetType().GetField("interruptedExport", Flags)!.SetValue(spatial, interrupted);
+            var interrupted = await SeedVerifiedNativeExportRetry(panel, spatial, primary, probePath);
             var interruptedId = Prop(interrupted, "JobId");
             var output = Path.Combine(folder, "profile-approved-retry.png");
             var saveOffered = false;
@@ -132,5 +101,43 @@ public static partial class StartupHook
 
         Task<bool> Retry(Func<SaveFileDialog, Window?, string?> choose) =>
             ((Task<bool>)Call(spatial, "RetryInterruptedExportAsync", choose)!).WaitAsync(TimeSpan.FromSeconds(45));
+    }
+
+    private static async Task<object> SeedVerifiedNativeExportRetry(object panel, object spatial, Guid primary, string probePath)
+    {
+        var jobs = Field(spatial, "exportJobs")!;
+        var scheduler = (SemaphoreSlim)panel.GetType().Assembly.GetType("HostImageSource", true)!
+            .GetField("SchedulerSlot", Flags)!.GetValue(null)!;
+        var held = false;
+        Func<SaveFileDialog, Window?, string?> chooseProbe = (_, _) =>
+        {
+            held = scheduler.Wait(0);
+            if (!held) throw new InvalidOperationException("The fixture could not reserve native development.");
+            return probePath;
+        };
+        var probe = (Task<bool>)Call(spatial, "ExportWithDestinationAsync", true, null, chooseProbe)!;
+        object? descriptor = null;
+        try
+        {
+            var started = Stopwatch.GetTimestamp();
+            while (!probe.IsCompleted && Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(15))
+            {
+                if (Call(jobs, "ReadLatest") is { } saved && Prop(saved, "Stage")?.ToString() == "DevelopingSource")
+                {
+                    descriptor = Prop(saved, "Retry");
+                    break;
+                }
+                await Task.Delay(25);
+            }
+            Check(held && descriptor is not null, "the native job durably captures its verification descriptor before developing");
+            Call(Field(spatial, "exportWork")!, "Cancel");
+        }
+        finally { if (held) scheduler.Release(); }
+        Check(!await probe.WaitAsync(TimeSpan.FromSeconds(30)) && !File.Exists(probePath),
+            "the fixture captured a retry descriptor without writing an image");
+        var interrupted = Call(jobs, "Accept", primary, probePath)!;
+        interrupted = Call(jobs, "RecordRetry", interrupted, descriptor!)!;
+        spatial.GetType().GetField("interruptedExport", Flags)!.SetValue(spatial, interrupted);
+        return interrupted;
     }
 }
