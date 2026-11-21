@@ -878,7 +878,8 @@
         "Compared the CLR metadata from two separately compiled panels. Clean builds still emitted different recipe FileType getter owners. Adapted the relocated getter with a cached typed delegate over the actual loaded recipe interface. The read-only checker now reports 563 matching host type, member and specialization references across the 16.4.6.2414 and 16.7.8.3529 binaries, with matching host assembly names, cultures and public-key tokens. Fourteen focused host-shape assertions include the moved property and explicit interface implementations.",
         "The licensed 16.4 recipe fixture passes 128 assertions on launch and 128 after restart. Both native commands follow the actual TIFF and PNG recipe types, retain applied effects and carry the exact recipe ICC. An independent PNG chunk reader confirms all four recipe-selected PNGs are 3000 by 2000, 16 bits per channel in RGBA with the selected ICC. All nine original recipe files verify and the source catalog remains unchanged.",
         "The signed 16.4 and 16.7 assemblies resolve all nine Viewer attachment members identically by declaring assembly, type and signature. This includes private fields and methods resolved by name as well as Paint. Selection order, realized controls and actual paint delivery still require licensed runtime testing.",
-        "Build a separate QA panel for the exact signed 16.7.8.3529 executable and DLL while retaining the existing production gate. Its candidate-only manifest and panel checksum verify. Both versions now match across 700 compiled host references. Test prelaunch denial for a mismatched assembly, modified panel, missing candidate fixture and 16.4 preferences or executable. Rejected runs leave the catalog and settings byte exact. Signed 16.7.8 metadata identifies the Recipes165 and Workspaces130 directories. The runner backs up those exact directories for applicable cases and scopes stability files to the executable version. The licensed 16.4 runner passes 135 native RAW colour and 146 native effects and recipe-profile assertions. Both donors and nine native recipe files verify."
+        "Build a separate QA panel for the exact signed 16.7.8.3529 executable and DLL while retaining the existing production gate. Its candidate-only manifest and panel checksum verify. Both versions now match across 700 compiled host references. Test prelaunch denial for a mismatched assembly, modified panel, missing candidate fixture and 16.4 preferences or executable. Rejected runs leave the catalog and settings byte exact. Signed 16.7.8 metadata identifies the Recipes165 and Workspaces130 directories. The runner backs up those exact directories for applicable cases and scopes stability files to the executable version. The licensed 16.4 runner passes 135 native RAW colour and 146 native effects and recipe-profile assertions. Both donors and nine native recipe files verify.",
+        "Classify the earlier unhooked startup crash through the native crash report and application log. Capture One opened the disposable database and then faulted in WinForms/WPF ElementHost activation before a ready window. The initial minimized ordinary test times out on the native Recents window after crash recovery. After recovery, a fresh minimized launch with both hooks disabled opens the disposable catalog and exits zero. The current 16.4 panel passes 178 licensed native export checks, 78 after restart, and 200 in the separate watermark fixture with the minimized setting. The production host gate and launch settings retain their verified scope."
       ],
       "evidence_paths": [
         "capture-one-hosts.json",
@@ -910,7 +911,12 @@
         ".test-results/licensed-16.7.8-qa-fixture-20261121/fixture-validation.json",
         ".test-results/licensed-16.7.8-qa-fixture-20261121/runner-prelaunch-guards.json",
         ".test-results/host-164-candidate-runner-color-20261121/host-smoke.log",
-        ".test-results/host-164-candidate-runner-export-20261121/host-smoke.log"
+        ".test-results/host-164-candidate-runner-export-20261121/host-smoke.log",
+        ".test-results/host-ordinary-minimized-20261121/prior-native-activation-crash.json",
+        ".test-results/host-ordinary-minimized-20261121/ordinary-launch.json",
+        ".test-results/host-ordinary-minimized-clean-20261121/ordinary-launch.json",
+        ".test-results/host-minimized-recipe-20261121/first.ready.json",
+        ".test-results/host-minimized-recipe-20261121/restart.ready.json"
       ],
       "remaining_work": [
         "Extend observed capability diagnostics and independent verification to each supported version, native history, floating and catalog teardown.",
@@ -1762,7 +1768,9 @@
         "Capture the recipe transparency overlay through the native program overlay controller, using native Follow Crop geometry, scale, file-mode placement, opacity and loaded Adobe RGB pixels. Include the snapshot digest in verified retry identity. PSD preserves a separate editable Overlay layer between watermark and annotation above the RGB16 film image. TIFF and PNG composite the approved overlay. Unavailable requested assets are disclosed.",
         "Run the actual standalone overlay loader and geometry provider against signed 16.4.6.2414 and 16.7.8.3529. Native bitmap samples, positions and opacity match for full canvas, Follow Crop and an off-canvas placement at fractional recipe scale. The 16-bit profile conversion preserves every alpha sample. Both providers pass the zero-opacity and oversize checks. ImageMagick independently decodes every exact 16-bit sample in all four PSD layers and the merged preview. Both panel builds match all 788 compiled host references. All nine Windows suites pass, including 12,627 Viewer and export assertions. The expanded disposable catalog fixture builds, and its licensed execution remains open.",
         "Add native Save and recipe delivery for RGB16 PSB with the same separate pixel layers, editable crop path and guides, selected ICC, XMP and DPI as PSD. Implement long layer block, tag and channel lengths. Keep PSB distinct in naming, Skip, retries and publication identity. Reject output that exceeds PSD's 2 GB limit before writing pixels and name the PSB alternative.",
-        "ImageMagick independently decodes the exact 16-bit samples and positions of every layer and the merged preview in PSB. The portable fixture verifies the exact editable resources and publication digest, plus a 64-bit section declaration above four GiB without writing or allocating those pixels. Signed 16.7.8.3529 declares FileFormat.Psb and exposes TiffBits. Both host builds match all 788 references. All nine Windows suites pass, including 12,637 Viewer and export checks. The licensed fixture builds and can choose a PSB alternative to a PSD recipe."
+        "ImageMagick independently decodes the exact 16-bit samples and positions of every layer and the merged preview in PSB. The portable fixture verifies the exact editable resources and publication digest, plus a 64-bit section declaration above four GiB without writing or allocating those pixels. Signed 16.7.8.3529 declares FileFormat.Psb and exposes TiffBits. Both host builds match all 788 references. All nine Windows suites pass, including 12,637 Viewer and export checks. The licensed fixture builds and can choose a PSB alternative to a PSD recipe.",
+        "The current licensed Capture One 16.4 fixture passes 178 launch and 78 restart assertions. The two native commands deliver RGB16 film results with the real crop path, native annotation layer and a loaded transparency overlay. The explicit PSB and PSD share 1,614,592 exact RGBA16 overlay samples. Across 18 million samples, their merged RGB16 frames average 0.045 codes apart, and the matching PNG averages 0.049 codes from PSB. ImageMagick independently verifies the layers, their placement, buffer depth and exact ICC match. The original catalog and nine native recipe files verify through clean restart.",
+        "A separate current-source 16.4 watermark fixture passes 200 licensed checks. ImageMagick independently opens the PSD's 144 by 72 RGBA16 watermark and separate RGB16 film layer. The merged image and film layer average 0.158 and 0.161 codes per RGB16 sample from their paired TIFFs across 18 million samples each. The source catalog and all nine recipe files verify."
       ],
       "evidence_paths": [
         "NativePanel/SpektraFilmTool.cs",
@@ -1859,11 +1867,16 @@
         ".test-results/psb-export-20261121/verified-independent-psb.json",
         ".test-results/psb-export-20261121/format-16.7.txt",
         ".test-results/psb-export-20261121/contracts/summary.json",
-        ".test-results/psb-export-20261121/reference-comparison.json"
+        ".test-results/psb-export-20261121/reference-comparison.json",
+        ".test-results/host-minimized-recipe-20261121/first.passed",
+        ".test-results/host-minimized-recipe-20261121/restart.passed",
+        ".test-results/host-minimized-recipe-20261121/independent-native-layered-export.json",
+        ".test-results/host-minimized-watermark-20261121/first.passed",
+        ".test-results/host-minimized-watermark-20261121/independent-native-watermark-psd.json"
       ],
       "remaining_work": [
         "Directory creation and the full location token matrix, automatic Overwrite behavior, tiling and other format and quality settings beyond the explicit 16-bit TIFF/PNG save policy remain open.",
-        "Run flattened and layered Photoshop exports, editable guides and paths, and an explicit PSB selection inside the licensed host. Verify rotated and mirrored geometry, editable guides with a licensed Studio or Enterprise document, and selected native PSB recipes on an admitted Capture One 16.7 host. Cover 16.7 mask export metadata, watermark tokens, output profiles, post-film Screen and Print sharpening, remaining delivery settings and sidecars. Explicit overwrite still requires Save approval."
+        "Verify actual rotated and mirrored geometry, editable guides with a licensed Studio or Enterprise document, and selected native PSB recipes on an admitted Capture One 16.7 host. Cover 16.7 mask export metadata, watermark tokens, output profiles, post-film Screen and Print sharpening, remaining delivery settings and sidecars. Explicit overwrite still requires Save approval."
       ],
       "original_acceptance_tests": [
         "Table-driven JPEG, PNG, TIFF 8/16-bit, unknown-format, custom ICC, image-folder/custom-folder/subfolder/token/suffix and duplicate-name cases.",

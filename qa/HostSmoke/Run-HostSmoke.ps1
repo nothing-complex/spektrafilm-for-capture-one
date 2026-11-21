@@ -39,6 +39,7 @@ param(
     [switch] $SkipRestart,
     [switch] $CheckOrdinaryLaunch,
     [switch] $OrdinaryLaunchOnly,
+    [ValidateSet('Normal','Minimized')][string] $LaunchWindowStyle='Normal',
     [switch] $ShowTool,
     [switch] $ColorMatrix,
     [switch] $NativeSourceMutations,
@@ -74,7 +75,7 @@ param(
 )
 $ErrorActionPreference='Stop'
 if ($OrdinaryLaunchOnly) {
-    $allowed=@('OrdinaryLaunchOnly','SourceCatalog','CaptureOnePath','NativeSettingsConfig','ResultsDirectory')
+    $allowed=@('OrdinaryLaunchOnly','SourceCatalog','CaptureOnePath','NativeSettingsConfig','ResultsDirectory','LaunchWindowStyle')
     if (!$NativeSettingsConfig -or ($PSBoundParameters.Keys | Where-Object { $_ -notin $allowed })) {
         throw 'An ordinary-only launch needs a disposable catalog and verified preferences backup, without other fixture modes.'
     }
@@ -894,7 +895,7 @@ try {
         $env:SPEKTRAFILM_LAUNCH_ID=[Guid]::NewGuid().ToString('N')
         [IO.File]::WriteAllText((Join-Path $folder ($phase+'.launch')), $env:SPEKTRAFILM_LAUNCH_ID)
         # This is an interactive host UI integration test, not a background helper.
-        $process=Start-Process -FilePath $CaptureOnePath -WorkingDirectory $captureOneDirectory -ArgumentList ('"'+$catalog+'"') -WindowStyle Normal -PassThru
+        $process=Start-Process -FilePath $CaptureOnePath -WorkingDirectory $captureOneDirectory -ArgumentList ('"'+$catalog+'"') -WindowStyle $LaunchWindowStyle -PassThru
         [IO.File]::WriteAllText((Join-Path $folder ($phase+'.pid')),[string]$process.Id)
         try {
             $status=Join-Path (Join-Path $folder 'Launch status') ($env:SPEKTRAFILM_LAUNCH_ID+'.json')
@@ -972,14 +973,17 @@ try {
         [Environment]::SetEnvironmentVariable('DOTNET_STARTUP_HOOKS',$null,'Process')
         $env:SPEKTRAFILM_LAUNCH_ID=[Guid]::NewGuid().ToString('N')
         $status=Join-Path (Join-Path $folder 'Launch status') ($env:SPEKTRAFILM_LAUNCH_ID+'.json')
-        $process=Start-Process -FilePath $CaptureOnePath -WorkingDirectory $captureOneDirectory -ArgumentList ('"'+$catalog+'"') -WindowStyle Normal -PassThru
+        $process=Start-Process -FilePath $CaptureOnePath -WorkingDirectory $captureOneDirectory -ArgumentList ('"'+$catalog+'"') -WindowStyle $LaunchWindowStyle -PassThru
+        $ordinary=[ordered]@{status='failed'; pid=$process.Id; hostVersion=$hostVersion; startupHook=$false;
+            windowStyle=$LaunchWindowStyle; startedUtc=$phaseStarted.ToString('o'); finishedUtc=$null; sawCatalogWindow=$false;
+            exitCode=$null; failure=$null; sourceCatalogUnchanged=$false}
         try {
             $deadline=[DateTime]::UtcNow.AddSeconds(90)
             do {
                 $process.Refresh()
                 if($process.HasExited){throw "Ordinary Capture One exited before opening the test catalog (exit $($process.ExitCode))."}
                 $title=$process.MainWindowTitle
-                if($title -like '*Host Smoke*'){break}
+                if($title -like '*Host Smoke*'){$ordinary.sawCatalogWindow=$true; break}
                 if([DateTime]::UtcNow -gt $deadline){throw "Ordinary Capture One did not open the disposable catalog. Last title: $title"}
                 Start-Sleep -Milliseconds 300
             } while($true)
@@ -993,10 +997,18 @@ try {
             }
             $message="PASS ordinary Capture One opened $title without a Spektrafilm startup report."
             [IO.File]::WriteAllText((Join-Path $folder 'ordinary.passed'),$message)
+            $ordinary.status='passed'
             Write-Output $message
+        } catch {
+            $ordinary.failure=$_.Exception.Message
+            throw
         } finally {
-            if(!$process.HasExited){Stop-Process -Id $process.Id; $process.WaitForExit()}
+            if ($process.HasExited) { $ordinary.exitCode=$process.ExitCode }
+            else { Stop-Process -Id $process.Id; $process.WaitForExit() }
             $process.Dispose()
+            $ordinary.finishedUtc=[DateTime]::UtcNow.ToString('o')
+            $ordinary.sourceCatalogUnchanged=(Get-FileHash -LiteralPath $source).Hash -eq $sourceHash
+            $ordinary | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $folder 'ordinary-launch.json') -Encoding utf8
             Clear-TestCrashMarkers $phaseStarted 'ordinary'
         }
     }
