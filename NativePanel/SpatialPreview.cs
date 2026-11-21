@@ -73,6 +73,7 @@ internal sealed class SpatialPreview : IDisposable
     private bool dragging;
     private long lastDragChange;
     private HostImageSource.Frame? source;
+    private HostImageSource.PreviewCropIdentity? sourceCropIdentity;
     private NativeImageRevision? failedRevision;
     private readonly PreviewRendererRetry<(Guid Variant, int Generation, NativeImageRevision Source)> rendererRetry = new();
     private byte[]? renderedPixels;
@@ -1425,6 +1426,7 @@ internal sealed class SpatialPreview : IDisposable
     {
         ResetDraft(keepRenderer: keepDraftRenderer);
         source = null;
+        sourceCropIdentity = null;
         sourceSize = null;
         ClearDisplayCache(ref sourceDisplay, ref sourceDisplayLease);
         ClearRenderedPixels();
@@ -1591,6 +1593,9 @@ internal sealed class SpatialPreview : IDisposable
         var longEdge = nativeSize ? 0 : int.Parse(size, CultureInfo.InvariantCulture);
         var dragEdge = DragLongEdge;
         var needsSource = !HasCurrentSource(selectedVariant, revision, space, size);
+        var cropReused = needsSource && pending is null && (frameCurrent || queued)
+            && TryReuseAfterCrop(selectedVariant, revision, space, size);
+        if (cropReused) needsSource = false;
         if (!needsSource && WantsDragPreview
             && source is { } liveSource && Math.Max(liveSource.Width, liveSource.Height) > dragEdge)
         {
@@ -1606,7 +1611,7 @@ internal sealed class SpatialPreview : IDisposable
         if (!queued || getSettings() is not { } look)
         {
             if (viewerFrame is not null)
-                ShowFrame(selectedVariant, viewerFrame);
+                ShowFrame(selectedVariant, viewerFrame, refreshPresentation: cropReused);
             if (!needsSource && frameCurrent && !dragging && dragEdge > 0
                 && !draftWarmupAttempted && pendingDraft is null
                 && source is { } fullSource && Math.Max(fullSource.Width, fullSource.Height) > dragEdge
@@ -1638,6 +1643,7 @@ internal sealed class SpatialPreview : IDisposable
                 var developStarted = Stopwatch.GetTimestamp();
                 var target = HostProfile.CaptureTarget(window);
                 var snapshot = HostImageSource.Capture(window, target, space);
+                var cropIdentity = snapshot.ReadPreviewCropIdentity();
                 var initialStarted = Stopwatch.GetTimestamp();
                 HostImageSource.Frame? initial = null;
                 if ((nativeSize || longEdge > InitialPreviewLongEdge) && newSelection && dragEdge > 0 && pendingDraft is null && strength > 0)
@@ -1669,6 +1675,7 @@ internal sealed class SpatialPreview : IDisposable
                 }
                 ResetDraft(keepRenderer: true);
                 source = developed;
+                sourceCropIdentity = cropIdentity;
                 sourceSize = size;
                 nativeDevelopmentMs = Stopwatch.GetElapsedTime(developStarted).TotalMilliseconds;
                 StartupHook.Log($"Capture One developed {target.SourceFormat} input at {developed.Width} × {developed.Height}, {developed.BitDepth}-bit {space} in {nativeDevelopmentMs:F0} ms.");
@@ -1765,7 +1772,7 @@ internal sealed class SpatialPreview : IDisposable
                 input.BitDepth, publishedSource.Source.SourceFormat, publishedSource.Source.HostVersion,
                 publishedSource.Source.HostAssemblySha256, selectedSpace.Id, encoding.Id, strength > 0,
                 nativeDevelopmentMs, filmRenderMs, bitmapMs, renderReceipt));
-            ShowFrame(selectedVariant, output);
+            ShowFrame(selectedVariant, output, refreshPresentation: cropReused);
             offered = true;
         }
         catch (OperationCanceledException)
@@ -1810,6 +1817,24 @@ internal sealed class SpatialPreview : IDisposable
         && description.Source.AdjustmentKey == revision && description.Source.InputEncoding == space && sourceSize == size
         && string.Equals(description.Source.ProfileSha256, checkedProfileHash, StringComparison.Ordinal)
         && description.Describes(current.Width, current.Height, current.BitDepth, current.FloatBytes.Length);
+
+    private bool TryReuseAfterCrop(Guid variant, NativeImageRevision revision, PreviewInputSpace space, string size)
+    {
+        if (source is not { Description: { } description } current || sourceCropIdentity is not { } before)
+            return false;
+        var previous = description.Source.AdjustmentKey;
+        if (revision.Geometry <= previous.Geometry || revision.HighRes != previous.HighRes || revision.LowRes != previous.LowRes
+            || !HasCurrentSource(variant, previous, space, size)
+            || HostImageSource.ReadPreviewCropIdentity(window, variant, revision) is not { } after || !after.IsCropChangeFrom(before))
+            return false;
+
+        // Native development covers the full canvas. The existing bitmap is
+        // presented using the native Viewer's new transform and crop clip.
+        source = current with { Description = description with { Source = description.Source with { AdjustmentKey = revision } } };
+        sourceCropIdentity = after;
+        StartupHook.Log("viewer.crop.reused.v1", new { Previous = previous.Geometry, Current = revision.Geometry });
+        return true;
+    }
 
     private void ReleaseRenderer()
     {
@@ -2038,10 +2063,10 @@ internal sealed class SpatialPreview : IDisposable
         status.Text = message;
     }
 
-    private void ShowFrame(Guid variant, BitmapSource frame)
+    private void ShowFrame(Guid variant, BitmapSource frame, bool refreshPresentation = false)
     {
         nextViewerCheck = Environment.TickCount64 + 350;
-        viewer.Show(variant, frame);
+        viewer.Show(variant, frame, refreshPresentation);
         UpdateViewerStatus();
     }
 

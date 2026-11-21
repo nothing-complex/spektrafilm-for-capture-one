@@ -80,17 +80,48 @@ public static partial class StartupHook
                 {
                     var beforeModel = Model();
                     var beforePaint = label == "asymmetric crop" ? ReadCropPaint(viewer, spatial) : null;
+                    var beforeCropIdentity = Field(spatial, "sourceCropIdentity");
+                    if (beforePaint is not null)
+                        Check(Field(spatial, "sourceCropIdentity") is not null,
+                            $"{format} the settled source has a verified crop identity");
                     apply();
                     var expected = revision.Invoke(null, new[] { window, (object)id });
-                    var changedFields = ChangedNativeModelFields(beforeModel, Model());
+                    var afterModel = Model();
+                    var changedFields = ChangedNativeModelFields(beforeModel, afterModel);
+                    if (beforePaint is not null)
+                    {
+                        string Shape(string model)
+                        {
+                            var keys = Regex.Matches(model, "(?m)^\\s*\"(crop|syncProcessCounter)\"\\s*:[^\\r\\n]*")
+                                .Cast<Match>().Select(match => match.Value.Trim());
+                            return string.Join(" | ", keys);
+                        }
+                        File.AppendAllText(Path.Combine(folder, "native-crop-shape.log"),
+                            $"{format}: {Shape(beforeModel)} -> {Shape(afterModel)}{Environment.NewLine}");
+                        var probe = host.GetMethod("ReadPreviewCropIdentity", Flags)!.Invoke(null, new[] { window, (object)id, expected });
+                        File.AppendAllText(Path.Combine(folder, "native-crop-shape.log"),
+                            $"{format}: expected {expected}; prior {Key(original)}; candidate {probe is not null}; "
+                            + $"same pixels {probe is not null && Call(probe, "IsCropChangeFrom", beforeCropIdentity) is true}; "
+                            + $"queued {Field(spatial, "queued")}; draft {Field(spatial, "pendingDraft") is not null}{Environment.NewLine}");
+                    }
                     Check(!Equals(Key(original), expected), $"{format} {label} changes Capture One's actual revision counters");
                     var after = await WaitForSource(id);
-                    Check(!ReferenceEquals(after, original) && Equals(Key(after), expected),
-                        $"{format} {label} replaces the old developed source before publishing a settled frame");
+                    Check(!ReferenceEquals(after, original) && !Equals(Key(after), Key(original)),
+                        $"{format} {label} publishes the current native revision after the edit settles");
                     object? presentation = null;
                     if (beforePaint is not null)
                     {
                         var cropPaint = ReadCropPaint(viewer, spatial);
+                        var visible = Stopwatch.GetTimestamp();
+                        while (beforePaint.Transform == cropPaint.Transform && beforePaint.Clip == cropPaint.Clip
+                            && Stopwatch.GetElapsedTime(visible) < TimeSpan.FromSeconds(5))
+                        {
+                            await Task.Delay(25);
+                            cropPaint = ReadCropPaint(viewer, spatial);
+                        }
+                        Check(ReferenceEquals(Prop(after, "FloatBytes"), Prop(original, "FloatBytes"))
+                            && ReferenceEquals(cropPaint.Bitmap, beforePaint.Bitmap),
+                            $"{format} only the native crop changed, so the Viewer reused the RGB16 buffer and optical bitmap");
                         var difference = CompareCropBitmaps(beforePaint.Bitmap, cropPaint.Bitmap);
                         Check(beforePaint.Transform != cropPaint.Transform || beforePaint.Clip != cropPaint.Clip,
                             $"{format} asymmetric native crop changes the Viewer presentation");
@@ -101,6 +132,8 @@ public static partial class StartupHook
                         presentation = new { beforePaint.CornerError, cropCornerError = cropPaint.CornerError,
                             clipMatches = cropPaint.ClipMatches, difference };
                     }
+                    else Check(!ReferenceEquals(Prop(after, "FloatBytes"), Prop(original, "FloatBytes")),
+                        $"{format} {label} develops a fresh pixel buffer");
                     var snapshot = capture.Invoke(null, new[] { window, target, encoding, false })!;
                     var reference = (await Task.Run(() => Call(snapshot, "RenderScaledPreview", 1200, CancellationToken.None)))!;
                     var width = (int)Prop(after, "Width")!;

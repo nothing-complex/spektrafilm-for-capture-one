@@ -73,6 +73,7 @@ internal static partial class Program
         TestDpiAndCropGeometry();
         TestFloatingBounds();
         TestViewportQuality();
+        TestPreviewCropModel();
         TestViewerHistogram();
         TestRgb16();
         TestFloatSource();
@@ -403,6 +404,39 @@ internal static partial class Program
             throw new InvalidOperationException("A stale histogram ignored cancellation.");
         }
         catch (OperationCanceledException) { Check(true, "stale histogram can be cancelled before scanning the shared display frame"); }
+    }
+
+    private static void TestPreviewCropModel()
+    {
+        const string crop = "\"crop\":{\"x\":3240,\"y\":1800,\"width\":4320,\"height\":2840},\n";
+        const string settings = "\"lensDistortionAmount\":1,\"rotation\":0,\"keystone\":0,\"opaque\":nan";
+        static string Model(int counter, string rectangle, string other) => "{\n\"syncProcessCounter\":" + counter
+            + ",\n\"adjustmentLayer\":{\n" + rectangle + other + "\n}\n}";
+        var plain = PreviewCropModel.Read(Model(6, "", settings), 6)!;
+        var cropped = PreviewCropModel.Read(Model(7, crop, settings), 7)!;
+        Check(plain.Crop is null && cropped.Crop is { X: 3240, Y: 1800, Width: 4320, Height: 2840 }
+            && plain.PixelSettingsSha256 == cropped.PixelSettingsSha256,
+            "the native rectangle can be inserted without changing uncropped pixel identity");
+        foreach (var edited in new[] { "\"lensDistortionAmount\"", "\"rotation\"", "\"keystone\"" })
+        {
+            var changedSettings = settings.Replace(edited + ":", edited + ":4", StringComparison.Ordinal);
+            Check(PreviewCropModel.Read(Model(7, crop, changedSettings), 7) is { } changed
+                && changed.PixelSettingsSha256 != plain.PixelSettingsSha256,
+                "native crop plus a pixel-affecting geometry edit changes the identity");
+        }
+        Check(PreviewCropModel.Read(Model(7, crop, settings), 8) is null,
+            "the crop model must describe the expected native counter");
+        Check(PreviewCropModel.Read(Model(7, crop + crop, settings), 7) is null,
+            "duplicate crop keys fail closed");
+        Check(PreviewCropModel.Read(Model(7, crop.Replace("\"width\":4320", "\"angle\":4,\"width\":4320"), settings), 7) is null,
+            "an unverified crop representation with an additional geometry field fails closed");
+        Check(PreviewCropModel.Read("{\n" + crop + Model(7, "", settings)[2..], 7) is null
+            && PreviewCropModel.Read(Model(7, crop, settings).Replace("adjustmentLayer", "otherLayer"), 7) is null
+            && PreviewCropModel.Read("broken model", 7) is null,
+            "an unknown crop scope or malformed native data fails closed");
+        Check(PreviewCropModel.Read(Model(7, crop, settings.Replace("nan", "inf")), 7) is { } opaque
+            && opaque.PixelSettingsSha256 != plain.PixelSettingsSha256,
+            "an unrelated opaque native setting remains in the pixel checksum");
     }
 
     private static void TestViewportQuality()

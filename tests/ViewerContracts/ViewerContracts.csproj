@@ -14,6 +14,7 @@
     <Compile Include="../../NativePanel/HighDepthSource.cs" Link="HighDepthSource.cs" />
     <Compile Include="../../NativePanel/ExportPixels.cs" Link="ExportPixels.cs" />
     <Compile Include="../../NativePanel/ViewerGeometry.cs" Link="ViewerGeometry.cs" />
+    <Compile Include="../../NativePanel/PreviewCropModel.cs" Link="PreviewCropModel.cs" />
     <Compile Include="../../NativePanel/FloatingWindowBounds.cs" Link="FloatingWindowBounds.cs" />
     <Compile Include="../../NativePanel/ViewportQuality.cs" Link="ViewportQuality.cs" />
     <Compile Include="../../NativePanel/ViewerHistogram.cs" Link="ViewerHistogram.cs" />

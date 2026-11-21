@@ -86,7 +86,7 @@ internal sealed class ViewerPreview : IDisposable
         }
     }
 
-    internal bool Show(Guid variantId, BitmapSource bitmap)
+    internal bool Show(Guid variantId, BitmapSource bitmap, bool refreshPresentation = false)
     {
         if (disposed)
             return false;
@@ -104,7 +104,7 @@ internal sealed class ViewerPreview : IDisposable
                 var reason = Availability(current) ?? current.PaintUnavailable;
                 var changed = UnavailableReason != reason;
                 SetStatus(reason);
-                if (changed || !ReferenceEquals(current.Bitmap, bitmap))
+                if (changed || refreshPresentation || !ReferenceEquals(current.Bitmap, bitmap))
                 {
                     current.Bitmap = bitmap;
                     Invalidate(current.View);

@@ -61,6 +61,12 @@ internal static class HostImageSource
             new[] { typeof(ICaptureOneDocument), typeof(IDestinationProcessingSettings), typeof(IImage) }, null);
     internal sealed record Frame(int Width, int Height, byte[] FloatBytes, int BitDepth, FrameDescription? Description = null);
     internal sealed record ExportFrame(Frame Image, Rectangle Crop);
+    internal sealed record PreviewCropIdentity(PreviewCropModel Model, string Profiles, Guid Image, string Path,
+        long FileLength, DateTime WrittenUtc, DateTime CreatedUtc)
+    {
+        internal bool IsCropChangeFrom(PreviewCropIdentity before) => Model.Crop != before.Model.Crop
+            && (this with { Model = before.Model }) == before && Model.PixelSettingsSha256 == before.Model.PixelSettingsSha256;
+    }
     internal sealed class DevelopmentDeadlineException(string message) : TimeoutException(message);
     internal sealed class ExportSourceChangedException(string message) : InvalidOperationException(message);
     internal sealed record RecipeNaming(string Stem, Func<bool>? AdvanceCounter);
@@ -87,6 +93,50 @@ internal static class HostImageSource
     }
 
     internal static NativeImageRevision GetRevision(object window, Guid variantId) => ReadRevision(RequireSelection(window, variantId).Variant);
+
+    internal static PreviewCropIdentity? ReadPreviewCropIdentity(object window, Guid variantId, NativeImageRevision revision)
+    {
+        try { return TryReadCropIdentity(RequireSelection(window, variantId).Variant, revision); }
+        catch (Exception error) when (error is InvalidOperationException or OperationCanceledException) { return null; }
+    }
+
+    private static PreviewCropIdentity? TryReadCropIdentity(ICoreVariant variant, NativeImageRevision revision)
+    {
+        if (StartupHook.VerifiedHost?.FileVersion != "16.4.6.2414"
+            || variant.CoreImage is not { IsRawFile: true, IsFileAvailable: true } image)
+            return null;
+        var path = image.FullpathFilename;
+        if (!Path.IsPathFullyQualified(path) || path.StartsWith(@"\\", StringComparison.Ordinal)) return null;
+
+        try
+        {
+            // Keep removable and network originals on the ordinary development path.
+            if (new DriveInfo(Path.GetPathRoot(path)!).DriveType != DriveType.Fixed) return null;
+            var file = new FileInfo(path);
+            if (!file.Exists || file.Attributes.HasFlag(FileAttributes.ReparsePoint)) return null;
+            var settings = variant.Settings;
+            if (VariantReaderLock?.FieldType != typeof(object) || VariantReaderLock.GetValue(settings) is not { } reader
+                || !Monitor.TryEnter(reader))
+                return null;
+            string model;
+            string? profiles;
+            try
+            {
+                if (ReadRevision(variant) != revision || variant.LocalAdjustmentsLayers is not { Count: 0 }) return null;
+                profiles = NativeProfileIdentity.TryRead(variant, verifyLibraryProfiles: true);
+                model = settings.ModelCoreRepresentation;
+            }
+            finally { Monitor.Exit(reader); }
+
+            return profiles is not null && PreviewCropModel.Read(model, revision.Geometry) is { } cropped
+                && ReadRevision(variant) == revision && image.IsFileAvailable
+                ? new(cropped, profiles, image.UUID, path, file.Length, file.LastWriteTimeUtc, file.CreationTimeUtc) : null;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or NotSupportedException)
+        {
+            return null;
+        }
+    }
 
     internal static RecipeInfo? ActiveRecipe(object window)
     {
@@ -434,6 +484,7 @@ internal static class HostImageSource
         string profilePath, IC_ProcessSettings settings, FrameSourceDescription description, RecipeInfo? recipe, string? nativeIdentity)
     {
         internal NativeImageRevision AdjustmentKey => description.AdjustmentKey;
+        internal PreviewCropIdentity? ReadPreviewCropIdentity() => TryReadCropIdentity(variant, AdjustmentKey);
         internal FrameSourceDescription SourceIdentity => description;
         internal RecipeInfo? Recipe => recipe;
         internal string? ReadRetryModel()
