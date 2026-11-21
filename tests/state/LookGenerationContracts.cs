@@ -3,6 +3,16 @@ using System.Security.Cryptography;
 
 internal static class LookGenerationContracts
 {
+    internal static int HoldForBackup(string directory, string catalog, Guid variant, string current, string previous, string marker)
+    {
+        var journal = new VariantLookGenerationJournal(directory, catalog);
+        using var writer = journal.OpenWriter(variant);
+        var saved = writer.Commit(null, File.ReadAllBytes(current), legacyPrevious: File.ReadAllBytes(previous));
+        File.WriteAllText(marker, saved.Receipt);
+        Thread.Sleep(Timeout.Infinite);
+        return 1;
+    }
+
     internal static int Hold(string directory, string catalog, Guid variant, string stage, string marker)
     {
         var journal = new VariantLookGenerationJournal(directory, catalog);

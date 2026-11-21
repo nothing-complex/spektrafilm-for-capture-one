@@ -172,7 +172,7 @@ function Copy-LatestLocalLooks([string] $backup, [string] $destination, [string]
     if (Test-Path -LiteralPath (Join-Path $stagingFolder ($sourceKey + '.json'))) {
         throw 'Finish the interrupted restore of the source looks before copying them.'
     }
-    foreach ($scope in @('Variant looks', 'Look recovery')) {
+    foreach ($scope in @('Variant looks', 'Look recovery', 'Look generations')) {
         $null = Get-PlainPath (Join-Path (Join-Path $dataRoot $scope) $sourceKey) -AllowMissing
     }
     $files = @(Get-CatalogLookFiles $dataRoot $sourceKey)
@@ -267,6 +267,10 @@ if ($resuming -and ($job.BackupHash -ne $manifest.catalogSha256 -or $job.Archive
     throw 'The interrupted catalog restore requires its original verified backup generation.'
 }
 $scopes = @('Variant looks', 'Look recovery')
+$generationTarget = Get-PlainPath (Join-Path (Join-Path $dataRoot 'Look generations') $catalogKey) -AllowMissing
+if (Test-Path -LiteralPath $generationTarget) {
+    throw 'Saved look generations already exist for that catalog path. Choose a new destination.'
+}
 $targets = @{}
 $staging = @{}
 $id = if ($resuming) { $job.Id } else { [Guid]::NewGuid().ToString('N') }

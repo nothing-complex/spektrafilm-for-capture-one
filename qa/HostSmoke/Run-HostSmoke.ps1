@@ -944,7 +944,7 @@ try {
             $before = @($origin | Where-Object Relative -CEQ $entry)
             $after = @($restored | Where-Object Relative -CEQ $entry)
             if ($before.Count -ne 1 -or $after.Count -ne 1 -or
-                (Get-FileHash -LiteralPath $before[0].Path).Hash -ne (Get-FileHash -LiteralPath $after[0].Path).Hash) {
+                (Get-CatalogLookEntryHash $before[0]) -ne (Get-CatalogLookEntryHash $after[0])) {
                 throw "Native relocation did not keep the exact saved bytes for $entry"
             }
         }

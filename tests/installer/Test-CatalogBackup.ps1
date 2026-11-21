@@ -665,4 +665,96 @@ foreach ($phase in @('looks', 'before-db', 'after-db', 'latest')) {
         (Get-FileHash -LiteralPath $publishedLook).Hash -eq $expectedLookHash -and $resumedPending.CatalogKey -eq $catalogKey -and
         $resumedPending.Look.Look.Exposure -eq $expectedPendingExposure) "$phase resumes exactly once with the original database, looks and rebased pending edit"
 }
+$stateContracts = Join-Path $repo 'tests\state\bin\Release\net8.0\StateContracts.exe'
+if (!(Test-Path -LiteralPath $stateContracts -PathType Leaf)) { throw 'Build the Release StateContracts fixture before testing a journal-backed catalog.' }
+$userData = Join-Path $root 'journal-donor-data'
+$journalDonor = Join-Path $root 'generation-donor.cocatalogdb'
+[IO.File]::WriteAllBytes($journalDonor, $bytes)
+$journalKey = Get-CatalogKey $journalDonor
+$journalVariant = '11111111111111111111111111111111'
+$journalDir = Join-Path (Join-Path $userData 'Look generations') $journalKey
+$mirrorDir = Join-Path (Join-Path $userData 'Variant looks') $journalKey
+[void][IO.Directory]::CreateDirectory($mirrorDir)
+$mirror = Join-Path $mirrorDir ($journalVariant + '.json')
+$latestLook = Join-Path $root 'journal-current.json'
+[IO.File]::WriteAllText($mirror, ($base | ConvertTo-Json -Depth 10 -Compress))
+[IO.File]::WriteAllText($latestLook, ($changed | ConvertTo-Json -Depth 10 -Compress))
+$beforeJournalBackup = Save-CatalogBackup $journalDonor -Clock $clock
+$previousHash = (Get-FileHash -LiteralPath $mirror).Hash
+$currentHash = (Get-FileHash -LiteralPath $latestLook).Hash
+$marker = Join-Path $root 'journal-commit.ready'
+$arguments = @('--hold-journal-for-backup',$journalDir,$journalKey,$journalVariant,$latestLook,$mirror,$marker)
+$start = New-Object Diagnostics.ProcessStartInfo
+$start.FileName = $stateContracts
+$start.Arguments = ($arguments | ForEach-Object { '"' + $_ + '"' }) -join ' '
+$start.UseShellExecute = $false
+$start.CreateNoWindow = $true
+[void]$start.EnvironmentVariables.Remove('DOTNET_STARTUP_HOOKS')
+$child = [Diagnostics.Process]::Start($start)
+$journalFile = Join-Path $journalDir ($journalVariant + '.generations')
+try {
+    $wait = [Diagnostics.Stopwatch]::StartNew()
+    while (!(Test-Path -LiteralPath $marker) -and !$child.HasExited -and $wait.Elapsed.TotalSeconds -lt 10) { Start-Sleep -Milliseconds 20 }
+    Assert ((Test-Path -LiteralPath $marker) -and !$child.HasExited) 'Separate writer reaches the boundary after the durable pair and before compatibility publication'
+    $pairHash = (Get-FileHash -LiteralPath $journalFile).Hash
+    Assert ($pairHash -eq [IO.File]::ReadAllText($marker)) 'The fixture committed the exact C# generation pair'
+    $failure = $null
+    try { $null = Save-CatalogBackup $journalDonor -Clock $clock } catch { $failure = $_.Exception }
+    Assert ($null -ne $failure -and (Test-Path -LiteralPath $beforeJournalBackup)) 'Backup fails without replacing prior generations while the writer owns the journal'
+} finally {
+    if (!$child.HasExited) { $child.Kill() }
+    if (!$child.WaitForExit(10000)) { throw 'The journal fixture did not stop.' }
+    $child.Dispose()
+}
+$journalBackup = Save-CatalogBackup $journalDonor -Clock $clock
+$journalManifest = Read-LookRecoveryManifest ($journalBackup + '.manifest.json')
+$beforeJournalManifest = Read-LookRecoveryManifest ($beforeJournalBackup + '.manifest.json')
+Assert ($journalBackup -ne $beforeJournalBackup -and $journalManifest.files.Count -eq 2 -and
+    (Test-CurrentBackupLookState $journalManifest) -and !(Test-CurrentBackupLookState $beforeJournalManifest)) 'Backup and deduplication use the acknowledged pair even when the primary still has the old value'
+Assert ((Get-FileHash -LiteralPath $mirror).Hash -eq $previousHash -and (Get-FileHash -LiteralPath $journalFile).Hash -eq $pairHash) 'Backing up the interrupted pair leaves both source files unchanged'
+$recoveredCatalog = Join-Path $root 'journal-recovered.cocatalogdb'
+$recoveredData = Join-Path $root 'journal-recovered-state'
+$recoveredKey = Get-CatalogKey $recoveredCatalog
+$null = & $restore -BackupDatabase $journalBackup -DestinationDatabase $recoveredCatalog -UserDataRoot $recoveredData -Apply
+$recoveredGenerationDir = Join-Path (Join-Path $recoveredData 'Variant looks') $recoveredKey
+$recoveredLook = Join-Path $recoveredGenerationDir ($journalVariant + '.json')
+$recoveredPair = Join-Path $recoveredGenerationDir ($journalVariant + '.previous.look')
+Assert ((Get-FileHash -LiteralPath $recoveredLook).Hash -eq $currentHash -and
+    (Get-FileHash -LiteralPath $recoveredCatalog).Hash -eq $originalHash) 'Restore opens the exact newest journal look and original database at a new path'
+$previousBytes = [IO.File]::ReadAllBytes($recoveredPair)
+Assert ([Text.Encoding]::ASCII.GetString($previousBytes,0,4) -ceq 'SFL1' -and
+    [BitConverter]::ToString($previousBytes,4,16) -ceq [BitConverter]::ToString(([Guid]$journalVariant).ToByteArray()) -and
+    [BitConverter]::ToString($previousBytes,20,32).Replace('-','') -eq $previousHash -and
+    [Convert]::ToBase64String($previousBytes,52,$previousBytes.Length-52) -ceq [Convert]::ToBase64String([IO.File]::ReadAllBytes($mirror))) 'Restore preserves the predecessor as an independently verified SFL1 file'
+
+[IO.File]::AppendAllText($mirror, ' ')
+$conflictHash = (Get-FileHash -LiteralPath $mirror).Hash
+$failure = $null
+try { $null = Save-CatalogBackup $journalDonor -Clock $clock } catch { $failure = $_.Exception.Message }
+Assert ($failure -match 'conflicts with its verified journal' -and (Get-FileHash -LiteralPath $mirror).Hash -eq $conflictHash -and
+    (Get-FileHash -LiteralPath $journalFile).Hash -eq $pairHash) 'Unknown external primary bytes abort backup and preserve both versions'
+[IO.File]::Move($mirror, (Join-Path $root 'conflicting-mirror.json'))
+Assert ((Save-CatalogBackup $journalDonor -Clock $clock) -eq $journalBackup) 'Missing compatibility files still resolve to the same acknowledged pair'
+
+$reservedDestination = Join-Path $root 'journal-reserved.cocatalogdb'
+$reservedDir = Join-Path (Join-Path $recoveredData 'Look generations') (Get-CatalogKey $reservedDestination)
+[void][IO.Directory]::CreateDirectory($reservedDir)
+$reservedPair = Join-Path $reservedDir ([IO.Path]::GetFileName($journalFile))
+[IO.File]::Copy($journalFile, $reservedPair)
+[IO.File]::Copy($journalFile + '.lock', $reservedPair + '.lock')
+$failure = $null
+try { $null = & $restore -BackupDatabase $journalBackup -DestinationDatabase $reservedDestination -UserDataRoot $recoveredData -Apply }
+catch { $failure = $_.Exception.Message }
+Assert ($failure -match 'Saved look generations already exist' -and !(Test-Path -LiteralPath $reservedDestination) -and
+    (Get-FileHash -LiteralPath $reservedPair).Hash -eq $pairHash) 'Restore protects a destination with journal-only state'
+$failure = $null
+try { $null = @(Get-CatalogLookFiles $recoveredData (Get-CatalogKey $reservedDestination)) } catch { $failure = $_.Exception.Message }
+Assert ($failure -match 'belongs to another catalog or variant') 'Backup rejects a pair copied under a different catalog identity'
+
+$record = [IO.File]::ReadAllBytes($journalFile)
+$record[$record.Length - 1] = $record[$record.Length - 1] -bxor 1
+[IO.File]::WriteAllBytes($journalFile, $record)
+$failure = $null
+try { $null = Save-CatalogBackup $journalDonor -Clock $clock } catch { $failure = $_.Exception.Message }
+Assert ($failure -match 'failed its checksum' -and (Test-Path -LiteralPath ($journalBackup + '.spektrafilm.zip'))) 'A damaged pair fails backup and the earlier verified archive remains available'
 Write-Output "PASS: $count joint backup assertions. Evidence: $root"

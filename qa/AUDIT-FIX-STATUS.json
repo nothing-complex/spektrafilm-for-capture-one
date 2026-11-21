@@ -1608,7 +1608,8 @@
         "Bound the validated look cache to 64 committed snapshots per live store. Reuse a snapshot only after hashing the current bytes and return a defensive copy. Use typed record and ordinal dictionary equality for look comparisons. All 880 state assertions pass, including separate-process recovery, same-size external changes with restored timestamps and previous-generation preservation. In paired 10,000-edit storage runs across 64 variants, read p95 dropped from 0.2061 to 0.1193 ms and equality p95 from 0.0622 to 0.0050 ms. Durable queue and flush p95 stayed near 5.5 ms.",
         "Make the Windows handle own staging for current, previous and recovery look saves. Normalize long paths for the direct Win32 call. The original 273-character staging file survived interruption. A new deliberately deep fixture preserves the committed look and removes its staged file before rename, and preserves the exact replacement after rename.",
         "Evaluate a standalone single-flush append journal with buffered current and SFL1 previous compatibility copies. Across 10,000 edits, queue and flush p95 falls from 5.42 to 3.24 ms and p99 from 5.83 to 3.71 ms. All 64 pairs of snapshots agree after replay. The uncapped journal used 18,725,268 bytes. Pass 889 state tests including process stops after a partial append and a complete flush, and rejection of a full corrupt record. The experiment is only in the state harness.",
-        "Implement a bounded current and predecessor pair, replacing both with one flushed atomic file. Each capsule is independently checksummed and bound to its catalog and variant. Kill child processes before and after publication, prove writer exclusion and restart, reject stale receipts and failed final guards, and recover the predecessor when the current capsule is damaged or truncated. Pass 919 state checks. In 10,000 measured edits across 64 variants, p95 is 3.70 ms and p99 is 4.55 ms with buffered compatibility files and cross-process ownership. The journal uses 234,570 bytes across all variants and has a hard 131,264-byte per-variant bound. The panel and backup routes have not been switched."
+        "Implement a bounded current and predecessor pair, replacing both with one flushed atomic file. Each capsule is independently checksummed and bound to its catalog and variant. Kill child processes before and after publication, prove writer exclusion and restart, reject stale receipts and failed final guards, and recover the predecessor when the current capsule is damaged or truncated. Pass 919 state checks. In 10,000 measured edits across 64 variants, p95 is 3.70 ms and p99 is 4.55 ms with buffered compatibility files and cross-process ownership. The journal uses 234,570 bytes across all variants and has a hard 131,264-byte per-variant bound.",
+        "Project the durable bounded pair into the existing archive's current JSON and SFL1 predecessor. Run the C# writer in a separate process and stop it after journal commit while the old compatibility file is still present. Both Windows shells pass 123 joint backup checks, including a byte-exact full restore at a new catalog path, source preservation, missing mirrors and rejection of unrelated external edits, active writers, corrupt records and a wrong catalog identity."
       ],
       "evidence_paths": [
         "NativePanel/VariantLookStore.cs",
@@ -1643,10 +1644,13 @@
         ".test-results/paired-look-flush-probe-20261121/state-contracts.log",
         "NativePanel/VariantLookGenerationJournal.cs",
         ".test-results/bounded-look-generations-20261121/state-contracts.log",
-        ".test-results/bounded-look-generations-20261121/paired-journal/measurement.json"
+        ".test-results/bounded-look-generations-20261121/paired-journal/measurement.json",
+        ".test-results/generation-catalog-backup-20261121/ps51-final.log",
+        ".test-results/generation-catalog-backup-20261121/pwsh-final.log",
+        ".test-results/generation-catalog-backup-20261121/full-contracts/summary.json"
       ],
       "remaining_work": [
-        "Integrate the bounded pair with the live saved-look store, pending recovery, external file conflict handling and the verified joint catalog backup inventory. Verify first publication and both compatibility file boundaries before enabling it. Compare licensed WPF event time and acknowledge every edit, including with the Viewer running.",
+        "Integrate the bounded pair with the live saved-look store, pending recovery, journal replay and batch history. Verify first publication and both compatibility file boundaries before enabling it. Compare licensed WPF event time and acknowledge every edit, including with the Viewer running.",
         "Test disk-full and denied-write boundaries and distinguish abrupt application exit from OS crash and power-loss recovery. A simultaneous external rename of an existing path still has a small race after the final hash check."
       ],
       "original_acceptance_tests": [
@@ -3168,7 +3172,8 @@
         "Restore just the saved look and recovery scopes against a closed, existing database that matches the verified joint backup. Keep a read lease while applying and flush rebased checkpoints before publication. Checkpoint rekeying, previous state, native grain, locked and stale SQLite refusals, read-only attributes, Windows path aliases, different generations and conflicting destinations pass in 54 assertions in each Windows shell.",
         "The explicit updated-catalog fallback verifies document identity and each saved variant's link to its original native image. Both Windows shells pass 63 backup assertions, including no-write preview, exact recovery rebasing and refusal of other documents, remapped images, missing variants and duplicate variant mappings.",
         "Restore publishes verified scopes and then the full database under a flushed, serialized transaction. Retry verifies the original backup, recorded destination database and each staged or published scope. The suite force-terminates a separate restore process after the first saved-look scope, before full database publication, and after full database publication. All three resume with exact database and look bytes and a rebased pending edit. Changes to the published look and to the destination database block resumption without being overwritten. Both Windows shells pass 96 checks.",
-        "The current-local recovery snapshot goes through the same verified staging and receipt. Force-stop after the first look scope, change the source pending file, then retry. It finishes the originally approved snapshot and preserves the later source bytes. The temporary source ZIP is delete-on-close. Both Windows shells pass 105 checks."
+        "The current-local recovery snapshot goes through the same verified staging and receipt. Force-stop after the first look scope, change the source pending file, then retry. It finishes the originally approved snapshot and preserves the later source bytes. The temporary source ZIP is delete-on-close. Both Windows shells pass 105 checks.",
+        "The joint backup reads a catalog-bound generation pair under exclusive ownership. It stores the newest JSON and separately checksummed previous generation in the existing portable archive format. A hard stop can leave the old loose JSON or neither compatibility file. Both Windows shells pass 123 checks, including exact database and look restoration at a new path, deduplication using the projected state and refusal of conflicts, wrong catalog identity and a journal-only destination. Prior backups and original state are preserved."
       ],
       "evidence_paths": [
         "Start-Spektrafilm.ps1",
@@ -3190,7 +3195,9 @@
         ".test-results/catalog-restore-resume-final-ps51-20261120.log",
         ".test-results/catalog-restore-resume-final-ps7-20261120.log",
         ".test-results/catalog-latest-local-ps51-20261120.log",
-        ".test-results/catalog-latest-local-ps7-20261120.log"
+        ".test-results/catalog-latest-local-ps7-20261120.log",
+        ".test-results/generation-catalog-backup-20261121/ps51-final.log",
+        ".test-results/generation-catalog-backup-20261121/pwsh-final.log"
       ],
       "remaining_work": [
         "Test abrupt OS/power loss and disk-full during backup and restore. Verify locked/open and stale SQLite sidecar handling across the host matrix and portable catalog identity."

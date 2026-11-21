@@ -126,7 +126,7 @@ function Get-CatalogPath([string] $path) {
 }
 
 function Test-CatalogLookState([string] $key) {
-    foreach ($scope in @('Variant looks', 'Look recovery')) {
+    foreach ($scope in @('Variant looks', 'Look recovery', 'Look generations')) {
         if (Test-Path -LiteralPath (Join-Path (Join-Path $userData $scope) $key)) { return $true }
     }
     return $false
@@ -332,7 +332,7 @@ function Test-CurrentBackupLookState($manifest) {
     foreach ($record in $manifest.files) { $archives[$record.path] = $record }
     foreach ($file in $live) {
         $record = $archives[$file.Relative]
-        if (!$record -or (Get-FileHash -LiteralPath $file.Path -Algorithm SHA256).Hash -ne $record.sha256) { return $false }
+        if (!$record -or (Get-CatalogLookEntryHash $file) -ne $record.sha256) { return $false }
     }
     return $true
 }

@@ -14,6 +14,8 @@ if (args is ["--hold-look-journal", var journalPath, var journalVariant, var jou
     return DurableLookJournalProbe.Hold(journalPath, Guid.Parse(journalVariant), journalStage, journalMarker);
 if (args is ["--hold-look-generation", var generationDirectory, var generationCatalog, var generationVariant, var generationStage, var generationMarker])
     return LookGenerationContracts.Hold(generationDirectory, generationCatalog, Guid.Parse(generationVariant), generationStage, generationMarker);
+if (args is ["--hold-journal-for-backup", var archiveDirectory, var archiveCatalog, var archiveVariant, var archiveCurrent, var archivePrevious, var archiveMarker])
+    return LookGenerationContracts.HoldForBackup(archiveDirectory, archiveCatalog, Guid.Parse(archiveVariant), archiveCurrent, archivePrevious, archiveMarker);
 if (args is ["--measure-diagnostic-log", var diagnosticsDirectory, var seconds])
     return await PanelLogContracts.SoakAsync(diagnosticsDirectory, int.Parse(seconds, System.Globalization.CultureInfo.InvariantCulture));
 if (args is ["--verify-compiled-controls", var parameterManifest])

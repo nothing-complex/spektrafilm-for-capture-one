@@ -12,7 +12,7 @@ function Get-CatalogStateDigest([object[]] $records) {
     finally { $sha.Dispose() }
 }
 
-function Get-CatalogLookFiles([string] $dataRoot, [string] $key) {
+function Get-LooseCatalogLookFiles([string] $dataRoot, [string] $key) {
     foreach ($scope in @('Variant looks', 'Look recovery')) {
         $root = Join-Path (Join-Path $dataRoot $scope) $key
         if (!(Test-Path -LiteralPath $root -PathType Container)) { continue }
@@ -34,13 +34,116 @@ function Get-CatalogLookFiles([string] $dataRoot, [string] $key) {
     }
 }
 
+function Read-LookGenerationCapsule([byte[]] $record, [int] $offset, [string] $magic, [string] $key, [Guid] $variant) {
+    # Same bounded wire format as VariantLookGenerationJournal. This reader also runs on Windows PowerShell 5.1.
+    if ($record.Length - $offset -le 96 -or [Text.Encoding]::ASCII.GetString($record, $offset, 4) -cne $magic) {
+        throw 'A saved look generation is truncated or has an unknown format.'
+    }
+    $catalog = [BitConverter]::ToString($record, $offset + 4, 32).Replace('-', '')
+    $variantBytes = [BitConverter]::ToString($variant.ToByteArray())
+    if ($catalog -ne $key -or [BitConverter]::ToString($record, $offset + 36, 16) -cne $variantBytes) {
+        throw 'A saved look generation belongs to another catalog or variant.'
+    }
+    $generation = [BitConverter]::ToInt64($record, $offset + 52)
+    $length = [BitConverter]::ToInt32($record, $offset + 60)
+    if ($generation -lt 0 -or $length -lt 1 -or $length -gt 64KB -or $length + 96 -gt $record.Length - $offset) {
+        throw 'A saved look generation has invalid fields.'
+    }
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        $digest = $sha.ComputeHash($record, $offset, 64 + $length)
+        $payloadDigest = $sha.ComputeHash($record, $offset + 64, $length)
+    }
+    finally { $sha.Dispose() }
+    if ([BitConverter]::ToString($digest) -cne [BitConverter]::ToString($record, $offset + 64 + $length, 32)) {
+        throw 'A saved look generation failed its checksum.'
+    }
+    $payload = New-Object byte[] $length
+    [Array]::Copy($record, $offset + 64, $payload, 0, $length)
+    return [pscustomobject]@{ Generation=$generation; Payload=$payload; PayloadDigest=$payloadDigest; Next=$offset + $length + 96 }
+}
+
+function Get-CatalogLookFiles([string] $dataRoot, [string] $key) {
+    $parent = Join-Path $dataRoot 'Look generations'
+    $root = Join-Path $parent $key
+    if (!(Test-Path -LiteralPath $root)) { Get-LooseCatalogLookFiles $dataRoot $key; return }
+    foreach ($path in $parent,$root) {
+        $directory = Get-Item -LiteralPath $path -Force
+        if (!$directory.PSIsContainer -or ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            throw 'Saved-look backup cannot follow a linked or invalid generation directory.'
+        }
+    }
+    $files = [Collections.Generic.Dictionary[string,object]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($file in @(Get-LooseCatalogLookFiles $dataRoot $key)) { $files.Add($file.Relative, $file) }
+    foreach ($journal in Get-ChildItem -LiteralPath $root -Filter '*.generations' -Force) {
+        if ($journal.PSIsContainer -or $journal.Name -cnotmatch '^([0-9a-f]{32})\.generations$' -or
+            ($journal.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            throw 'Saved-look backup found an invalid generation file.'
+        }
+        $leaf = $Matches[1]
+        $variant = [Guid]::ParseExact($leaf, 'N')
+        if ($variant -eq [Guid]::Empty) { throw 'A saved look generation has no variant identity.' }
+        $lock = Get-Item -LiteralPath ($journal.FullName + '.lock') -Force -ErrorAction Stop
+        if ($lock.PSIsContainer -or ($lock.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            throw 'Saved-look backup found an invalid generation lock.'
+        }
+        $lease = [IO.File]::Open($lock.FullName, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)
+        try {
+            $journalStream = [IO.File]::OpenRead($journal.FullName)
+            try {
+                if ($journalStream.Length -le 96 -or $journalStream.Length -gt (2 * (64KB + 96))) { throw 'A saved generation pair has an invalid size.' }
+                $reader = [IO.BinaryReader]::new($journalStream)
+                $record = $reader.ReadBytes([int]$journalStream.Length)
+            } finally { $journalStream.Dispose() }
+            $previous = if ([Text.Encoding]::ASCII.GetString($record, 0, 4) -ceq 'SLGP') {
+                Read-LookGenerationCapsule $record 0 'SLGP' $key $variant
+            }
+            $offset = if ($previous) { $previous.Next } else { 0 }
+            $expected = if ($previous) { $previous.Generation + 1 } else { 1 }
+            $current = Read-LookGenerationCapsule $record $offset 'SLGC' $key $variant
+            if ($current.Generation -ne $expected -or $current.Next -ne $record.Length) {
+                throw 'A saved generation pair is out of order or contains unexpected records.'
+            }
+
+            $primary = 'Variant looks/' + $leaf + '.json'
+            $priorPath = 'Variant looks/' + $leaf + '.previous.look'
+            if ($files.ContainsKey($primary)) {
+                $looseHash = (Get-FileHash -LiteralPath $files[$primary].Path -Algorithm SHA256).Hash
+                if ($looseHash -ne [BitConverter]::ToString($current.PayloadDigest).Replace('-', '') -and
+                    (!$previous -or $looseHash -ne [BitConverter]::ToString($previous.PayloadDigest).Replace('-', ''))) {
+                    throw "The saved look for variant $leaf conflicts with its verified journal. Both versions were preserved."
+                }
+            }
+            $files[$primary] = [pscustomobject]@{ Relative=$primary; GenerationBytes=$current.Payload }
+            if ($previous) {
+                $priorBytes = [byte[]]([Text.Encoding]::ASCII.GetBytes('SFL1') + $variant.ToByteArray() + $previous.PayloadDigest + $previous.Payload)
+                $files[$priorPath] = [pscustomobject]@{ Relative=$priorPath; GenerationBytes=$priorBytes }
+            } elseif ($files.ContainsKey($priorPath)) {
+                throw "The previous look for variant $leaf conflicts with its verified journal. Both versions were preserved."
+            }
+        } finally { $lease.Dispose() }
+    }
+    return $files.Values
+}
+
+function Open-CatalogLookEntry($file) {
+    if ($file.PSObject.Properties['GenerationBytes']) { return [IO.MemoryStream]::new($file.GenerationBytes, $false) }
+    return [IO.File]::Open($file.Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)
+}
+
+function Get-CatalogLookEntryHash($file) {
+    $stream = Open-CatalogLookEntry $file
+    try { return (Get-FileHash -InputStream $stream -Algorithm SHA256).Hash }
+    finally { $stream.Dispose() }
+}
+
 function Write-CatalogLookArchive([IO.Stream] $stream, [string] $key, [object[]] $files) {
     Add-Type -AssemblyName System.IO.Compression
     $records = New-Object 'System.Collections.Generic.List[object]'
     $zip = New-Object IO.Compression.ZipArchive($stream, [IO.Compression.ZipArchiveMode]::Create, $true)
     try {
         foreach ($file in $files) {
-            $sourceStream = [IO.File]::Open($file.Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)
+            $sourceStream = Open-CatalogLookEntry $file
             try {
                 $entry = $zip.CreateEntry($file.Relative, [IO.Compression.CompressionLevel]::Optimal)
                 $output = $entry.Open()
