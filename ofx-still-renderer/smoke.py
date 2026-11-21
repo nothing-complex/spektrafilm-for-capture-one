@@ -365,18 +365,22 @@ def check_packed_readback(exe, base):
                             np.nextafter(alpha_boundaries, np.float32(0)),
                             np.nextafter(alpha_boundaries, np.float32(1)))).astype("<f4")
     frame[..., 3] = np.resize(alpha, (height, width))
+    opaque = frame.copy()
+    opaque[..., 3] = 1
     cases = (
-        ("sRGB full", "legacy", "", False),
-        ("Adobe full", "legacy", "--input-color adobe_rgb --auto-exposure true", False),
-        ("ProPhoto tiled", "tiled", "--input-color prophoto", False),
-        ("linear Rec.2020 tiled", "tiled", "--input-color linear_rec2020 --scanner-enabled true", False),
-        ("enlarger preserves original alpha", "legacy", "--enlarger-scale 1.4 --enlarger-x -4", True),
+        ("sRGB full", "legacy", "", frame, False),
+        ("Adobe full", "legacy", "--input-color adobe_rgb --auto-exposure true", frame, False),
+        ("ProPhoto tiled", "tiled", "--input-color prophoto", frame, False),
+        ("linear Rec.2020 tiled", "tiled", "--input-color linear_rec2020 --scanner-enabled true", frame, False),
+        ("enlarger preserves original alpha", "legacy", "--enlarger-scale 1.4 --enlarger-x -4", frame, True),
+        ("opaque enlarger full", "legacy", "--enlarger-scale 1.4 --enlarger-x -4", opaque, False),
+        ("opaque enlarger outside source", "tiled", "--enlarger-scale 1.1 --enlarger-x 18", opaque, False),
     )
-    for name, tiling, extra, expect_cpu in cases:
+    for name, tiling, extra, source, expect_cpu in cases:
         env = {**clean, "SPEKTRAFILM_VULKAN_TILE_MODE": tiling, "SPEKTRAFILM_VULKAN_TILE_WIDTH": "512",
                "SPEKTRAFILM_VULKAN_TILE_HEIGHT": "512"}
         options = f"{base} --output-color srgb {extra}"
-        request = b"FRAME8" + frame_request(frame, options)[len(b"FRAME"):]
+        request = b"FRAME8" + frame_request(source, options)[len(b"FRAME"):]
         request += f"METRICS\nREUSE8 {options}\nREUSE {options}\nMETRICS\nREUSE8 {options}\n".encode("ascii")
         replies = run_stream(exe, request, mode="--native-preview-stream", env=env, timeout=35)
         assert len(replies) == 6 and all(status == 0 for status, _ in replies), name
@@ -384,7 +388,7 @@ def check_packed_readback(exe, base):
         rgba = np.frombuffer(float_bytes, dtype="<f4").reshape(frame.shape)
         expected = np.empty_like(frame, dtype=np.uint8)
         expected[..., :3] = np.rint(np.clip(rgba[..., 2::-1], 0, 1).astype(np.float64) * 255).astype(np.uint8)
-        expected[..., 3] = np.rint(np.clip(frame[..., 3], 0, 1) * np.float32(255)).astype(np.uint8)
+        expected[..., 3] = np.rint(np.clip(source[..., 3], 0, 1) * np.float32(255)).astype(np.uint8)
         np.testing.assert_array_equal(np.frombuffer(packed, dtype=np.uint8).reshape(frame.shape), expected, err_msg=name)
         assert packed == reused == packed_from_float, name
         render_metrics, reference_metrics = json.loads(packed_metrics), json.loads(float_metrics)
@@ -395,7 +399,7 @@ def check_packed_readback(exe, base):
         expected_gpu_bytes = height * width * 4 + 4 * max(1, render_metrics["tileCount"])
         assert render_metrics["readbackBytes"] == (frame.nbytes if expect_cpu else expected_gpu_bytes), name
         assert render_metrics["renderSequence"] == 1 and reference_metrics["renderSequence"] == (1 if expect_cpu else 2), name
-    print("GPU BGRA8 matched the scalar reference over five full/tiled/crop cases, with exact readback size, original alpha and float reuse")
+    print("GPU BGRA8 matched the scalar reference over seven full/tiled/crop cases, with exact readback size, original alpha and float reuse")
 
 
 def check_metering_cache(exe, frame, base):

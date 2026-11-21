@@ -574,6 +574,7 @@ struct InputFrame {
     FrameSize size;
     std::vector<float> pixels;
     uint64_t revision = 0;
+    std::optional<bool> opaqueAlpha;
 };
 
 struct EnlargerKey {
@@ -660,6 +661,18 @@ bool hasFinitePixels(const std::vector<float> &pixels, const RequestCancellation
         const auto end = first + std::min(block, pixels.size() - index);
         if (!std::all_of(first, end, [](float component) { return std::isfinite(component); }))
             return false;
+    }
+    return true;
+}
+
+bool hasOpaqueAlpha(const std::vector<float> &pixels, const RequestCancellation *stop) {
+    constexpr size_t block = 64 * 1024;
+    for (size_t offset = 0; offset < pixels.size(); offset += block) {
+        if (stop) stop->check();
+        const size_t end = std::min(offset + block, pixels.size());
+        for (size_t index = offset + 3; index < end; index += 4) {
+            if (pixels[index] != 1.0f) return false;
+        }
     }
     return true;
 }
@@ -1142,11 +1155,16 @@ void processStream(const FrameLimit &limit) {
                     renderedArguments.reset();
                     writeProgress(progress, WorkerStage::Preparing);
                     if (!renderer) renderer = startRenderer();
-                    // Transformed alpha uses the original source through the CPU packer.
-                    const bool packOnGpu = packedPreview && copyExperimentLength == 0 &&
-                        std::abs(params.enlargerScale - 1.0f) <= 1.0e-6f;
+                    auto &source = replacesInput ? replacement : input;
+                    const bool gpuPackingAvailable = packedPreview && copyExperimentLength == 0;
+                    const bool enlarged = std::abs(params.enlargerScale - 1.0f) > 1.0e-6f;
+                    // Resampling keeps opaque alpha at 1 even outside the source. A
+                    // translucent source still needs the original alpha from the CPU packer.
+                    if (gpuPackingAvailable && enlarged && !source.opaqueAlpha.has_value())
+                        source.opaqueAlpha = hasOpaqueAlpha(source.pixels, stop);
+                    const bool packOnGpu = gpuPackingAvailable && (!enlarged || source.opaqueAlpha.value_or(false));
                     if (!packOnGpu && !packedOutput.empty()) std::vector<uint32_t>().swap(packedOutput);
-                    metrics = renderFrame(*renderer, replacesInput ? replacement : input, params, output,
+                    metrics = renderFrame(*renderer, source, params, output,
                                           nativePreview ? &enlarger : nullptr, packOnGpu ? &packedOutput : nullptr, stop, progress);
                     if (stop) stop->check();
                     ++renderSequence;

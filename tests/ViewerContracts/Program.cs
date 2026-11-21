@@ -72,8 +72,29 @@ internal static partial class Program
             MeasureWpfDisplayPatches(alternateIcc, patchReport);
             return;
         }
-        var folder = args.Length > 0 ? Path.GetFullPath(args[0]) : Path.Combine(Path.GetTempPath(), "Spektrafilm-viewer-contracts-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(folder);
+        if (args.Length > 0)
+        {
+            RunContracts(Directory.CreateDirectory(Path.GetFullPath(args[0])).FullName);
+        }
+        else
+        {
+            var scratch = Directory.CreateTempSubdirectory("Spektrafilm-viewer-contracts-");
+            try
+            {
+                RunContracts(scratch.FullName);
+            }
+            catch
+            {
+                Console.Error.WriteLine($"Viewer contract artifacts retained in {scratch.FullName}");
+                throw;
+            }
+            scratch.Delete(recursive: true);
+        }
+        Console.WriteLine($"PASS: {assertions} assertions. Pure current-source probes only; no Capture One process used.");
+    }
+
+    private static void RunContracts(string folder)
+    {
         TestGeometry();
         TestDpiAndCropGeometry();
         TestFloatingBounds();
@@ -113,7 +134,6 @@ internal static partial class Program
         TestNativeCallbackOwnership().GetAwaiter().GetResult();
         TestMemoryAdmission();
         TestExportFrameLimits();
-        Console.WriteLine($"PASS: {assertions} assertions. Pure current-source probes only; no Capture One process used.");
     }
 
     private static void TestFloatingBounds()
@@ -716,11 +736,19 @@ internal static partial class Program
             var response = mklink.StandardOutput.ReadToEnd() + mklink.StandardError.ReadToEnd();
             if (mklink.ExitCode == 0)
             {
-                ExpectRefused(() => OutputPathGuard.Validate(Path.Combine(junction, "source.tif"), junctionSource), "Output junction alias accepted");
-                ExpectRefused(() => OutputPathGuard.Validate(junctionSource, Path.Combine(junction, "source.tif")), "Source junction alias accepted");
-                OutputPathGuard.Approve(Path.Combine(junction, "separate.tif"), junctionSource).Write(stream => stream.WriteByte(17));
-                Check(File.ReadAllBytes(Path.Combine(junctionTarget, "separate.tif")).SequenceEqual(new byte[] { 17 }), "Separate junction output was not committed");
-                Check(File.ReadAllText(junctionSource) == "JUNCTION ORIGINAL", "Junction test altered the original");
+                try
+                {
+                    ExpectRefused(() => OutputPathGuard.Validate(Path.Combine(junction, "source.tif"), junctionSource), "Output junction alias accepted");
+                    ExpectRefused(() => OutputPathGuard.Validate(junctionSource, Path.Combine(junction, "source.tif")), "Source junction alias accepted");
+                    OutputPathGuard.Approve(Path.Combine(junction, "separate.tif"), junctionSource).Write(stream => stream.WriteByte(17));
+                    Check(File.ReadAllBytes(Path.Combine(junctionTarget, "separate.tif")).SequenceEqual(new byte[] { 17 }), "Separate junction output was not committed");
+                    Check(File.ReadAllText(junctionSource) == "JUNCTION ORIGINAL", "Junction test altered the original");
+                }
+                finally
+                {
+                    // Remove the junction itself before cleaning up the owned test tree.
+                    Directory.Delete(junction);
+                }
             }
             else if (response.Contains(new Win32Exception(5).Message, StringComparison.CurrentCultureIgnoreCase)
                 || response.Contains(new Win32Exception(1314).Message, StringComparison.CurrentCultureIgnoreCase))

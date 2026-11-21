@@ -835,7 +835,8 @@
         "Actual Capture One native development from a restored catalog uses 16-bit input with correctly sampled quarter-turn and horizontal mirroring. Keystone correction changes the developed pixels.",
         "Unscaled actual DNG export reopened as 6000 by 4000 RGB48 with embedded ICC and 96 DPI. A decoded sample contained codes between 8-bit steps. Recipe/geometry and export tiers remain separate.",
         "Paint and clip the corresponding physical pixels in an actual WPF target at 100%, 150% and 200% DPI with a modeled native painter transform. Test subpixel closure/degeneracy and crop rounding at right and bottom edges.",
-        "Both Windows CI images passed the headless high-DPI, crop and high-depth contracts. Native geometry remains separately verified in the licensed host tier."
+        "Both Windows CI images passed the headless high-DPI, crop and high-depth contracts. Native geometry remains separately verified in the licensed host tier.",
+        "Successful default Viewer contract runs discard their automatic scratch directory. Caller-owned output paths and their contents persist. Both modes passed 12,593 assertions and verified the intended artifact lifetime."
       ],
       "evidence_paths": [
         "tests/ViewerContracts",
@@ -846,6 +847,7 @@
         ".test-results/host-full-raw-24mp-20261119/host-smoke.log",
         ".test-results/contracts-memory-admission-20261119/summary.json",
         ".test-results/host-memory-admission-20261119/host-smoke.log",
+        ".test-results/viewer-scratch-cleanup-20261121-final/result.json",
         "https://github.com/nothing-complex/spektrafilm-for-capture-one/actions/runs/44623654332"
       ],
       "remaining_work": [],
@@ -2009,7 +2011,7 @@
         "Pack full-strength sRGB Viewer frames directly on the Vulkan device. Use exact ties-to-even RGB normalization without shader float64, retain original alpha, check non-finite results and read one 32-bit word per pixel plus one validation word per tile.",
         "Five full-frame/tiled cases across four input spaces and the enlarger fallback matched their scalar references exactly. The 24 MP preview and 24 MP float export each matched the previous renderer byte for byte. The managed GPU suite passed 23 assertions including real cancellation and fresh worker admission.",
         "A 21-render-per-size synthetic benchmark on the RTX 3090 measured warm worker p95 10.13 to 2.37 ms at 1200×800, 110.23 to 26.63 ms at 4095×2731 and 304.46 to 56.30 ms at 6000×4000. The 24 MP readback changed from 384,000,000 to 96,000,004 bytes; the existing pipe output remains 96,000,000 bytes.",
-        "Enlarger crop keeps the existing CPU packer because it needs the original pre-transform alpha. Partial-strength and export requests continue to use full float readback. The real Capture One launch and forced-restart suite passed 202 and 206 assertions.",
+        "The first packed Viewer release kept the CPU packer for enlarger crops to preserve pre-transform alpha. Partial-strength and export requests continue to use full float readback. The real Capture One launch and forced-restart suite passed 202 and 206 assertions.",
         "Ran the exact audit.14 worker with isolated NVIDIA system, physical Intel integrated and SwiftShader CPU Vulkan ICDs. Four nontrivial graphs per path preserved alpha exactly, matched their own scalar display packing, and reduced each 65 by 47 GPU readback from 48,880 to 12,224 bytes. The largest RGB differences from NVIDIA were 9.47e-7 for Intel and 6.70e-6 for SwiftShader in float sRGB, and one packed code for each.",
         "The exact audit.14 worker passed the full standalone Vulkan smoke suite on isolated physical Intel integrated graphics, including packed/scalar parity, float stability, all seven multi-tile cases and the 128 MiB pressure fixture. Intel tile parity worst difference was 1.20e-7.",
         "The exact audit.15 worker completed all 16 renderer/transport cases and 80 requests at 24, 45, 61 and 100 MP on RTX 3090. Both colour-only and optical cases used packed Viewer and float image export. At 100 MP, warm p95 was 428 ms or 5.30 s in the Viewer and 2.20 s or 8.51 s for float export, from four warm requests per case. The optical export used 6.33 GiB peak worker commit and 3.09 GiB transient cache. Its 800 tiled results returned 9.38 GB of GPU readback for the 1.60 GB float reply, identifying tile overlap transfer as the main measured candidate for improvement. These timings exclude Capture One development, ICC conversion and file encoding.",
@@ -2018,11 +2020,15 @@
         "The worker now chooses larger packed Viewer tiles only on images at least 4096 px in each dimension, with an existing halo no greater than 256 px and reported dynamic budget for source plus estimated scratch. Float and wide-halo plans retain their previous geometry. At 100 MP on RTX 3090, the actual default packed plan moved from 800 to 28 tiles, with one warm hashed exposure change at 4.89 to 1.55 seconds. Simulated 6 and 4 GiB caps selected 104 and 800 tiles respectively. All 12 complete pixel reply hashes matched the explicit prior plan and warm packed sources were reused without upload.",
         "The separate 33.6 MP high-contrast chart checked every packed channel for three input encodings. Each route reduced 272 tiles to 12 with at most one 8-bit RGB code difference and exact alpha. Standalone smoke passed on the NVIDIA and Intel physical adapters.",
         "After correcting composed scatter and bounce support, the packed adaptive limit covers support up to 512 px. The 100 MP case measured a 431 px halo. Default packed rendering selected 54 tiles with a 2.00 s warm hashed reply; simulated 6 and 4 GiB selected 170 and 250 tiles. All complete replies matched the corrected layout reference byte for byte, while the float export policy stays on its corrected regular geometry.",
-        "Full-strength sRGB drag warmup now requests and caches packed display output at the existing warmup priority. The actual Capture One Viewer stored four bytes per pixel, one quarter of the former float reply. The cache distinguishes packed output from float film pixels, and partial strength can only reuse float data. Pass the 56-check licensed Viewer stress suite and 12,525 local Viewer/export assertions."
+        "Full-strength sRGB drag warmup now requests and caches packed display output at the existing warmup priority. The actual Capture One Viewer stored four bytes per pixel, one quarter of the former float reply. The cache distinguishes packed output from float film pixels, and partial strength can only reuse float data. Pass the 56-check licensed Viewer stress suite and 12,525 local Viewer/export assertions.",
+        "An enlarger request can keep GPU-side packing when the unchanged source is fully opaque. The worker checks source alpha once on first use and caches the result for that source. Mixed alpha keeps original-alpha CPU packing, and the full float path also remains available. The standalone Vulkan suite passed seven packed/scalar cases including opaque full-frame and tiled enlarger output outside the source.",
+        "On RTX 3090, 39 enlarger Viewer replies at 1200 by 800, 4095 by 2731 and 6000 by 4000 matched the preceding build byte for byte. Warm median request times fell from 11.23 to 3.19 ms, 117.38 to 36.98 ms and 256.27 to 78.17 ms. The 24 MP readback went from 384,000,000 to 96,000,004 bytes. This measures the worker and pipe, including reply hashing, independently of native RAW development and Viewer painting."
       ],
       "evidence_paths": [
         "upstream-ofx/shaders/vulkan/SpektraFormatConvert.comp",
         "ofx-still-renderer/smoke.py",
+        ".test-results/packed-enlarger-baseline-20261121/comparison.json",
+        ".test-results/packed-enlarger-baseline-20261121/smoke.log",
         "tests/renderer/Program.cs",
         ".test-results/rc13-24mp-byte-parity-20261120.json",
         ".test-results/rc13-cpu-packed-benchmark-20261120.json",
@@ -2052,7 +2058,7 @@
         ".test-results/cold-auto-packed-draft-contracts.log"
       ],
       "remaining_work": [
-        "Explore GPU linear-strength blending and pre-transform source alpha for the enlarger. Both retain their existing exact fallback.",
+        "Explore GPU linear-strength blending and pre-transform source alpha for translucent enlarger inputs. Verify the opaque enlarger route in the licensed Viewer. Both full-float and mixed-alpha cases retain their existing exact fallback.",
         "Verify device- or driver-originated loss and broader driver families. Packed parity on the integrated Intel adapter and the SwiftShader CPU device is verified. Cancellation of a real renderer process and safely simulated Vulkan device loss are already exercised.",
         "Evaluate bounded shared-memory ring preserving crash isolation",
         "Treat shared texture presentation as separate compatibility spike"
