@@ -1433,6 +1433,76 @@ public static partial class StartupHook
                             var match = Difference(layers, flattened);
                             Check(Difference(uncut, layers).Mean > .0001 && match.Mean < 8d / 65535 && match.Maximum < .01,
                                 "both native export commands carry the same overlay over the RGB16 film result");
+                            await CheckOrientedLayeredExports();
+
+                            async Task CheckOrientedLayeredExports()
+                            {
+                                var variantInterface = variant.GetType().GetInterfaces()
+                                    .Single(type => type.FullName == "P1.C1.Core.ICoreVariant");
+                                var rotation = variantInterface.GetProperty("Rotation")!;
+                                var flip = variantInterface.GetProperty("Flip")!;
+                                var savedRotation = rotation.GetValue(variant);
+                                var savedFlip = flip.GetValue(variant);
+                                var originalPath = CropBounds(approvedPath!);
+                                var log = new List<object>();
+                                Check(savedFlip?.ToString() == "None", "the disposable geometry donor starts without a native flip");
+                                try
+                                {
+                                    variantInterface.GetMethod("RotateRight")!.Invoke(variant, null);
+                                    var (left, top, right, bottom) = originalPath;
+                                    await CheckOrientation("rotated", ".psd", true, (full.Height, full.Width),
+                                        new RotateTransform(90), (1 - bottom, left, 1 - top, right));
+
+                                    rotation.SetValue(variant, savedRotation);
+                                    crop.SetValue(variant, fixtureCrop);
+                                    flip.SetValue(variant, Enum.Parse(flip.PropertyType, "Horizontal"));
+                                    await CheckOrientation("mirrored", ".psb", false, full,
+                                        new ScaleTransform(-1, 1), (1 - right, top, 1 - left, bottom));
+                                }
+                                finally
+                                {
+                                    rotation.SetValue(variant, savedRotation);
+                                    flip.SetValue(variant, savedFlip);
+                                    crop.SetValue(variant, fixtureCrop);
+                                }
+                                File.WriteAllText(Path.Combine(folder, caseName + "-native-layered-geometry.json"), JsonSerializer.Serialize(log));
+
+                                async Task CheckOrientation(string name, string extension, bool usePrevious, (int Width, int Height) size,
+                                    Transform transform, (double Left, double Top, double Right, double Bottom) expectedCrop)
+                                {
+                                    var current = CaptureRecipe();
+                                    var path = Prop(current, "CropPath")!;
+                                    var bounds = CropBounds(path);
+                                    Check(Dimensions(current) == size && Math.Abs(bounds.Left - expectedCrop.Left) * size.Width < 2
+                                        && Math.Abs(bounds.Right - expectedCrop.Right) * size.Width < 2
+                                        && Math.Abs(bounds.Top - expectedCrop.Top) * size.Height < 2
+                                        && Math.Abs(bounds.Bottom - expectedCrop.Bottom) * size.Height < 2,
+                                        $"the {name} recipe uses the full transformed canvas and moves the asymmetric crop with the image (observed {bounds}, expected {expectedCrop})");
+                                    var capturedOverlay = Prop(current, "TransparencyOverlay")!;
+                                    await Render(name + "-layered-geometry", extension, usePrevious,
+                                        expectedGeometry: size, expectedCropPath: path, inspectPhotoshop: psd =>
+                                        {
+                                            Check(psd.Layers is [var layer, var stamp] && layer.Name == "Background" && stamp.Name == "Overlay"
+                                                && stamp.Left == (int)Prop(capturedOverlay, "X")! && stamp.Top == (int)Prop(capturedOverlay, "Y")!
+                                                && stamp.Width == (int)Prop(capturedOverlay, "Width")! && stamp.Height == (int)Prop(capturedOverlay, "Height")!,
+                                                $"the {name} Photoshop file places the separate overlay at Capture One's transformed coordinates");
+                                            var background = psd.Layers[0];
+                                            var frame = BitmapSource.Create(background.Width, background.Height, psd.DpiX, psd.DpiY,
+                                                PixelFormats.Rgb48, null, background.Samples, background.Width * 6);
+                                            var mapped = new FormatConvertedBitmap(new TransformedBitmap(uncut, transform), PixelFormats.Rgb48, null, 0);
+                                            var parity = Difference(mapped, frame);
+                                            Check(parity.Mean < .018 && Difference(frame, BitmapSource.Create(psd.Width, psd.Height, psd.DpiX, psd.DpiY,
+                                                PixelFormats.Rgb48, null, psd.Samples, psd.Width * 6)).Mean > .0001,
+                                                $"the {name} background matches the transformed film image and the merged view contains the overlay (mean delta {parity.Mean:F6})");
+                                            log.Add(new { name, size.Width, size.Height, backgroundPixelMeanError = parity.Mean, Crop = new
+                                                { bounds.Left, bounds.Top, bounds.Right, bounds.Bottom }, Overlay = new
+                                                { psd.Layers[1].Left, psd.Layers[1].Top, psd.Layers[1].Width, psd.Layers[1].Height } });
+                                        });
+                                }
+
+                                static (double Left, double Top, double Right, double Bottom) CropBounds(object path) =>
+                                    ((double)Prop(path, "Left")!, (double)Prop(path, "Top")!, (double)Prop(path, "Right")!, (double)Prop(path, "Bottom")!);
+                            }
 
                             void SetOverlay(string name, object value)
                             {
@@ -2335,7 +2405,7 @@ public static partial class StartupHook
                 TiffCompressOption? expectedCompression = null, string? expectedNativeLocation = null,
                 string? fixtureOutputDirectory = null, string? fixtureOutputFileName = null, string? expectedProfileSha = null,
                 (int Width, int Height)? expectedGeometry = null, object? expectedCropPath = null,
-                BitmapSource? expectedPsdBackground = null, string expectedPsdOverlay = "Watermark")
+                BitmapSource? expectedPsdBackground = null, string expectedPsdOverlay = "Watermark", Action<PsdFixture>? inspectPhotoshop = null)
             {
                 var (width, height) = expectedGeometry ?? (expectedWidth, expectedHeight);
                 var before = routeCount;
@@ -2421,8 +2491,9 @@ public static partial class StartupHook
                         Check(baseParity.Mean < 8d / 65535 && baseParity.Maximum < .01,
                             $"hiding the {expectedPsdOverlay} layer reveals the separate high-depth film result");
                     }
-                    else
+                    else if (inspectPhotoshop is null)
                         Check(psd.Layers.Length == 0, "no visible native watermark produces an ordinary flat PSD");
+                    inspectPhotoshop?.Invoke(psd);
                     frame = BitmapSource.Create(psd.Width, psd.Height, psd.DpiX, psd.DpiY, PixelFormats.Rgb48,
                         null, psd.Samples, psd.Width * 6);
                     actualIcc = Convert.ToHexString(SHA256.HashData(psd.Resources[1039]));
