@@ -221,6 +221,15 @@ internal static partial class Program
             && editable.SavedNote(png) == cropPath.SavedNote(png)
             && editable.BatchTitle(2, skipExisting: false).Contains("editable crop paths", StringComparison.Ordinal),
             "approval and receipts distinguish a retained PSD path from an omitted path in alternate formats");
+        var guides = new SpektraExport.RecipeDelivery("Psd", 16, "Ignore", HasPsdGuides: true);
+        Check(guides.SaveTitle(3000, 2000, "sRGB").Contains("editable guides in PSD", StringComparison.Ordinal)
+            && guides.SavedNote(psd) is null && guides.SavedNote(tiff)?.EndsWith("The export omitted recipe guides.", StringComparison.Ordinal) == true
+            && (guides with { Format = "Png" }).BatchTitle(2, false).Contains("Omits recipe guides", StringComparison.Ordinal),
+            "PSD guide disclosure follows the delivered file and stays specific to recipe guides");
+        var unavailableGuides = guides with { HasPsdGuides = false, Omissions = SpektraExport.RecipeOmission.Guides };
+        Check(unavailableGuides.SaveTitle(3000, 2000, "sRGB").Contains("omits recipe guides", StringComparison.Ordinal)
+            && unavailableGuides.SavedNote(psd) == "The export omitted recipe guides.",
+            "unavailable native guides are disclosed even in PSD delivery");
     }
 
     private static void TestExportFilenameSuggestion(string folder)

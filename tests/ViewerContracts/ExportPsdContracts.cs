@@ -58,9 +58,11 @@ internal static partial class Program
             && PsdCropPath.FromCanvas(new RectangleF(1, 4, 0, 12), canvas) is null
             && PsdCropPath.FromCanvas(new RectangleF(1, 4, 900, 12), canvas) is null,
             "the full-canvas crop uses normalized coordinates and refuses degenerate or outside geometry");
+        PsdGuide[] canvasGuides = [new(true, .25), new(false, .5), new(true, .9), new(false, .1)];
+        var guides = PsdGuide.InOutput(canvasGuides, 514, 362, new Rectangle(64, 60, width, height));
         ExportPublication? publication = null;
         SpektraExport.SaveApproved(OutputPathGuard.Approve(path, source), image, CancellationToken.None,
-            metadata, profile, verified: receipt => publication = receipt, cropPath: pathCrop);
+            metadata, profile, verified: receipt => publication = receipt, cropPath: pathCrop, guides: guides);
 
         var publishedBytes = File.ReadAllBytes(path);
         using (var file = File.OpenRead(path))
@@ -77,6 +79,9 @@ internal static partial class Program
                 && decoded.ReadCropPath().Zip(expectedCorners).All(pair =>
                     Math.Abs(pair.First.X - pair.Second.X) * width < .001 && Math.Abs(pair.First.Y - pair.Second.Y) * height < .001),
                 "the named edit path has all four expected canvas corners without forcing a clipping path");
+            Check(decoded.ReadGuides().AsSpan().SequenceEqual(new (bool, double)[] { (true, 64.5), (false, 121) })
+                && PsdGuide.InOutput(canvasGuides, 514, 362, new Rectangle(0, 0, 514, 362)).Length == canvasGuides.Length,
+                "editable horizontal and vertical guides follow the actual crop and omit only off-canvas guides");
         }
         Check(publication is { } receipt && receipt.Length == publishedBytes.Length
             && receipt.Sha256 == Convert.ToHexString(SHA256.HashData(publishedBytes)),
@@ -87,7 +92,7 @@ internal static partial class Program
         {
             var writes = 0;
             SpektraExport.SaveApproved(OutputPathGuard.Approve(path, source), image, cancellation.Token, metadata, profile,
-                reportWrite: _ => { if (++writes == 2) cancellation.Cancel(); }, cropPath: pathCrop);
+                reportWrite: _ => { if (++writes == 2) cancellation.Cancel(); }, cropPath: pathCrop, guides: guides);
             throw new InvalidOperationException("The canceled PSD writer published an incomplete image.");
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }

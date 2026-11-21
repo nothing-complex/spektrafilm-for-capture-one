@@ -10,6 +10,26 @@ internal sealed record PsdFixture(int Width, int Height, ushort[] Samples, Dicti
     internal double DpiX => BinaryPrimitives.ReadUInt32BigEndian(Resources[1005]) / 65536d;
     internal double DpiY => BinaryPrimitives.ReadUInt32BigEndian(Resources[1005].AsSpan(8)) / 65536d;
 
+    internal (bool Vertical, double Pixels)[] ReadGuides()
+    {
+        var data = Resources[1032];
+        if (data.Length < 16 || BinaryPrimitives.ReadUInt32BigEndian(data) != 1)
+            throw new InvalidDataException("Invalid fixture PSD guide resource.");
+        var count = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(12));
+        if (data.Length != 16 + count * 5L)
+            throw new InvalidDataException("Invalid fixture PSD guide count.");
+        var guides = new (bool Vertical, double Pixels)[count];
+        for (var index = 0; index < guides.Length; index++)
+        {
+            var offset = 16 + index * 5;
+            var location = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(offset, 4)) / 32d;
+            var direction = data[offset + 4];
+            if (direction > 1) throw new InvalidDataException("Invalid fixture PSD guide orientation.");
+            guides[index] = (direction == 0, location);
+        }
+        return guides;
+    }
+
     internal (double X, double Y)[] ReadCropPath()
     {
         if (ResourceNames.GetValueOrDefault((ushort)2000) != "Crop" || !Resources.TryGetValue(2000, out var data)

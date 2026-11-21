@@ -1,5 +1,6 @@
 using System;
 using System.Buffers.Binary;
+using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Security.Cryptography;
@@ -28,16 +29,35 @@ internal readonly record struct PsdCropPath(double Left, double Top, double Righ
     }
 }
 
+internal readonly record struct PsdGuide(bool Vertical, double Fraction)
+{
+    internal const int MaximumCount = 128;
+
+    internal static PsdGuide[] InOutput(IReadOnlyList<PsdGuide> source, int canvasWidth, int canvasHeight, Rectangle crop)
+    {
+        var result = new List<PsdGuide>(source.Count);
+        foreach (var guide in source)
+        {
+            var position = guide.Vertical ? guide.Fraction * canvasWidth - crop.Left : guide.Fraction * canvasHeight - crop.Top;
+            var extent = guide.Vertical ? crop.Width : crop.Height;
+            if (position >= 0 && position <= extent)
+                result.Add(guide with { Fraction = position / extent });
+        }
+        return result.ToArray();
+    }
+}
+
 internal static class PsdExport
 {
     private const int MaximumDimension = 30_000;
     private const int ResolutionResource = 1005;
     private const int IccResource = 1039;
+    private const int GuidesResource = 1032;
     private const int XmpResource = 1060;
     private const int SavedPathResource = 2000;
 
     internal static void WriteVerified(Stream stream, BitmapSource image, ExportColorProfile profile, byte[]? xmp,
-        CancellationToken stop, PsdCropPath? cropPath = null)
+        CancellationToken stop, PsdCropPath? cropPath = null, IReadOnlyList<PsdGuide>? guides = null)
     {
         var width = image.PixelWidth;
         var height = image.PixelHeight;
@@ -52,7 +72,7 @@ internal static class PsdExport
         if (Convert.ToHexString(SHA256.HashData(icc)) != profile.Sha256)
             throw new InvalidDataException("The PSD export colour profile changed before encoding.");
 
-        var header = Header(image, icc, xmp, cropPath);
+        var header = Header(image, icc, xmp, cropPath, guides);
         stream.Write(header);
         WritePlanarPixels(stream, image, stop);
         stop.ThrowIfCancellationRequested();
@@ -65,13 +85,15 @@ internal static class PsdExport
             throw new InvalidDataException("The PSD header or metadata changed before publication.");
     }
 
-    private static byte[] Header(BitmapSource image, byte[] icc, byte[]? xmp, PsdCropPath? cropPath)
+    private static byte[] Header(BitmapSource image, byte[] icc, byte[]? xmp, PsdCropPath? cropPath,
+        IReadOnlyList<PsdGuide>? guides)
     {
         using var resources = new MemoryStream();
         using var resolution = new MemoryStream();
         WriteResolution(resolution, image.DpiX);
         WriteResolution(resolution, image.DpiY);
         WriteResource(resources, ResolutionResource, resolution.ToArray());
+        if (guides is { Count: > 0 }) WriteResource(resources, GuidesResource, EncodeGuides(guides, image.PixelWidth, image.PixelHeight));
         WriteResource(resources, IccResource, icc);
         if (xmp is not null) WriteResource(resources, XmpResource, xmp);
         if (cropPath is { } path) WriteResource(resources, SavedPathResource, EncodeCropPath(path), "Crop"u8);
@@ -144,6 +166,26 @@ internal static class PsdExport
                 BinaryPrimitives.WriteInt32BigEndian(knot[(offset + 4)..], horizontal);
             }
         }
+    }
+
+    private static byte[] EncodeGuides(IReadOnlyList<PsdGuide> guides, int width, int height)
+    {
+        if (guides.Count > PsdGuide.MaximumCount)
+            throw new InvalidDataException("Too many guides for the PSD export.");
+        using var resource = new MemoryStream();
+        WriteUInt32(resource, 1); // Grid and guides version
+        WriteUInt32(resource, 576); // Default horizontal and vertical grid cycle
+        WriteUInt32(resource, 576);
+        WriteUInt32(resource, (uint)guides.Count);
+        foreach (var guide in guides)
+        {
+            if (!double.IsFinite(guide.Fraction) || guide.Fraction is < 0 or > 1)
+                throw new InvalidDataException("A PSD guide is outside the delivered image.");
+            var axis = guide.Vertical ? width : height;
+            WriteUInt32(resource, checked((uint)Math.Round(guide.Fraction * axis * 32)));
+            resource.WriteByte(guide.Vertical ? (byte)0 : (byte)1);
+        }
+        return resource.ToArray();
     }
 
     private static void WriteResource(Stream stream, ushort id, byte[] data, ReadOnlySpan<byte> name = default)

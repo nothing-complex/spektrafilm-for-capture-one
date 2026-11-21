@@ -76,7 +76,7 @@ internal static class HostImageSource
         double Resolution, string ResolutionUnit, ExportMetadata Metadata, TiffCompressOption TiffCompression,
         RecipeNaming? Naming, string? SuggestedDirectory, string? ExactDirectory,
         bool AddSuffixToExistingFileName, bool SkipExistingOutput, SharpeningOutputControl Sharpening,
-        ExportWatermark? Watermark, SpektraExport.RecipeOmission Omissions, PsdCropPath? CropPath)
+        ExportWatermark? Watermark, SpektraExport.RecipeOmission Omissions, PsdCropPath? CropPath, PsdGuide[]? Guides)
     {
         internal string? SuggestedFilename => Naming?.Stem;
     }
@@ -250,8 +250,11 @@ internal static class HostImageSource
         var sharpening = recipe.SharpeningOutputControl;
         if (sharpening is not (SharpeningOutputControl.LensAndSharpening or SharpeningOutputControl.Lens or SharpeningOutputControl.Disabled))
             omissions |= SpektraExport.RecipeOmission.Sharpening;
-        if (format == FileFormat.Psd && (recipe.IncludeAnnotations || recipe.IncludeOverlay || recipe.IncludeGuides))
+        if (format == FileFormat.Psd && (recipe.IncludeAnnotations || recipe.IncludeOverlay))
             omissions |= SpektraExport.RecipeOmission.PsdLayers;
+        var guides = recipe.IncludeGuides ? NativeExportGuides.Capture(selection, recipe, geometry) : null;
+        if (recipe.IncludeGuides && guides is null)
+            omissions |= SpektraExport.RecipeOmission.Guides;
         var (suggestedDirectory, exactDirectory) = ReadRecipeLocation(selection, recipe);
         return new RecipeInfo(recipe.Name, format.ToString(), recipe.ColorProfileName, recipe.ColorProfilePath,
             recipe.CropExportMethod.ToString(), recipe.DestinationRootFolder.ToString(), recipe.DestinationCustomRootFolder,
@@ -259,7 +262,7 @@ internal static class HostImageSource
             scale.ScaledPixelWidth, scale.ScaledPixelHeight, scale.Scale, ignoreCrop, recipe.Resolution, recipe.ResolutionUnit.ToString(),
             metadata, compression, ReadRecipeNaming(selection, recipe), suggestedDirectory, exactDirectory,
             recipe.FileOverwriteAction == ProcessedFileOverwriteAction.Rename,
-            recipe.FileOverwriteAction == ProcessedFileOverwriteAction.Skip, sharpening, watermark, omissions, cropPath);
+            recipe.FileOverwriteAction == ProcessedFileOverwriteAction.Skip, sharpening, watermark, omissions, cropPath, guides);
     }
 
     private static PsdCropPath? ReadPsdCropPath(VariantGeometryTransformer geometry)

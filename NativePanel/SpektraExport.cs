@@ -31,10 +31,11 @@ internal static class SpektraExport
         Watermark = 1,
         Sharpening = 2,
         PsdLayers = 4,
+        Guides = 8,
     }
 
     internal readonly record struct RecipeDelivery(string? Format, int TiffBits, string? CropMode,
-        RecipeOmission Omissions = RecipeOmission.None, bool HasPsdCropPath = false)
+        RecipeOmission Omissions = RecipeOmission.None, bool HasPsdCropPath = false, bool HasPsdGuides = false)
     {
         internal string Extension => Format switch
         {
@@ -64,9 +65,10 @@ internal static class SpektraExport
                 return $"Save 16-bit Spektrafilm export ({profile})";
             var prefix = RequiresFormatChange ? $"Recipe requests {RequestedFormat} · " : "";
             var crop = CropPath ? HasPsdCropPath ? " · full image, editable crop path in PSD" : " · full image, crop path omitted" : "";
-            var omissions = DescribeOmissions();
+            var guides = HasPsdGuides ? " · editable guides in PSD" : "";
+            var omissions = DescribeOmissions(Omissions);
             var effects = omissions is null ? "" : $" · omits {omissions}";
-            return $"{prefix}Save 16-bit TIFF, PNG or PSD{crop}{effects} · {width} × {height} · {profile}";
+            return $"{prefix}Save 16-bit TIFF, PNG or PSD{crop}{guides}{effects} · {width} × {height} · {profile}";
         }
 
         internal string BatchTitle(int count, bool skipExisting)
@@ -75,7 +77,8 @@ internal static class SpektraExport
             var title = $"Export {count} images as 16-bit {format}";
             if (RequiresFormatChange) title += $" · Recipe requests {RequestedFormat}";
             if (CropPath) title += HasPsdCropPath ? " · Full image with editable crop paths" : " · Full image, unavailable crop paths omitted";
-            if (DescribeOmissions() is { } omissions) title += $" · Omits {omissions}";
+            if (HasPsdGuides && Extension == ".psd") title += " · Editable guides";
+            if (DescribeOmissions(OmissionsFor(FormatFor(Extension))) is { } omissions) title += $" · Omits {omissions}";
             if (skipExisting) title += " · Skip existing recipe files";
             return title;
         }
@@ -88,7 +91,7 @@ internal static class SpektraExport
                 notes.Add($"Recipe requested {RequestedFormat}. Saved 16-bit {outputFormat.ToString().ToUpperInvariant()}.");
             if (CropPath)
                 notes.Add(CropPathNote(outputFormat, batch));
-            if (DescribeOmissions() is { } omissions)
+            if (DescribeOmissions(OmissionsFor(outputFormat)) is { } omissions)
                 notes.Add($"The export omitted {omissions}.");
             return notes.Count == 0 ? null : string.Join(" ", notes);
         }
@@ -101,14 +104,18 @@ internal static class SpektraExport
                 : "Saved the full image. The recipe’s crop path was omitted.";
         }
 
-        private string? DescribeOmissions()
+        private RecipeOmission OmissionsFor(SpektraExport.Format output) =>
+            HasPsdGuides && output != SpektraExport.Format.Psd ? Omissions | RecipeOmission.Guides : Omissions;
+
+        private static string? DescribeOmissions(RecipeOmission omissions)
         {
-            if (Omissions == RecipeOmission.None)
+            if (omissions == RecipeOmission.None)
                 return null;
-            var names = new List<string>(3);
-            if ((Omissions & RecipeOmission.Watermark) != 0) names.Add("recipe watermark");
-            if ((Omissions & RecipeOmission.Sharpening) != 0) names.Add("recipe sharpening mode");
-            if ((Omissions & RecipeOmission.PsdLayers) != 0) names.Add("PSD layers");
+            var names = new List<string>(4);
+            if ((omissions & RecipeOmission.Watermark) != 0) names.Add("recipe watermark");
+            if ((omissions & RecipeOmission.Sharpening) != 0) names.Add("recipe sharpening mode");
+            if ((omissions & RecipeOmission.PsdLayers) != 0) names.Add("PSD layers");
+            if ((omissions & RecipeOmission.Guides) != 0) names.Add("recipe guides");
             return string.Join(", ", names);
         }
     }
@@ -177,12 +184,14 @@ internal static class SpektraExport
 
     internal static void SaveApproved(OutputPathGuard.ApprovedDestination destination, BitmapSource image, CancellationToken stop,
         ExportMetadata? metadata = null, ExportColorProfile? outputProfile = null, TiffCompressOption tiffCompression = TiffCompressOption.Zip,
-        Action<int>? reportWrite = null, Action<ExportPublication>? verified = null, PsdCropPath? cropPath = null) =>
-        SaveImage(destination.Path, image, stop, destination, metadata, outputProfile, tiffCompression, reportWrite, verified, cropPath);
+        Action<int>? reportWrite = null, Action<ExportPublication>? verified = null, PsdCropPath? cropPath = null,
+        IReadOnlyList<PsdGuide>? guides = null) =>
+        SaveImage(destination.Path, image, stop, destination, metadata, outputProfile, tiffCompression, reportWrite, verified, cropPath, guides);
 
     private static void SaveImage(string path, BitmapSource image, CancellationToken stop, OutputPathGuard.ApprovedDestination? destination,
         ExportMetadata? metadata = null, ExportColorProfile? outputProfile = null, TiffCompressOption tiffCompression = TiffCompressOption.Zip,
-        Action<int>? reportWrite = null, Action<ExportPublication>? verified = null, PsdCropPath? cropPath = null)
+        Action<int>? reportWrite = null, Action<ExportPublication>? verified = null, PsdCropPath? cropPath = null,
+        IReadOnlyList<PsdGuide>? guides = null)
     {
         stop.ThrowIfCancellationRequested();
         var output = FormatFor(path);
@@ -197,7 +206,7 @@ internal static class SpektraExport
             stop.ThrowIfCancellationRequested();
             var monitored = stop.CanBeCanceled || reportWrite is not null ? new EncoderStream(stream, stop, reportWrite) : stream;
             if (output == Format.Psd)
-                PsdExport.WriteVerified(monitored, image, outputProfile, xmp, stop, cropPath);
+                PsdExport.WriteVerified(monitored, image, outputProfile, xmp, stop, cropPath, guides);
             else
                 EncodeWic(stream, monitored);
             if (verified is not null)
