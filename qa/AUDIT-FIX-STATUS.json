@@ -1771,7 +1771,7 @@
         ".test-results/host-recipe-proofing-final-20261120/proof-settings-receipt.json"
       ],
       "remaining_work": [
-        "Present a calibrated chart on a real nonidentity display and measure both the native Viewer and film overlay. The offscreen WPF fixture establishes bitmap tag behavior before the desktop compositor.",
+        "Present a calibrated chart on a real nonidentity display and measure both the native Viewer and film overlay. Measure live monitor-profile transitions separately from native source revision. Windows reported one active display in the current session. The offscreen WPF fixture establishes bitmap tag behavior before the desktop compositor.",
         "Separate host paint-context behavior from desktop Advanced Color and validate the final on-screen result with an independent color-managed file viewer.",
         "Route through verified host display transform if possible, otherwise maintain explicit monitor ICC output with per-monitor invalidation.",
         "Separate film output encoding, export destination ICC and monitor display transform in types/UI; avoid double transforms.",
@@ -2249,7 +2249,7 @@
       "id": "VE-15",
       "title": "Separate source development invalidation from presentation-only changes",
       "priority": "P3",
-      "status": "partial",
+      "status": "implemented",
       "implemented": [
         "Native exposure, highlight and white balance settings each changed the immutable source revision on CR3, RAF, NEF and DNG. Reopened snapshots confirm the resulting pixels changed while dimensions and alpha stayed stable.",
         "Existing native rotate, mirror and keystone fixtures verify correct fresh developed pixels. The Viewer reuses the exact source variant, working space, capture dimensions and native revision. Pure tests show pan translation alone keeps projected source resolution stable.",
@@ -2261,7 +2261,11 @@
         "Reuse the exact Viewer source float buffer and processed bitmap for a proven crop-only edit. On the verified 16.4 build, compare the locked native model after ignoring only the known adjustmentLayer rectangle and matching root sync value. Check the unchanged high/low counters, RAW identity and resolved profiles, and request a native repaint for the changed transform and clip. Layered variants and unknown, unavailable or ambiguous state trigger normal development.",
         "Pass 132 licensed source mutation checks. DNG, NEF, RAF and CR3 reuse the exact RGB16-derived float buffer and optical bitmap during crop, while exposure, native grain and lens correction develop fresh pixels. The licensed fixture verifies all four native paint corners, the exact clip, unchanged donor hash and independent fresh RGB16 parity within native repeatability. Windows Viewer contracts pass 12,551 checks.",
         "Recognize the exact all-zero crop rectangle Capture One writes when a crop is cleared. Preserve conservative handling for partially empty or unknown representations. On all four RAW formats eight apply/clear actions reuse the exact source and optical bitmap. Combined crop/rotation and crop/keystone edits replace the source, align with the native clip and match independent RGB16 development within native repeatability. The Windows Viewer suite passes 12,553 assertions.",
-        "Pass 245 licensed mutation checks with the real DNG layer and proofing guards. A filled adjustment mask changes the developed source and disables crop reuse. Inverting it while applying crop produces fresh matching RGB16 pixels at the new geometry. The temporary layer is removed. Recipe Proofing changes the distinct presentation status, removes the overlay and restores the same source and processed bitmap when disabled. The donor catalog hash verifies."
+        "Pass 245 licensed mutation checks with the real DNG layer and proofing guards. A filled adjustment mask changes the developed source and disables crop reuse. Inverting it while applying crop produces fresh matching RGB16 pixels at the new geometry. The temporary layer is removed. Recipe Proofing changes the distinct presentation status, removes the overlay and restores the same source and processed bitmap when disabled. The donor catalog hash verifies.",
+        "Mark the old bitmap unsettled when a native rebuild starts. It remains visible while Save Preview is disabled and its histogram cleared. Hold native development during a profile and crop change and confirm that the prior bitmap remains visible without being offered as the current preview.",
+        "Pass 41 licensed checks for local camera ICC and crop. A same-ID profile-byte replacement changes the resolved fingerprint and forces fresh buffers even when the fixture offers the exact crop-only counter shape. The Viewer matches an independent native RGB16 render and the exact clip. Native pixels change materially when Capture One explicitly selects the alternate profile. Both ICC inputs and the donor catalog verify.",
+        "In the paired six-edit native timing sample, reuse matched the optical display pixels within rounding and reduced six RGB16 developments and six film renderer receipts to zero. Measured 1200 px median crop-to-paint time was 370 ms with reuse and 489 ms with forced redevelopment. Proofing and the monitor association remain independent of source identity. Multi-display color validation is tracked under VE-10.",
+        "Rerun all 245 licensed crop, geometry, mask, grain, lens and proofing assertions against the corrected current-frame build. The original catalog hash verifies. The exact-host gate and portable malformed-scope cases retain conservative handling for unknown models."
       ],
       "evidence_paths": [
         "NativePanel/HostImageSource.cs",
@@ -2288,11 +2292,14 @@
         ".test-results/viewer-crop-reset-contracts-20261121.log",
         ".test-results/host-crop-reset-mixed-geometry-20261121/native-crop-shape.log",
         ".test-results/host-crop-proof-mask-20261121/host-smoke.log",
-        ".test-results/host-crop-proof-mask-20261121/native-source-mutations.json"
+        ".test-results/host-crop-proof-mask-20261121/native-source-mutations.json",
+        "qa/HostSmoke/NativeProfileCrop.cs",
+        ".test-results/host-viewer-profile-crop-final-20261121/host-smoke.log",
+        ".test-results/host-viewer-profile-crop-final-20261121/native-profile-crop.json",
+        ".test-results/host-viewer-profile-crop-final-20261121/crop-work-measurements.json",
+        ".test-results/host-source-mutations-current-frame-20261121/host-smoke.log"
       ],
-      "remaining_work": [
-        "Verify a change to a resolved camera profile during a crop using the native Viewer. Measure live monitor-profile transitions separately from native revision on real displays. Support details already record Windows-associated profile identity and recipe proofing in a separate presentation section, and the proofing toggle has licensed source reuse coverage."
-      ],
+      "remaining_work": [],
       "original_acceptance_tests": [
         "Mutation matrix of native tools; each change invalidates the right stages and never reuses stale source.",
         "Pan/zoom changes do not spawn film processing unless ROI/adaptive-quality demand changes.",
@@ -3808,8 +3815,8 @@
   ],
   "counts": {
     "total": 70,
-    "implemented": 40,
-    "partial": 30,
+    "implemented": 41,
+    "partial": 29,
     "pending": 0
   },
   "last_reconciled": "2026-11-20",

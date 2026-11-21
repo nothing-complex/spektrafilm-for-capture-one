@@ -214,6 +214,11 @@ public static partial class StartupHook
                 await TestNativeSourceMutations(panelAssembly!, panel, spatial, window);
                 return;
             }
+            if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX") == "profile-crop")
+            {
+                await TestNativeProfileCrop(panelAssembly!, panel, spatial, window, variant);
+                return;
+            }
             if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_VIEWER_STRESS") == "1")
             {
                 ((CheckBox)Field(panel, "enableSpektraFilm")!).IsChecked = true;

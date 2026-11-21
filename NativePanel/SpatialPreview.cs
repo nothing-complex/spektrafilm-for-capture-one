@@ -594,10 +594,8 @@ internal sealed class SpatialPreview : IDisposable
         if (dragging)
             lastDragChange = Environment.TickCount64;
         queued = true;
-        frameCurrent = false;
-        histogram.SetFrame(null);
+        InvalidateSettledFrame();
         selectionUnavailable = false;
-        savePreview.IsEnabled = false;
         retryViewer.Visibility = Visibility.Collapsed;
         inputRevision++;
         if (warmingDraft)
@@ -605,6 +603,13 @@ internal sealed class SpatialPreview : IDisposable
         if (renderingFinal && !dragging)
             pending?.Cancel();
         refresh.Start();
+    }
+
+    private void InvalidateSettledFrame()
+    {
+        frameCurrent = false;
+        histogram.SetFrame(null);
+        savePreview.IsEnabled = false;
     }
 
     internal void TrackSliderDrag(NativeSlider slider)
@@ -1620,6 +1625,7 @@ internal sealed class SpatialPreview : IDisposable
             return;
         }
         queued = false;
+        InvalidateSettledFrame();
         failedRevision = null;
         retryViewer.Visibility = Visibility.Collapsed;
         var settingsVersion = inputRevision;

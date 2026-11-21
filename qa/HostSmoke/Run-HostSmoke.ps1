@@ -36,6 +36,7 @@ param(
     [switch] $ShowTool,
     [switch] $ColorMatrix,
     [switch] $NativeSourceMutations,
+    [string] $ViewerCropProfile,
     [switch] $ViewerStress,
     [switch] $ViewerCacheAllowance,
     [switch] $PanelInventory,
@@ -209,6 +210,14 @@ if ($NativeSourceMutations) {
     if (!$NativeSettingsConfig) { throw 'The native source mutation matrix requires a verified preferences backup.' }
     $ColorMatrix=$true
     $SkipRestart=$true
+}
+if ($ViewerCropProfile) {
+    if (!$NativeSettingsConfig -or $NativeSourceMutations -or $ColorMatrix -or $PackagedRuntime -or $UpgradeFromPackage -or
+        $NativeEffectExport -or $CatalogIsolation -or $ConcurrentCatalogs -or $SessionIsolation -or $CalibrationChart) {
+        throw 'Viewer crop profile verification needs one copied catalog with local ICC sidecars and a preferences backup.'
+    }
+    $SkipRestart=$true
+    $ShowTool=$true
 }
 if ($ViewerStress -and (!$NativeSettingsConfig -or $ColorMatrix -or $CatalogIsolation -or $ConcurrentCatalogs -or
     $SessionIsolation -or $ViewerLayouts -or $ViewerChurn -or $DurableSliderEdits -or $MetadataFixtureRoot -or
@@ -574,7 +583,7 @@ if ($NativeVariantLineage) {
     $preVariantBackup = Save-CatalogBackup $catalog
 }
 $originalProfileHashes=@{}
-if ($NativeEffectProfileSidecars -and !$CalibrationChart) {
+if (($NativeEffectProfileSidecars -and !$CalibrationChart) -or $ViewerCropProfile) {
     $iccSource=Join-Path (Split-Path -Parent $source) 'Adjustments\ICC'
     $profileRoot=Get-Item -LiteralPath $iccSource -Force
     if (!$profileRoot.PSIsContainer -or ($profileRoot.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Pass a closed catalog with real local ICC sidecars.' }
@@ -589,6 +598,16 @@ if ($NativeEffectProfileSidecars -and !$CalibrationChart) {
         $originalProfileHashes[$profileItem.FullName]=$digest
     }
     if (!$originalProfileHashes.Count) { throw 'Pass a catalog that contains at least one local ICC sidecar.' }
+}
+if ($ViewerCropProfile) {
+    $replacement=Get-Item -LiteralPath $ViewerCropProfile -Force
+    if ($replacement.PSIsContainer -or $replacement.Extension -notin '.icc','.icm' -or
+        ($replacement.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Pass a regular alternate ICC profile.' }
+    $alternate=Join-Path $folder 'Alternate camera profile.icm'
+    $digest=(Get-FileHash -LiteralPath $replacement.FullName).Hash
+    Copy-Item -LiteralPath $replacement.FullName -Destination $alternate
+    if ((Get-FileHash -LiteralPath $alternate).Hash -ne $digest) { throw 'The alternate profile copy could not be verified.' }
+    $originalProfileHashes[$replacement.FullName]=$digest
 }
 if ($SavedLooksBackup) {
     $SavedLooksBackup=(Resolve-Path -LiteralPath $SavedLooksBackup).ProviderPath
@@ -720,7 +739,7 @@ try {
     $env:SPEKTRAFILM_DATA_ROOT=$folder
     $env:SPEKTRAFILM_PANEL_LOG=Join-Path $folder 'panel.log'
     $env:SPEKTRAFILM_HOST_SMOKE=$folder
-    $env:SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX=if($NativeSourceMutations){'source-mutations'}elseif($ColorMatrix){'1'}else{$null}
+    $env:SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX=if($ViewerCropProfile){'profile-crop'}elseif($NativeSourceMutations){'source-mutations'}elseif($ColorMatrix){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_VIEWER_STRESS=if($ViewerStress){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_VIEWER_CACHE_ALLOWANCE=if($ViewerCacheAllowance){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_PANEL_INVENTORY=if($PanelInventory){'1'}else{$null}
@@ -874,7 +893,7 @@ try {
     foreach ($profilePath in $originalProfileHashes.Keys) {
         if ((Get-FileHash -LiteralPath $profilePath).Hash -ne $originalProfileHashes[$profilePath]) { throw 'A source catalog ICC sidecar changed unexpectedly.' }
     }
-    if ($originalProfileHashes.Count) { Write-Output 'PASS original catalog ICC sidecars verified after the disposable export fixture.' }
+    if ($originalProfileHashes.Count) { Write-Output 'PASS original ICC profile files verified after the disposable fixture.' }
     if($fixtureChart -and ((Get-FileHash -LiteralPath $fixtureChart).Hash -ne $chartHash -or
         (Get-FileHash -LiteralPath $chartSource.FullName).Hash -ne $chartHash)){throw 'Calibration DNG changed unexpectedly.'}
 } catch {
