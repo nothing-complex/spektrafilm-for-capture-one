@@ -914,7 +914,9 @@ public static partial class StartupHook
                 var variant = Prop(selection, "Variant")!;
                 var crop = variant.GetType().GetProperty("CropRawUnconstrained", Flags)!;
                 var originalCrop = crop.GetValue(variant)!;
-                var dimensions = (System.Drawing.Size)Prop(Prop(variant, "CoreImage")!, "ImageDimensions")!;
+                var coreImage = Prop(variant, "CoreImage")!;
+                var dimensions = (System.Drawing.Size)Prop(coreImage, "ImageDimensions")!;
+                var sourceStem = Path.GetFileNameWithoutExtension((string)Prop(coreImage, "FullpathFilename")!);
                 suppress.SetValue(selected, true);
                 try
                 {
@@ -932,7 +934,6 @@ public static partial class StartupHook
                     Set("WatermarkVImagePlacement", .38f);
                     Set("WatermarkImageScale", 1.5f);
                     Set("WatermarkImageOpacity", .65f);
-                    Set("WatermarkText", "Spektrafilm test watermark");
                     Set("WatermarkTextColor", System.Drawing.Color.FromArgb(213, 182, 112));
                     Set("WatermarkTextFont", font);
                     Set("WatermarkHTextPlacement", .74f);
@@ -1000,12 +1001,24 @@ public static partial class StartupHook
                     foreach (var mode in modes)
                     {
                         Choose("WatermarkType", mode);
+                        string? literalPixels = null;
                         if (mode == "Image")
                             Call(selected, "LoadWatermark", watermarkProfilePath);
+                        else
+                        {
+                            Set("WatermarkText", "Spektrafilm " + sourceStem);
+                            var literalMark = Prop(ReadRecipe(), "Watermark");
+                            Check(literalMark is not null, "Capture One rendered the literal name of the copied RAW");
+                            literalPixels = (string)Prop(literalMark!, "PixelsSha256")!;
+                            Set("WatermarkText", "Spektrafilm " + NativeNameToken("OriginalName"));
+                        }
                         var recipeWithWatermark = ReadRecipe();
                         var captured = Prop(recipeWithWatermark, "Watermark");
                         Check(captured is not null && Prop(recipeWithWatermark, "Omissions")?.ToString() == "None",
                             $"Capture One returned an immutable {mode} watermark at {label}");
+                        var approvedPixels = (string)Prop(captured!, "PixelsSha256")!;
+                        if (literalPixels is not null)
+                            Check(approvedPixels == literalPixels, "Capture One resolves the Original Name token to the selected RAW name");
                         var stem = label + "-" + mode.ToLowerInvariant();
                         var x = (int)Prop(captured!, "X")! - cropOrigin.X;
                         var y = (int)Prop(captured!, "Y")! - cropOrigin.Y;
@@ -1014,8 +1027,21 @@ public static partial class StartupHook
                         Set("DestinationFilename", stem);
                         var ordinary = await CaptureOrdinaryRecipeTiff(directory, stem, profileHash, geometry);
                         toggle.IsChecked = true;
-                        var plugin = await Render(stem + "-spektrafilm", ".tif", false, expectedCompression: recipeCompression,
-                            expectedProfileSha: profileHash, expectedGeometry: geometry);
+                        if (mode == "Text")
+                            beforeDestinationApproval = () => Set("WatermarkText", "Changed while choosing a destination");
+                        BitmapSource plugin;
+                        try
+                        {
+                            plugin = await Render(stem + "-spektrafilm", ".tif", false, expectedCompression: recipeCompression,
+                                expectedProfileSha: profileHash, expectedGeometry: geometry);
+                        }
+                        finally { beforeDestinationApproval = null; }
+                        if (mode == "Text")
+                        {
+                            var changed = Prop(ReadRecipe(), "Watermark");
+                            Check(changed is not null && !Equals(Prop(changed, "PixelsSha256"), approvedPixels),
+                                "the recipe really changed in the Save picker while the accepted export retained its captured watermark");
+                        }
                         var result = CompareWatermark(baseFrame, ordinary, basePlugin, plugin, x, y, width, height);
                         comparisons.Add(new { stem, x, y, width, height, result });
                         File.WriteAllText(Path.Combine(directory, "watermark-comparisons.json"),

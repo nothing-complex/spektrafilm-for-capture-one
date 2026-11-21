@@ -799,10 +799,9 @@ Copy-Item -LiteralPath $panelBuild -Destination $runtime
 if ($PackagedRuntime) {
     Copy-Item -LiteralPath (Join-Path $runtimeSource 'build-manifest.json') -Destination $runtime
 }
-$testHook=$TestHookPath
-if(!(Test-Path -LiteralPath $testHook)){throw 'Build qa/HostSmoke and NativePanel first.'}
-Copy-Item -LiteralPath $testHook -Destination $runtime
 $testHook=Join-Path $runtime 'HostSmoke.dll'
+if(!(Test-Path -LiteralPath $TestHookPath -PathType Leaf)){throw 'Build qa/HostSmoke and NativePanel first.'}
+Copy-Item -LiteralPath $TestHookPath -Destination $testHook
 $names=@(
     'DOTNET_STARTUP_HOOKS','SPEKTRAFILM_ROOT','SPEKTRAFILM_CATALOG','SPEKTRAFILM_DATA_ROOT',
     'SPEKTRAFILM_PANEL_LOG','SPEKTRAFILM_HOST_SMOKE','SPEKTRAFILM_LAUNCH_ID','SPEKTRAFILM_HOST_SMOKE_COLOR_MATRIX',
@@ -906,14 +905,13 @@ try {
             # Deliberate crash/restart test of this newly launched disposable process.
             # No pre-existing Capture One process can reach this branch.
             if(!$process.HasExited){Stop-Process -Id $process.Id; $process.WaitForExit()}
+            $phaseProcessId=$process.Id
             $process.Dispose()
-            if(($NativeExportInterruption -or $NativeBatchExportCrash) -and $phase -eq 'first'){
-                # The fixture terminates itself. The process handle can signal while
-                # enumeration still reports the terminating host briefly.
-                $settle=[DateTime]::UtcNow.AddSeconds(8)
-                while ([DateTime]::UtcNow -lt $settle -and (Get-Process CaptureOne -ErrorAction SilentlyContinue)){
-                    Start-Sleep -Milliseconds 100
-                }
+            # An exited fixture can remain visible during Windows crash reporting.
+            # Clear-TestCrashMarkers separately refuses any other active host.
+            $settle=[DateTime]::UtcNow.AddSeconds(8)
+            while ([DateTime]::UtcNow -lt $settle -and (Get-Process -Id $phaseProcessId -ErrorAction SilentlyContinue).ProcessName -eq 'CaptureOne'){
+                Start-Sleep -Milliseconds 100
             }
             Clear-TestCrashMarkers $phaseStarted $phase
             Test-NativeRecipeHashes $phase
