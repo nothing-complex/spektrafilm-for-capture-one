@@ -4,7 +4,7 @@ using System.IO;
 using System.Security.Cryptography;
 
 // Holds the current and preceding generation in a bounded, catalog-scoped record.
-// VariantLookStore continues to own the live format until its backup readers can reconcile this record.
+// The writer owns publication for one variant until its compatibility files have been updated.
 internal sealed class VariantLookGenerationJournal(string directory, string catalogIdentity)
 {
     private const int DigestBytes = 32;
@@ -33,6 +33,18 @@ internal sealed class VariantLookGenerationJournal(string directory, string cata
             var bytes = new byte[checked((int)file.Length)];
             file.ReadExactly(bytes);
             return bytes;
+        }
+        catch (Exception error) when (error is FileNotFoundException or DirectoryNotFoundException) { return null; }
+    }
+
+    private string? ReadReceipt(Guid variant)
+    {
+        try
+        {
+            using var file = File.OpenRead(PathFor(variant));
+            if (file.Length is <= HeaderBytes + DigestBytes or > MaxRecordBytes)
+                throw new InvalidDataException("The saved generation record has an invalid length.");
+            return Convert.ToHexString(SHA256.HashData(file));
         }
         catch (Exception error) when (error is FileNotFoundException or DirectoryNotFoundException) { return null; }
     }
@@ -114,6 +126,21 @@ internal sealed class VariantLookGenerationJournal(string directory, string cata
     {
         private readonly object sync = new();
         private bool disposed;
+        private bool observed;
+        private Snapshot? snapshot;
+
+        internal Snapshot? Read()
+        {
+            lock (sync)
+            {
+                ObjectDisposedException.ThrowIf(disposed, this);
+                // The winner holds the writer lease. Keep a private decoded copy
+                // used only for this write, and verify the exact file at publish.
+                snapshot = journal.Read(variant);
+                observed = true;
+                return snapshot is null ? null : Clone(snapshot);
+            }
+        }
 
         internal Snapshot Commit(string? expectedReceipt, byte[] current, byte[]? legacyPrevious = null, Action? verifySource = null)
         {
@@ -123,8 +150,8 @@ internal sealed class VariantLookGenerationJournal(string directory, string cata
         private Snapshot CommitLocked(string? expectedReceipt, byte[] current, byte[]? legacyPrevious, Action? verifySource)
         {
             ObjectDisposedException.ThrowIf(disposed, this);
-            var prior = journal.Read(variant);
-            VerifyReceipt(prior);
+            var prior = observed ? snapshot : journal.Read(variant);
+            VerifyReceipt(prior?.Receipt);
             if (prior is not null && legacyPrevious is not null)
                 throw new InvalidOperationException("The legacy look belongs only to the first generation.");
             var record = journal.Encode(variant, checked((prior?.Generation ?? 0) + 1), current, prior?.Current ?? legacyPrevious);
@@ -132,16 +159,24 @@ internal sealed class VariantLookGenerationJournal(string directory, string cata
             PanelFiles.WriteAtomically(path, stream => stream.Write(record), () =>
             {
                 verifySource?.Invoke();
-                VerifyReceipt(journal.Read(variant));
+                VerifyReceipt(journal.ReadReceipt(variant));
             }, overwrite: prior is not null, discardOnProcessExit: true);
-            return committed;
+            snapshot = committed;
+            observed = true;
+            return Clone(committed);
 
-            void VerifyReceipt(Snapshot? value)
+            void VerifyReceipt(string? value)
             {
-                if (!StringComparer.Ordinal.Equals(value?.Receipt, expectedReceipt))
+                if (!StringComparer.Ordinal.Equals(value, expectedReceipt))
                     throw new InvalidDataException("The saved generation changed before publication.");
             }
         }
+
+        private static Snapshot Clone(Snapshot value) => value with
+        {
+            Current = (byte[])value.Current.Clone(),
+            Previous = value.Previous is { } previous ? (byte[])previous.Clone() : null,
+        };
 
         public void Dispose()
         {

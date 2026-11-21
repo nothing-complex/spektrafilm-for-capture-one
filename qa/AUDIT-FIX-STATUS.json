@@ -1610,7 +1610,8 @@
         "Evaluate a standalone single-flush append journal with buffered current and SFL1 previous compatibility copies. Across 10,000 edits, queue and flush p95 falls from 5.42 to 3.24 ms and p99 from 5.83 to 3.71 ms. All 64 pairs of snapshots agree after replay. The uncapped journal used 18,725,268 bytes. Pass 889 state tests including process stops after a partial append and a complete flush, and rejection of a full corrupt record. The experiment is only in the state harness.",
         "Implement a bounded current and predecessor pair, replacing both with one flushed atomic file. Each capsule is independently checksummed and bound to its catalog and variant. Kill child processes before and after publication, prove writer exclusion and restart, reject stale receipts and failed final guards, and recover the predecessor when the current capsule is damaged or truncated. Pass 919 state checks. In 10,000 measured edits across 64 variants, p95 is 3.70 ms and p99 is 4.55 ms with buffered compatibility files and cross-process ownership. The journal uses 234,570 bytes across all variants and has a hard 131,264-byte per-variant bound.",
         "Project the durable bounded pair into the existing archive's current JSON and SFL1 predecessor. Run the C# writer in a separate process and stop it after journal commit while the old compatibility file is still present. Both Windows shells pass 123 joint backup checks, including a byte-exact full restore at a new catalog path, source preservation, missing mirrors and rejection of unrelated external edits, active writers, corrupt records and a wrong catalog identity.",
-        "Integrate the bounded journal with the save store, including hash-based batch recovery and pending edits. Compatibility publication failures after durable commit keep the edit acknowledged. Repair a lagging mirror before advancing again. Manual recovery verifies the reviewed digest, preserves the damaged journal in recovery and writes the chosen look before retiring the journal. The disposable benchmark measures the integrated writer at 3.85 ms p95 and 4.26 ms p99 over 10,000 edits. The regular panel still starts with the legacy writer for looks without a journal."
+        "Integrate the bounded journal with the save store, including hash-based batch recovery and pending edits. Compatibility publication failures after durable commit keep the edit acknowledged. Repair a lagging mirror before advancing again. Manual recovery verifies the reviewed digest, preserves the damaged journal in recovery and writes the chosen look before retiring the journal. The disposable benchmark measures the integrated writer at 3.85 ms p95 and 4.26 ms p99 over 10,000 edits. The regular panel still starts with the legacy writer for looks without a journal.",
+        "Stop a separate process before the first journal publication, then stop a real save-store process after acknowledging its first journal commit while Windows denies compatibility creation. Restart recovers the first acknowledged look without a legacy file. The next edit writes both copies and retains it as the predecessor. Reuse the exclusive writer's validated snapshot and stream its final on-disk digest. A same-length external rewrite is rejected at publication. The 10,000-edit benchmark reduces allocations from 84,243 to 66,563 bytes per edit at roughly 3.85 ms p95. Pass 958 state assertions and 123 joint backup assertions."
       ],
       "evidence_paths": [
         "NativePanel/VariantLookStore.cs",
@@ -1650,10 +1651,13 @@
         ".test-results/generation-catalog-backup-20261121/pwsh-final.log",
         ".test-results/generation-catalog-backup-20261121/full-contracts/summary.json",
         ".test-results/integrated-look-journal-20261121/journal-store/measurement.json",
-        ".test-results/integrated-look-journal-20261121/final-contracts/StateContracts.log"
+        ".test-results/integrated-look-journal-20261121/final-contracts/StateContracts.log",
+        ".test-results/journal-first-save-20261121/state-final.log",
+        ".test-results/journal-first-save-20261121/backup-final.log",
+        ".test-results/journal-first-save-20261121/journal-store/measurement.json"
       ],
       "remaining_work": [
-        "Verify first publication without legacy state and licensed WPF latency and restart with the Viewer running before enabling journal creation for regular panel saves.",
+        "Verify licensed WPF latency and restart with the Viewer running before enabling journal creation for regular panel saves.",
         "Test disk-full and denied-write boundaries and distinguish abrupt application exit from OS crash and power-loss recovery. A simultaneous external rename of an existing path still has a small race after the final hash check."
       ],
       "original_acceptance_tests": [

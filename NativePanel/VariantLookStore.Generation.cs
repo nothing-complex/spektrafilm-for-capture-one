@@ -39,7 +39,7 @@ internal sealed partial class VariantLookStore
     private void CommitGeneration(Guid variant, PendingEdit edit)
     {
         using var writer = generationJournal.OpenWriter(variant);
-        var prior = generationJournal.Read(variant);
+        var prior = writer.Read();
         var loose = ReadLooseLook(variant);
         var priorBytes = prior?.Current ?? loose;
         var priorHash = priorBytes is null ? null : Digest(priorBytes);

@@ -1,5 +1,8 @@
 using System.Diagnostics;
+using System.Runtime.Versioning;
+using System.Security.AccessControl;
 using System.Security.Cryptography;
+using System.Security.Principal;
 
 internal static class LookGenerationContracts
 {
@@ -8,7 +11,7 @@ internal static class LookGenerationContracts
         var store = new VariantLookStore(root, catalog, useGenerationWriter: true);
         var primary = Path.Combine(root, store.CatalogIdentity, variant.ToString("N") + ".json");
         var holdPrimary = heldMirror == "primary";
-        using var locked = new FileStream(holdPrimary ? primary : Path.ChangeExtension(primary, ".previous.look"),
+        using var locked = heldMirror == "absent" ? null : new FileStream(holdPrimary ? primary : Path.ChangeExtension(primary, ".previous.look"),
             FileMode.Open, FileAccess.Read, holdPrimary ? FileShare.Read : FileShare.None);
         store.Queue(variant, replacement);
         store.FlushVariant(variant);
@@ -22,6 +25,75 @@ internal static class LookGenerationContracts
     {
         CheckStoreBoundary(scratch, "previous", check, startChild, sample);
         CheckStoreBoundary(scratch, "primary", check, startChild, sample);
+        if (OperatingSystem.IsWindows()) CheckFirstSave(scratch, check, startChild, sample);
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static void CheckFirstSave(string scratch, Action<string, bool> check, Func<string[], Process> startChild, Func<double, VariantLook> sample)
+    {
+        var folder = Path.Combine(scratch, "generation-first-save");
+        var root = Path.Combine(folder, "Variant looks");
+        var catalog = Path.Combine(folder, "Fixture.cocatalogdb");
+        var variant = Guid.NewGuid();
+        var store = new VariantLookStore(root, catalog);
+        var journalDirectory = Path.Combine(folder, "Look generations", store.CatalogIdentity);
+        var journal = new VariantLookGenerationJournal(journalDirectory, store.CatalogIdentity);
+        var marker = Path.Combine(folder, "first-stage.ready");
+        Directory.CreateDirectory(folder);
+
+        StopChild(startChild(["--hold-look-generation", journalDirectory, store.CatalogIdentity, variant.ToString("N"), "before", marker]),
+            () => check("an uncommitted first generation does not create a saved look",
+                store.ReadOutcome(variant) is { State: LookLoadState.Missing } && journal.Read(variant) is null));
+        check("a stop before first publication discards the owned stage",
+            store.Read(variant) is null && !Directory.EnumerateFiles(journalDirectory, ".spektra-*.tmp").Any());
+
+        var mirrorFolder = Directory.CreateDirectory(Path.Combine(root, store.CatalogIdentity));
+        var primary = Path.Combine(mirrorFolder.FullName, variant.ToString("N") + ".json");
+        var restricted = mirrorFolder.GetAccessControl(AccessControlSections.Access);
+        using var identity = WindowsIdentity.GetCurrent();
+        var denyMirrorWrites = new FileSystemAccessRule(identity.User!, FileSystemRights.CreateFiles, AccessControlType.Deny);
+        restricted.AddAccessRule(denyMirrorWrites);
+        marker = Path.Combine(folder, "first-journal.saved");
+        mirrorFolder.SetAccessControl(restricted);
+        try
+        {
+            StopChild(startChild(["--hold-generation-store", root, catalog, variant.ToString("N"), "absent", marker]),
+                () => check("the first acknowledged edit needs only the durable journal", !File.Exists(primary)
+                    && journal.Read(variant) is { Generation: 1, Previous: null }));
+        }
+        finally
+        {
+            restricted.RemoveAccessRuleSpecific(denyMirrorWrites);
+            mirrorFolder.SetAccessControl(restricted);
+        }
+
+        var reopened = new VariantLookStore(root, catalog);
+        check("restart recovers the first acknowledged edit with no prior look or mirror",
+            reopened.ReadOutcome(variant) is { State: LookLoadState.Recovered, Look.Look.Exposure: 2.2, ReadOnly: false }
+            && !File.Exists(primary));
+        reopened.Queue(variant, sample(2.4)); reopened.FlushVariant(variant);
+        var saved = journal.Read(variant);
+        check("the next save publishes both copies and retains the first acknowledged edit", saved is { Generation: 2 }
+            && saved.Previous!.SequenceEqual(PanelFiles.EncodeCompactPreset(sample(2.2)))
+            && File.ReadAllBytes(primary).SequenceEqual(PanelFiles.EncodeCompactPreset(sample(2.4))));
+
+        void StopChild(Process child, Action verify)
+        {
+            using (child)
+            {
+                try
+                {
+                    check("first-save worker reaches its interruption boundary", SpinWait.SpinUntil(
+                        () => child.HasExited || File.Exists(marker), TimeSpan.FromSeconds(10)) && !child.HasExited && File.Exists(marker));
+                    verify();
+                }
+                finally
+                {
+                    if (!child.HasExited) child.Kill();
+                    check("first-save worker stopped", child.WaitForExit(10_000));
+                }
+            }
+        }
     }
 
     private static void CheckStoreBoundary(string scratch, string heldMirror, Action<string, bool> check,
@@ -175,13 +247,22 @@ internal static class LookGenerationContracts
             RequireFailure<IOException>(() => resume.Commit(reopened.Receipt, "rejected source"u8.ToArray(),
                 verifySource: () => throw new IOException("The fixture's source changed.")), "failed final guard blocks publication", check);
             check("stale and rejected commits preserve the acknowledged pair", journal.Read(variant)?.Receipt == reopened.Receipt);
+            var callerCopy = resume.Read()!;
+            callerCopy.Current[0] ^= 1;
             var next = resume.Commit(reopened.Receipt, "resumed write"u8.ToArray());
-            check("a new writer can resume after a hard stop", next.Generation == reopened.Generation + 1
+            check("a new writer can resume after a hard stop with a defensive predecessor", next.Generation == reopened.Generation + 1
                 && next.Previous!.SequenceEqual(reopened.Current));
 
             var otherCatalog = new VariantLookGenerationJournal(directory, Convert.ToHexString(SHA256.HashData("other catalog"u8)));
             RequireFailure<InvalidDataException>(() => otherCatalog.Read(variant), "a generation pair is bound to its catalog", check);
             var file = Path.Combine(directory, variant.ToString("N") + ".generations");
+            var exact = File.ReadAllBytes(file);
+            var conflicting = (byte[])exact.Clone();
+            conflicting[^1] ^= 1;
+            RequireFailure<InvalidDataException>(() => resume.Commit(next.Receipt, "pending comparison"u8.ToArray(),
+                verifySource: () => File.WriteAllBytes(file, conflicting)), "the final receipt rejects a same-length external rewrite", check);
+            check("the guarded write leaves the externally changed bytes untouched", File.ReadAllBytes(file).SequenceEqual(conflicting));
+            File.WriteAllBytes(file, exact);
             var anotherVariant = Guid.NewGuid();
             File.Copy(file, Path.Combine(directory, anotherVariant.ToString("N") + ".generations"));
             RequireFailure<InvalidDataException>(() => journal.Read(anotherVariant), "a generation pair is bound to its variant", check);
