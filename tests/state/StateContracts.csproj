@@ -17,6 +17,7 @@
     <Compile Include="../../NativePanel/SupportClipboardRetry.cs" Link="SupportClipboardRetry.cs" />
     <Compile Include="../../NativePanel/PanelChoices.cs" Link="PanelChoices.cs" />
     <Compile Include="../../NativePanel/VariantLookStore.cs" Link="VariantLookStore.cs" />
+    <Compile Include="../../NativePanel/VariantLookStore.Generation.cs" Link="VariantLookStore.Generation.cs" />
     <Compile Include="../../NativePanel/VariantLookGenerationJournal.cs" Link="VariantLookGenerationJournal.cs" />
     <Compile Include="../../NativePanel/VariantLookBatch.cs" Link="VariantLookBatch.cs" />
     <Compile Include="../../NativePanel/VariantLookBatchJournal.cs" Link="VariantLookBatchJournal.cs" />

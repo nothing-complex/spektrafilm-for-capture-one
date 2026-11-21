@@ -47,7 +47,7 @@ internal sealed class VariantLookGenerationJournal(string directory, string cata
         return new(this, variant, path, new FileStream(path + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None));
     }
 
-    private string PathFor(Guid variant) => Path.Combine(directory, variant.ToString("N") + ".generations");
+    internal string PathFor(Guid variant) => Path.Combine(directory, variant.ToString("N") + ".generations");
 
     private byte[] Encode(Guid variant, long generation, byte[] current, byte[]? previous)
     {

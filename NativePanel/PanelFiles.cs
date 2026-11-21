@@ -71,7 +71,7 @@ internal static class PanelFiles
     }
 
     internal static void WriteAtomically(string path, Action<Stream> write, Action? beforeCommit = null,
-        bool overwrite = true, bool discardOnProcessExit = false)
+        bool overwrite = true, bool discardOnProcessExit = false, bool flushToDisk = true)
     {
         var destination = Path.GetFullPath(path);
         var temp = Path.Combine(Path.GetDirectoryName(destination)!, $".spektra-{Guid.NewGuid():N}.tmp");
@@ -81,7 +81,7 @@ internal static class PanelFiles
             using (staging)
             {
                 write(staging);
-                staging.Flush(flushToDisk: true);
+                staging.Flush(flushToDisk);
                 // Keep the temporary file owned by the open handle until all
                 // writes and the final destination validation have succeeded.
                 if (deletePending)

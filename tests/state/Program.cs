@@ -10,12 +10,16 @@ if (args is ["--measure-look-journal", var journalMeasurementDirectory])
     return DurableEditProbe.Run(journalMeasurementDirectory, DurableEditProbe.Storage.Append);
 if (args is ["--measure-look-generation-pair", var pairMeasurementDirectory])
     return DurableEditProbe.Run(pairMeasurementDirectory, DurableEditProbe.Storage.GenerationPair);
+if (args is ["--measure-generation-store", var generationStoreMeasurementDirectory])
+    return DurableEditProbe.Run(generationStoreMeasurementDirectory, DurableEditProbe.Storage.IntegratedGeneration);
 if (args is ["--hold-look-journal", var journalPath, var journalVariant, var journalStage, var journalMarker])
     return DurableLookJournalProbe.Hold(journalPath, Guid.Parse(journalVariant), journalStage, journalMarker);
 if (args is ["--hold-look-generation", var generationDirectory, var generationCatalog, var generationVariant, var generationStage, var generationMarker])
     return LookGenerationContracts.Hold(generationDirectory, generationCatalog, Guid.Parse(generationVariant), generationStage, generationMarker);
 if (args is ["--hold-journal-for-backup", var archiveDirectory, var archiveCatalog, var archiveVariant, var archiveCurrent, var archivePrevious, var archiveMarker])
     return LookGenerationContracts.HoldForBackup(archiveDirectory, archiveCatalog, Guid.Parse(archiveVariant), archiveCurrent, archivePrevious, archiveMarker);
+if (args is ["--hold-generation-store", var testStoreRoot, var testStoreCatalog, var testStoreVariant, var testStoreMirror, var testStoreMarker])
+    return LookGenerationContracts.HoldStore(testStoreRoot, testStoreCatalog, Guid.Parse(testStoreVariant), testStoreMirror, testStoreMarker, Sample(2.2));
 if (args is ["--measure-diagnostic-log", var diagnosticsDirectory, var seconds])
     return await PanelLogContracts.SoakAsync(diagnosticsDirectory, int.Parse(seconds, System.Globalization.CultureInfo.InvariantCulture));
 if (args is ["--verify-compiled-controls", var parameterManifest])
@@ -114,6 +118,7 @@ void Throws<T>(string name, Action action) where T : Exception
 
 DurableLookJournalProbe.CheckRecovery(scratch, Check, StartChild);
 LookGenerationContracts.CheckRecovery(scratch, Check, StartChild);
+LookGenerationContracts.CheckStore(scratch, Check, StartChild, Sample);
 string StateFile(string root, Guid id) => Directory.GetFiles(root, id.ToString("N") + ".json", SearchOption.AllDirectories).Single();
 var root = Path.Combine(scratch, "Variant looks");
 var catalog = Path.Combine(scratch, "test.cocatalogdb");

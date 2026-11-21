@@ -3,6 +3,108 @@ using System.Security.Cryptography;
 
 internal static class LookGenerationContracts
 {
+    internal static int HoldStore(string root, string catalog, Guid variant, string heldMirror, string marker, VariantLook replacement)
+    {
+        var store = new VariantLookStore(root, catalog, useGenerationWriter: true);
+        var primary = Path.Combine(root, store.CatalogIdentity, variant.ToString("N") + ".json");
+        var holdPrimary = heldMirror == "primary";
+        using var locked = new FileStream(holdPrimary ? primary : Path.ChangeExtension(primary, ".previous.look"),
+            FileMode.Open, FileAccess.Read, holdPrimary ? FileShare.Read : FileShare.None);
+        store.Queue(variant, replacement);
+        store.FlushVariant(variant);
+        if (store.HasPending || store.RecoveryNotice is null) return 2;
+        File.WriteAllText(marker, store.RecoveryNotice);
+        Thread.Sleep(Timeout.Infinite);
+        return 1;
+    }
+
+    internal static void CheckStore(string scratch, Action<string, bool> check, Func<string[], Process> startChild, Func<double, VariantLook> sample)
+    {
+        CheckStoreBoundary(scratch, "previous", check, startChild, sample);
+        CheckStoreBoundary(scratch, "primary", check, startChild, sample);
+    }
+
+    private static void CheckStoreBoundary(string scratch, string heldMirror, Action<string, bool> check,
+        Func<string[], Process> startChild, Func<double, VariantLook> sample)
+    {
+        var folder = Path.Combine(scratch, "generation-store-" + heldMirror);
+        var root = Path.Combine(folder, "Variant looks");
+        var catalog = Path.Combine(folder, "Fixture.cocatalogdb");
+        var variant = Guid.NewGuid();
+        var legacy = new VariantLookStore(root, catalog);
+        legacy.Queue(variant, sample(.6)); legacy.FlushVariant(variant);
+        legacy.Queue(variant, sample(.9)); legacy.FlushVariant(variant);
+        var primary = Path.Combine(root, legacy.CatalogIdentity, variant.ToString("N") + ".json");
+        var old = File.ReadAllBytes(primary);
+        var journal = new VariantLookGenerationJournal(Path.Combine(folder, "Look generations", legacy.CatalogIdentity), legacy.CatalogIdentity);
+        var marker = Path.Combine(folder, "journal.saved");
+
+        using (var child = startChild(["--hold-generation-store", root, catalog, variant.ToString("N"), heldMirror, marker]))
+        {
+            try
+            {
+                check("actual store acknowledges the journal with a locked compatibility file",
+                    SpinWait.SpinUntil(() => child.HasExited || File.Exists(marker), TimeSpan.FromSeconds(10)) && !child.HasExited);
+                check("the acknowledged generation contains the exact chosen look", journal.Read(variant) is { } saved
+                    && saved.Current.SequenceEqual(PanelFiles.EncodeCompactPreset(sample(2.2))) && saved.Previous!.SequenceEqual(old));
+            }
+            finally
+            {
+                if (!child.HasExited) child.Kill();
+                check("the store process stops before compatibility recovery", child.WaitForExit(10_000));
+            }
+        }
+
+        var reopened = new VariantLookStore(root, catalog);
+        check("the process stop occurs at the intended mirror boundary",
+            File.ReadAllBytes(Path.ChangeExtension(primary, ".previous.look")).AsSpan(52)
+                .SequenceEqual(heldMirror == "primary" ? old : PanelFiles.EncodeCompactPreset(sample(.6))));
+        check("the restart reads the journal without overwriting a lagging mirror",
+            reopened.ReadOutcome(variant) is { State: LookLoadState.Recovered, Look.Look.Exposure: 2.2, ReadOnly: false }
+            && File.ReadAllBytes(primary).SequenceEqual(old));
+        var acknowledged = journal.Read(variant)!;
+        var oldHash = Convert.ToHexString(SHA256.HashData(old));
+        var acknowledgedHash = Convert.ToHexString(SHA256.HashData(acknowledged.Current));
+        using (var batch = reopened.BatchHistory.Start(2)) batch.Prepare(variant, oldHash, acknowledgedHash);
+        check("batch recovery uses the acknowledged look instead of the prior compatibility bytes",
+            reopened.BatchHistory.ReadLatest() is { Applied: [var applied], Uncertain: null } && applied == variant);
+
+        var checkpoint = Path.Combine(folder, "Look recovery", reopened.CatalogIdentity, variant.ToString("N") + ".pending.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(checkpoint)!);
+        PanelFiles.WriteCompactPreset(checkpoint, new { Version = 1, CatalogKey = reopened.CatalogIdentity,
+            Variant = variant, BaseHash = acknowledgedHash, Look = sample(2.4) });
+        check("an unsaved checkpoint compares against the acknowledged journal generation", reopened.Read(variant)?.Look.Exposure == 2.4
+            && reopened.HasPending);
+        reopened.FlushVariant(variant);
+        var next = journal.Read(variant)!;
+        check("another edit repairs the lagging copy and keeps the prior acknowledged generation", next.Generation == 2
+            && File.ReadAllBytes(primary).SequenceEqual(PanelFiles.EncodeCompactPreset(sample(2.4)))
+            && next.Previous!.SequenceEqual(acknowledged.Current) && !File.Exists(checkpoint) && !reopened.HasPending);
+
+        File.Move(primary, Path.Combine(folder, "verified-compatibility-copy.json"));
+        check("the actual store can read an acknowledged look without a compatibility file",
+            reopened.ReadOutcome(variant) is { State: LookLoadState.Recovered, Look.Look.Exposure: 2.4 });
+        File.WriteAllBytes(primary, PanelFiles.EncodeCompactPreset(sample(3.0)));
+        var unrelated = File.ReadAllBytes(primary);
+        check("an unrelated compatibility edit blocks automatic recovery and preserves both versions",
+            reopened.ReadOutcome(variant) is { ReadOnly: true } && reopened.IsBlocked(variant)
+            && File.ReadAllBytes(primary).SequenceEqual(unrelated) && journal.Read(variant)?.Receipt == next.Receipt);
+
+        var raw = File.ReadAllBytes(journal.PathFor(variant));
+        raw[^1] ^= 1;
+        File.WriteAllBytes(journal.PathFor(variant), raw);
+        var chosen = reopened.ReadOutcome(variant).Look!;
+        RequireFailure<InvalidDataException>(() => reopened.RestorePrevious(variant, chosen), "manual recovery refuses a journal changed since review", check);
+        var damaged = reopened.ReadOutcome(variant);
+        check("damaged journal offers its independently verified predecessor", damaged is
+            { State: LookLoadState.Recovered, ReadOnly: true, Look.Look.Exposure: 2.2 });
+        reopened.RestorePrevious(variant, damaged.Look!);
+        check("explicit recovery publishes the chosen look and archives the damaged journal before retirement",
+            reopened.Read(variant)?.Look.Exposure == 2.2 && journal.Read(variant) is null
+            && Directory.EnumerateFiles(Path.Combine(folder, "Look recovery"), "*-journal-before-reset-*.json", SearchOption.AllDirectories)
+                .Any(path => File.ReadAllBytes(path).SequenceEqual(raw)));
+    }
+
     internal static int HoldForBackup(string directory, string catalog, Guid variant, string current, string previous, string marker)
     {
         var journal = new VariantLookGenerationJournal(directory, catalog);

@@ -4,7 +4,7 @@ using System.Text.Json;
 
 internal static class DurableEditProbe
 {
-    internal enum Storage { Current, Append, GenerationPair }
+    internal enum Storage { Current, Append, GenerationPair, IntegratedGeneration }
 
     internal static int Run(string directory, Storage storage = Storage.Current)
     {
@@ -12,9 +12,9 @@ internal static class DurableEditProbe
         if (Directory.Exists(directory)) throw new IOException("Choose a new measurement directory.");
         var root = Path.Combine(directory, "Variant looks");
         var catalog = Path.Combine(directory, "Measurement.cocatalogdb");
-        var store = new VariantLookStore(root, catalog);
+        var store = new VariantLookStore(root, catalog, useGenerationWriter: storage == Storage.IntegratedGeneration);
         var variants = Enumerable.Range(0, 64).Select(_ => Guid.NewGuid()).ToArray();
-        var journal = storage == Storage.Current ? null : new DurableLookJournalProbe(directory,
+        var journal = storage is Storage.Current or Storage.IntegratedGeneration ? null : new DurableLookJournalProbe(directory,
             storage == Storage.GenerationPair ? new VariantLookGenerationJournal(Path.Combine(directory, "Generation pairs"), store.CatalogIdentity) : null);
         var expected = new VariantLook[variants.Length];
         const int warmup = 256;

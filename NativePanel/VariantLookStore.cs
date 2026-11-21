@@ -22,7 +22,7 @@ internal enum LookLoadState { Missing, Valid, Recovered, Unsupported, Corrupt, T
 internal sealed record LookLoadOutcome(LookLoadState State, VariantLook? Look, string? Detail = null, bool ReadOnly = false);
 internal sealed class LookUnsupportedException(string message) : IOException(message);
 
-internal sealed class VariantLookStore
+internal sealed partial class VariantLookStore
 {
     // Failed writes must survive UI teardown. Pending edits also get an independent
     // on-disk recovery checkpoint when the normal destination is unavailable.
@@ -30,6 +30,8 @@ internal sealed class VariantLookStore
     private readonly string directory;
     private readonly string recoveryDirectory;
     private readonly string catalogKey;
+    private readonly VariantLookGenerationJournal generationJournal;
+    private readonly bool useGenerationWriter;
     private readonly Session session;
     private readonly Dictionary<Guid, BlockedLook> blocked;
     private readonly PrimaryCache primaryCache = new();
@@ -38,14 +40,17 @@ internal sealed class VariantLookStore
     internal string CatalogIdentity => catalogKey;
     internal string? RecoveryNotice { get; private set; }
 
-    internal VariantLookStore(string root, string catalogDatabase)
+    internal VariantLookStore(string root, string catalogDatabase, bool useGenerationWriter = false)
     {
         catalogKey = CatalogKey(catalogDatabase);
-        directory = Path.Combine(Path.GetFullPath(root), catalogKey);
-        recoveryDirectory = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(root))!, "Look recovery", catalogKey);
+        var fullRoot = Path.GetFullPath(root);
+        var dataRoot = Path.GetDirectoryName(fullRoot)!;
+        directory = Path.Combine(fullRoot, catalogKey);
+        recoveryDirectory = Path.Combine(dataRoot, "Look recovery", catalogKey);
+        generationJournal = new(Path.Combine(dataRoot, "Look generations", catalogKey), catalogKey);
+        this.useGenerationWriter = useGenerationWriter;
         GrainReceipts = new GrainReceiptStore(recoveryDirectory);
-        BatchHistory = new VariantLookBatchJournal(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(root))!, "Look batches", catalogKey),
-            variant => FileHash(GetPath(variant)));
+        BatchHistory = new VariantLookBatchJournal(Path.Combine(dataRoot, "Look batches", catalogKey), ReadCommittedHash);
         session = Sessions.GetOrAdd(directory, _ => new Session());
         blocked = session.Blocked;
     }
@@ -186,10 +191,10 @@ internal sealed class VariantLookStore
             {
                 try
                 {
-                    if (FileHash(GetPath(variant)) == baseline)
+                    if (ReadCommittedHash(variant) == baseline)
                         return; // The identical value is already durable; no new edit occurred.
                 }
-                catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException)
                 {
                     // Flush can protect the edit in recovery when the primary cannot be checked.
                 }
@@ -293,12 +298,22 @@ internal sealed class VariantLookStore
     {
         Directory.CreateDirectory(directory);
         var path = GetPath(variant);
-        PanelFiles.WriteAtomically(path, stream => stream.Write(edit.Json), () =>
+        if (edit.KeepPrevious && (useGenerationWriter || generationJournal.Read(variant) is not null))
+            CommitGeneration(variant, edit);
+        else
         {
-            if (edit.KeepPrevious && edit.BaseHash is not null)
-                SavePrevious(variant, path, edit.BaseHash);
-            EnsureExpectedPrimary(variant, path, edit.BaseHash);
-        }, overwrite: edit.BaseHash is not null, discardOnProcessExit: true);
+            PanelFiles.WriteAtomically(path, stream => stream.Write(edit.Json), () =>
+            {
+                if (edit.KeepPrevious && edit.BaseHash is not null)
+                    SavePrevious(variant, path, edit.BaseHash);
+                EnsureExpectedPrimary(variant, path, edit.BaseHash);
+            }, overwrite: edit.BaseHash is not null, discardOnProcessExit: true);
+        }
+        CompleteCommit(variant, edit);
+    }
+
+    private void CompleteCommit(Guid variant, PendingEdit edit)
+    {
         session.KnownHash[variant] = edit.Hash;
         session.KnownLookHash[variant] = edit.Hash;
         primaryCache.Remember(variant, new CommittedLook(edit.Look, edit.Hash, edit.Hash));
@@ -315,6 +330,12 @@ internal sealed class VariantLookStore
         {
             if (!blocked.TryGetValue(variant, out var issue))
                 throw new InvalidOperationException("This image has no blocked look to recover.");
+            var journalHash = FileHash(generationJournal.PathFor(variant));
+            if (issue.ArchivedJournal && journalHash != issue.ObservedJournalHash)
+            {
+                blocked.Remove(variant);
+                throw new InvalidDataException("The look journal changed after it was opened for recovery. Reselect this image before trying again.");
+            }
             var baseline = ArchiveFile(GetPath(variant), variant, "before-reset")?.Hash;
             if (issue.ArchivedPrimary && baseline != issue.ObservedHash)
             {
@@ -323,6 +344,13 @@ internal sealed class VariantLookStore
             }
             ArchiveFile(GetRecoveryPath(variant), variant, "pending-before-reset");
             var edit = PrepareEdit(replacement, baseline) with { KeepPrevious = false };
+            if (journalHash is not null)
+            {
+                ResetGeneration(variant, edit, journalHash);
+                blocked.Remove(variant);
+                CompleteCommit(variant, edit);
+                return;
+            }
             session.KnownHash[variant] = baseline;
             session.KnownLookHash.Remove(variant);
             session.Pending[variant] = edit;
@@ -349,21 +377,20 @@ internal sealed class VariantLookStore
 
     private CommittedLook? ReadPrimary(Guid variant)
     {
-        try
+        var bytes = ReadCommittedBytes(variant, out var journalOnly);
+        if (bytes is null) return null;
+        var digest = Digest(bytes);
+        // Compare exact file bytes before reusing the validated snapshot.
+        var stored = primaryCache.Find(variant, digest);
+        if (stored is null)
         {
-            using var file = File.OpenRead(GetPath(variant));
-            var bytes = PanelFiles.ReadPresetBytes(file);
-            var digest = Digest(bytes);
-            // Compare exact file bytes before reusing the validated snapshot.
-            if (primaryCache.Find(variant, digest) is { } cached) return cached;
             var saved = PanelFiles.DecodePreset<VariantLook>(bytes, CheckVersion);
             LookStateValidation.Validate(saved);
-            var stored = new CommittedLook(saved, digest, LookHash(saved));
+            stored = new CommittedLook(saved, digest, LookHash(saved));
             primaryCache.Remember(variant, stored);
-            return stored;
         }
-        catch (FileNotFoundException) { return null; }
-        catch (DirectoryNotFoundException) { return null; }
+        if (journalOnly) RecoveryNotice = "Recovered this image’s latest saved look from its journal.";
+        return stored;
     }
 
     private static void CheckVersion(JsonElement element)
@@ -377,11 +404,15 @@ internal sealed class VariantLookStore
     {
         var detail = "The original saved look has not been changed.";
         (string Path, string Hash)? archived = null;
+        (string Path, string Hash)? archivedJournal = null;
         var archivedPrimary = false;
+        var journalChecked = false;
         try
         {
             archived = ArchiveFile(GetPath(variant), variant, "unreadable");
             archivedPrimary = true;
+            archivedJournal = ArchiveFile(generationJournal.PathFor(variant), variant, "unreadable-journal");
+            journalChecked = true;
             ArchiveFile(GetRecoveryPath(variant), variant, "unreadable-recovery");
             if (archived is { } copy) detail += $" A recovery copy is at {copy.Path}.";
         }
@@ -391,7 +422,7 @@ internal sealed class VariantLookStore
         }
         var message = $"{error.Message} {detail} Editing is paused for this image. Use Recover saved look only if you want to reset it.";
         var state = error is LookUnsupportedException ? LookLoadState.Unsupported : LookLoadState.Corrupt;
-        blocked[variant] = new(state, message, canRecoverPrevious, archived?.Hash, archivedPrimary);
+        blocked[variant] = new(state, message, canRecoverPrevious, archived?.Hash, archivedPrimary, archivedJournal?.Hash, journalChecked);
         return new InvalidDataException(message, error);
     }
 
@@ -438,18 +469,22 @@ internal sealed class VariantLookStore
         }
         if (Digest(bytes) != expectedHash)
             throw ExternalChange(variant);
-        PanelFiles.WriteAtomically(GetPreviousPath(variant), stream =>
-        {
-            stream.Write("SFL1"u8);
-            stream.Write(variant.ToByteArray());
-            stream.Write(Convert.FromHexString(expectedHash));
-            stream.Write(bytes);
-        }, discardOnProcessExit: true);
+        WritePreviousGeneration(variant, bytes, expectedHash);
     }
 
     private VariantLook? ReadPrevious(Guid variant, BlockedLook issue)
     {
         if (!issue.CanRecoverPrevious) return null;
+        try
+        {
+            if (generationJournal.ReadPrevious(variant) is { } generation)
+            {
+                var verified = PanelFiles.DecodePreset<VariantLook>(generation, CheckVersion);
+                LookStateValidation.Validate(verified);
+                return verified;
+            }
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException or JsonException) { }
         try
         {
             using var file = File.OpenRead(GetPreviousPath(variant));
@@ -580,7 +615,7 @@ internal sealed class VariantLookStore
 
     private sealed record CommittedLook(VariantLook Look, string Hash, string LookHash);
     private sealed record BlockedLook(LookLoadState State, string Message, bool CanRecoverPrevious,
-        string? ObservedHash, bool ArchivedPrimary);
+        string? ObservedHash, bool ArchivedPrimary, string? ObservedJournalHash, bool ArchivedJournal);
     private sealed record PendingEdit(VariantLook Look, string? BaseHash, byte[] Json, string Hash, bool RecoveryDurable = false, bool KeepPrevious = true);
     private sealed record RecoveryCheckpoint([property: JsonRequired] int Version, [property: JsonRequired] string CatalogKey,
         [property: JsonRequired] Guid Variant, [property: JsonRequired] string? BaseHash, [property: JsonRequired] VariantLook Look);

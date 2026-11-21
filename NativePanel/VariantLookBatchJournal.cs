@@ -97,7 +97,7 @@ internal sealed class VariantLookBatchJournal(string directory, Func<Guid, strin
                 else if (current != attempt.Before)
                     uncertain = attempt.Variant;
             }
-            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException)
             {
                 uncertain = attempt.Variant;
             }
