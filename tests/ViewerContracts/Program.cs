@@ -228,15 +228,29 @@ internal static partial class Program
             "canceling the active operation cannot cancel a previous export");
         activity.End(second);
         Check(activity.Active is null, "a terminal export releases the native document's live slot");
-        activity.BeginBatch();
+        var preparation = activity.BeginBatch(CancellationToken.None);
         activity.Begin(first);
         activity.StopBatch();
-        Check(activity.BatchActive && activity.BatchStopped && !first.Token.IsCancellationRequested,
-            "requesting a batch stop leaves the current export running");
+        Check(activity.BatchActive && activity.BatchStopped && preparation.IsCancellationRequested && !first.Token.IsCancellationRequested,
+            "requesting a batch stop cancels pending preparation and leaves the accepted image running");
         activity.End(first);
         Check(activity.Active is null && activity.BatchActive, "the batch owns output between consecutive images");
         activity.EndBatch("Finished batch");
         Check(!activity.BatchActive && activity.Message == "Finished batch", "batch completion publishes one visible summary");
+        using var waiting = new ExportOperation(Guid.NewGuid());
+        using var lifetime = new CancellationTokenSource();
+        var next = activity.BeginBatch(lifetime.Token);
+        Check(!next.IsCancellationRequested && !activity.BatchStopped, "the next batch has an independent preparation token");
+        activity.Begin(waiting);
+        activity.StopBatch();
+        Check(next.IsCancellationRequested && waiting.Token.IsCancellationRequested,
+            "Stop cancels a selected item that has yet to accept an output");
+        activity.End(waiting);
+        activity.EndBatch("Stopped");
+        var closing = activity.BeginBatch(lifetime.Token);
+        lifetime.Cancel();
+        Check(closing.IsCancellationRequested, "closing the native document cancels batch preparation");
+        activity.EndBatch("Closed");
     }
 
     private static void TestExportBatchJournal(string folder)

@@ -19,6 +19,7 @@ internal sealed class ExportOperation(Guid variantId) : IDisposable
 // UI thread without taking ownership of the accepted operation.
 internal sealed class ExportActivity
 {
+    private CancellationTokenSource? batchPreparation;
     internal ExportOperation? Active { get; private set; }
     internal string? Message { get; private set; }
     internal bool BatchActive { get; private set; }
@@ -50,25 +51,32 @@ internal sealed class ExportActivity
         Changed?.Invoke();
     }
 
-    internal void BeginBatch()
+    internal CancellationToken BeginBatch(CancellationToken lifetime)
     {
         if (BatchActive || Active is not null)
             throw new InvalidOperationException("A Spektrafilm export is already in progress.");
+        batchPreparation = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
         BatchActive = true;
         BatchStopped = false;
         Changed?.Invoke();
+        return batchPreparation.Token;
     }
 
     internal void StopBatch(bool persist = true)
     {
-        if (persist) PersistBatchStop?.Invoke();
+        if (!BatchActive || BatchStopped) return;
         BatchStopped = true;
+        batchPreparation?.Cancel();
+        if (Active is { IsAccepted: false } waiting) waiting.Cancel();
+        if (persist) PersistBatchStop?.Invoke();
         Changed?.Invoke();
     }
 
     internal void EndBatch(string message)
     {
         BatchActive = false;
+        batchPreparation?.Dispose();
+        batchPreparation = null;
         PersistBatchStop = null;
         Report(null, message);
     }

@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -45,6 +46,7 @@ public static partial class StartupHook
             toggle.IsChecked = i != 2;
         }
         select.Select(variants[0], variants);
+        await StopDuringPreparation();
         var declined = await Start((_, _) => null);
         Check(declined == 0 && !Directory.Exists(jobFolder), "declining the batch folder creates no job and writes no output");
 
@@ -121,6 +123,56 @@ public static partial class StartupHook
 
         Task<int> Start(Func<OpenFolderDialog, Window?, string?> choose) =>
             (Task<int>)Call(panel, "ExportSelectedImagesAsync", choose)!;
+
+        async Task StopDuringPreparation()
+        {
+            var activity = Field(spatial, "exportActivity")!;
+            var stop = (Button)Field(spatial, "stopExportBatch")!;
+            var scheduler = (SemaphoreSlim)panel.GetType().Assembly.GetType("HostImageSource", true)!
+                .GetField("SchedulerSlot", Flags)!.GetValue(null)!;
+            Call(spatial, "SetEnabled", false);
+            await (Task)Call(spatial, "DrainPreviewWorkersAsync", CancellationToken.None)!;
+            Check(await scheduler.WaitAsync(TimeSpan.FromSeconds(10)), "the disposable fixture holds the actual native development scheduler");
+            try
+            {
+                var offered = false;
+                var preparing = Start((_, _) => { offered = true; return firstFolder; });
+                Check(stop.Visibility == Visibility.Visible && Equals(stop.Content, "Stop batch") && !preparing.IsCompleted,
+                    "Stop batch is available while the batch waits for Capture One");
+                stop.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Check(await preparing.WaitAsync(TimeSpan.FromSeconds(4)) == 0 && !offered && scheduler.CurrentCount == 0
+                    && !Directory.Exists(jobFolder) && status.Text == "Batch export canceled.",
+                    "Stop releases the preparation wait before Capture One's scheduler is available");
+            }
+            finally
+            {
+                scheduler.Release();
+                Call(spatial, "SetEnabled", toggle.IsChecked == true);
+            }
+
+            var changed = activity.GetType().GetEvent("Changed", Flags)!;
+            var approval = Directory.CreateDirectory(Path.Combine(folder, "batch-stopped-during-checks")).FullName;
+            var preserved = Path.Combine(approval, "existing.png");
+            File.WriteAllBytes(preserved, acceptedOutput);
+            var approved = false;
+            var stopped = false;
+            Action stopOnFirstCheck = () =>
+            {
+                if (stopped || !approved || !status.Text.StartsWith("Checking batch image ", StringComparison.Ordinal)) return;
+                stopped = true;
+                stop.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            };
+            changed.GetAddMethod(nonPublic: true)!.Invoke(activity, new object[] { stopOnFirstCheck });
+            try
+            {
+                Check(await Start((_, _) => { approved = true; return approval; }).WaitAsync(TimeSpan.FromSeconds(15)) == 0
+                    && stopped && Prop(activity, "BatchActive") is false && !Directory.Exists(jobFolder)
+                    && Directory.EnumerateFiles(approval).SequenceEqual(new[] { preserved })
+                    && File.ReadAllBytes(preserved).SequenceEqual(acceptedOutput),
+                    "stopping after folder approval cancels verification before accepting a plan or touching existing files");
+            }
+            finally { changed.GetRemoveMethod(nonPublic: true)!.Invoke(activity, new object[] { stopOnFirstCheck }); }
+        }
 
         async Task<int> TestNativeEntryPoints(string previousFolder, string dialogFolder)
         {
