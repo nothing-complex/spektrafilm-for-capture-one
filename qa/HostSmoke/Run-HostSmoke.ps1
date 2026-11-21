@@ -2,6 +2,7 @@
 param(
     [Parameter(Mandatory)][string] $SourceCatalog,
     [string] $CaptureOnePath='C:\Program Files\Capture One\Capture One\CaptureOne.exe',
+    [string] $HostCompatibilityFixtureDirectory,
     [string] $TestHookPath=(Join-Path $PSScriptRoot 'bin\Release\net8.0-windows\HostSmoke.dll'),
     [string] $PackagedRuntime,
     [string] $UpgradeFromPackage,
@@ -343,7 +344,28 @@ foreach($name in $launcherHelpers){
     . ([scriptblock]::Create($definition.Extent.Text))
 }
 if(Get-Process CaptureOne -ErrorAction SilentlyContinue){throw 'Close Capture One before running the isolated host test.'}
-$stabilityRoot=Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'CaptureOne\Stability\16.4.6.2414'
+$hostExecutable=Get-Item -LiteralPath $CaptureOnePath -Force
+$hostVersion=$hostExecutable.VersionInfo.FileVersion
+if ($hostExecutable.PSIsContainer -or $hostExecutable.Name -cne 'CaptureOne.exe' -or $hostVersion -notmatch '^(\d+\.){3}\d+$') {
+    throw 'Pass an exact CaptureOne.exe application path.'
+}
+$CaptureOnePath=$hostExecutable.FullName
+$candidatePanel=$null
+if ($HostCompatibilityFixtureDirectory) {
+    if (!$PSBoundParameters.ContainsKey('CaptureOnePath') -or !$NativeSettingsConfig -or $PackagedRuntime -or
+        $DevelopmentLeaseFixtureDirectory -or $DeviceLossFixtureDirectory -or $ViewerNativeBaseline) {
+        throw 'Candidate QA requires an explicit executable, matching preferences and its compatibility fixture with the source renderer.'
+    }
+    . (Join-Path (Split-Path -Parent $PSScriptRoot) 'HostCompatibilityFixture.ps1')
+    $candidatePanel=Read-HostCompatibilityFixture $HostCompatibilityFixtureDirectory $hostExecutable.FullName
+} elseif (!$ViewerNativeBaseline) {
+    $manifest=Get-Content -Raw -LiteralPath (Join-Path $root 'capture-one-hosts.json') | ConvertFrom-Json
+    if ($hostVersion -cnotin $manifest.Hosts.FileVersion) {
+        throw 'Use an exact supported host or supply its specific compatibility fixture.'
+    }
+}
+$localAppData=[Environment]::GetFolderPath('LocalApplicationData')
+$stabilityRoot=Join-Path $localAppData "CaptureOne\Stability\$hostVersion"
 $markerNames=@('TerminatedWhileRunning.crh','TerminatedByBsodOrPower.crh')
 function Get-CrashMarkers {
     if(Test-Path -LiteralPath $stabilityRoot){Get-ChildItem -LiteralPath $stabilityRoot -Recurse -File | Where-Object {$_.Name -in $markerNames}}
@@ -499,6 +521,7 @@ if ($MetadataFixtureRoot) {
 $runtimeSource=$root
 $panelBuild=Join-Path $root 'NativePanel\bin\Release\net8.0-windows\NativePanel.dll'
 if ($DevelopmentLeaseFixtureDirectory) { $panelBuild=$leasePanel.FullName }
+if ($candidatePanel) { $panelBuild=$candidatePanel.FullName }
 $rendererBuild=Join-Path $root 'build\still-renderer\Release'
 if ($DeviceLossFixtureDirectory) { $rendererBuild=$fixtureDirectory.FullName }
 if ($PackagedRuntime) {
@@ -508,7 +531,7 @@ if ($PackagedRuntime) {
     $panelBuild=Join-Path $runtimeSource 'panel\NativePanel.dll'
     $rendererBuild=Join-Path $runtimeSource 'renderer'
 }
-if (!$PackagedRuntime -and !$DevelopmentLeaseFixtureDirectory) {
+if (!$PackagedRuntime -and !$DevelopmentLeaseFixtureDirectory -and !$candidatePanel) {
     Assert-CurrentManagedBuild $panelBuild (Join-Path $root 'NativePanel') @((Join-Path $root 'capture-one-hosts.json'))
 }
 if (!$UpgradeFromPackage -and !$PSBoundParameters.ContainsKey('TestHookPath')) {
@@ -517,13 +540,25 @@ if (!$UpgradeFromPackage -and !$PSBoundParameters.ContainsKey('TestHookPath')) {
 if(!(Test-Path -LiteralPath (Join-Path $rendererBuild 'parameter-capabilities.json') -PathType Leaf)){
     throw 'Run Build-Windows.ps1 to build the renderer and generate its parameter capabilities before testing the host.'
 }
+if ($NativeSettingsConfig) {
+    $profileFile=Get-Item -LiteralPath $NativeSettingsConfig -Force
+    $profile=$profileFile.FullName
+    if ([IO.Path]::GetFileName($profile) -ne 'user.config') { throw 'Pass the existing Capture One user.config to back up before testing.' }
+    if ($candidatePanel -and ($profileFile.PSIsContainer -or
+        (($profileFile.Attributes -bor $profileFile.Directory.Attributes) -band [IO.FileAttributes]::ReparsePoint) -or
+        $profileFile.Directory.Name -cne $hostVersion -or
+        !$profile.StartsWith((Join-Path $localAppData 'Capture_One\'), [StringComparison]::OrdinalIgnoreCase))) {
+        throw 'Pass the regular Capture One user.config for the exact candidate version in the current Windows account.'
+    }
+}
 if(!$ResultsDirectory){$ResultsDirectory=Join-Path $root ('.test-results\host-'+[guid]::NewGuid().ToString('N'))}
 $folder=[IO.Path]::GetFullPath($ResultsDirectory)
 if(Test-Path -LiteralPath $folder){throw 'Use a new empty results directory.'}
 [void][IO.Directory]::CreateDirectory($folder)
+if ($candidatePanel) {
+    Copy-Item -LiteralPath (Join-Path $candidatePanel.DirectoryName 'host-compatibility-fixture.json') -Destination $folder
+}
 if ($NativeSettingsConfig) {
-    $profile=(Get-Item -LiteralPath $NativeSettingsConfig).FullName
-    if ([IO.Path]::GetFileName($profile) -ne 'user.config') { throw 'Pass the existing Capture One user.config to back up before testing.' }
     $backup=Join-Path $folder 'Capture One user.config.before-proofing'
     Copy-Item -LiteralPath $profile -Destination $backup
     if ((Get-FileHash -LiteralPath $profile).Hash -ne (Get-FileHash -LiteralPath $backup).Hash) {
@@ -532,12 +567,22 @@ if ($NativeSettingsConfig) {
 }
 $nativeRecipes=$null
 $recipeHashes=@{}
-if ($NativeBatchExport -or $NativeExportSelection -or $NativeOriginalReplacement -or $NativeDeliveryProfileApproval -or $NativeRetrySourceApproval -or $NativeEffectCompression -or $NativeEffectOutputProfiles -or $NativeEffectFolders -or $NativeEffectSourceRevision -or $NativeEffectMaskedSource -or $NativeEffectProfileSidecars -or $NativeEffectRecipeRestart) {
-    $nativeRecipes=Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'CaptureOne\Recipes143'
-    $recipeRoot=Get-Item -LiteralPath $nativeRecipes -Force
-    if (!$recipeRoot.PSIsContainer -or ($recipeRoot.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
-        throw 'The exact 16.4 native recipe directory was not found.'
+function Get-ScopedNativeFolder([string] $name) {
+    $parent=Get-Item -LiteralPath (Join-Path $localAppData 'CaptureOne') -Force
+    if (!$parent.PSIsContainer -or ($parent.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        throw 'The native Capture One user settings directory is unavailable.'
     }
+    $directory=Get-Item -LiteralPath (Join-Path $parent.FullName $name) -Force
+    if (!$directory.PSIsContainer -or ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+        $directory.Parent.FullName -ine $parent.FullName -or $directory.Name -ine $name) {
+        throw 'The expected native settings directory is unavailable or redirected.'
+    }
+    return $directory
+}
+if ($NativeBatchExport -or $NativeExportSelection -or $NativeOriginalReplacement -or $NativeDeliveryProfileApproval -or $NativeRetrySourceApproval -or $NativeEffectCompression -or $NativeEffectOutputProfiles -or $NativeEffectFolders -or $NativeEffectSourceRevision -or $NativeEffectMaskedSource -or $NativeEffectProfileSidecars -or $NativeEffectRecipeRestart) {
+    # Capture One 16.7.8 ApplicationSettings uses Recipes165 and migrates Recipes143.
+    $recipeRoot=Get-ScopedNativeFolder $(if ($hostVersion -ceq '16.7.8.3529') { 'Recipes165' } else { 'Recipes143' })
+    $nativeRecipes=$recipeRoot.FullName
     $recipeBackup=Join-Path $folder 'native-recipes-before-test'
     [void][IO.Directory]::CreateDirectory($recipeBackup)
     foreach ($item in Get-ChildItem -LiteralPath $nativeRecipes -Force -Recurse) {
@@ -571,10 +616,7 @@ function Test-NativeRecipeHashes([string] $phase) {
 $workspaceHashes=@{}
 $workspaceFixtureName=$null
 if ($NativeWorkspaceSwitch -or $NativeWorkspaceOrder -or $NativeTabRemoval) {
-    $workspaceRoot=Get-Item -LiteralPath (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'CaptureOne\Workspaces130') -Force
-    if (!$workspaceRoot.PSIsContainer -or ($workspaceRoot.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
-        throw 'The exact Capture One workspace directory was not found.'
-    }
+    $workspaceRoot=Get-ScopedNativeFolder 'Workspaces130'
     $workspaceBackup=Join-Path $folder 'native-workspaces-before-test'
     [void][IO.Directory]::CreateDirectory($workspaceBackup)
     foreach ($item in Get-ChildItem -LiteralPath $workspaceRoot.FullName -Force) {

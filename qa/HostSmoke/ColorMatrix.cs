@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -27,6 +28,11 @@ public static partial class StartupHook
         var adjustments = new List<AdjustmentProbe>();
         var tiffComparisons = new List<TiffComparison>();
         var document = Field(panel, "document")!;
+        var executable = Environment.ProcessPath!;
+        var hostVersion = FileVersionInfo.GetVersionInfo(executable).FileVersion;
+        string hostHash;
+        using (var hostFile = File.OpenRead(Path.Combine(Path.GetDirectoryName(executable)!, "CaptureOne.dll")))
+            hostHash = Convert.ToHexString(SHA256.HashData(hostFile));
         var core = AppDomain.CurrentDomain.GetAssemblies().Single(item => item.GetName().Name == "P1.C1.Core");
         var provider = core.GetType("P1.C1.Core.Interfaces.ISelectedCollectionsProvider", true)!;
         var coreVariant = core.GetType("P1.C1.Core.ICoreVariant", true)!;
@@ -75,8 +81,8 @@ public static partial class StartupHook
                     && Equals(Prop(identity, "AdjustmentKey"), Prop(snapshot, "AdjustmentKey")) && digest.Length == 64 && digest.All(Uri.IsHexDigit),
                     $"{source} {encoding} frame identifies its selected variant, native revision and exact ICC bytes");
                 Check(Equals(identity, Prop(snapshot, "SourceIdentity")) && Prop(identity, "Stage")!.ToString() == "CaptureOneDevelopedRgb"
-                    && Prop(identity, "HostVersion") is "16.4.6.2414" && Prop(identity, "HostAssemblySha256") is string hostHash
-                    && hostHash.Length == 64 && hostHash.All(Uri.IsHexDigit)
+                    && Equals(Prop(identity, "HostVersion"), hostVersion)
+                    && Equals(Prop(identity, "HostAssemblySha256"), hostHash)
                     && Prop(description, "NativeFormat")!.ToString() == "Rgb16" && Prop(description, "Alpha")!.ToString() == "Opaque"
                     && Prop(description, "Range")!.ToString() == "NormalizedUnsigned"
                     && Call(description, "Describes", width, height, 16, bytes.Length) is true,

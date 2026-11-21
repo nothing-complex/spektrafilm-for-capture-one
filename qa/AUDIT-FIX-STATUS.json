@@ -875,7 +875,8 @@
         "The 314-assertion state suite covers the two export callback shapes and lifecycle, both crop calculations, and unsigned bitmap metadata. On the installed 16.4 host, 40 launch and 40 restart checks verify native export failure recovery and 16-bit TIFF/PNG with the selected recipe profile. A second disposable recipe fixture passes 105 checks on each launch including native destination names, collision handling and applied effects. All recipe backups and source catalogs verify.",
         "Compared the CLR metadata from two separately compiled panels. Clean builds still emitted different recipe FileType getter owners. Adapted the relocated getter with a cached typed delegate over the actual loaded recipe interface. The read-only checker now reports 563 matching host type, member and specialization references across the 16.4.6.2414 and 16.7.8.3529 binaries, with matching host assembly names, cultures and public-key tokens. Fourteen focused host-shape assertions include the moved property and explicit interface implementations.",
         "The licensed 16.4 recipe fixture passes 128 assertions on launch and 128 after restart. Both native commands follow the actual TIFF and PNG recipe types, retain applied effects and carry the exact recipe ICC. An independent PNG chunk reader confirms all four recipe-selected PNGs are 3000 by 2000, 16 bits per channel in RGBA with the selected ICC. All nine original recipe files verify and the source catalog remains unchanged.",
-        "The signed 16.4 and 16.7 assemblies resolve all nine Viewer attachment members identically by declaring assembly, type and signature. This includes private fields and methods resolved by name as well as Paint. Selection order, realized controls and actual paint delivery still require licensed runtime testing."
+        "The signed 16.4 and 16.7 assemblies resolve all nine Viewer attachment members identically by declaring assembly, type and signature. This includes private fields and methods resolved by name as well as Paint. Selection order, realized controls and actual paint delivery still require licensed runtime testing.",
+        "Build a separate QA panel for the exact signed 16.7.8.3529 executable and DLL while retaining the existing production gate. Its candidate-only manifest and panel checksum verify. Both versions now match across 700 compiled host references. Test prelaunch denial for a mismatched assembly, modified panel, missing candidate fixture and 16.4 preferences or executable. Rejected runs leave the catalog and settings byte exact. Signed 16.7.8 metadata identifies the Recipes165 and Workspaces130 directories. The runner backs up those exact directories for applicable cases and scopes stability files to the executable version. The licensed 16.4 runner passes 135 native RAW colour and 146 native effects and recipe-profile assertions. Both donors and nine native recipe files verify."
       ],
       "evidence_paths": [
         "capture-one-hosts.json",
@@ -899,7 +900,15 @@
         ".test-results/host-164-cross-version-seams-20261120/host-smoke.log",
         ".test-results/host-164-shared-recipe-adapter-20261120/host-smoke.log",
         ".test-results/host-launch-full-handshake-20261119/host-smoke.log",
-        "https://github.com/nothing-complex/spektrafilm-for-capture-one/pull/2"
+        "https://github.com/nothing-complex/spektrafilm-for-capture-one/pull/2",
+        "qa/Build-HostCompatibilityFixture.ps1",
+        "qa/HostCompatibilityFixture.ps1",
+        "qa/HostSmoke/COMPATIBILITY.md",
+        ".test-results/licensed-16.7.8-qa-fixture-20261121/reference-comparison.json",
+        ".test-results/licensed-16.7.8-qa-fixture-20261121/fixture-validation.json",
+        ".test-results/licensed-16.7.8-qa-fixture-20261121/runner-prelaunch-guards.json",
+        ".test-results/host-164-candidate-runner-color-20261121/host-smoke.log",
+        ".test-results/host-164-candidate-runner-export-20261121/host-smoke.log"
       ],
       "remaining_work": [
         "Extend observed capability diagnostics and independent verification to each supported version, native history, floating and catalog teardown.",

@@ -458,7 +458,8 @@ public static partial class StartupHook
         var report = ReadLaunchHealth();
         Check(report.GetProperty("SessionId").GetString() == Environment.GetEnvironmentVariable("SPEKTRAFILM_LAUNCH_ID")
             && report.GetProperty("ProcessId").GetInt32() == Environment.ProcessId
-            && report.GetProperty("HostVersion").GetString() == "16.4.6.2414", "startup report is bound to this exact process and session");
+            && report.GetProperty("HostVersion").GetString() == FileVersionInfo.GetVersionInfo(Environment.ProcessPath!).FileVersion,
+            "startup report is bound to this exact process and session");
         Check(report.GetProperty("Phase").GetString() == "Ready" && report.GetProperty("Export").GetString() == "Connected",
             "actual host panel readiness and native Export binding are visible");
 
