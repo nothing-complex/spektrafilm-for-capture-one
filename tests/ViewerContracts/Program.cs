@@ -1497,6 +1497,27 @@ internal static partial class Program
         Check(initial.SequenceEqual(unchanged) && captured.Matches(captured.Context),
             "the captured ICC transform and bytes survive replacement of the recipe profile file");
 
+        var approvalPath = Path.Combine(folder, "profile-awaiting-approval.icc");
+        var approvedProfile = Path.Combine(AppContext.BaseDirectory, "Profiles", "ProPhoto RGB.icc");
+        var differentProfile = Path.Combine(AppContext.BaseDirectory, "Profiles", "Linear Rec.2020.icc");
+        File.Copy(approvedProfile, approvalPath);
+        var pending = ExportColorProfile.ForRecipe("Profile awaiting approval", approvalPath);
+        File.Copy(differentProfile, approvalPath, overwrite: true);
+        Check(File.ReadAllBytes(approvalPath).SequenceEqual(File.ReadAllBytes(differentProfile)),
+            "capturing a recipe fingerprint does not lock the external profile while approval is pending");
+        ExpectProfileChange(pending.VerifyFiles, "the batch check rejects changed profile bytes before creating a plan");
+        ExpectProfileChange(pending.Prepare, "the encoder refuses a profile that changed before acceptance");
+        File.Copy(approvedProfile, approvalPath, overwrite: true);
+        var restored = ExportColorProfile.ForRecipe("Restored profile", approvalPath);
+        restored.Prepare();
+        Check(restored.Sha256 == pending.Sha256 && restored.Matches(restored.Context),
+            "a new approval uses the restored exact profile");
+        var missing = Path.Combine(folder, "removed-profile.icc");
+        File.Copy(approvedProfile, missing);
+        var removed = ExportColorProfile.ForRecipe("Removed ICC", missing);
+        File.Delete(missing);
+        ExpectProfileChange(removed.Prepare, "an external profile removed during approval cannot be replaced by a fallback");
+
         var invalid = Path.Combine(folder, "non-rgb-profile.icc");
         var invalidHeader = File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Profiles", "ProPhoto RGB.icc"));
         "CMYK"u8.CopyTo(invalidHeader.AsSpan(16, 4));
@@ -1504,6 +1525,17 @@ internal static partial class Program
         try { ExportColorProfile.ForRecipe("CMYK fixture", invalid); throw new InvalidOperationException("Accepted non-RGB ICC data."); }
         catch (InvalidDataException) { assertions++; }
         Check(File.ReadAllBytes(original).SequenceEqual(new byte[] { 7, 2, 4 }), "managed ICC export left original source alone");
+
+        static void ExpectProfileChange(Action check, string description)
+        {
+            try { check(); }
+            catch (InvalidDataException error)
+            {
+                Check(error.Message.Contains("changed or became unavailable", StringComparison.Ordinal), description);
+                return;
+            }
+            throw new InvalidOperationException(description);
+        }
     }
 
     private static void TestLargeEncoding(string folder)

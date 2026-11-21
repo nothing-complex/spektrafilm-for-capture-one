@@ -27,18 +27,28 @@ internal sealed class ExportColorProfile
 
     internal static ExportColorProfile ForRecipe(string? name, string? path)
     {
-        // Keep profile handles scoped to the captured operation. WIC can hold a
-        // read handle to its source until the color context is collected.
-        var standard = Open("sRGB", StandardPath);
+        var standard = Capture("sRGB", StandardPath);
         if (string.IsNullOrWhiteSpace(path))
             return new ExportColorProfile("sRGB", standard, standard);
         var label = string.IsNullOrWhiteSpace(name) ? Path.GetFileName(path) : name;
         if (label.EndsWith(".icc", StringComparison.OrdinalIgnoreCase) || label.EndsWith(".icm", StringComparison.OrdinalIgnoreCase))
             label = label[..^4];
-        return new ExportColorProfile(label, standard, Open(label, path));
+        return new ExportColorProfile(label, standard, Capture(label, path));
     }
 
-    private static Profile Open(string label, string path)
+    internal void VerifyFiles()
+    {
+        source.VerifyFile();
+        if (!ReferenceEquals(source, destination)) destination.VerifyFile();
+    }
+
+    internal void Prepare()
+    {
+        _ = source.Context;
+        _ = destination.Context;
+    }
+
+    private static Profile Capture(string label, string path)
     {
         if (!Path.IsPathFullyQualified(path) || !Uri.TryCreate(path, UriKind.Absolute, out var uri) || !uri.IsFile || uri.IsUnc)
             throw new InvalidDataException($"Choose a local RGB ICC export profile. The selected profile is {label}.");
@@ -51,11 +61,7 @@ internal sealed class ExportColorProfile
         if (!header[16..20].SequenceEqual("RGB "u8) || !header[36..40].SequenceEqual("acsp"u8))
             throw new InvalidDataException($"Choose an RGB ICC export profile. The selected profile is {label}.");
         file.Position = 0;
-        var digest = Convert.ToHexString(SHA256.HashData(file));
-        var context = new ColorContext(uri);
-        if (!Matches(context, digest))
-            throw new InvalidDataException($"The selected ICC profile {label} changed during export setup.");
-        return new Profile(context, digest);
+        return new Profile(label, uri, Convert.ToHexString(SHA256.HashData(file)));
     }
 
     internal bool Matches(ColorContext context) => Matches(context, destination.Sha256);
@@ -81,5 +87,47 @@ internal sealed class ExportColorProfile
         return output;
     }
 
-    private sealed record Profile(ColorContext Context, string Sha256);
+    private sealed class Profile(string label, Uri uri, string digest)
+    {
+        // Delay WIC until approval. It can hold the source file open as long as
+        // the color context lives, including through the final encoder.
+        private readonly Lazy<ColorContext> context = new(() =>
+        {
+            using var file = OpenVerified(label, uri, digest);
+            var profile = new ColorContext(uri);
+            if (!Matches(profile, digest)) throw Changed(label);
+            return profile;
+        });
+
+        internal string Sha256 => digest;
+        internal ColorContext Context => context.Value;
+
+        internal void VerifyFile()
+        {
+            using var file = OpenVerified(label, uri, digest);
+        }
+
+        private static FileStream OpenVerified(string label, Uri uri, string digest)
+        {
+            FileStream file;
+            try { file = File.OpenRead(uri.LocalPath); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            { throw Changed(label, error); }
+            try
+            {
+                if (file.Length is < 128 or > 8 * 1024 * 1024
+                    || Convert.ToHexString(SHA256.HashData(file)) != digest)
+                    throw Changed(label);
+                return file;
+            }
+            catch
+            {
+                file.Dispose();
+                throw;
+            }
+        }
+
+        private static InvalidDataException Changed(string label, Exception? error = null) =>
+            new($"The export ICC profile {label} changed or became unavailable. Reopen Export to check the profile.", error);
+    }
 }

@@ -682,6 +682,7 @@ internal sealed class SpatialPreview : IDisposable
 
     private sealed record BatchExport(HostProfile.Target Target, HostImageSource.Snapshot Snapshot, OpticalInput Input,
         string Encoding, double Strength, string[] Arguments, OutputPathGuard.OriginalFile Original, string? RetryModel,
+        ExportColorProfile DeliveryProfile,
         OutputPathGuard.ApprovedDestination? Destination = null,
         ExportBatchPlan? Plan = null, ExportBatchEntry? Entry = null);
 
@@ -699,9 +700,10 @@ internal sealed class SpatialPreview : IDisposable
         var original = await Task.Run(() => new OutputPathGuard.OriginalFile(target.SourcePath), token).WaitAsync(token);
         token.ThrowIfCancellationRequested();
         var snapshot = HostImageSource.CaptureBatchExport(item, target, input.Space);
-        if (snapshot.Recipe is null)
+        if (snapshot.Recipe is not { } recipe)
             throw new InvalidOperationException("Select an Export Recipe before starting a batch.");
-        return new(target, snapshot, input, encoding, strength, arguments, original, snapshot.ReadRetryModel());
+        return new(target, snapshot, input, encoding, strength, arguments, original, snapshot.ReadRetryModel(),
+            ExportColorProfile.ForRecipe(recipe.ColorProfileName, recipe.ColorProfilePath));
     }
 
     private static bool ConfirmBatch(Button button, string text) =>
@@ -788,8 +790,11 @@ internal sealed class SpatialPreview : IDisposable
                     var recipe = item.Snapshot.Recipe!;
                     var extension = recipe.FormatId == "Png" ? ".png" : ".tif";
                     var name = SpektraExport.SuggestedOutputName(recipe.SuggestedFilename, item.Target.SourcePath, extension);
-                    var approved = await Task.Run(() => ApproveNewBatchDestination(folder, name, item.Original, reserved, token), token)
-                        .WaitAsync(token);
+                    var approved = await Task.Run(() =>
+                    {
+                        item.DeliveryProfile.VerifyFiles();
+                        return ApproveNewBatchDestination(folder, name, item.Original, reserved, token);
+                    }, token).WaitAsync(token);
                     reserved.Add(approved.Path);
                     var descriptor = await CaptureBatchDescriptorAsync(item, token).WaitAsync(token);
                     queue.Add(item with { Destination = approved });
@@ -855,10 +860,8 @@ internal sealed class SpatialPreview : IDisposable
 
     private Task<ExportRetryDescriptor?> CaptureBatchDescriptorAsync(BatchExport item, CancellationToken token, FileStream? held = null)
     {
-        var recipe = item.Snapshot.Recipe!;
-        var profile = ExportColorProfile.ForRecipe(recipe.ColorProfileName, recipe.ColorProfilePath);
         return CaptureRetryDescriptorAsync(item.Snapshot, item.RetryModel, item.Original, item.Arguments, item.Strength, item.Encoding,
-            profile, followRecipe: true, token, held);
+            item.DeliveryProfile, followRecipe: true, token, held);
     }
 
     private bool CloseBatchPlan(ExportBatchPlan plan)
@@ -1075,7 +1078,7 @@ internal sealed class SpatialPreview : IDisposable
                 var snapshot = batch?.Snapshot ?? HostImageSource.CaptureForExport(window, target,
                     input.Space, captureRecipe: useRecipeSize);
                 var recipe = snapshot.Recipe;
-                var deliveryProfile = ExportColorProfile.ForRecipe(recipe?.ColorProfileName, recipe?.ColorProfilePath);
+                var deliveryProfile = batch?.DeliveryProfile ?? ExportColorProfile.ForRecipe(recipe?.ColorProfileName, recipe?.ColorProfilePath);
                 await using var heldSource = interrupted is null ? null : await Task.Run(original.OpenRead, work.Token);
                 ExportRetryDescriptor? retry = null;
                 if (interrupted is not null)
@@ -1141,6 +1144,8 @@ internal sealed class SpatialPreview : IDisposable
                 var approved = batch?.Destination ?? original.Approve(destination);
                 if (approved.AlreadyExists && StringComparer.OrdinalIgnoreCase.Equals(skipPath, approved.Path))
                     return Skip(approved);
+                if (batch is null)
+                    deliveryProfile.Prepare();
                 var outputFormat = SpektraExport.PixelFormatFor(approved.Path);
                 var deliveryNote = delivery.SavedNote(outputFormat);
                 receipt = batch is { Plan: { } plan, Entry: { } entry }
@@ -1153,6 +1158,8 @@ internal sealed class SpatialPreview : IDisposable
                     owner.Title = owner.Title[..^ExportFailureTitleSuffix.Length];
                 var jobId = receipt.JobId;
                 var started = Stopwatch.GetTimestamp();
+                if (batch is not null)
+                    deliveryProfile.Prepare();
                 await using var exportSource = heldSource is null ? await Task.Run(original.OpenRead, work.Token) : null;
                 if (batch is null)
                 {
