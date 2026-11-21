@@ -1081,7 +1081,8 @@
         "An identical value with a temporarily locked primary file now uses the durable recovery path instead of failing before the queue. It replays without changing the saved content.",
         "Capture One retries unprotected saves during a user-initiated close. A manual close offers a default-stay confirmation only when both normal storage and fallback failed. The guard keeps the edit in memory if its confirmation cannot open. Windows shutdown retries without displaying a modal prompt.",
         "With the actual primary JSON held in an exclusive lock and the fallback path physically blocked, the licensed host verified safe stay-open, explicit proceed, prompt failure and system-close policies. Clearing only the fallback obstruction allowed the close policy to proceed and releasing the primary lock published the exact pending edit.",
-        "Invoke the production close handler in the licensed host with both save destinations blocked. The test reaches the real owned Windows confirmation, verifies the default No button, invokes No and observes the canceled close and intact in-memory edit. When storage returns the exact edit commits. The two full host launches pass 348 and 352 assertions, closing the bounded retention and user-close safeguard."
+        "Invoke the production close handler in the licensed host with both save destinations blocked. The test reaches the real owned Windows confirmation, verifies the default No button, invokes No and observes the canceled close and intact in-memory edit. When storage returns the exact edit commits. The two full host launches pass 348 and 352 assertions, closing the bounded retention and user-close safeguard.",
+        "Preserve an acknowledged look if its fallback could not be removed. A separate Windows process publishes the look and stops while a real sharing lock keeps the checkpoint. Restart reloads the acknowledged values and safely removes the exact checkpoint after access returns. A newer unprotected edit waits when the older checkpoint cannot be superseded."
       ],
       "evidence_paths": [
         "NativePanel/VariantLookStore.cs",
@@ -1090,7 +1091,8 @@
         ".test-results/contracts-selective-presets-20261119/StateContracts.log",
         "NativePanel/StartupHook.cs",
         ".test-results/host-close-storage-retry-20261120/host-smoke.log",
-        ".test-results/host-real-unsaved-close-prompt-20261120/host-smoke.log"
+        ".test-results/host-real-unsaved-close-prompt-20261120/host-smoke.log",
+        ".test-results/recovery-retirement-20261121/contracts/StateContracts.log"
       ],
       "remaining_work": [
         "Verify physical disk-full and OS or power-loss behaviour separately from the tested exclusive-lock and obstructed-path failures. A forcibly stopped process cannot preserve an edit when both durable storage paths are unavailable."
@@ -1616,7 +1618,8 @@
         "Project the durable bounded pair into the existing archive's current JSON and SFL1 predecessor. Run the C# writer in a separate process and stop it after journal commit while the old compatibility file is still present. Both Windows shells pass 123 joint backup checks, including a byte-exact full restore at a new catalog path, source preservation, missing mirrors and rejection of unrelated external edits, active writers, corrupt records and a wrong catalog identity.",
         "Integrate the bounded journal with the save store, including hash-based batch recovery and pending edits. Compatibility publication failures after durable commit keep the edit acknowledged. Repair a lagging mirror before advancing again. Manual recovery verifies the reviewed digest, preserves the damaged journal in recovery and writes the chosen look before retiring the journal. The disposable benchmark measures the integrated writer at 3.85 ms p95 and 4.26 ms p99 over 10,000 edits. The regular panel still starts with the legacy writer for looks without a journal.",
         "Stop a separate process before the first journal publication, then stop a real save-store process after acknowledging its first journal commit while Windows denies compatibility creation. Restart recovers the first acknowledged look without a legacy file. The next edit writes both copies and retains it as the predecessor. Reuse the exclusive writer's validated snapshot and stream its final on-disk digest. A same-length external rewrite is rejected at publication. The 10,000-edit benchmark reduces allocations from 84,243 to 66,563 bytes per edit at roughly 3.85 ms p95. Pass 958 state assertions and 123 joint backup assertions.",
-        "Add a disposable-catalog-only journal opt-in to the real WPF durability fixture. With the Viewer active the fixture measures each native slider event and synchronous save, observes current drag and settled paints, and compares journal and loose file hashes after restart. The state suite passes 961 checks including the fixture guard. Capture One exited before readiness, so no new licensed latency or recovery result was recorded."
+        "Add a disposable-catalog-only journal opt-in to the real WPF durability fixture. With the Viewer active the fixture measures each native slider event and synchronous save, observes current drag and settled paints, and compares journal and loose file hashes after restart. The state suite passes 961 checks including the fixture guard. Capture One exited before readiness, so no new licensed latency or recovery result was recorded.",
+        "Update an older durable recovery checkpoint before publishing a newer look. Reuse an already verified checkpoint on retries. The Windows retire operation verifies and deletes the same open file, leaving a changed or unverified fallback in place. Real locking and forced process-stop fixtures pass for loose and journal writers. An injected Windows disk-full write preserves the previous committed bytes and original HRESULT. All nine Windows suites pass, including 989 state and recovery checks."
       ],
       "evidence_paths": [
         "NativePanel/VariantLookStore.cs",
@@ -1663,11 +1666,14 @@
         ".test-results/journal-native-durability-20261121/state.log",
         ".test-results/journal-native-durability-20261121/licensed-error.log",
         ".test-results/journal-native-durability-20261121/active-journal/proof-settings-receipt.json",
-        ".test-results/journal-native-durability-20261121/donor-catalog-receipt.json"
+        ".test-results/journal-native-durability-20261121/donor-catalog-receipt.json",
+        ".test-results/recovery-retirement-20261121/contracts/StateContracts.log",
+        ".test-results/recovery-retirement-20261121/contracts/summary.json",
+        ".test-results/recovery-retirement-20261121/journal-store/measurement.json"
       ],
       "remaining_work": [
         "Verify licensed WPF latency and restart with the Viewer running before enabling journal creation for regular panel saves.",
-        "Test disk-full and denied-write boundaries and distinguish abrupt application exit from OS crash and power-loss recovery. A simultaneous external rename of an existing path still has a small race after the final hash check."
+        "Exercise genuine capacity exhaustion and OS crash or power interruption separately from the verified process stop, sharing locks and injected Windows disk-full error. A simultaneous external rename can still race replacement after its final hash check."
       ],
       "original_acceptance_tests": [
         "kill process between every append/flush/ack/compact/replace step",

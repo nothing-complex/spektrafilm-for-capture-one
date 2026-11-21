@@ -133,7 +133,8 @@ internal sealed partial class VariantLookStore
                 session.KnownLookHash[variant] = stored?.LookHash;
                 var recoveryPath = GetRecoveryPath(variant);
                 RecoveryCheckpoint? recovery;
-                try { recovery = PanelFiles.ReadPreset<RecoveryCheckpoint>(recoveryPath); }
+                string? recoveryReceipt = null;
+                try { recovery = PanelFiles.ReadPreset<RecoveryCheckpoint>(recoveryPath, out recoveryReceipt); }
                 catch (FileNotFoundException) { recovery = null; }
                 catch (DirectoryNotFoundException) { recovery = null; }
                 if (recovery is not null)
@@ -145,17 +146,20 @@ internal sealed partial class VariantLookStore
                     {
                         // Previous commit succeeded but cleanup failed. Its content is
                         // already durable, so this checkpoint must not revive an old edit.
-                        TryDeleteRecovery(variant);
+                        RetireRecovery(variant, recoveryReceipt);
                     }
                     else if (hash == recovery.BaseHash)
                     {
-                        session.Pending[variant] = PrepareEdit(recovery.Look, hash) with { RecoveryDurable = true };
+                        session.Pending[variant] = PrepareEdit(recovery.Look, hash) with
+                            { RecoveryReceipt = recoveryReceipt, RecoveryDurable = true };
                         RecoveryNotice = "Recovered this image’s last unsaved look. Spektrafilm will retry saving it.";
                         return Clone(recovery.Look);
                     }
                     else
                         throw new InvalidDataException("A recovered edit conflicts with another saved look. Both files have been kept; use explicit recovery to reset.");
                 }
+                else
+                    session.UnretiredRecovery.Remove(variant);
                 if (primary is null && File.Exists(GetPreviousPath(variant)))
                     throw Block(variant, new InvalidDataException("The current saved look is missing."), canRecoverPrevious: true);
                 return primary is null ? null : Clone(primary);
@@ -184,7 +188,8 @@ internal sealed partial class VariantLookStore
                 Read(variant); // Never overwrite an existing look without validating it.
             session.Pending.TryGetValue(variant, out var prior);
             var baseline = prior is null ? session.KnownHash.GetValueOrDefault(variant) : prior.BaseHash;
-            var edit = PrepareEdit(look, baseline);
+            var edit = PrepareEdit(look, baseline) with
+                { RecoveryReceipt = prior?.RecoveryReceipt ?? session.UnretiredRecovery.GetValueOrDefault(variant) };
             if (prior?.Hash == edit.Hash)
                 return; // Preserve the durability receipt for the same pending value.
             if (prior is null && session.KnownLookHash.GetValueOrDefault(variant) == edit.Hash)
@@ -221,6 +226,8 @@ internal sealed partial class VariantLookStore
             var current = Read(variant);
             if (session.Pending.ContainsKey(variant))
                 throw new InvalidOperationException("A selected variant has a pending save. Resolve it before applying copied settings.");
+            if (session.UnretiredRecovery.ContainsKey(variant))
+                throw new InvalidOperationException("A selected variant has a completed recovery file that could not be cleared. Restore disk access before applying copied settings.");
             return current;
         }
     }
@@ -264,29 +271,44 @@ internal sealed partial class VariantLookStore
                 edits = session.Pending.ToArray();
 
             var failures = new List<string>();
-            foreach (var (variant, pending) in edits)
+            foreach (var (variant, queued) in edits)
             {
+                var pending = queued;
+                var checkingRecovery = false;
                 try
                 {
                     if (blocked.TryGetValue(variant, out var issue))
                         throw new InvalidDataException(issue.Message);
+                    if (pending.RecoveryReceipt is not null)
+                    {
+                        // A restart after publishing the primary must see either
+                        // the same fallback or no fallback. Replacing an older
+                        // checkpoint afterwards leaves an ambiguous recovery window.
+                        checkingRecovery = true;
+                        pending = ProtectRecovery(variant, pending);
+                        checkingRecovery = false;
+                    }
                     Commit(variant, pending);
                 }
                 catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or InvalidDataException)
                 {
-                    try
+                    Exception? recoveryFailure = null;
+                    if (checkingRecovery)
                     {
-                        Directory.CreateDirectory(recoveryDirectory);
-                        var recovery = PanelFiles.EncodeCompactPreset(new RecoveryCheckpoint(1, catalogKey, variant, pending.BaseHash, pending.Look));
-                        PanelFiles.WriteAtomically(GetRecoveryPath(variant), stream => stream.Write(recovery), discardOnProcessExit: true);
-                        session.Pending[variant] = pending with { RecoveryDurable = true };
-                        failures.Add($"{error.Message} The latest edit is protected in {GetRecoveryPath(variant)}.");
+                        pending = pending with { RecoveryDurable = false };
                     }
-                    catch (Exception recoveryError) when (recoveryError is IOException or UnauthorizedAccessException or JsonException or InvalidDataException)
+                    else if (!pending.RecoveryDurable)
                     {
-                        session.Pending[variant] = pending with { RecoveryDurable = false };
-                        failures.Add($"{error.Message} Recovery could not be saved either: {recoveryError.Message} The latest edit is NOT safely saved. Keep Capture One open and restore disk access.");
+                        try { pending = ProtectRecovery(variant, pending); }
+                        catch (Exception recoveryError) when (recoveryError is IOException or UnauthorizedAccessException or JsonException or InvalidDataException)
+                        { recoveryFailure = recoveryError; }
                     }
+                    session.Pending[variant] = pending;
+                    var detail = checkingRecovery || recoveryFailure is null
+                        ? error.Message : $"{error.Message} Recovery could not be saved either: {recoveryFailure.Message}";
+                    failures.Add(pending.RecoveryDurable
+                        ? $"{detail} The latest edit is protected in {GetRecoveryPath(variant)}."
+                        : $"{detail} The latest edit is NOT safely saved. Keep Capture One open and restore disk access.");
                 }
             }
             if (failures.Count != 0)
@@ -318,7 +340,7 @@ internal sealed partial class VariantLookStore
         session.KnownLookHash[variant] = edit.Hash;
         primaryCache.Remember(variant, new CommittedLook(edit.Look, edit.Hash, edit.Hash));
         session.Pending.Remove(variant);
-        TryDeleteRecovery(variant);
+        RetireRecovery(variant, edit.RecoveryReceipt);
     }
 
     // Only invoked after an explicit user recovery action. Archive both alternatives
@@ -342,10 +364,13 @@ internal sealed partial class VariantLookStore
                 blocked.Remove(variant);
                 throw new InvalidDataException("The saved look changed after it was opened for recovery. Reselect this image before trying again.");
             }
-            ArchiveFile(GetRecoveryPath(variant), variant, "pending-before-reset");
-            var edit = PrepareEdit(replacement, baseline) with { KeepPrevious = false };
+            var previousRecovery = ArchiveFile(GetRecoveryPath(variant), variant, "pending-before-reset");
+            var edit = PrepareEdit(replacement, baseline) with
+                { KeepPrevious = false, RecoveryReceipt = previousRecovery?.Hash };
             if (journalHash is not null)
             {
+                if (edit.RecoveryReceipt is not null)
+                    edit = ProtectRecovery(variant, edit);
                 ResetGeneration(variant, edit, journalHash);
                 blocked.Remove(variant);
                 CompleteCommit(variant, edit);
@@ -505,17 +530,47 @@ internal sealed partial class VariantLookStore
         }
     }
 
-    private void TryDeleteRecovery(Guid variant)
+    private PendingEdit ProtectRecovery(Guid variant, PendingEdit edit)
     {
-        try { File.Delete(GetRecoveryPath(variant)); }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+        var path = GetRecoveryPath(variant);
+        var observed = FileHash(path, PanelFiles.MaxPresetBytes);
+        if (observed is not null && observed != edit.RecoveryReceipt)
+            throw new IOException("The recovery checkpoint changed outside this panel. Its file and the current edit were both kept.");
+        if (observed is not null && edit.RecoveryDurable)
+            return edit;
+        var recovery = PanelFiles.EncodeCompactPreset(new RecoveryCheckpoint(1, catalogKey, variant, edit.BaseHash, edit.Look));
+        Directory.CreateDirectory(recoveryDirectory);
+        PanelFiles.WriteAtomically(path, stream => stream.Write(recovery), () =>
+        {
+            if (FileHash(path, PanelFiles.MaxPresetBytes) != observed)
+                throw new IOException("The recovery checkpoint changed before it could be saved. Both edits were kept.");
+        }, overwrite: observed is not null, discardOnProcessExit: true);
+        return edit with { RecoveryReceipt = Digest(recovery), RecoveryDurable = true };
     }
 
-    private static string? FileHash(string path)
+    private void RetireRecovery(Guid variant, string? receipt)
+    {
+        if (receipt is null)
+            return;
+        try
+        {
+            if (PanelFiles.DeleteIfExact(GetRecoveryPath(variant), receipt))
+            {
+                session.UnretiredRecovery.Remove(variant);
+                return;
+            }
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+        session.UnretiredRecovery[variant] = receipt;
+    }
+
+    private static string? FileHash(string path, int? maximumBytes = null)
     {
         try
         {
             using var stream = File.OpenRead(path);
+            if (maximumBytes is { } limit && stream.Length > limit)
+                throw new InvalidDataException("The recovery checkpoint exceeds its supported size.");
             return Convert.ToHexString(SHA256.HashData(stream));
         }
         catch (FileNotFoundException) { return null; }
@@ -578,6 +633,7 @@ internal sealed partial class VariantLookStore
         internal readonly Dictionary<Guid, PendingEdit> Pending = new();
         internal readonly Dictionary<Guid, string?> KnownHash = new();
         internal readonly Dictionary<Guid, string?> KnownLookHash = new();
+        internal readonly Dictionary<Guid, string> UnretiredRecovery = new();
         internal readonly Dictionary<Guid, SavedVariantIdentity> VerifiedIdentities = new();
         internal readonly Dictionary<Guid, BlockedLook> Blocked = new();
     }
@@ -616,7 +672,8 @@ internal sealed partial class VariantLookStore
     private sealed record CommittedLook(VariantLook Look, string Hash, string LookHash);
     private sealed record BlockedLook(LookLoadState State, string Message, bool CanRecoverPrevious,
         string? ObservedHash, bool ArchivedPrimary, string? ObservedJournalHash, bool ArchivedJournal);
-    private sealed record PendingEdit(VariantLook Look, string? BaseHash, byte[] Json, string Hash, bool RecoveryDurable = false, bool KeepPrevious = true);
+    private sealed record PendingEdit(VariantLook Look, string? BaseHash, byte[] Json, string Hash,
+        bool RecoveryDurable = false, bool KeepPrevious = true, string? RecoveryReceipt = null);
     private sealed record RecoveryCheckpoint([property: JsonRequired] int Version, [property: JsonRequired] string CatalogKey,
         [property: JsonRequired] Guid Variant, [property: JsonRequired] string? BaseHash, [property: JsonRequired] VariantLook Look);
 }

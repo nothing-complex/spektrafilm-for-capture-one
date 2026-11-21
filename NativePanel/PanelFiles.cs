@@ -11,7 +11,9 @@ internal static class PanelFiles
     internal const int MaxPresetBytes = 65536;
     private const int FileDispositionInfo = 4;
     private const uint CreateNew = 1;
+    private const uint OpenExisting = 3;
     private const uint NormalFile = 0x80;
+    private const uint ReadDelete = 0x80010000;
     private const uint ReadWriteDelete = 0xC0010000;
     private static readonly JsonSerializerOptions WriteOptions = new() { WriteIndented = true };
     private static readonly JsonSerializerOptions ReadOptions = new()
@@ -106,6 +108,42 @@ internal static class PanelFiles
             }
             throw;
         }
+    }
+
+    internal static bool DeleteIfExact(string path, string receipt)
+    {
+        static bool Matches(FileStream stream, string receipt) => stream.Length <= MaxPresetBytes
+            && Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(stream)) == receipt;
+
+        if (OperatingSystem.IsWindows())
+        {
+            // Read and retire the same open file, with replacement and writes
+            // excluded until the handle closes.
+            using var handle = CreateFileW(WindowsStagingPath(path), ReadDelete, 0, IntPtr.Zero, OpenExisting, NormalFile, IntPtr.Zero);
+            if (handle.IsInvalid)
+            {
+                var error = Marshal.GetLastWin32Error();
+                if (error is 2 or 3) return true; // The file or parent has already gone.
+                throw new IOException("Could not open the saved recovery checkpoint for retirement.", new Win32Exception(error));
+            }
+            using var file = new FileStream(handle, FileAccess.Read);
+            if (!Matches(file, receipt))
+                return false;
+            byte remove = 1;
+            if (!SetFileInformationByHandle(handle, FileDispositionInfo, ref remove, 1))
+                throw new IOException("Could not retire the saved recovery checkpoint.", new Win32Exception(Marshal.GetLastWin32Error()));
+            return true;
+        }
+
+        try
+        {
+            using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None);
+            if (!Matches(file, receipt))
+                return false;
+            File.Delete(path);
+            return true;
+        }
+        catch (Exception error) when (error is FileNotFoundException or DirectoryNotFoundException) { return true; }
     }
 
     private static (FileStream Stream, bool DeletePending) OpenStaging(string path, bool discardOnProcessExit)

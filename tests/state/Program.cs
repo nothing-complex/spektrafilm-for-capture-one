@@ -66,6 +66,23 @@ if (args.Length != 0)
     }
     if (args[0] == "--verify")
         return childStore.Read(childVariant)?.Look.Exposure == double.Parse(args[4], System.Globalization.CultureInfo.InvariantCulture) ? 0 : 13;
+    if (args[0] == "--publish-recovered-look")
+    {
+        if (childStore.ReadOutcome(childVariant) is not { State: LookLoadState.Recovered, Look.Look.Exposure: 1.8 })
+            return 21;
+        childStore.Flush();
+        if (childStore.HasPending) return 22;
+        File.WriteAllText(args[4], "primary published");
+        Thread.Sleep(Timeout.Infinite);
+    }
+    if (args[0] == "--edit-with-unretired-recovery")
+    {
+        if (childStore.ReadOutcome(childVariant) is not { State: LookLoadState.Valid, Look.Look.Exposure: 1.8 })
+            return 23;
+        childStore.Queue(childVariant, Sample(2.4));
+        try { childStore.Flush(); return 24; }
+        catch (IOException) { return childStore.HasUnprotectedPending ? 0 : 25; }
+    }
     if (args[0] == "--commit-boundary")
     {
         var file = Directory.GetFiles(args[1], childVariant.ToString("N") + ".json", SearchOption.AllDirectories).Single();
@@ -183,12 +200,18 @@ store.Flush();
 Check("identical committed value skips disk replacement", File.GetLastWriteTimeUtc(stateFile).Year == 2020);
 
 var bytes = File.ReadAllBytes(stateFile);
-Throws<IOException>("write failure before replace", () => PanelFiles.WriteAtomically(stateFile, stream =>
+var diskFull = new IOException("The fixture write ran out of space.", unchecked((int)0x80070070));
+try
 {
-    stream.Write(Encoding.UTF8.GetBytes("partial"));
-    throw new IOException("Injected write failure");
-}));
-Check("write failure preserves committed bytes", File.ReadAllBytes(stateFile).SequenceEqual(bytes));
+    PanelFiles.WriteAtomically(stateFile, stream =>
+    {
+        stream.Write("partial"u8);
+        throw diskFull;
+    }, discardOnProcessExit: true);
+    throw new Exception("The disk-full fixture unexpectedly published its stage.");
+}
+catch (IOException error) { Check("staged ENOSPC preserves the original Windows error", ReferenceEquals(error, diskFull)); }
+Check("partial disk-full write preserves committed bytes", File.ReadAllBytes(stateFile).SequenceEqual(bytes));
 Throws<IOException>("final guard failure", () => PanelFiles.WriteAtomically(stateFile, stream => stream.WriteByte(1), () => throw new IOException("Rejected commit")));
 Check("final guard failure preserves file", File.ReadAllBytes(stateFile).SequenceEqual(bytes));
 Check("atomic write temporary files cleaned", Directory.GetFiles(Path.GetDirectoryName(stateFile)!, ".spektra-*.tmp").Length == 0);
@@ -254,10 +277,77 @@ using (var locked = new FileStream(stateFile, FileMode.Open, FileAccess.Read, Fi
     Check("selected variant save leaves the unrelated durable recovery untouched",
         store.HasPending && !store.HasUnprotectedPending
         && File.GetLastWriteTimeUtc(checkpoint).Year == 2019 && File.ReadAllBytes(checkpoint).SequenceEqual(checkpointBytes));
+    Throws<IOException>("watchdog retry still reports the locked primary", () => store.FlushVariant(id));
+    Check("watchdog retry reuses the exact durable checkpoint without rewriting it",
+        !store.HasUnprotectedPending && File.GetLastWriteTimeUtc(checkpoint).Year == 2019
+        && File.ReadAllBytes(checkpoint).SequenceEqual(checkpointBytes));
 }
 new VariantLookStore(root, catalog).Flush();
 Check("retry saves pending", new VariantLookStore(root, catalog).Read(id)?.Look.Exposure == 1.3);
 Check("committed checkpoint removed", Directory.GetFiles(Path.Combine(scratch, "Look recovery"), "*.pending.json", SearchOption.AllDirectories).Length == 0);
+
+if (OperatingSystem.IsWindows())
+{
+    foreach (var journal in new[] { false, true })
+    {
+        var failureRoot = Path.Combine(scratch, journal ? "journal-unretired" : "loose-unretired");
+        var failureLooks = Path.Combine(failureRoot, "Variant looks");
+        var failureStore = new VariantLookStore(failureLooks, catalog, useGenerationWriter: journal);
+        var failureId = Guid.NewGuid();
+        failureStore.Queue(failureId, Sample(.7));
+        failureStore.Flush();
+        var committed = StateFile(failureLooks, failureId);
+        var originalBytes = File.ReadAllBytes(committed);
+        var recoveryPath = Path.Combine(failureRoot, "Look recovery", failureStore.CatalogIdentity, $"{failureId:N}.pending.json");
+        using (var lockPrimary = new FileStream(committed, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            failureStore.Queue(failureId, Sample(1.2));
+            Throws<IOException>("first failed slider edit gets a recovery checkpoint", failureStore.Flush);
+        }
+        var firstRecovery = File.ReadAllBytes(recoveryPath);
+        var changedRecovery = JsonNode.Parse(firstRecovery)!;
+        changedRecovery["Look"]!["Look"]!["Exposure"] = 1.4;
+        var externalBytes = Encoding.UTF8.GetBytes(changedRecovery.ToJsonString());
+        File.WriteAllBytes(recoveryPath, externalBytes);
+        var priorReceipt = Convert.ToHexString(SHA256.HashData(firstRecovery));
+        Check("retirement rejects an externally replaced recovery checkpoint", !PanelFiles.DeleteIfExact(recoveryPath, priorReceipt));
+        Throws<IOException>("an externally replaced checkpoint blocks auto-save", failureStore.Flush);
+        Check("checkpoint conflict keeps both the external fallback and the acknowledged look",
+            failureStore.HasUnprotectedPending && File.ReadAllBytes(recoveryPath).SequenceEqual(externalBytes)
+            && File.ReadAllBytes(committed).SequenceEqual(originalBytes));
+        File.WriteAllBytes(recoveryPath, firstRecovery);
+        using (var lockRecovery = new FileStream(recoveryPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            failureStore.Queue(failureId, Sample(1.8));
+            Throws<IOException>("replacement waits for an earlier checkpoint to be superseded", failureStore.Flush);
+            Check("cannot acknowledge a newer look while an older conflicting fallback remains",
+                failureStore.HasUnprotectedPending && File.ReadAllBytes(committed).SequenceEqual(originalBytes)
+                && File.ReadAllBytes(recoveryPath).SequenceEqual(firstRecovery));
+        }
+        using (var lockPrimary = new FileStream(committed, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            Throws<IOException>("recovery is updated even while the primary is still locked", failureStore.Flush);
+            Check("the newest pending movement has a durable fallback", !failureStore.HasUnprotectedPending
+                && !File.ReadAllBytes(recoveryPath).SequenceEqual(firstRecovery));
+        }
+        var finalRecovery = File.ReadAllBytes(recoveryPath);
+        var ready = Path.Combine(failureRoot, "published.ready");
+        using (var lockRecovery = new FileStream(recoveryPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            using var writer = StartChild("--publish-recovered-look", failureLooks, catalog, failureId.ToString(), ready);
+            KillAfterMarker(writer, ready, "primary publish with undeletable recovery");
+            Check("forced exit after primary publication leaves the exact current fallback",
+                File.ReadAllBytes(committed).SequenceEqual(PanelFiles.EncodeCompactPreset(Sample(1.8)))
+                && File.ReadAllBytes(recoveryPath).SequenceEqual(finalRecovery));
+            RunChild("--edit-with-unretired-recovery", failureLooks, catalog, failureId.ToString());
+            Check("a restart cannot publish over a still-locked acknowledged fallback",
+                File.ReadAllBytes(committed).SequenceEqual(PanelFiles.EncodeCompactPreset(Sample(1.8)))
+                && File.ReadAllBytes(recoveryPath).SequenceEqual(finalRecovery));
+        }
+        RunChild("--verify", failureLooks, catalog, failureId.ToString(), "1.8");
+        Check("next restart loads the last acknowledged edit and retires its exact fallback", !File.Exists(recoveryPath));
+    }
+}
 
 var mutable = Sample(.4);
 store.Queue(id, mutable);
@@ -1032,6 +1122,11 @@ static void KillAtBoundary(string boundary, string root, string catalog, Guid va
 {
     var ready = Path.Combine(directory, boundary + ".ready");
     using var child = StartChild("--commit-boundary", root, catalog, variant.ToString(), boundary, ready);
+    KillAfterMarker(child, ready, boundary);
+}
+
+static void KillAfterMarker(Process child, string ready, string boundary)
+{
     try
     {
         var timeout = Stopwatch.StartNew();
