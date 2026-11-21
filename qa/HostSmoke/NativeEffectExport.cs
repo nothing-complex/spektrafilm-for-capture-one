@@ -1363,32 +1363,8 @@ public static partial class StartupHook
                 }
             }
 
-            static string NativeNameToken(string id)
-            {
-                var core = AppDomain.CurrentDomain.GetAssemblies().Single(a => a.GetName().Name == "P1.C1.ImageCoreWrapper");
-                const string ns = "P1.C1.Common.DestinationNaming.";
-                var tokenType = core.GetType(ns + "NameTokenType", true)!;
-                var token = id == "Counter"
-                    ? Activator.CreateInstance(core.GetType(ns + "NameTokenCounter", true)!, 3)
-                    : Activator.CreateInstance(core.GetType(ns + "NameToken", true)!, Enum.Parse(tokenType, id));
-                var tokens = Array.CreateInstance(core.GetType(ns + "NameTokenBase", true)!, 1);
-                tokens.SetValue(token, 0);
-                var nativeName = Activator.CreateInstance(core.GetType(ns + "DestinationName", true)!, new object[] { tokens })!;
-                return (string)Prop(nativeName, "TokenNameRepresentation")!;
-            }
-
             object SelectedRecipeForTest(out FieldInfo notifications)
-            {
-                Check(File.Exists(Path.Combine(folder, "native-recipe-backup.json")),
-                    "the native recipe settings test has a verified recipe backup");
-                var destinations = ((Delegate)Field(bridge!, "destinations")!).DynamicInvoke()!;
-                var selected = Prop(destinations, "SelectedDestination")!;
-                var guard = selected.GetType().GetField("m_suppressNotifications", Flags);
-                if (guard?.FieldType != typeof(bool) || guard.GetValue(selected) is not false)
-                    throw new InvalidOperationException("The verified host recipe notification guard is unavailable.");
-                notifications = guard;
-                return selected;
-            }
+                => ReadSelectedRecipeForTest(bridge!, out notifications);
 
             async Task<object> CompareOutputProfiles()
             {
@@ -2494,6 +2470,33 @@ public static partial class StartupHook
         var execute = command.GetType().GetMethod("Execute", Flags, null, new[] { typeof(bool) }, null)
             ?? throw new MissingMethodException(command.GetType().FullName, "Execute(Boolean)");
         execute.Invoke(command, new object[] { false });
+    }
+
+    private static string NativeNameToken(string id)
+    {
+        var core = AppDomain.CurrentDomain.GetAssemblies().Single(a => a.GetName().Name == "P1.C1.ImageCoreWrapper");
+        const string ns = "P1.C1.Common.DestinationNaming.";
+        var tokenType = core.GetType(ns + "NameTokenType", true)!;
+        var token = id == "Counter"
+            ? Activator.CreateInstance(core.GetType(ns + "NameTokenCounter", true)!, 3)
+            : Activator.CreateInstance(core.GetType(ns + "NameToken", true)!, Enum.Parse(tokenType, id));
+        var tokens = Array.CreateInstance(core.GetType(ns + "NameTokenBase", true)!, 1);
+        tokens.SetValue(token, 0);
+        var nativeName = Activator.CreateInstance(core.GetType(ns + "DestinationName", true)!, new object[] { tokens })!;
+        return (string)Prop(nativeName, "TokenNameRepresentation")!;
+    }
+
+    private static object ReadSelectedRecipeForTest(object bridge, out FieldInfo notifications)
+    {
+        Check(File.Exists(Path.Combine(folder, "native-recipe-backup.json")),
+            "the native recipe settings test has a verified recipe backup");
+        var destinations = ((Delegate)Field(bridge, "destinations")!).DynamicInvoke()!;
+        var selected = Prop(destinations, "SelectedDestination")!;
+        var guard = selected.GetType().GetField("m_suppressNotifications", Flags);
+        if (guard?.FieldType != typeof(bool) || guard.GetValue(selected) is not false)
+            throw new InvalidOperationException("The verified host recipe notification guard is unavailable.");
+        notifications = guard;
+        return selected;
     }
 
     private sealed record ExportDifference(int Samples, double Mean, double Maximum, double ChangedFraction);

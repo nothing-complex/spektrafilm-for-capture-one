@@ -125,7 +125,7 @@ public static partial class StartupHook
             }
             if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_BATCH_EXPORT") == "crash")
             {
-                await TestNativeBatchRecovery(panel, spatial, window);
+                await TestNativeBatchRecovery(exportHook!, panel, spatial, window);
                 return;
             }
             if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_FLOATING_WORKSPACE") == "1")

@@ -727,11 +727,12 @@ internal sealed class SpatialPreview : IDisposable
         }
 
         var saved = 0;
+        var skipped = 0;
         var failed = 0;
         var canceled = 0;
         string? firstError = null;
         string? summary = null;
-        string? deliveryNote = null;
+        SpektraExport.RecipeDelivery? completedDelivery = null;
         var token = exportActivity.BeginBatch(lifetime.Token);
         try
         {
@@ -758,13 +759,16 @@ internal sealed class SpatialPreview : IDisposable
             token.ThrowIfCancellationRequested();
 
             var batchRecipe = sources[0].Snapshot.Recipe!;
-            var policy = new SpektraExport.RecipeDelivery(batchRecipe.FormatId, batchRecipe.TiffBits, batchRecipe.CropMode, batchRecipe.Omissions);
-            var isPng = policy.Extension == ".png";
-            deliveryNote = policy.SavedNote(isPng ? PixelFormats.Rgba64 : PixelFormats.Rgb48);
-            var formatLabel = isPng ? "PNG" : "TIFF";
+            var recipes = sources.Select(item => item.Snapshot.Recipe!).ToArray();
+            if (recipes.Any(recipe => recipe.Name != batchRecipe.Name || recipe.FormatId != batchRecipe.FormatId
+                || recipe.TiffBits != batchRecipe.TiffBits || recipe.CropMode != batchRecipe.CropMode))
+                throw new InvalidOperationException("The selected Export Recipe changed during preparation. Start the batch again.");
+            var omissions = recipes.Aggregate(SpektraExport.RecipeOmission.None, (flags, recipe) => flags | recipe.Omissions);
+            var policy = new SpektraExport.RecipeDelivery(batchRecipe.FormatId, batchRecipe.TiffBits, batchRecipe.CropMode, omissions);
+            var skipExisting = policy.CanSkipRecipeOutput && recipes.Any(recipe => recipe.SkipExistingOutput && recipe.SuggestedFilename is not null);
             var picker = new OpenFolderDialog
             {
-                Title = $"Export {sources.Count} images as 16-bit {formatLabel}" + (deliveryNote is null ? "" : " · " + deliveryNote),
+                Title = policy.BatchTitle(sources.Count, skipExisting),
                 Multiselect = false,
             };
             if (batchRecipe.SuggestedDirectory is { } suggested && sources.All(item =>
@@ -788,17 +792,23 @@ internal sealed class SpatialPreview : IDisposable
                 try
                 {
                     var recipe = item.Snapshot.Recipe!;
-                    var extension = recipe.FormatId == "Png" ? ".png" : ".tif";
-                    var name = SpektraExport.SuggestedOutputName(recipe.SuggestedFilename, item.Target.SourcePath, extension);
+                    var name = SpektraExport.SuggestedOutputName(recipe.SuggestedFilename, item.Target.SourcePath, policy.Extension);
+                    var requestedPath = Path.Combine(folder, name);
+                    var allowSkip = policy.CanSkipRecipeOutput && recipe.SkipExistingOutput && recipe.SuggestedFilename is not null
+                        && !reserved.Contains(requestedPath);
                     var approved = await Task.Run(() =>
                     {
+                        token.ThrowIfCancellationRequested();
+                        if (allowSkip && ExistingRecipeOutput(requestedPath, item.Original) is { } existing)
+                            return existing;
                         item.DeliveryProfile.VerifyFiles();
                         return ApproveNewBatchDestination(folder, name, item.Original, reserved, token);
                     }, token).WaitAsync(token);
-                    reserved.Add(approved.Path);
-                    var descriptor = await CaptureBatchDescriptorAsync(item, token).WaitAsync(token);
+                    if (!approved.AlreadyExists) reserved.Add(approved.Path);
+                    var descriptor = approved.AlreadyExists ? null : await CaptureBatchDescriptorAsync(item, token).WaitAsync(token);
                     queue.Add(item with { Destination = approved });
-                    entries.Add(new(Guid.NewGuid(), item.Target.ImageId, item.Target.VariantId, item.Target.SourcePath, approved.Path, descriptor));
+                    entries.Add(new(Guid.NewGuid(), item.Target.ImageId, item.Target.VariantId, item.Target.SourcePath,
+                        approved.Path, descriptor, SkipExisting: approved.AlreadyExists));
                 }
                 catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or InvalidOperationException)
                 {
@@ -820,15 +830,26 @@ internal sealed class SpatialPreview : IDisposable
                     canceled += queue.Count - index;
                     break;
                 }
-                var item = queue[index] with { Plan = plan, Entry = plan.Entries[index] };
+                var entry = plan.Entries[index];
+                if (entry.SkipExisting)
+                {
+                    RecordBatchSkip(plan, entry);
+                    skipped++;
+                    continue;
+                }
+                var item = queue[index] with { Plan = plan, Entry = entry };
                 exportActivity.Report(null, $"Exporting image {index + 1} of {queue.Count}…");
                 var success = await RunExportWithDestinationAsync(true, null, ChooseExportDestination, null, item);
                 if (success)
                 {
                     saved++;
+                    completedDelivery = policy with
+                    {
+                        Omissions = (completedDelivery?.Omissions ?? SpektraExport.RecipeOmission.None) | item.Snapshot.Recipe!.Omissions,
+                    };
                     continue;
                 }
-                var latest = exportJobs.ReadBatchItem(plan, plan.Entries[index]);
+                var latest = exportJobs.ReadBatchItem(plan, entry);
                 if (latest?.Stage == ExportStage.Canceled || latest is null && exportActivity.BatchStopped)
                 {
                     canceled++;
@@ -851,11 +872,20 @@ internal sealed class SpatialPreview : IDisposable
         }
         finally
         {
+            var deliveryNote = completedDelivery is { } completed
+                ? completed.SavedNote(completed.Extension == ".png" ? PixelFormats.Rgba64 : PixelFormats.Rgb48) : null;
             var details = string.Join(Environment.NewLine, new[] { firstError, deliveryNote }.OfType<string>());
-            var outcome = $"Saved {saved} of {selection.Length} images · {failed} failed · {canceled} canceled";
+            var outcome = $"Saved {saved} of {selection.Length} images · {failed} failed · {canceled} canceled"
+                + (skipped > 0 ? $" · {skipped} skipped" : "");
             exportActivity.EndBatch(summary ?? (details.Length == 0 ? outcome : outcome + Environment.NewLine + details));
         }
         return saved;
+    }
+
+    private void RecordBatchSkip(ExportBatchPlan plan, ExportBatchEntry entry)
+    {
+        var receipt = exportJobs.Report(exportJobs.BeginBatchItem(plan, entry), ExportStage.Skipped);
+        StartupHook.Log("export.recipe-skip.v1", new { JobId = receipt.JobId });
     }
 
     private Task<ExportRetryDescriptor?> CaptureBatchDescriptorAsync(BatchExport item, CancellationToken token, FileStream? held = null)
@@ -904,12 +934,18 @@ internal sealed class SpatialPreview : IDisposable
                 try
                 {
                     if (exportJobs.ReadBatchItem(plan, entry) is { Finished: true }) continue;
+                    if (entry.SkipExisting)
+                    {
+                        RecordBatchSkip(plan, entry);
+                        occupied++;
+                        continue;
+                    }
                     var source = await CaptureBatchSourceAsync(HostProfile.RecoverSelection(window, document, entry), token);
                     var approved = await Task.Run(() => source.Original.Approve(entry.Destination), token).WaitAsync(token);
                     token.ThrowIfCancellationRequested();
                     if (approved.AlreadyExists)
                     {
-                        exportJobs.Report(exportJobs.BeginBatchItem(plan, entry), ExportStage.Skipped);
+                        RecordBatchSkip(plan, entry);
                         occupied++;
                         continue;
                     }

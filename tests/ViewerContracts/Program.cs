@@ -159,6 +159,10 @@ internal static partial class Program
         Check(layered.SaveTitle(3000, 2000, "sRGB").Contains("crop path omitted · omits PSD layers", StringComparison.Ordinal)
             && layered.SavedNote(PixelFormats.Rgba64)?.EndsWith("The export omitted PSD layers.", StringComparison.Ordinal) == true,
             "PSD layer disclosures accompany format and crop-path substitutions");
+        var batch = layered with { Omissions = SpektraExport.RecipeOmission.PsdLayers | SpektraExport.RecipeOmission.Watermark };
+        Check(batch.BatchTitle(2, skipExisting: false)
+            == "Export 2 images as 16-bit TIFF · Recipe requests PSD · Full image, crop path omitted · Omits recipe watermark, PSD layers",
+            "batch approval names the actual format, crop-path policy and all requested omissions before saving");
     }
 
     private static void TestExportFilenameSuggestion(string folder)
@@ -169,8 +173,9 @@ internal static partial class Program
         Check(SpektraExport.SuggestedOutputName("Film proof. ", source, ".png") == "Film proof.png",
             "native naming preview uses the selected extension after trimming Windows trailing characters");
         foreach (var unsafeName in new[] { null, "", "..\\outside", "C:\\outside", "image:stream", new string('z', 201) })
-            Check(SpektraExport.SuggestedOutputName(unsafeName, source, ".tif") == "raw-Spektrafilm",
-                "an unavailable or unusable recipe suggestion keeps the ordinary source-based name");
+            Check(SpektraExport.SuggestedOutputName(unsafeName, source, ".tif") == "raw-Spektrafilm.tif"
+                && SpektraExport.SuggestedOutputName(unsafeName, source, ".png") == "raw-Spektrafilm.png",
+                "an unavailable or unusable recipe suggestion keeps the source-based name and chosen extension");
         var collisions = Directory.CreateDirectory(Path.Combine(folder, "recipe-name-collisions")).FullName;
         const string stem = "Film proof 日 1.2";
         File.WriteAllText(Path.Combine(collisions, stem + ".tif"), "previous export");
@@ -282,6 +287,22 @@ internal static partial class Program
         reader.SaveBatch(recovered! with { Closed = true });
         Check(reader.ReadPendingBatch() is null && reader.ReadBatchItem(plan, entries[0])?.Stage == ExportStage.Completed,
             "closing the pending queue preserves its individual job receipts");
+
+        var skips = entries.Take(2).Select(entry => entry with
+            { Destination = entries[0].Destination, Retry = null, SkipExisting = true }).ToArray();
+        var skipPlan = ExportBatchPlan.Create(approved, skips);
+        writer.SaveBatch(skipPlan);
+        Check(reader.ReadPendingBatch()?.Entries.SequenceEqual(skips) == true,
+            "read-only skips for the same file survive a plan reload with their separate job IDs");
+        foreach (var entry in skips)
+            writer.Report(writer.BeginBatchItem(skipPlan, entry), ExportStage.Skipped);
+        Check(reader.ReadPendingBatch() is null && skips.All(entry => reader.ReadBatchItem(skipPlan, entry)?.Stage == ExportStage.Skipped),
+            "every approved skip records its own terminal receipt");
+        var conflicting = ExportBatchPlan.Create(approved, new[] { skips[0], skips[1] with { SkipExisting = false } });
+        var rejected = false;
+        try { writer.SaveBatch(conflicting); }
+        catch (InvalidDataException) { rejected = true; }
+        Check(rejected, "no writing entry can share a skipped destination in the same approved batch");
     }
 
     private static void TestExportJobJournal(string folder)

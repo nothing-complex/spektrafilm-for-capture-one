@@ -51,6 +51,17 @@ internal static class SpektraExport
             return $"{prefix}Save 16-bit TIFF or PNG{crop}{effects} · {width} × {height} · {profile}";
         }
 
+        internal string BatchTitle(int count, bool skipExisting)
+        {
+            var format = Extension == ".png" ? "PNG" : "TIFF";
+            var title = $"Export {count} images as 16-bit {format}";
+            if (RequiresFormatChange) title += $" · Recipe requests {RequestedFormat}";
+            if (CropPath) title += " · Full image, crop path omitted";
+            if (DescribeOmissions() is { } omissions) title += $" · Omits {omissions}";
+            if (skipExisting) title += " · Skip existing recipe files";
+            return title;
+        }
+
         internal string? SavedNote(PixelFormat outputFormat)
         {
             var png = outputFormat == PixelFormats.Rgba64;
@@ -80,9 +91,7 @@ internal static class SpektraExport
     internal static string SuggestedOutputName(string? recipeName, string sourcePath, string extension,
         string? directory = null, bool addSuffix = false)
     {
-        var name = ValidRecipeStem(recipeName);
-        if (name is null)
-            return Path.GetFileNameWithoutExtension(sourcePath) + "-Spektrafilm";
+        var name = ValidRecipeStem(recipeName) ?? Path.GetFileNameWithoutExtension(sourcePath) + "-Spektrafilm";
         var suggested = name + extension;
         if (!addSuffix || directory is null || !Path.IsPathFullyQualified(directory))
             return suggested;

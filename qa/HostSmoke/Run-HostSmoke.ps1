@@ -904,13 +904,12 @@ try {
         } finally {
             # Deliberate crash/restart test of this newly launched disposable process.
             # No pre-existing Capture One process can reach this branch.
-            if(!$process.HasExited){Stop-Process -Id $process.Id; $process.WaitForExit()}
-            $phaseProcessId=$process.Id
+            if(!$process.HasExited){Stop-Process -Id $process.Id}
+            $process.WaitForExit()
             $process.Dispose()
-            # An exited fixture can remain visible during Windows crash reporting.
-            # Clear-TestCrashMarkers separately refuses any other active host.
+            # The handle can signal before Windows stops enumerating the host.
             $settle=[DateTime]::UtcNow.AddSeconds(8)
-            while ([DateTime]::UtcNow -lt $settle -and (Get-Process -Id $phaseProcessId -ErrorAction SilentlyContinue).ProcessName -eq 'CaptureOne'){
+            while ([DateTime]::UtcNow -lt $settle -and (Get-Process CaptureOne -ErrorAction SilentlyContinue)){
                 Start-Sleep -Milliseconds 100
             }
             Clear-TestCrashMarkers $phaseStarted $phase

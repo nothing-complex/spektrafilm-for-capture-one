@@ -15,7 +15,8 @@ internal sealed record ExportRetryDescriptor(bool FollowRecipe, string NativeMod
 }
 
 internal sealed record ExportBatchEntry(Guid JobId, Guid ImageId, Guid VariantId, string OriginalPath, string Destination,
-    ExportRetryDescriptor? Retry);
+    ExportRetryDescriptor? Retry,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool SkipExisting = false);
 
 internal sealed record ExportBatchPlan(int Version, Guid Id, DateTime AcceptedUtc, string Folder, ExportBatchEntry[] Entries,
     bool Closed = false)
@@ -145,14 +146,17 @@ internal sealed class ExportJobJournal(string directory, Action<string> log)
             throw new InvalidDataException("The saved export batch is invalid.");
         var ids = new System.Collections.Generic.HashSet<Guid>();
         var variants = new System.Collections.Generic.HashSet<Guid>();
-        var paths = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var paths = new System.Collections.Generic.Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
         foreach (var item in plan.Entries)
         {
             if (item is null || item.JobId == Guid.Empty || !ids.Add(item.JobId) || item.VariantId == Guid.Empty || !variants.Add(item.VariantId)
                 || item.ImageId == Guid.Empty || !Path.IsPathFullyQualified(item.OriginalPath) || !Path.IsPathFullyQualified(item.Destination)
                 || !StringComparer.OrdinalIgnoreCase.Equals(Path.GetDirectoryName(Path.GetFullPath(item.Destination)), plan.Folder)
-                || !paths.Add(Path.GetFullPath(item.Destination)) || item.Retry is { Valid: false })
+                || item.Retry is { Valid: false } || item.SkipExisting && item.Retry is not null)
                 throw new InvalidDataException("A saved export batch item is invalid.");
+            var destination = Path.GetFullPath(item.Destination);
+            if (!paths.TryAdd(destination, item.SkipExisting) && (!item.SkipExisting || !paths[destination]))
+                throw new InvalidDataException("Two batch items would write to the same destination.");
         }
     }
 

@@ -111,6 +111,7 @@ public static partial class StartupHook
         var nativePrevious = Directory.CreateDirectory(Path.Combine(folder, "batch-native-previous")).FullName;
         var nativeDialog = Directory.CreateDirectory(Path.Combine(folder, "batch-native-dialog")).FullName;
         var routes = await TestNativeEntryPoints(nativePrevious, nativeDialog);
+        await VerifyRecipeFilenamesAndWatermarks();
         File.WriteAllText(Path.Combine(folder, "native-batch-export.json"), JsonSerializer.Serialize(new
         {
             order, comparison = new { comparison.Max, comparison.Mean },
@@ -123,6 +124,197 @@ public static partial class StartupHook
 
         Task<int> Start(Func<OpenFolderDialog, Window?, string?> choose) =>
             (Task<int>)Call(panel, "ExportSelectedImagesAsync", choose)!;
+
+        async Task VerifyRecipeFilenamesAndWatermarks()
+        {
+            var recipe = ReadSelectedRecipeForTest(bridge, out var suppress);
+            var type = recipe.GetType();
+            var originalValues = new[] { "FileType", "TiffBits", "DestinationFilename", "FileOverwriteAction", "WatermarkType",
+                "WatermarkText", "WatermarkTextFont", "WatermarkTextColor", "WatermarkTextScale", "WatermarkTextOpacity",
+                "WatermarkHTextPlacement", "WatermarkVTextPlacement" }
+                .Select(name => type.GetProperty(name, Flags)!).ToDictionary(p => p.Name, p => (Property: p, Value: p.GetValue(recipe)));
+            void Set(string name, object value) => originalValues[name].Property.SetValue(recipe, value);
+            void Choose(string name, string value) => Set(name, Enum.Parse(originalValues[name].Property.PropertyType, value));
+            var host = panel.GetType().Assembly.GetType("HostImageSource", true)!;
+            object ReadRecipe() => host.GetMethod("ActiveRecipe", Flags)!.Invoke(null, new[] { window })!;
+            var selected = new[] { order[1], order[2] };
+            var marks = new System.Collections.Generic.Dictionary<Guid, (string Stem, string Hash, Int32Rect Bounds)>();
+            using var font = new System.Drawing.Font("Segoe UI", 24, System.Drawing.GraphicsUnit.Pixel);
+            var watermarkedFolder = Directory.CreateDirectory(Path.Combine(folder, "batch-source-name-watermarks")).FullName;
+            var allSkippedFolder = Directory.CreateDirectory(Path.Combine(folder, "batch-shared-skip")).FullName;
+            var mixedFolder = Directory.CreateDirectory(Path.Combine(folder, "batch-mixed-skip")).FullName;
+            var ordinary = ReadReceipts(nativePrevious);
+            suppress.SetValue(recipe, true);
+            try
+            {
+                Choose("FileType", "Png");
+                Set("DestinationFilename", "");
+                Choose("WatermarkType", "Text");
+                Set("WatermarkText", "Proof " + NativeNameToken("OriginalName"));
+                Set("WatermarkTextFont", font);
+                Set("WatermarkTextColor", System.Drawing.Color.White);
+                Set("WatermarkTextScale", 1.2f);
+                Set("WatermarkTextOpacity", .85f);
+                Set("WatermarkHTextPlacement", .40f);
+                Set("WatermarkVTextPlacement", .33f);
+
+                foreach (var id in selected)
+                {
+                    select.Select(id, id);
+                    toggle.IsChecked = id == order[1];
+                    var item = Prop(profile.GetMethod("ReadSelection", Flags)!.Invoke(null, new[] { window })!, "Variant")!;
+                    var image = Prop(item, "CoreImage")!;
+                    var source = Path.GetFileNameWithoutExtension((string)Prop(image, "FullpathFilename")!);
+                    var snapshot = ReadRecipe();
+                    var mark = Prop(snapshot, "Watermark");
+                    Check(mark is not null && Prop(snapshot, "SuggestedFilename") is null,
+                        "the native selected variant supplies a token watermark and no filename suggestion");
+                    marks.Add(id, (source, (string)Prop(mark!, "PixelsSha256")!,
+                        new Int32Rect((int)Prop(mark!, "X")!, (int)Prop(mark!, "Y")!, (int)Prop(mark!, "Width")!, (int)Prop(mark!, "Height")!)));
+                }
+                Check(marks.Values.Select(mark => mark.Hash).Distinct().Count() == 2,
+                    "Capture One renders distinct Original Name watermarks for the two approved RAWs");
+                select.Select(selected[0], selected);
+                Check(await Start((picker, _) =>
+                {
+                    Check(picker.Title.Contains("16-bit PNG", StringComparison.Ordinal), "the batch approves the selected PNG recipe");
+                    Set("WatermarkText", "Changed after capturing both images");
+                    select.Select(outside, outside);
+                    return watermarkedFolder;
+                }).WaitAsync(TimeSpan.FromSeconds(90)) == 2,
+                    "both source-based PNG fallback names export after selection and recipe text change at folder approval");
+                foreach (var item in ReadReceipts(watermarkedFolder))
+                {
+                    var mark = marks[item.Id];
+                    Check(item.Stage == "Completed" && Path.GetFileName(item.Path) == mark.Stem + "-Spektrafilm.png",
+                        "the durable output uses the selected extension with the original image's fallback name");
+                    var baseline = VerifyOutput(ordinary.Single(entry => entry.Id == item.Id).Path);
+                    var marked = VerifyOutput(item.Path);
+                    Check(marked.Format == PixelFormats.Rgba64 && marked.PixelWidth == baseline.PixelWidth && marked.PixelHeight == baseline.PixelHeight,
+                        "the batch watermark result retains 16-bit PNG geometry");
+                    var difference = Difference(baseline, marked, mark.Bounds);
+                    Check(difference.MarkPixels > 35 && difference.UnmarkedPixels == 0,
+                        $"the variant retains its captured native watermark after approval ({difference.MarkPixels} marked pixels)");
+                }
+
+                select.Select(selected[0], selected);
+                var orderedVariants = ((Array)readSelection.Invoke(null, new[] { window, Field(panel, "document") })!).Cast<object>()
+                    .Select(item => Prop(item, "Variant")!).ToArray();
+                var nativeTitles = orderedVariants.Select(item =>
+                {
+                    var field = item.GetType().GetProperty("IptcStatusTitle", Flags)!;
+                    return (Variant: item, Field: field, Original: field.GetValue(item));
+                }).ToArray();
+                try
+                {
+                    nativeTitles[0].Field.SetValue(nativeTitles[0].Variant, "Batch watermark proof");
+                    nativeTitles[1].Field.SetValue(nativeTitles[1].Variant, "");
+                    Set("WatermarkText", NativeNameToken("MetadataStatusTitle"));
+                    for (var index = 0; index < orderedVariants.Length; index++)
+                    {
+                        var id = (Guid)Prop(orderedVariants[index], "UUID")!;
+                        select.Select(id, id);
+                        Check(Prop(ReadRecipe(), "Omissions")?.ToString() == (index == 0 ? "None" : "Watermark"),
+                            "only the variant with an empty Title token lacks a watermark");
+                    }
+                    select.Select(selected[0], selected);
+                    var offered = false;
+                    var receiptsBefore = Directory.GetFiles(jobFolder, "*.json", SearchOption.AllDirectories).Length;
+                    Check(await Start((picker, _) =>
+                    {
+                        offered = true;
+                        Check(picker.Title.Contains("Omits recipe watermark", StringComparison.Ordinal),
+                            "folder approval discloses a watermark omission on a later selected image");
+                        return null;
+                    }).WaitAsync(TimeSpan.FromSeconds(40)) == 0 && offered
+                        && Directory.GetFiles(jobFolder, "*.json", SearchOption.AllDirectories).Length == receiptsBefore,
+                        "declining the partially supported recipe creates no batch job");
+                }
+                finally
+                {
+                    foreach (var title in nativeTitles) title.Field.SetValue(title.Variant, title.Original);
+                }
+
+                Choose("FileType", "Tiff");
+                Set("TiffBits", 16);
+                Choose("WatermarkType", "None");
+                Choose("FileOverwriteAction", "Skip");
+                Set("DestinationFilename", "Already delivered");
+                var existing = Path.Combine(allSkippedFolder, "Already delivered.tif");
+                File.WriteAllBytes(existing, acceptedOutput);
+                select.Select(selected[0], selected);
+                Check(await Start((picker, _) =>
+                {
+                    Check(picker.Title.Contains("Skip existing recipe files", StringComparison.Ordinal), "folder approval discloses the native Skip policy");
+                    return allSkippedFolder;
+                }).WaitAsync(TimeSpan.FromSeconds(40)) == 0 && status.Text.Contains("2 skipped", StringComparison.Ordinal)
+                    && File.ReadAllBytes(existing).SequenceEqual(acceptedOutput) && Directory.GetFiles(allSkippedFolder).Length == 1,
+                    "both images keep the same existing exact recipe filename without creating a suffix");
+                var skipped = ReadReceipts(allSkippedFolder);
+                Check(skipped.Length == 2 && skipped.All(item => item.Stage == "Skipped" && item.Path == existing),
+                    "both read-only skips retain distinct terminal receipts");
+                var skippedJobs = skipped.Select(item => item.Job.ToString()).ToArray();
+                Check(!File.ReadLines(Path.Combine(folder, "panel.log")).Any(line => line.Contains("export.performance.v2")
+                    && skippedJobs.Any(id => line.Contains(id, StringComparison.OrdinalIgnoreCase))),
+                    "skipped images never enter the renderer or encoder");
+
+                Set("DestinationFilename", NativeNameToken("OriginalName"));
+                var retained = Path.Combine(mixedFolder, marks[selected[0]].Stem + ".tif");
+                File.WriteAllBytes(retained, acceptedOutput);
+                Check(await Start((_, _) => mixedFolder).WaitAsync(TimeSpan.FromSeconds(75)) == 1
+                    && status.Text.Contains("1 skipped", StringComparison.Ordinal)
+                    && File.ReadAllBytes(retained).SequenceEqual(acceptedOutput),
+                    "an existing recipe file skips its image and leaves the next export running");
+                var mixed = ReadReceipts(mixedFolder);
+                Check(mixed.Single(item => item.Id == selected[0]).Stage == "Skipped"
+                    && mixed.Single(item => item.Id == selected[1]).Stage == "Completed",
+                    "the batch journals the skipped and exported variants independently");
+                _ = VerifyOutput(mixed.Single(item => item.Id == selected[1]).Path);
+                Set("TiffBits", 8);
+                var offeredSubstitute = false;
+                Check(await Start((picker, _) =>
+                {
+                    offeredSubstitute = true;
+                    Check(picker.Title.Contains("Recipe requests 8-bit TIFF", StringComparison.Ordinal)
+                        && !picker.Title.Contains("Skip existing recipe files", StringComparison.Ordinal),
+                        "a required depth substitution is disclosed before approval and keeps its own filename");
+                    return null;
+                }).WaitAsync(TimeSpan.FromSeconds(40)) == 0 && offeredSubstitute && File.ReadAllBytes(retained).SequenceEqual(acceptedOutput),
+                    "declining the 16-bit substitute leaves the occupied recipe output intact");
+            }
+            finally
+            {
+                try { foreach (var (member, value) in originalValues.Values) member.SetValue(recipe, value); }
+                finally { suppress.SetValue(recipe, false); }
+            }
+        }
+
+        static (int MarkPixels, int UnmarkedPixels) Difference(BitmapSource before, BitmapSource after, Int32Rect region)
+        {
+            var leftChannels = before.Format.BitsPerPixel / 16;
+            var rightChannels = after.Format.BitsPerPixel / 16;
+            var left = new ushort[before.PixelWidth * leftChannels];
+            var right = new ushort[after.PixelWidth * rightChannels];
+            var marked = 0;
+            var unmarked = 0;
+            for (var y = 0; y < before.PixelHeight; y++)
+            {
+                var includesMark = y >= region.Y && y < region.Y + region.Height;
+                if (!includesMark && y % 23 != 0) continue;
+                var row = new Int32Rect(0, y, before.PixelWidth, 1);
+                before.CopyPixels(row, left, left.Length * sizeof(ushort), 0);
+                after.CopyPixels(row, right, right.Length * sizeof(ushort), 0);
+                for (var x = 0; x < before.PixelWidth; x++)
+                {
+                    var coversMark = includesMark && x >= region.X && x < region.X + region.Width;
+                    if (!coversMark && x % 19 != 0) continue;
+                    if (Math.Abs(left[x * leftChannels] - right[x * rightChannels]) <= 1024) continue;
+                    if (coversMark) marked++;
+                    else unmarked++;
+                }
+            }
+            return (marked, unmarked);
+        }
 
         async Task StopDuringPreparation()
         {
