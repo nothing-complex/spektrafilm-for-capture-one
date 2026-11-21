@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.IO;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Windows;
 using System.Windows.Media;
@@ -10,6 +12,50 @@ internal sealed record ExportOverlay(int X, int Y, int Width, int Height, float 
     string PixelsSha256, ExportColorProfile.Profile Profile)
 {
     internal object Identity => new { X, Y, Width, Height, Opacity, PixelsSha256, Profile.Sha256 };
+
+    internal static ExportOverlay? Capture(BitmapSource bitmap, int x, int y, float opacity, string label, string profilePath)
+    {
+        if (bitmap.Format != PixelFormats.Bgra32)
+            throw new InvalidDataException("Capture One returned an unsupported overlay image.");
+        if (VisibleBounds(bitmap) is not { } bounds)
+            return null;
+        var bytes = GC.AllocateUninitializedArray<byte>(checked(bounds.Width * bounds.Height * 4));
+        bitmap.CopyPixels(bounds, bytes, checked(bounds.Width * 4), 0);
+        var profile = ExportColorProfile.Capture(label, profilePath);
+        return new(checked(x + bounds.X), checked(y + bounds.Y), bounds.Width, bounds.Height, opacity, bytes,
+            Convert.ToHexString(SHA256.HashData(bytes)), profile);
+    }
+
+    private static Int32Rect? VisibleBounds(BitmapSource bitmap)
+    {
+        var width = bitmap.PixelWidth;
+        var height = bitmap.PixelHeight;
+        var stride = checked(width * 4);
+        var step = Math.Min(height, Math.Max(1, 256 * 1024 / stride));
+        var block = new byte[stride * step];
+        var left = width;
+        var right = -1;
+        var top = height;
+        var bottom = -1;
+        for (var y = 0; y < height; y += step)
+        {
+            var rows = Math.Min(height - y, step);
+            bitmap.CopyPixels(new Int32Rect(0, y, width, rows), block, stride, 0);
+            for (var row = 0; row < rows; row++)
+            {
+                var alpha = row * stride + 3;
+                for (var x = 0; x < width; x++, alpha += 4)
+                {
+                    if (block[alpha] == 0) continue;
+                    left = Math.Min(left, x);
+                    right = Math.Max(right, x);
+                    top = Math.Min(top, y + row);
+                    bottom = y + row;
+                }
+            }
+        }
+        return right < 0 ? null : new Int32Rect(left, top, right - left + 1, bottom - top + 1);
+    }
 
     internal ushort[] Prepare(ExportColorProfile delivery, CancellationToken stop)
     {

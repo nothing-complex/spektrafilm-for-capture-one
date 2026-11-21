@@ -1330,9 +1330,17 @@ public static partial class StartupHook
                     var fixtureCrop = Activator.CreateInstance(crop.PropertyType,
                         new System.Drawing.PointF(dimensions.Width * .44f, dimensions.Height * .53f),
                         new System.Drawing.SizeF(dimensions.Width * .55f, dimensions.Height * .65f))!;
+                    var controller = window.GetType().Assembly.GetType("P1.C1.Program", true)!
+                        .GetProperty("OverlayController", Flags)!.GetValue(null)!;
+                    var originalOverlayPath = Prop(controller, "Path") as string;
+                    var originalOverlaySettings = new[] { "Enabled", "FollowCrop", "Opacity", "Scaling", "HorizontalOffset", "VerticalOffset" }
+                        .ToDictionary(name => controller.GetType().GetProperty(name, Flags)!, name => Prop(controller, name));
+                    Check(string.IsNullOrEmpty(originalOverlayPath) || File.Exists(originalOverlayPath),
+                        "the disposable preferences have a restorable original overlay selection");
                     filename.SetValue(selected, initialName);
                     try
                     {
+                        Call(controller, "Clear");
                         crop.SetValue(variant, fixtureCrop);
                         Check(!Equals(crop.GetValue(variant), originalCrop), "the disposable RAW has a real asymmetric native crop");
                         var cropped = Dimensions(CaptureRecipe());
@@ -1357,7 +1365,7 @@ public static partial class StartupHook
                         var approvedPath = Prop(pathRecipe, "CropPath");
                         Check(Prop(pathRecipe, "FormatId") is "Psd" && Prop(pathRecipe, "CropMode") is "AsPath"
                             && Dimensions(pathRecipe) == full && approvedPath is not null
-                            && Prop(pathRecipe, "Omissions")?.ToString() == "PsdLayers",
+                            && Prop(pathRecipe, "Omissions")?.ToString() == "TransparencyOverlay",
                             "Capture One supplies a full-canvas PSD recipe with a crop path and transparency overlay requested");
                         var withPath = await Render("editable-psd-crop-path", ".psd", false, expectedGeometry: full,
                             expectedCropPath: approvedPath);
@@ -1366,12 +1374,12 @@ public static partial class StartupHook
                             "the editable path preserves the complete high-depth film composite");
                         var psdReceipt = Call(Field(spatial, "exportJobs")!, "ReadLatest")!;
                         Check(Prop(psdReceipt, "DeliveryNote") as string
-                            == "Saved the full image with the editable crop path. The export omitted PSD transparency overlay.",
+                            == "Saved the full image with the editable crop path. The export omitted recipe transparency overlay.",
                             "the native PSD receipt records the included path and omitted transparency overlay");
                         var png = await Render("psd-crop-path-alternative", ".png", false, expectedGeometry: full);
-                        Check(offeredTitle?.StartsWith("Save 16-bit TIFF, PNG or PSD · full image, editable crop path in PSD · omits PSD transparency overlay", StringComparison.Ordinal) == true,
+                        Check(offeredTitle?.StartsWith("Save 16-bit TIFF, PNG or PSD · full image, editable crop path in PSD · omits recipe transparency overlay", StringComparison.Ordinal) == true,
                             "the native Save title names the format that retains the crop path and discloses omitted layers");
-                        const string note = "Recipe requested 16-bit PSD. Saved 16-bit PNG. Saved the full image. The recipe’s crop path was omitted. The export omitted PSD transparency overlay.";
+                        const string note = "Recipe requested 16-bit PSD. Saved 16-bit PNG. Saved the full image. The recipe’s crop path was omitted. The export omitted recipe transparency overlay.";
                         var receipt = Call(Field(spatial, "exportJobs")!, "ReadLatest")!;
                         Check(Equals(Prop(receipt, "DeliveryNote"), note)
                             && ((TextBlock)Field(spatial, "exportStatus")!).Text.Contains(note, StringComparison.Ordinal),
@@ -1381,7 +1389,52 @@ public static partial class StartupHook
                             "the PSD substitute preserves the same full-canvas effect pixels as the Ignore Crop reference TIFF");
                         overlay.SetValue(selected, false);
                         await CheckNativeAnnotationLayer();
+                        await CheckNativeTransparencyLayer();
                         Check(Read(counter) == 44, "manual substitution filenames do not consume another native counter step");
+
+                        async Task CheckNativeTransparencyLayer()
+                        {
+                            var asset = Path.Combine(folder, "recipe-transparency-fixture.png");
+                            const int imageWidth = 64, imageHeight = 48;
+                            var data = new byte[imageWidth * imageHeight * 4];
+                            for (var y = 8; y < 40; y++)
+                            for (var x = 10; x < 54; x++)
+                            {
+                                var i = (y * imageWidth + x) * 4;
+                                data[i] = 42;
+                                data[i + 1] = 21;
+                                data[i + 2] = 230;
+                                data[i + 3] = (byte)(x < 32 ? 140 : 255);
+                            }
+                            var encoder = new PngBitmapEncoder();
+                            encoder.Frames.Add(BitmapFrame.Create(BitmapSource.Create(imageWidth, imageHeight, 96, 96,
+                                PixelFormats.Bgra32, null, data, imageWidth * 4)));
+                            using (var stream = File.Create(asset)) encoder.Save(stream);
+                            Check(Call(controller, "Load", asset, true) is true, "the native Overlay tool loads a transparent PNG");
+                            SetOverlay("Enabled", false);
+                            SetOverlay("FollowCrop", true);
+                            SetOverlay("Scaling", 64);
+                            SetOverlay("Opacity", 65);
+                            SetOverlay("HorizontalOffset", 9);
+                            SetOverlay("VerticalOffset", -7);
+                            overlay.SetValue(selected, true);
+                            var state = CaptureRecipe();
+                            Check(Prop(state, "TransparencyOverlay") is { } captured && Prop(captured, "Opacity") is .65f
+                                && Prop(state, "Omissions")?.ToString() == "None",
+                                "recipe approval captures the transparency overlay independently of the Viewer Show switch");
+                            var layers = await Render("editable-psd-transparency", ".psd", true, expectedGeometry: full,
+                                expectedCropPath: approvedPath, expectedPsdBackground: uncut, expectedPsdOverlay: "Overlay");
+                            var flattened = await Render("flattened-png-transparency", ".png", false, expectedGeometry: full);
+                            var match = Difference(layers, flattened);
+                            Check(Difference(uncut, layers).Mean > .0001 && match.Mean < 8d / 65535 && match.Maximum < .01,
+                                "both native export commands carry the same overlay over the RGB16 film result");
+
+                            void SetOverlay(string name, object value)
+                            {
+                                var property = controller.GetType().GetProperty(name, Flags)!;
+                                property.SetValue(controller, Convert.ChangeType(value, property.PropertyType));
+                            }
+                        }
 
                         async Task CheckNativeAnnotationLayer()
                         {
@@ -1419,7 +1472,14 @@ public static partial class StartupHook
                             }
                         }
                     }
-                    finally { crop.SetValue(variant, originalCrop); }
+                    finally
+                    {
+                        crop.SetValue(variant, originalCrop);
+                        Call(controller, "Clear");
+                        if (!string.IsNullOrEmpty(originalOverlayPath))
+                            Check(Call(controller, "Load", originalOverlayPath, true) is true, "the disposable overlay selection is restored");
+                        foreach (var (property, value) in originalOverlaySettings) property.SetValue(controller, value);
+                    }
                 }
                 finally
                 {

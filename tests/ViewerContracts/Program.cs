@@ -207,13 +207,13 @@ internal static partial class Program
         Check(optionalEffects.SaveTitle(3000, 2000, "sRGB").Contains("omits recipe watermark, recipe sharpening mode", StringComparison.Ordinal)
             && optionalEffects.SavedNote(tiff) == "The export omitted recipe watermark, recipe sharpening mode.",
             "a matching output format still discloses active recipe pixel effects in Save and completed history");
-        var layered = cropPath with { Omissions = SpektraExport.RecipeOmission.PsdLayers };
-        Check(layered.SaveTitle(3000, 2000, "sRGB").Contains("crop path omitted · omits PSD transparency overlay", StringComparison.Ordinal)
-            && layered.SavedNote(png)?.EndsWith("The export omitted PSD transparency overlay.", StringComparison.Ordinal) == true,
+        var layered = cropPath with { Omissions = SpektraExport.RecipeOmission.TransparencyOverlay };
+        Check(layered.SaveTitle(3000, 2000, "sRGB").Contains("crop path omitted · omits recipe transparency overlay", StringComparison.Ordinal)
+            && layered.SavedNote(png)?.EndsWith("The export omitted recipe transparency overlay.", StringComparison.Ordinal) == true,
             "PSD layer disclosures accompany format and crop-path substitutions");
-        var batch = layered with { Omissions = SpektraExport.RecipeOmission.PsdLayers | SpektraExport.RecipeOmission.Watermark };
+        var batch = layered with { Omissions = SpektraExport.RecipeOmission.TransparencyOverlay | SpektraExport.RecipeOmission.Watermark };
         Check(batch.BatchTitle(2, skipExisting: false)
-            == "Export 2 images as 16-bit PSD · Full image, unavailable crop paths omitted · Omits recipe watermark, PSD transparency overlay",
+            == "Export 2 images as 16-bit PSD · Full image, unavailable crop paths omitted · Omits recipe watermark, recipe transparency overlay",
             "batch approval names the actual format, crop-path policy and all requested omissions before saving");
         var missingAnnotations = new SpektraExport.RecipeDelivery("Tiff", 16, "Default", SpektraExport.RecipeOmission.Annotations);
         Check(missingAnnotations.SavedNote(tiff) == "The export omitted recipe annotations."

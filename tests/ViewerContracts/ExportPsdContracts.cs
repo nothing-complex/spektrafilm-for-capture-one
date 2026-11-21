@@ -108,26 +108,38 @@ internal static partial class Program
 
         void TestPsdOverlays()
         {
-            var output = Path.Combine(folder, "rgb16-watermark.psd");
-            var captureProfile = new ExportColorProfile.Profile("Same ProPhoto RGB", new Uri("file:///watermark-test.icc"), profile.Sha256);
+            var output = Path.Combine(folder, "rgb16-layered.psd");
+            var profilePath = Path.Combine(AppContext.BaseDirectory, "Profiles", "ProPhoto RGB.icc");
+            var captureProfile = ExportColorProfile.Capture("Same ProPhoto RGB", profilePath);
             var watermark = new ExportOverlay(8, 24, 4, 2, .41314159f,
                 [0, 0, 255, 255, 0, 0, 255, 255, 1, 2, 3, 255, 4, 5, 6, 0,
                  0, 0, 255, 255, 0, 0, 255, 255, 7, 8, 9, 128, 10, 11, 12, 13], "test", captureProfile);
             var crop = new Rectangle(10, 20, width, height);
+            var asset = new byte[4 * 3 * 4];
+            byte[] visible = [25, 10, 32, 131, 251, 190, 9, 193];
+            visible.CopyTo(asset, 20);
+            var bitmap = BitmapSource.Create(4, 3, 96, 96, PixelFormats.Bgra32, null, asset, 16);
+            var overlay = ExportOverlay.Capture(bitmap, 9, 24, .5f, "Test transparency overlay", profilePath)
+                ?? throw new InvalidOperationException("The test transparency overlay should remain visible.");
+            Check(overlay is { X: 10, Y: 25, Width: 2, Height: 1 } && overlay.Bgra.AsSpan().SequenceEqual(visible),
+                "snapshot trimming preserves the exact visible overlay and its canvas origin");
             var annotation = new ExportOverlay(10, 25, 2, 1, 1, [31, 63, 29, 79, 141, 151, 214, 255],
                 "annotation", captureProfile);
             List<PsdLayer> layers = [new("Background", 0, 0, image)];
             var composed = ExportOverlay.Composite(image, crop, [new("Watermark", watermark, watermark.Prepare(profile, default)),
+                new("Overlay", overlay, overlay.Prepare(profile, default)),
                 new("Annotations", annotation, annotation.Prepare(profile, default))], default, layers);
             SpektraExport.SaveApproved(OutputPathGuard.Approve(output, source), composed, CancellationToken.None,
                 metadata, profile, cropPath: pathCrop, guides: guides, layers: layers);
 
             using var file = File.OpenRead(output);
             var decoded = PsdFixture.Read(file);
-            Check(decoded.Layers is [var background, var mark, var note] && background.Name == "Background"
+            Check(decoded.Layers is [var background, var mark, var transparency, var note] && background.Name == "Background"
                 && background.Left == 0 && background.Top == 0 && background.Width == width && background.Height == height
                 && background.Samples.AsSpan().SequenceEqual(samples)
                 && mark.Name == "Watermark" && mark.Left == 0 && mark.Top == 4 && mark.Width == 2 && mark.Height == 2
+                && transparency.Name == "Overlay" && transparency.Left == 0 && transparency.Top == 5
+                && transparency.Width == 2 && transparency.Height == 1
                 && note.Name == "Annotations" && note.Left == 0 && note.Top == 5 && note.Width == 2 && note.Height == 1,
                 "the layer stack preserves the complete RGB16 film frame beneath the independent crop-relative overlays");
             ushort Alpha(int alpha) => (ushort)Math.Round(alpha * 257 * (double)watermark.Opacity);
@@ -135,11 +147,15 @@ internal static partial class Program
                 2313, 2056, 1799, Alpha(128), 3084, 2827, 2570, Alpha(13)];
             Check(decoded.Layers[1].Samples.AsSpan().SequenceEqual(expectedOverlay),
                 "clipped RGBA16 layer stores straight RGB and the exact calculated alpha");
+            ushort[] expectedTransparency = [8224, 2570, 6425, 16834, 2313, 48830, 64507, 24800];
+            Check(decoded.Layers[2].Samples.AsSpan().SequenceEqual(expectedTransparency),
+                "the transparency overlay keeps its own RGB16 samples and recipe-adjusted alpha");
             ushort[] expectedNote = [7453, 16191, 7967, 20303, 54998, 38807, 36237, 65535];
-            Check(decoded.Layers[2].Samples.AsSpan().SequenceEqual(expectedNote),
+            Check(decoded.Layers[3].Samples.AsSpan().SequenceEqual(expectedNote),
                 "the annotation layer preserves the exact RGBA16 samples");
             var expectedMerged = (ushort[])samples.Clone();
             BlendReference(expectedOverlay, 2, 4);
+            BlendReference(expectedTransparency, 1, 5);
             BlendReference(expectedNote, 1, 5);
             Check(decoded.Samples.AsSpan().SequenceEqual(expectedMerged)
                 && Convert.ToHexString(SHA256.HashData(decoded.Resources[1039])) == profile.Sha256,
@@ -154,6 +170,7 @@ internal static partial class Program
             }
             if (!writeReference) return;
             WriteReference("expected-watermark-rgba16-be.bin", expectedOverlay);
+            WriteReference("expected-overlay-rgba16-be.bin", expectedTransparency);
             WriteReference("expected-annotations-rgba16-be.bin", expectedNote);
             WriteReference("expected-merged-rgb16-be.bin", expectedMerged);
 

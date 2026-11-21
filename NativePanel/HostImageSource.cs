@@ -76,7 +76,7 @@ internal static class HostImageSource
         double Resolution, string ResolutionUnit, ExportMetadata Metadata, TiffCompressOption TiffCompression,
         RecipeNaming? Naming, string? SuggestedDirectory, string? ExactDirectory,
         bool AddSuffixToExistingFileName, bool SkipExistingOutput, SharpeningOutputControl Sharpening,
-        ExportOverlay? Watermark, ExportOverlay? Annotations, SpektraExport.RecipeOmission Omissions,
+        ExportOverlay? Watermark, ExportOverlay? TransparencyOverlay, ExportOverlay? Annotations, SpektraExport.RecipeOmission Omissions,
         PsdCropPath? CropPath, PsdGuide[]? Guides)
     {
         internal string? SuggestedFilename => Naming?.Stem;
@@ -256,8 +256,10 @@ internal static class HostImageSource
         var sharpening = recipe.SharpeningOutputControl;
         if (sharpening is not (SharpeningOutputControl.LensAndSharpening or SharpeningOutputControl.Lens or SharpeningOutputControl.Disabled))
             omissions |= SpektraExport.RecipeOmission.Sharpening;
-        if (format == FileFormat.Psd && recipe.IncludeOverlay)
-            omissions |= SpektraExport.RecipeOmission.PsdLayers;
+        ExportOverlay? transparencyOverlay = null;
+        if (recipe.IncludeOverlay && !NativeExportTransparencyOverlay.TryCapture(geometry, (float)scale.Scale,
+            WatermarkProfilePath, out transparencyOverlay))
+            omissions |= SpektraExport.RecipeOmission.TransparencyOverlay;
         var guides = recipe.IncludeGuides ? NativeExportGuides.Capture(selection, recipe, geometry) : null;
         if (recipe.IncludeGuides && guides is null)
             omissions |= SpektraExport.RecipeOmission.Guides;
@@ -268,7 +270,8 @@ internal static class HostImageSource
             scale.ScaledPixelWidth, scale.ScaledPixelHeight, scale.Scale, ignoreCrop, recipe.Resolution, recipe.ResolutionUnit.ToString(),
             metadata, compression, ReadRecipeNaming(selection, recipe), suggestedDirectory, exactDirectory,
             recipe.FileOverwriteAction == ProcessedFileOverwriteAction.Rename,
-            recipe.FileOverwriteAction == ProcessedFileOverwriteAction.Skip, sharpening, watermark, annotations, omissions, cropPath, guides);
+            recipe.FileOverwriteAction == ProcessedFileOverwriteAction.Skip, sharpening, watermark, transparencyOverlay, annotations,
+            omissions, cropPath, guides);
     }
 
     private static PsdCropPath? ReadPsdCropPath(VariantGeometryTransformer geometry)

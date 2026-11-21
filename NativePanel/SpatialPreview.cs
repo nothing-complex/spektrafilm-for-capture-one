@@ -1310,8 +1310,9 @@ internal sealed class SpatialPreview : IDisposable
                     work.Token.ThrowIfCancellationRequested();
                     Advance(ExportStage.Encoding, "Writing the 16-bit export…", rendered.Crop.Width, rendered.Crop.Height);
                     var watermark = recipe?.Watermark;
+                    var transparencyOverlay = recipe?.TransparencyOverlay;
                     var annotations = recipe?.Annotations;
-                    var hasOverlays = watermark is not null || annotations is not null;
+                    var hasOverlays = watermark is not null || transparencyOverlay is not null || annotations is not null;
                     var convertsProfile = deliveryProfile.RequiresConversion;
                     var editableOverlays = hasOverlays && outputContainer == SpektraExport.Format.Psd;
                     var deferOverlays = convertsProfile || editableOverlays;
@@ -1322,11 +1323,16 @@ internal sealed class SpatialPreview : IDisposable
                         (long)rendered.Crop.Width * rendered.Crop.Height, "Free memory or choose a smaller Export Recipe.");
                     using var watermarkMemory = watermark is null ? null : RenderMemoryBudget.SystemMemory.Reserve(
                         RenderAllocation.ImageEncoding, (long)watermark.Width * watermark.Height, "Choose a smaller recipe watermark.");
+                    using var transparencyMemory = transparencyOverlay is null ? null : RenderMemoryBudget.SystemMemory.Reserve(
+                        RenderAllocation.ImageEncoding, (long)transparencyOverlay.Width * transparencyOverlay.Height,
+                        "Choose a smaller export size or transparency overlay.");
                     using var annotationsMemory = annotations is null ? null : RenderMemoryBudget.SystemMemory.Reserve(
                         RenderAllocation.ImageEncoding, (long)annotations.Width * annotations.Height, "Choose a smaller export size for the recipe annotations.");
-                    var overlays = new List<ExportOverlay.Prepared>(2);
+                    var overlays = new List<ExportOverlay.Prepared>(3);
                     if (watermark is not null)
                         overlays.Add(new("Watermark", watermark, watermark.Prepare(deliveryProfile, work.Token)));
+                    if (transparencyOverlay is not null)
+                        overlays.Add(new("Overlay", transparencyOverlay, transparencyOverlay.Prepare(deliveryProfile, work.Token)));
                     if (annotations is not null)
                         overlays.Add(new("Annotations", annotations, annotations.Prepare(deliveryProfile, work.Token)));
                     var deliveryFormat = convertsProfile ? PixelFormats.Rgba64 : outputFormat;
@@ -1480,6 +1486,7 @@ internal sealed class SpatialPreview : IDisposable
                     recipe.FormatId, recipe.CropMode, recipe.CropPath, recipe.Guides, recipe.TiffBits, recipe.Width, recipe.Height, recipe.Scale, recipe.IgnoreCrop,
                     recipe.Resolution, recipe.ResolutionUnit, recipe.TiffCompression, recipe.Sharpening, recipe.Omissions,
                     Watermark = recipe.Watermark?.Identity,
+                    TransparencyOverlay = recipe.TransparencyOverlay?.Identity,
                     Annotations = recipe.Annotations?.Identity,
                     Metadata = recipe.Metadata.CreateXmp(1, 1),
                 },
