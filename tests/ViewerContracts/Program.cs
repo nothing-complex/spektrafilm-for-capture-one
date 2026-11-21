@@ -724,6 +724,37 @@ internal static partial class Program
         Check(File.ReadAllText(lateAlias) == "ORIGINAL", "Concurrent original alias was altered");
         Check(File.ReadAllText(source)=="ORIGINAL","Path test altered original");
 
+        var raw = Path.Combine(folder, "source-capture.dng");
+        var moved = Path.Combine(folder, "previous-capture.dng");
+        var priorOutput = Path.Combine(folder, "completed.png");
+        File.WriteAllText(raw, "RAW1");
+        File.WriteAllText(priorOutput, "PREVIOUS");
+        var originalTime = File.GetLastWriteTimeUtc(raw);
+        var original = new OutputPathGuard.OriginalFile(raw);
+        File.Move(raw, moved);
+        File.WriteAllText(raw, "RAW2");
+        File.SetLastWriteTimeUtc(raw, originalTime);
+        ExpectRefused(() => original.Approve(priorOutput), "An equal-length replacement at the same RAW path passed approval");
+        Check(File.ReadAllText(priorOutput) == "PREVIOUS", "Replacement during Save changed a completed export");
+        var current = new OutputPathGuard.OriginalFile(raw);
+        var stable = current.Approve(priorOutput);
+        using (current.OpenRead())
+        {
+            ExpectRefused(() => File.WriteAllText(raw, "RAW3"), "The accepted export allowed a writer through its source lease");
+            ExpectRefused(() => File.Move(raw, Path.Combine(folder, "lease-replacement.dng")), "The accepted export allowed its source to be renamed");
+        }
+        ExpectRefused(() => stable.Write(stream =>
+        {
+            stream.WriteByte(93);
+            File.WriteAllText(raw, "RAW3");
+            File.SetLastWriteTimeUtc(raw, originalTime);
+        }), "An in-place RAW rewrite with a preserved timestamp passed the final guard");
+        Check(File.ReadAllText(priorOutput) == "PREVIOUS" && File.ReadAllText(moved) == "RAW1"
+            && !Directory.EnumerateFiles(folder, ".spektra-*.tmp").Any(),
+            "Rejecting a changed RAW altered unrelated bytes or left a staging file");
+        new OutputPathGuard.OriginalFile(raw).Approve(priorOutput).Write(stream => stream.WriteByte(94));
+        Check(File.ReadAllBytes(priorOutput).SequenceEqual(new byte[] { 94 }), "A new approval could not write after reviewing the current source");
+
         void ExpectRefused(Action action, string failure)
         {
             try { action(); }

@@ -55,6 +55,7 @@ param(
     [switch] $NativeEffectClone,
     [ValidateSet('DevelopingSource','RenderingFilm','Encoding')][string] $NativeExportInterruption,
     [switch] $OriginalAvailabilityProbe,
+    [switch] $NativeOriginalReplacement,
     [switch] $NativeDevelopmentDeadline,
     [string] $DevelopmentLeaseFixtureDirectory,
     [string] $DeviceLossFixtureDirectory,
@@ -186,6 +187,9 @@ if ($DevelopmentLeaseFixtureDirectory) {
 }
 if ($OriginalAvailabilityProbe -and !$CalibrationChart) {
     throw 'The original availability fixture requires a private calibrated RAW chart.'
+}
+if ($NativeOriginalReplacement -and (!$CalibrationChart -or $OriginalAvailabilityProbe -or $NativeEffectExport -or $NativeBatchExport -or $PackagedRuntime)) {
+    throw 'Original replacement requires its own disposable calibration launch with the source build.'
 }
 if ($NativeDevelopmentDeadline) {
     if (!$NativeSettingsConfig -or $NativeEffectExport -or $ColorMatrix -or $NativeSourceMutations -or $CatalogIsolation -or
@@ -501,7 +505,7 @@ if ($NativeSettingsConfig) {
 }
 $nativeRecipes=$null
 $recipeHashes=@{}
-if ($NativeBatchExport -or $NativeExportSelection -or $NativeEffectCompression -or $NativeEffectOutputProfiles -or $NativeEffectFolders -or $NativeEffectSourceRevision -or $NativeEffectMaskedSource -or $NativeEffectProfileSidecars -or $NativeEffectRecipeRestart) {
+if ($NativeBatchExport -or $NativeExportSelection -or $NativeOriginalReplacement -or $NativeEffectCompression -or $NativeEffectOutputProfiles -or $NativeEffectFolders -or $NativeEffectSourceRevision -or $NativeEffectMaskedSource -or $NativeEffectProfileSidecars -or $NativeEffectRecipeRestart) {
     $nativeRecipes=Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'CaptureOne\Recipes143'
     $recipeRoot=Get-Item -LiteralPath $nativeRecipes -Force
     if (!$recipeRoot.PSIsContainer -or ($recipeRoot.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
@@ -733,7 +737,7 @@ $names=@(
     'SPEKTRAFILM_HOST_VIEWER_CHURN','SPEKTRAFILM_HOST_VIEWER_CHURN_RESOLUTION','SPEKTRAFILM_HOST_VIEWER_TELEMETRY_SECONDS','SPEKTRAFILM_HOST_EXPORT_INTERRUPTION',
     'SPEKTRAFILM_HOST_NATIVE_VIEWER_BASELINE','SPEKTRAFILM_HOST_OTHER_CATALOG',
     'SPEKTRAFILM_HOST_NATIVE_LIFETIME',
-    'SPEKTRAFILM_HOST_SESSION','SPEKTRAFILM_HOST_CALIBRATION','SPEKTRAFILM_HOST_ORIGINAL_AVAILABILITY_PROBE',
+    'SPEKTRAFILM_HOST_SESSION','SPEKTRAFILM_HOST_CALIBRATION','SPEKTRAFILM_HOST_ORIGINAL_AVAILABILITY_PROBE','SPEKTRAFILM_HOST_ORIGINAL_REPLACEMENT',
     'SPEKTRAFILM_HOST_NATIVE_DEVELOPMENT_DEADLINE','SPEKTRAFILM_HOST_DEVICE_LOSS','SPEKTRAFILM_HOST_DEVELOPMENT_LEASE'
 )
 $prior=@{}
@@ -778,6 +782,7 @@ try {
     $env:SPEKTRAFILM_HOST_SESSION=$sessionDatabase
     $env:SPEKTRAFILM_HOST_CALIBRATION=$fixtureChart
     $env:SPEKTRAFILM_HOST_ORIGINAL_AVAILABILITY_PROBE=if($OriginalAvailabilityProbe){'1'}else{$null}
+    $env:SPEKTRAFILM_HOST_ORIGINAL_REPLACEMENT=if($NativeOriginalReplacement){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_NATIVE_DEVELOPMENT_DEADLINE=if($NativeDevelopmentDeadline){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_DEVELOPMENT_LEASE=if($DevelopmentLeaseFixtureDirectory){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_DEVICE_LOSS=if($DeviceLossFixtureDirectory){'1'}else{$null}

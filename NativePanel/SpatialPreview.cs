@@ -680,10 +680,11 @@ internal sealed class SpatialPreview : IDisposable
     }
 
     private sealed record BatchExport(HostProfile.Target Target, HostImageSource.Snapshot Snapshot, OpticalInput Input,
-        string Encoding, double Strength, string[] Arguments, OutputPathGuard.ApprovedDestination? Destination = null,
+        string Encoding, double Strength, string[] Arguments, OutputPathGuard.OriginalFile Original,
+        OutputPathGuard.ApprovedDestination? Destination = null,
         ExportBatchPlan? Plan = null, ExportBatchEntry? Entry = null);
 
-    private BatchExport CaptureBatchSource(HostProfile.Selection item)
+    private async Task<BatchExport> CaptureBatchSourceAsync(HostProfile.Selection item, CancellationToken token)
     {
         var target = HostProfile.TargetFor(item.Variant);
         var saved = readBatchLook(target.VariantId);
@@ -694,10 +695,11 @@ internal sealed class SpatialPreview : IDisposable
         ValidateSettings(saved.Optics);
         var arguments = strength == 0 ? Array.Empty<string>()
             : BuildRendererOptions(saved.Look, input.Id, encoding, export: true, draft: false, saved.Optics);
+        var original = await Task.Run(() => new OutputPathGuard.OriginalFile(target.SourcePath), token);
         var snapshot = HostImageSource.CaptureBatchExport(item, target, input.Space);
         if (snapshot.Recipe is null)
             throw new InvalidOperationException("Select an Export Recipe before starting a batch.");
-        return new(target, snapshot, input, encoding, strength, arguments);
+        return new(target, snapshot, input, encoding, strength, arguments, original);
     }
 
     private static bool ConfirmBatch(Button button, string text) =>
@@ -739,7 +741,7 @@ internal sealed class SpatialPreview : IDisposable
             {
                 try
                 {
-                    sources.Add(CaptureBatchSource(item));
+                    sources.Add(await CaptureBatchSourceAsync(item, token));
                 }
                 catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or InvalidOperationException)
                 {
@@ -781,7 +783,7 @@ internal sealed class SpatialPreview : IDisposable
                     var recipe = item.Snapshot.Recipe!;
                     var extension = recipe.FormatId == "Png" ? ".png" : ".tif";
                     var name = SpektraExport.SuggestedOutputName(recipe.SuggestedFilename, item.Target.SourcePath, extension);
-                    var approved = ApproveNewBatchDestination(folder, name, item.Target.SourcePath, reserved);
+                    var approved = ApproveNewBatchDestination(folder, name, item.Original, reserved);
                     var descriptor = await CaptureBatchDescriptorAsync(item, token);
                     queue.Add(item with { Destination = approved });
                     entries.Add(new(Guid.NewGuid(), item.Target.ImageId, item.Target.VariantId, item.Target.SourcePath, approved.Path, descriptor));
@@ -842,7 +844,7 @@ internal sealed class SpatialPreview : IDisposable
     {
         var recipe = item.Snapshot.Recipe!;
         var profile = ExportColorProfile.ForRecipe(recipe.ColorProfileName, recipe.ColorProfilePath);
-        return CaptureRetryDescriptorAsync(item.Snapshot, item.Target.SourcePath, item.Arguments, item.Strength, item.Encoding,
+        return CaptureRetryDescriptorAsync(item.Snapshot, item.Original, item.Arguments, item.Strength, item.Encoding,
             profile, followRecipe: true, token, held);
     }
 
@@ -887,8 +889,8 @@ internal sealed class SpatialPreview : IDisposable
                 try
                 {
                     if (exportJobs.ReadBatchItem(plan, entry) is { Finished: true }) continue;
-                    var source = CaptureBatchSource(HostProfile.RecoverSelection(window, document, entry));
-                    var approved = OutputPathGuard.Approve(entry.Destination, source.Target.SourcePath);
+                    var source = await CaptureBatchSourceAsync(HostProfile.RecoverSelection(window, document, entry), token);
+                    var approved = source.Original.Approve(entry.Destination);
                     if (approved.AlreadyExists)
                     {
                         exportJobs.Report(exportJobs.BeginBatchItem(plan, entry), ExportStage.Skipped);
@@ -897,7 +899,7 @@ internal sealed class SpatialPreview : IDisposable
                     }
                     if (entry.Retry is null)
                         throw new InvalidOperationException("A pending image could not be verified at approval.");
-                    await using var held = OpenForFingerprint(source.Target.SourcePath);
+                    await using var held = await Task.Run(source.Original.OpenRead, token);
                     if (await CaptureBatchDescriptorAsync(source, token, held) != entry.Retry)
                         throw new InvalidOperationException("A queued image, its saved look or the Export Recipe changed.");
                     if (exportActivity.BatchStopped) break;
@@ -930,7 +932,7 @@ internal sealed class SpatialPreview : IDisposable
         return saved;
     }
 
-    private static OutputPathGuard.ApprovedDestination ApproveNewBatchDestination(string folder, string filename, string original,
+    private static OutputPathGuard.ApprovedDestination ApproveNewBatchDestination(string folder, string filename, OutputPathGuard.OriginalFile original,
         HashSet<string> reserved)
     {
         var stem = Path.GetFileNameWithoutExtension(filename);
@@ -940,7 +942,7 @@ internal sealed class SpatialPreview : IDisposable
             var name = suffix == 0 ? filename : $"{stem}-{suffix}{extension}";
             var path = Path.Combine(folder, name);
             if (reserved.Contains(path) || File.Exists(path) || Directory.Exists(path)) continue;
-            var approved = OutputPathGuard.Approve(path, original);
+            var approved = original.Approve(path);
             if (approved.AlreadyExists) continue;
             reserved.Add(path);
             return approved;
@@ -1018,19 +1020,35 @@ internal sealed class SpatialPreview : IDisposable
                 if (batch is null && (disposed || owner is { IsVisible: false }))
                     return false;
                 var viewerDrainMs = Stopwatch.GetElapsedTime(drainStarted).TotalMilliseconds;
+                var original = batch?.Original ?? await Task.Run(() => new OutputPathGuard.OriginalFile(target.SourcePath), work.Token);
+                work.Token.ThrowIfCancellationRequested();
+                if (batch is null && (disposed || owner is { IsVisible: false }))
+                    return false;
                 var snapshot = batch?.Snapshot ?? HostImageSource.CaptureForExport(window, target,
                     input.Space, captureRecipe: useRecipeSize);
                 var recipe = snapshot.Recipe;
                 var deliveryProfile = ExportColorProfile.ForRecipe(recipe?.ColorProfileName, recipe?.ColorProfilePath);
-                await using var heldSource = interrupted is null ? null : OpenForFingerprint(target.SourcePath);
+                await using var heldSource = interrupted is null ? null : await Task.Run(original.OpenRead, work.Token);
                 ExportRetryDescriptor? retry = null;
                 if (interrupted is not null)
                 {
                     exportActivity.Report(work, "Checking the interrupted export…");
-                    retry = await CaptureRetryDescriptorAsync(snapshot, target.SourcePath, args, strength, encoding,
+                    retry = await CaptureRetryDescriptorAsync(snapshot, original, args, strength, encoding,
                         deliveryProfile, useRecipeSize, work.Token, heldSource);
-                    if (retry is null || retry != interrupted.Retry)
-                        throw new InvalidOperationException("The source, film settings or Export Recipe changed. Restore them or start a new export.");
+                    var expected = interrupted.Retry!;
+                    if (retry is null)
+                        throw new InvalidOperationException("Spektrafilm could not verify the interrupted export. Start a new export.");
+                    if (retry.Original != expected.Original)
+                        throw new InvalidOperationException("The original image contents changed. Restore the original or start a new export.");
+                    if (retry != expected)
+                    {
+                        StartupHook.Log("export.retry.settings-changed.v1", new
+                        {
+                            NativeModelChanged = retry.NativeModel != expected.NativeModel,
+                            DeliveryChanged = retry.Delivery != expected.Delivery || retry.FollowRecipe != expected.FollowRecipe,
+                        });
+                        throw new InvalidOperationException("Capture One settings, the Spektrafilm look or the Export Recipe changed. Restore them or start a new export.");
+                    }
                 }
                 work.Token.ThrowIfCancellationRequested();
                 var delivery = new SpektraExport.RecipeDelivery(recipe?.FormatId, recipe?.TiffBits ?? 0, recipe?.CropMode,
@@ -1059,7 +1077,7 @@ internal sealed class SpatialPreview : IDisposable
                     picker.InitialDirectory = Path.GetDirectoryName(interrupted.Destination) ?? "";
                 else if (recipe?.SuggestedDirectory is { } directory)
                     picker.InitialDirectory = directory;
-                if (skipPath is not null && ExistingRecipeOutput(skipPath, target.SourcePath) is { } existing)
+                if (skipPath is not null && ExistingRecipeOutput(skipPath, original) is { } existing)
                     return Skip(existing);
                 var destination = batch?.Destination?.Path ?? chooseDestination(picker, owner);
                 work.Token.ThrowIfCancellationRequested();
@@ -1072,7 +1090,7 @@ internal sealed class SpatialPreview : IDisposable
 
                 if (interrupted is not null && SpektraExport.PixelFormatFor(interrupted.Destination) != SpektraExport.PixelFormatFor(destination))
                     throw new InvalidOperationException("Use the original file format when retrying an interrupted export.");
-                var approved = batch?.Destination ?? OutputPathGuard.Approve(destination, target.SourcePath);
+                var approved = batch?.Destination ?? original.Approve(destination);
                 if (approved.AlreadyExists && StringComparer.OrdinalIgnoreCase.Equals(skipPath, approved.Path))
                     return Skip(approved);
                 var outputFormat = SpektraExport.PixelFormatFor(approved.Path);
@@ -1087,10 +1105,11 @@ internal sealed class SpatialPreview : IDisposable
                     owner.Title = owner.Title[..^ExportFailureTitleSuffix.Length];
                 var jobId = receipt.JobId;
                 var started = Stopwatch.GetTimestamp();
+                await using var exportSource = heldSource is null ? await Task.Run(original.OpenRead, work.Token) : null;
                 if (batch is null)
                 {
-                    retry ??= await CaptureRetryDescriptorAsync(snapshot, target.SourcePath, args, strength, encoding,
-                        deliveryProfile, useRecipeSize, work.Token);
+                    retry ??= await CaptureRetryDescriptorAsync(snapshot, original, args, strength, encoding,
+                        deliveryProfile, useRecipeSize, work.Token, exportSource);
                     if (retry is not null)
                         receipt = exportJobs.RecordRetry(receipt, retry);
                 }
@@ -1264,7 +1283,7 @@ internal sealed class SpatialPreview : IDisposable
         }
     }
 
-    private static async Task<ExportRetryDescriptor?> CaptureRetryDescriptorAsync(HostImageSource.Snapshot snapshot, string originalPath,
+    private static async Task<ExportRetryDescriptor?> CaptureRetryDescriptorAsync(HostImageSource.Snapshot snapshot, OutputPathGuard.OriginalFile original,
         string[] filmArguments, double strength, string encoding, ExportColorProfile profile, bool followRecipe, CancellationToken token,
         FileStream? heldSource = null)
     {
@@ -1297,9 +1316,10 @@ internal sealed class SpatialPreview : IDisposable
                     foreach (var relative in RuntimeAssets.RequiredFiles)
                         delivery.AppendData(await HashFile(Path.Combine(root, relative), token).ConfigureAwait(false));
                 }
+                await using var openedSource = heldSource is null ? original.OpenRead() : null;
+                var sourceHash = await SHA256.HashDataAsync(heldSource ?? openedSource!, token).ConfigureAwait(false);
                 return new ExportRetryDescriptor(followRecipe, Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(model))),
-                    Convert.ToHexString(heldSource is null ? await HashFile(originalPath, token).ConfigureAwait(false)
-                        : await SHA256.HashDataAsync(heldSource, token).ConfigureAwait(false)),
+                    Convert.ToHexString(sourceHash),
                     Convert.ToHexString(delivery.GetHashAndReset()));
             }, token);
         }
@@ -1319,13 +1339,13 @@ internal sealed class SpatialPreview : IDisposable
     private static FileStream OpenForFingerprint(string path) => new(path, FileMode.Open, FileAccess.Read, FileShare.Read,
         128 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
 
-    private static OutputPathGuard.ApprovedDestination? ExistingRecipeOutput(string path, string original)
+    private static OutputPathGuard.ApprovedDestination? ExistingRecipeOutput(string path, OutputPathGuard.OriginalFile original)
     {
         if (!File.Exists(path))
             return null;
         try
         {
-            var approved = OutputPathGuard.Approve(path, original);
+            var approved = original.Approve(path);
             return approved.AlreadyExists ? approved : null;
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)

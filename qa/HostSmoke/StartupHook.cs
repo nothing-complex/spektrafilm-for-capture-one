@@ -151,7 +151,10 @@ public static partial class StartupHook
             }
             if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_CALIBRATION") is { Length: > 0 } chart)
             {
-                if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT") == "profile-sidecars")
+                if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_ORIGINAL_REPLACEMENT") == "1")
+                    await TestCalibratedChart(panelAssembly, panel, spatial, window, chart,
+                        () => TestOriginalReplacement(panel, spatial, window, chart));
+                else if (Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT") == "profile-sidecars")
                     await TestCalibratedChart(panelAssembly, panel, spatial, window, chart, async () =>
                     {
                         Call(spatial, "SetEnabled", true);

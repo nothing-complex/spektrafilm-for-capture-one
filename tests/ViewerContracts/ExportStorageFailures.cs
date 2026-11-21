@@ -68,7 +68,9 @@ internal static partial class Program
     private static void TestExportStorageFailures(string folder)
     {
         var directory = Directory.CreateDirectory(Path.Combine(folder, "storage-failure-" + Guid.NewGuid().ToString("N")));
+        // Changing the destination folder ACL must not update the original's NTFS change time.
         var original = Path.Combine(directory.FullName, "original.raw");
+        directory = directory.CreateSubdirectory("delivery");
         var destination = Path.Combine(directory.FullName, "existing.tif");
         byte[] source = { 1, 7, 3 };
         byte[] previous = { 4, 2, 8 };

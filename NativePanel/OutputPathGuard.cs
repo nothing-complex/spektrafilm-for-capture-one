@@ -9,6 +9,7 @@ using Microsoft.Win32.SafeHandles;
 internal static class OutputPathGuard
 {
     private const int FileIdInfo = 18;
+    private const int FileBasicInfo = 0;
     private const uint OpenExisting = 3;
     private const uint ShareReadWriteDelete = 7;
     private const uint BackupSemantics = 0x02000000;
@@ -16,31 +17,72 @@ internal static class OutputPathGuard
 
     internal static string Validate(string destination, string original) => Approve(destination, original).Path;
 
-    internal static ApprovedDestination Approve(string destination, string original) => new(destination, original);
+    internal static ApprovedDestination Approve(string destination, string original) =>
+        new OriginalFile(original).Approve(destination);
+
+    internal sealed class OriginalFile
+    {
+        private readonly PathInfo captured;
+
+        internal OriginalFile(string path)
+        {
+            Path = System.IO.Path.GetFullPath(path);
+            captured = Describe(Path, readChangeTime: true)!;
+            if (captured.IsDirectory) throw new IOException("Capture One’s original image is a folder.");
+        }
+
+        internal string Path { get; }
+        internal ApprovedDestination Approve(string destination) => new(destination, this);
+
+        internal FileStream OpenRead()
+        {
+            var stream = new FileStream(Path, FileMode.Open, FileAccess.Read, FileShare.Read,
+                128 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
+            try
+            {
+                ReadCurrent();
+                return stream;
+            }
+            catch
+            {
+                stream.Dispose();
+                throw;
+            }
+        }
+
+        internal PathInfo ReadCurrent()
+        {
+            var current = Describe(Path, allowMissing: true, readChangeTime: true);
+            if (current is null || current.IsDirectory || !SameObject(current, captured)
+                || !SamePath(current.FinalName, captured.FinalName) || current.Length != captured.Length
+                || current.LastWrite != captured.LastWrite || current.ChangeTime != captured.ChangeTime)
+                throw new IOException("The original image file changed. Reopen Export to check the new source.");
+            return current;
+        }
+    }
 
     internal sealed class ApprovedDestination
     {
-        private readonly string sourcePath;
+        private readonly OriginalFile original;
         private readonly string selectedDirectory;
         private readonly string resolvedDestination;
-        private readonly PathInfo selectedSource;
         private readonly PathInfo directory;
         private readonly PathInfo? existing;
 
-        internal ApprovedDestination(string destination, string original)
+        internal ApprovedDestination(string destination, OriginalFile original)
         {
             Path = System.IO.Path.GetFullPath(destination);
-            sourcePath = System.IO.Path.GetFullPath(original);
-            if (SamePath(Path, sourcePath)) throw new IOException(OriginalMessage);
+            this.original = original;
+            if (SamePath(Path, original.Path)) throw new IOException(OriginalMessage);
 
             selectedDirectory = System.IO.Path.GetDirectoryName(Path) ?? throw new IOException("The output folder is unavailable.");
-            selectedSource = Describe(sourcePath)!;
+            var source = original.ReadCurrent();
             directory = Describe(selectedDirectory)!;
-            if (selectedSource.IsDirectory || !directory.IsDirectory)
+            if (!directory.IsDirectory)
                 throw new IOException("Choose a file in an existing output folder.");
             resolvedDestination = System.IO.Path.Combine(directory.FinalName, System.IO.Path.GetFileName(Path));
             existing = Describe(Path, allowMissing: true);
-            CheckOriginal(selectedSource, existing);
+            CheckOriginal(source, existing);
         }
 
         internal string Path { get; }
@@ -61,13 +103,13 @@ internal static class OutputPathGuard
 
         private void Verify()
         {
-            var source = Describe(sourcePath)!;
+            var source = original.ReadCurrent();
             var folder = Describe(selectedDirectory)!;
             var destination = Describe(Path, allowMissing: true);
             CheckOriginal(source, destination);
-            if (!SameObject(source, selectedSource) || !SameObject(folder, directory)
+            if (!SameObject(folder, directory)
                 || !SamePath(folder.FinalName, directory.FinalName) || !SameDestination(destination, existing))
-                throw new IOException("The original image, output folder or destination changed. Choose the output again.");
+                throw new IOException("The output folder or destination changed. Choose the output again.");
         }
 
         private void CheckOriginal(PathInfo source, PathInfo? destination)
@@ -91,13 +133,13 @@ internal static class OutputPathGuard
 
     private static bool SamePath(string first, string second) => StringComparer.OrdinalIgnoreCase.Equals(first, second);
 
-    private static PathInfo? Describe(string path, bool allowMissing = false)
+    private static PathInfo? Describe(string path, bool allowMissing = false, bool readChangeTime = false)
     {
         if (!OperatingSystem.IsWindows())
         {
-            if (Directory.Exists(path)) return new(System.IO.Path.GetFullPath(path), null, true, 0, 0);
+            if (Directory.Exists(path)) return new(System.IO.Path.GetFullPath(path), null, true, 0, 0, null);
             var file = new FileInfo(path);
-            if (file.Exists) return new(file.FullName, null, false, (ulong)file.Length, (ulong)file.LastWriteTimeUtc.Ticks);
+            if (file.Exists) return new(file.FullName, null, false, (ulong)file.Length, (ulong)file.LastWriteTimeUtc.Ticks, null);
             if (allowMissing) return null;
             throw new IOException("Could not verify the original and output paths.");
         }
@@ -130,16 +172,25 @@ internal static class OutputPathGuard
             if (identity.Low == 0)
                 throw new IOException("This folder does not expose a usable file identity. Choose another output folder.");
         }
+        var changeTime = readChangeTime && GetFileInformationByHandleEx(handle, FileBasicInfo,
+            out BasicFileInfo basic, (uint)Marshal.SizeOf<BasicFileInfo>()) ? (long?)basic.ChangeTime : null;
         return new(name.ToString(), identity, (info.Attributes & FileAttributes.Directory) != 0,
-            Join(info.SizeHigh, info.SizeLow), Join(info.LastWriteHigh, info.LastWriteLow));
+            Join(info.SizeHigh, info.SizeLow), Join(info.LastWriteHigh, info.LastWriteLow), changeTime);
     }
 
     private static ulong Join(uint high, uint low) => ((ulong)high << 32) | low;
 
-    private sealed record PathInfo(string FinalName, FileIdentity? Identity, bool IsDirectory, ulong Length, ulong LastWrite);
+    internal sealed record PathInfo(string FinalName, FileIdentity? Identity, bool IsDirectory, ulong Length, ulong LastWrite, long? ChangeTime);
 
     [StructLayout(LayoutKind.Sequential)]
-    private readonly record struct FileIdentity(ulong Volume, ulong Low, ulong High);
+    internal readonly record struct FileIdentity(ulong Volume, ulong Low, ulong High);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct BasicFileInfo
+    {
+        internal long CreationTime, LastAccessTime, LastWriteTime, ChangeTime;
+        internal FileAttributes Attributes;
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct FileInfoByHandle
@@ -159,4 +210,8 @@ internal static class OutputPathGuard
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetFileInformationByHandleEx(SafeFileHandle handle, int infoClass, out FileIdentity info, uint size);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetFileInformationByHandleEx(SafeFileHandle handle, int infoClass, out BasicFileInfo info, uint size);
 }

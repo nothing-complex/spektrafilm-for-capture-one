@@ -184,6 +184,7 @@ internal static class HostImageSource
         var image = variant.CoreImage;
         if (image is null || !image.IsFileAvailable || !image.IsICProcessable || image.IsMovie || image.IsCorrupt)
             throw new InvalidOperationException("Capture One cannot develop the selected source image.");
+        if (forExport) CheckOriginalImage(image, target);
 
         var revision = ReadRevision(variant);
         var settings = variant.GetICProcessSettings();
@@ -214,7 +215,7 @@ internal static class HostImageSource
         var host = StartupHook.VerifiedHost ?? throw new InvalidOperationException("The Capture One image source requires a verified host.");
         var description = new FrameSourceDescription(target.VariantId, target.SourceFormat, inputSpace, profileSha256, revision,
             host.FileVersion, host.AssemblySha256);
-        return new Snapshot(scheduler, selection.Document, variant, profilePath, settings, description, recipe, nativeIdentity);
+        return new Snapshot(scheduler, selection.Document, variant, profilePath, settings, description, recipe, nativeIdentity, target);
     }
 
     private static RecipeInfo? ReadRecipe(HostProfile.Selection selection, ref IC_ProcessSettings settings)
@@ -373,6 +374,13 @@ internal static class HostImageSource
         return new NativeImageRevision(counters.HighResCounter, counters.LowResCounter, counters.SyncCounter);
     }
 
+    private static void CheckOriginalImage(ICoreImage? image, HostProfile.Target target)
+    {
+        if (image is null || image.UUID != target.ImageId
+            || !string.Equals(image.FullpathFilename, target.SourcePath, StringComparison.OrdinalIgnoreCase))
+            throw new ExportSourceChangedException("Capture One’s original image changed. Reopen Export to check the new source.");
+    }
+
     private static void CheckRevision(ICoreVariant variant, Guid expectedVariant, NativeImageRevision expectedRevision,
         bool forExport, string phase, string? nativeIdentity = null)
     {
@@ -481,7 +489,8 @@ internal static class HostImageSource
     }
 
     internal sealed class Snapshot(ImageCoreScheduler scheduler, ICaptureOneDocument document, ICoreVariant variant,
-        string profilePath, IC_ProcessSettings settings, FrameSourceDescription description, RecipeInfo? recipe, string? nativeIdentity)
+        string profilePath, IC_ProcessSettings settings, FrameSourceDescription description, RecipeInfo? recipe, string? nativeIdentity,
+        HostProfile.Target target)
     {
         internal NativeImageRevision AdjustmentKey => description.AdjustmentKey;
         internal PreviewCropIdentity? ReadPreviewCropIdentity() => TryReadCropIdentity(variant, AdjustmentKey);
@@ -629,6 +638,7 @@ internal static class HostImageSource
             using var bitmap = new ImageCoreBitmap();
             var coreImage = source.CoreImage
                 ?? throw new InvalidOperationException("The selected variant no longer has a source image.");
+            if (options.ForExport) CheckOriginalImage(coreImage, target);
             if (!coreImage.IsFileAvailable)
                 throw new InvalidOperationException("Connect the original image for the full-resolution Spektrafilm render.");
             var image = coreImage.Handle
@@ -639,6 +649,7 @@ internal static class HostImageSource
                 throw new InvalidOperationException($"Capture One could not develop the {(options.ForExport ? "export source" : "preview")} ({result}).");
             CheckRevision(source, description.VariantId, description.AdjustmentKey, options.ForExport,
                 "during image development", nativeIdentity);
+            if (options.ForExport) CheckOriginalImage(source.CoreImage, target);
             var imageFrame = CopyPixels(bitmap, pixelLimit, token, options.Purpose, description);
             var pixelCrop = options.ForExport ? ViewerGeometry.ScaleCrop(crop, canvas, imageFrame.Width, imageFrame.Height)
                 : new Rectangle(0, 0, imageFrame.Width, imageFrame.Height);
