@@ -50,7 +50,7 @@ public static partial class StartupHook
                 File.WriteAllBytes(profile, replacement);
                 return batchFolder;
             };
-            var batch = await ((Task<int>)Call(panel, "ExportSelectedImagesWithOwnerAsync", null, chooseFolder)!).WaitAsync(TimeSpan.FromSeconds(30));
+            var batch = await ((Task<int>)Call(panel, "ExportSelectedImagesWithOwnerAsync", null, chooseFolder, false)!).WaitAsync(TimeSpan.FromSeconds(30));
             Check(folderOffered && batch == 0 && status.Text.Contains("2 failed") && status.Text.Contains("changed or became unavailable"),
                 "batch folder approval rejects both images when the active recipe ICC changes");
             Check(Equals(previousReceipt, Call(jobs, "ReadLatest")) && File.ReadAllText(marker) == "existing output"

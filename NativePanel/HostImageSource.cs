@@ -80,6 +80,14 @@ internal static class HostImageSource
         PsdCropPath? CropPath, PsdGuide[]? Guides)
     {
         internal string? SuggestedFilename => Naming?.Stem;
+
+        internal bool MatchesBatchRecipe(RecipeInfo other) =>
+            Name == other.Name && FormatId == other.FormatId && TiffBits == other.TiffBits && CropMode == other.CropMode
+            && RootFolderMode == other.RootFolderMode && CustomRootFolder == other.CustomRootFolder
+            && Subfolder == other.Subfolder && Filename == other.Filename && Suffix == other.Suffix
+            && ColorProfilePath == other.ColorProfilePath && TiffCompression == other.TiffCompression
+            && Resolution == other.Resolution && ResolutionUnit == other.ResolutionUnit && Sharpening == other.Sharpening
+            && AddSuffixToExistingFileName == other.AddSuffixToExistingFileName && SkipExistingOutput == other.SkipExistingOutput;
     }
 
     internal static (Guid VariantId, NativeImageRevision AdjustmentKey, bool OriginalAvailable) GetSelectedSourceState(object window)

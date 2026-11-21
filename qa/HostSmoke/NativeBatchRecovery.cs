@@ -87,7 +87,7 @@ public static partial class StartupHook
             var protectedSha = Digest(protectedFile);
             selected.Select(order[0], order);
             var running = (Task<int>)Call(panel, "ExportSelectedImagesWithOwnerAsync", null,
-                (Func<OpenFolderDialog, Window?, string?>)((_, _) => output))!;
+                (Func<OpenFolderDialog, Window?, string?>)((_, _) => output), false)!;
             var wait = Stopwatch.StartNew();
             while (!running.IsCompleted && wait.Elapsed < TimeSpan.FromSeconds(75))
             {

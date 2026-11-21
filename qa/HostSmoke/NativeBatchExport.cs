@@ -123,7 +123,7 @@ public static partial class StartupHook
         File.WriteAllText(Path.Combine(folder, "first.passed"), $"PASS {checks} native batch export assertions");
 
         Task<int> Start(Func<OpenFolderDialog, Window?, string?> choose) =>
-            (Task<int>)Call(panel, "ExportSelectedImagesWithOwnerAsync", null, choose)!;
+            (Task<int>)Call(panel, "ExportSelectedImagesWithOwnerAsync", null, choose, false)!;
 
         async Task VerifyRecipeFilenamesAndWatermarks()
         {
@@ -386,7 +386,7 @@ public static partial class StartupHook
                         offeredOwner = dialogOwner;
                         offers++;
                         return destination;
-                    }))!;
+                    }), false)!;
             }
             var route = Activator.CreateInstance(originalRoute.GetType(), Flags, null,
                 new[] { (object)(Func<Window?, Task<int>>)Route, Prop(originalRoute, "Ready"), Prop(originalRoute, "NeedsLook") }, null)!;

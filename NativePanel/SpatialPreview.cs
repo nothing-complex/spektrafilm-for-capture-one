@@ -715,7 +715,7 @@ internal sealed class SpatialPreview : IDisposable
             : MessageBox.Show(text, StartupHook.ProductName, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No)) == MessageBoxResult.Yes;
 
     internal async Task<int> ExportBatchAsync(HostProfile.Selection[] selection, Window? owner,
-        Func<OpenFolderDialog, Window?, string?> chooseFolder)
+        Func<OpenFolderDialog, Window?, string?> chooseFolder, bool useRecipeDestination)
     {
         if (disposed || OutputRenderActive) return 0;
         if (interruptedBatch is not null)
@@ -739,6 +739,8 @@ internal sealed class SpatialPreview : IDisposable
         var token = exportActivity.BeginBatch(lifetime.Token);
         try
         {
+            var confirmedRecipe = useRecipeDestination ? HostImageSource.ActiveRecipe(window)
+                ?? throw new InvalidOperationException("Select an Export Recipe before starting the batch.") : null;
             exportActivity.Report(null, "Preparing batch export…");
             await DrainPreviewWorkersAsync(token);
             await HostImageSource.WaitForNativeDevelopmentAsync(token);
@@ -763,23 +765,29 @@ internal sealed class SpatialPreview : IDisposable
 
             var batchRecipe = sources[0].Snapshot.Recipe!;
             var recipes = sources.Select(item => item.Snapshot.Recipe!).ToArray();
-            if (recipes.Any(recipe => recipe.Name != batchRecipe.Name || recipe.FormatId != batchRecipe.FormatId
-                || recipe.TiffBits != batchRecipe.TiffBits || recipe.CropMode != batchRecipe.CropMode))
+            if (recipes.Any(recipe => !recipe.MatchesBatchRecipe(confirmedRecipe ?? batchRecipe)))
                 throw new InvalidOperationException("The selected Export Recipe changed during preparation. Start the batch again.");
             var omissions = recipes.Aggregate(SpektraExport.RecipeOmission.None, (flags, recipe) => flags | recipe.Omissions);
             var policy = new SpektraExport.RecipeDelivery(batchRecipe.FormatId, batchRecipe.TiffBits, batchRecipe.CropMode, omissions,
                 HasPsdCropPath: recipes.All(recipe => recipe.CropPath is not null),
                 HasPsdGuides: recipes.Any(recipe => recipe.Guides is { Length: > 0 }));
-            var skipExisting = policy.CanSkipRecipeOutput && recipes.Any(recipe => recipe.SkipExistingOutput && recipe.SuggestedFilename is not null);
-            var picker = new OpenFolderDialog
+            var recipeDestination = confirmedRecipe is null ? null
+                : await Task.Run(() => ExistingBatchRecipeFolder(recipes, policy), token).WaitAsync(token);
+            if (disposed || owner is { IsVisible: false } || exportActivity.BatchStopped)
             {
-                Title = policy.BatchTitle(sources.Count, skipExisting),
-                Multiselect = false,
-            };
-            if (batchRecipe.SuggestedDirectory is { } suggested && sources.All(item =>
-                StringComparer.OrdinalIgnoreCase.Equals(suggested, item.Snapshot.Recipe!.SuggestedDirectory)))
-                picker.InitialDirectory = suggested;
-            var destination = chooseFolder(picker, owner);
+                summary = "Batch export canceled.";
+                return saved;
+            }
+            var destination = recipeDestination;
+            if (destination is null)
+            {
+                var skipExisting = policy.CanSkipRecipeOutput && recipes.Any(recipe => recipe.SkipExistingOutput && recipe.SuggestedFilename is not null);
+                var picker = new OpenFolderDialog { Title = policy.BatchTitle(sources.Count, skipExisting), Multiselect = false };
+                if (batchRecipe.SuggestedDirectory is { } suggested && recipes.All(recipe =>
+                    StringComparer.OrdinalIgnoreCase.Equals(suggested, recipe.SuggestedDirectory)))
+                    picker.InitialDirectory = suggested;
+                destination = chooseFolder(picker, owner);
+            }
             if (destination is null || disposed || exportActivity.BatchStopped)
             {
                 summary = "Batch export canceled.";
@@ -807,7 +815,15 @@ internal sealed class SpatialPreview : IDisposable
                         if (allowSkip && ExistingRecipeOutput(requestedPath, item.Original) is { } existing)
                             return existing;
                         item.DeliveryProfile.VerifyFiles();
-                        return ApproveNewBatchDestination(folder, name, item.Original, reserved, token);
+                        if (recipeDestination is null || recipe.AddSuffixToExistingFileName)
+                            return ApproveNewBatchDestination(folder, name, item.Original, reserved, token,
+                                nativeSuffix: recipeDestination is not null);
+                        var exact = item.Original.Approve(requestedPath);
+                        if (exact.AlreadyExists && allowSkip)
+                            return exact;
+                        if (exact.AlreadyExists || reserved.Contains(exact.Path))
+                            throw new IOException("A file now occupies a recipe output name. Start Export again to choose how to proceed.");
+                        return exact;
                     }, token).WaitAsync(token);
                     if (!approved.AlreadyExists) reserved.Add(approved.Path);
                     var descriptor = approved.AlreadyExists ? null : await CaptureBatchDescriptorAsync(item, token).WaitAsync(token);
@@ -886,7 +902,8 @@ internal sealed class SpatialPreview : IDisposable
                 + (skipped > 0 ? $" · {skipped} skipped" : "");
             exportActivity.EndBatch(summary ?? (details.Length == 0 ? outcome : outcome + Environment.NewLine + details));
         }
-        return saved;
+        // The native confirmation is complete even when every output was skipped.
+        return useRecipeDestination ? saved + skipped : saved;
     }
 
     private void RecordBatchSkip(ExportBatchPlan plan, ExportBatchEntry entry)
@@ -1014,15 +1031,45 @@ internal sealed class SpatialPreview : IDisposable
         return saved;
     }
 
+    private static bool RequiresLargeDocument(HostImageSource.RecipeInfo recipe) =>
+        recipe.FormatId == "Psd" && !PsdExport.FitsRecipe(recipe.Width, recipe.Height,
+            OverlayPixels(recipe.Watermark) + OverlayPixels(recipe.TransparencyOverlay) + OverlayPixels(recipe.Annotations),
+            Encoding.UTF8.GetByteCount(recipe.Metadata.CreateXmp(recipe.Width, recipe.Height)));
+
+    private static long OverlayPixels(ExportOverlay? overlay) => overlay is null ? 0 : (long)overlay.Width * overlay.Height;
+
+    private static string? ExistingBatchRecipeFolder(HostImageSource.RecipeInfo[] recipes, SpektraExport.RecipeDelivery policy)
+    {
+        if (!policy.CanWriteRecipeDestination || recipes[0].ExactDirectory is not { } folder
+            || recipes.Any(recipe => !StringComparer.OrdinalIgnoreCase.Equals(recipe.ExactDirectory, folder)
+                || recipe.Naming is not { AdvanceCounter: null } || RequiresLargeDocument(recipe)))
+            return null;
+        if (recipes[0].AddSuffixToExistingFileName)
+            return folder;
+
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var recipe in recipes)
+        {
+            var name = recipe.SuggestedFilename! + policy.Extension;
+            var path = Path.Combine(folder, name);
+            if (recipe.SkipExistingOutput && File.Exists(path))
+                continue;
+            if (!names.Add(name) || File.Exists(path) || Directory.Exists(path))
+                return null;
+        }
+        return folder;
+    }
+
     private static OutputPathGuard.ApprovedDestination ApproveNewBatchDestination(string folder, string filename, OutputPathGuard.OriginalFile original,
-        IReadOnlySet<string> reserved, CancellationToken token)
+        IReadOnlySet<string> reserved, CancellationToken token, bool nativeSuffix)
     {
         var stem = Path.GetFileNameWithoutExtension(filename);
         var extension = Path.GetExtension(filename);
+        var separator = nativeSuffix ? " " : "-";
         for (var suffix = 0; suffix <= 10_000; suffix++)
         {
             token.ThrowIfCancellationRequested();
-            var name = suffix == 0 ? filename : $"{stem}-{suffix}{extension}";
+            var name = suffix == 0 ? filename : stem + separator + suffix.ToString(CultureInfo.InvariantCulture) + extension;
             var path = Path.Combine(folder, name);
             if (reserved.Contains(path) || File.Exists(path) || Directory.Exists(path)) continue;
             var approved = original.Approve(path);
@@ -1213,10 +1260,7 @@ internal sealed class SpatialPreview : IDisposable
                     return Skip(existing);
 
                 var approved = batch?.Destination;
-                var offerLargeDocument = useRecipeDestination && recipe is { FormatId: "Psd" }
-                    && !PsdExport.FitsRecipe(recipe.Width, recipe.Height,
-                        OverlayPixels(recipe.Watermark) + OverlayPixels(recipe.TransparencyOverlay) + OverlayPixels(recipe.Annotations),
-                        Encoding.UTF8.GetByteCount(recipe.Metadata.CreateXmp(recipe.Width, recipe.Height)));
+                var offerLargeDocument = useRecipeDestination && recipe is not null && RequiresLargeDocument(recipe);
                 if (useRecipeDestination && delivery.CanWriteRecipeDestination && !offerLargeDocument
                     && recipe is { SuggestedFilename: not null, ExactDirectory: { } destinationDirectory })
                 {
@@ -1411,8 +1455,6 @@ internal sealed class SpatialPreview : IDisposable
                     result.PixelWidth, result.PixelHeight, deliveryNote: deliveryNote);
                 StartupHook.Log($"Spektrafilm 16-bit export saved at {result.PixelWidth}x{result.PixelHeight}: {approved.Path}");
                 return true;
-
-                static long OverlayPixels(ExportOverlay? overlay) => overlay is null ? 0 : (long)overlay.Width * overlay.Height;
 
                 bool Skip(OutputPathGuard.ApprovedDestination existingOutput)
                 {

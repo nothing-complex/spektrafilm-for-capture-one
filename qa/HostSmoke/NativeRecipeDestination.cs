@@ -126,6 +126,7 @@ public static partial class StartupHook
                     && RenderedFilm(line)),
                     "the native confirmation ran the film pipeline for the directly saved recipe file");
             }
+            var batch = await VerifyBatchDestinations(icc);
             File.WriteAllText(Path.Combine(folder, "native-recipe-destination.json"), JsonSerializer.Serialize(new
             {
                 nativeExport = next,
@@ -134,6 +135,7 @@ public static partial class StartupHook
                 occupiedUnchanged = true,
                 skippedUnchanged = true,
                 dimensions.Width, dimensions.Height, icc,
+                batch,
             }));
             File.WriteAllText(Path.Combine(folder, "first.passed"), $"PASS {checks} native recipe destination assertions");
         }
@@ -150,6 +152,91 @@ public static partial class StartupHook
 
         void Set(string name, object value) => saved[name].Property.SetValue(recipe, value);
         void Choose(string name, string value) => Set(name, Enum.Parse(saved[name].Property.PropertyType, value));
+
+        async Task<object> VerifyBatchDestinations(string icc)
+        {
+            var selection = new FixtureSelection(panel);
+            var primary = selection.Variants[0];
+            var secondary = selection.Variants[1];
+            selection.Select(secondary, secondary);
+            var previousSecondary = toggle.IsChecked;
+            toggle.IsChecked = false;
+            selection.Select(primary, primary, secondary);
+            try
+            {
+                Check(toggle.IsChecked == true && Call(bridge, "RequiresSpektrafilm", true) is true,
+                    "the actual two-image selection routes through Spektrafilm");
+                Choose("FileType", "Tiff");
+                Set("TiffBits", 16);
+                Choose("FileOverwriteAction", "Rename");
+                var reserved = Path.Combine(proof, "Native batch.tif");
+                File.WriteAllBytes(reserved, fixture);
+                Set("DestinationFilename", "Native batch");
+                ConfirmBatch();
+                var native = VerifyPair("Native batch 1.tif", "Native batch 2.tif");
+                Check(File.ReadAllBytes(reserved).SequenceEqual(fixture), "the native batch keeps the occupied recipe file");
+
+                Set("DestinationFilename", "Previous batch");
+                ExecuteNativeExportCommand(previous, multiple: true);
+                var wait = Stopwatch.StartNew();
+                while (Prop(bridge, "Busy") is true && wait.Elapsed < TimeSpan.FromSeconds(30)) await Task.Delay(40);
+                Check(Prop(bridge, "Busy") is false, "Previous Settings completed the native batch");
+                var previousPair = VerifyPair("Previous batch.tif", "Previous batch 1.tif");
+
+                Set("DestinationFilename", "Native batch");
+                Choose("FileOverwriteAction", "Skip");
+                ConfirmBatch();
+                var skipped = Receipts().Where(row => row.Path == reserved && row.Stage == "Skipped").ToArray();
+                Check(skipped.Length == 2 && skipped.Select(row => row.Variant).ToHashSet().SetEquals(new[] { primary, secondary })
+                    && File.ReadAllBytes(reserved).SequenceEqual(fixture),
+                    "an all-skipped native batch closes the dialog and preserves the exact existing file");
+                return new { native, previousSettings = previousPair, skipped = skipped.Length };
+            }
+            finally
+            {
+                selection.Select(secondary, secondary);
+                toggle.IsChecked = previousSecondary;
+                selection.Select(primary, primary);
+            }
+
+            void ConfirmBatch() => ShowNativeExportDialog(bridge, window, normal, () =>
+            {
+                if (Prop(bridge, "Dialog") is not Window { IsVisible: true } owner
+                    || owner.DataContext is not { } model || Prop(model, "ExportCommand") is not ICommand confirm
+                    || !confirm.CanExecute(null))
+                    return false;
+                confirm.Execute(null);
+                return true;
+            }, multiple: true);
+
+            object VerifyPair(string first, string second)
+            {
+                var paths = new[] { Path.Combine(proof, first), Path.Combine(proof, second) };
+                var entries = Receipts().Where(row => paths.Contains(row.Path) && row.Stage == "Completed").ToArray();
+                Check(entries.Length == 2 && entries.Select(row => row.Variant).ToHashSet().SetEquals(new[] { primary, secondary }),
+                    "the two approved recipe paths each have one completed native job");
+                foreach (var row in entries)
+                {
+                    _ = VerifyDepth(row.Path, PixelFormats.Rgb48, icc);
+                    var line = File.ReadLines(Path.Combine(folder, "panel.log")).Single(line =>
+                        line.Contains("export.performance.v2", StringComparison.Ordinal)
+                        && line.Contains(row.Job.ToString(), StringComparison.OrdinalIgnoreCase));
+                    Check(RenderedFilm(line) == (row.Variant == primary),
+                        "each selected variant uses its own saved master switch in the native batch");
+                }
+                return entries.Select(row => new { row.Job, row.Path, row.Variant }).ToArray();
+            }
+
+            (Guid Job, Guid Variant, string Path, string Stage)[] Receipts() =>
+                Directory.EnumerateFiles(Path.Combine(folder, "Export jobs"), "*.json", SearchOption.AllDirectories)
+                    .Where(path => Path.GetFileName(path) != "pending.json").Select(path =>
+                    {
+                        using var data = JsonDocument.Parse(File.ReadAllBytes(path));
+                        var entry = data.RootElement;
+                        return (entry.GetProperty("JobId").GetGuid(), entry.GetProperty("VariantId").GetGuid(),
+                            entry.GetProperty("Destination").GetString()!, entry.GetProperty("Stage").GetString()!);
+                    }).ToArray();
+        }
 
         static bool RenderedFilm(string line)
         {

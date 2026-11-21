@@ -2687,9 +2687,9 @@ public static partial class StartupHook
         throw new InvalidOperationException("The disposable ICC fixture requires an ASCII copyright tag.");
     }
 
-    private static void ExecuteNativeExportCommand(object command)
+    private static void ExecuteNativeExportCommand(object command, bool multiple = false)
     {
-        if (command is ICommand executable)
+        if (!multiple && command is ICommand executable)
         {
             Check(executable.CanExecute(null), "Capture One's native Export command is available");
             executable.Execute(null);
@@ -2697,11 +2697,11 @@ public static partial class StartupHook
         }
         var execute = command.GetType().GetMethod("Execute", Flags, null, new[] { typeof(bool) }, null)
             ?? throw new MissingMethodException(command.GetType().FullName, "Execute(Boolean)");
-        execute.Invoke(command, new object[] { false });
+        execute.Invoke(command, new object[] { multiple });
     }
 
     private static void ShowNativeExportDialog(object bridge, object window, object command,
-        Func<bool> interact, Func<string?>? failureAfterHandling = null)
+        Func<bool> interact, Func<string?>? failureAfterHandling = null, bool multiple = false)
     {
         var started = Stopwatch.GetTimestamp();
         var handled = false;
@@ -2729,7 +2729,7 @@ public static partial class StartupHook
             }
         };
         poll.Start();
-        try { ExecuteNativeExportCommand(command); }
+        try { ExecuteNativeExportCommand(command, multiple); }
         finally { poll.Stop(); }
         if (failure is not null) throw failure;
         Check(handled, "Capture One opened and handled its real native Export dialog");

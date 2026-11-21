@@ -129,7 +129,8 @@ internal static class SpektraFilmTool
         internal void ReportLaunchHealth() => LaunchHealth.Report(
             panel.ControlsLoadPhase, panel.ExportBridgeStatus, panel.ViewerStatus);
         internal Task<bool> ExportAsync(Window? owner) => panel.ExportAsync(owner);
-        internal Task<int> ExportBatchAsync(Window? owner) => panel.ExportSelectedImagesWithOwnerAsync(owner, ChooseBatchFolder);
+        internal Task<int> ExportBatchAsync(Window? owner) =>
+            panel.ExportSelectedImagesWithOwnerAsync(owner, ChooseBatchFolder, useRecipeDestination: true);
         internal bool ProtectPendingLooks() => panel.ProtectPendingLooks();
         internal void SetExportBridgeStatus(ExportBridgeState state, string? detail = null) => panel.SetExportBridgeStatus(state, detail);
         internal InspectorToolHeaderViewModel CreateDockedHeader(ILifeCycleRegistrationService registration) =>
@@ -1055,7 +1056,8 @@ internal static class SpektraFilmTool
 
         internal bool IsSpektraExportActive => SyncSelection() && IsSpektraFilmEnabled;
 
-        internal Task<int> ExportSelectedImagesWithOwnerAsync(Window? owner, Func<OpenFolderDialog, Window?, string?> chooseFolder)
+        internal Task<int> ExportSelectedImagesWithOwnerAsync(Window? owner, Func<OpenFolderDialog, Window?, string?> chooseFolder,
+            bool useRecipeDestination)
         {
             if (disposed || !StocksReady || defaultLook is null)
                 return Task.FromResult(0);
@@ -1063,7 +1065,7 @@ internal static class SpektraFilmTool
             {
                 FlushLooks();
                 var selected = HostProfile.CaptureSelectionSet(window, document);
-                return opticalPreview.ExportBatchAsync(selected, owner, chooseFolder);
+                return opticalPreview.ExportBatchAsync(selected, owner, chooseFolder, useRecipeDestination);
             }
             catch (Exception error)
             {
