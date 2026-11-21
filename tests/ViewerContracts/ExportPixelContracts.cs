@@ -9,6 +9,32 @@ using System.Threading;
 
 internal static partial class Program
 {
+    private static void TestExportWatermark()
+    {
+        var srgb = ExportColorProfile.Srgb;
+        var profile = new ExportColorProfile.Profile("Same sRGB", new Uri("file:///watermark-test.icc"), srgb.Sha256);
+        var watermark = new ExportWatermark(9, 20, 4, 1, .5f,
+            new byte[] { 20, 40, 240, 255, 255, 128, 16, 255, 255, 255, 255, 0, 10, 20, 100, 128 }, "test", profile);
+        var crop = new Rectangle(10, 20, 5, 1);
+        var overlay = watermark.Prepare(srgb, default);
+        Check(overlay.AsSpan(4, 8).SequenceEqual(new ushort[] { 4112, 32896, 65535, 65535, 65535, 65535, 65535, 0 }),
+            "The native BGRA watermark separates straight alpha and expands each foreground code exactly");
+        var rgb = new ushort[] { 101, 103, 107, 201, 203, 207, 301, 303, 307, 401, 403, 407, 501, 503, 507 };
+        watermark.Composite(rgb, 3, crop, overlay, default);
+        Check(rgb.AsSpan().SequenceEqual(new ushort[] { 2106, 16500, 32821, 201, 203, 207, 6676, 1517, 875, 401, 403, 407, 501, 503, 507 }),
+            "A cropped RGB16 export blends the correct native pixels and preserves every untouched 16-bit code");
+        var rgba = new ushort[] { 1, 2, 3, 0 };
+        watermark.Composite(rgba, 4, new Rectangle(10, 20, 1, 1), overlay, default);
+        Check(rgba.AsSpan().SequenceEqual(new ushort[] { 4112, 32896, 65535, 32768 }),
+            "A semi-transparent watermark on a transparent RGBA64 source retains straight foreground RGB");
+        using var stop = new CancellationTokenSource();
+        stop.Cancel();
+        var canceled = false;
+        try { watermark.Composite(rgb, 3, crop, overlay, stop.Token); }
+        catch (OperationCanceledException) { canceled = true; }
+        Check(canceled, "Canceling the native watermark stops before writing the next output row");
+    }
+
     private static void TestParallelExportPixels()
     {
         const int sourceWidth = 2048, sourceHeight = 2032;

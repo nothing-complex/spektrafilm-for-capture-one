@@ -190,7 +190,7 @@ public static partial class StartupHook
         string caseName, bool compareGrain = false, bool compareClone = false, bool compareCompression = false,
         bool compareFolders = false, bool comparePanelModes = false, bool compareProfiles = false,
         bool changeSourceRevision = false, bool compareRecipeRestart = false, bool compareMaskedSource = false,
-        bool compareProfileSidecars = false, bool compareLccSidecar = false, bool compareInputSharpening = false)
+        bool compareProfileSidecars = false, bool compareLccSidecar = false, bool compareInputSharpening = false, bool compareWatermark = false)
     {
         var toggle = (CheckBox)Field(panel, "enableSpektraFilm")!;
         var inputEncoding = (string)Prop(((ComboBox)Field(spatial, "inputSpace")!).SelectedItem, "Id")!;
@@ -312,6 +312,11 @@ public static partial class StartupHook
             if (compareInputSharpening)
             {
                 await CheckInputSharpeningModes();
+                return;
+            }
+            if (compareWatermark)
+            {
+                await CheckNativeRecipeWatermark();
                 return;
             }
             Value(0, 0);
@@ -867,6 +872,204 @@ public static partial class StartupHook
 
             }
 
+            async Task CheckNativeRecipeWatermark()
+            {
+                var selected = SelectedRecipeForTest(out var suppress);
+                var manager = ((Delegate)Field(bridge!, "destinations")!).DynamicInvoke()!;
+                var enabled = ((IEnumerable)Prop(manager, "EnabledDestinations")!).Cast<object>().ToArray();
+                Check(enabled.Length == 1 && Equals(Prop(enabled[0], "Name"), Prop(selected, "Name")),
+                    "only the selected native recipe is enabled for the watermark comparisons");
+                var originals = new[] { "DestinationRootFolder", "DestinationCustomRootFolder", "DestinationSubFolder",
+                    "DestinationFilename", "FileType", "TiffBits", "ColorProfilePath", "CropExportMethod", "WatermarkType", "WatermarkText",
+                    "WatermarkTextColor", "WatermarkTextFont",
+                    "WatermarkTextOpacity", "WatermarkTextScale", "WatermarkHTextPlacement", "WatermarkVTextPlacement",
+                    "WatermarkImagePath", "WatermarkImageReference", "WatermarkImageOpacity", "WatermarkImageScale",
+                    "WatermarkHImagePlacement", "WatermarkVImagePlacement" }
+                    .Select(name => selected.GetType().GetProperty(name, Flags)!).ToDictionary(p => p.Name, p => (p, p.GetValue(selected)));
+                var directory = Directory.CreateDirectory(Path.Combine(folder, caseName + "-watermark-reference")).FullName;
+                var pattern = Path.Combine(directory, "watermark-fixture.png");
+                var patternPixels = new byte[96 * 48 * 4];
+                for (var y = 0; y < 48; y++)
+                for (var x = 0; x < 96; x++)
+                {
+                    var offset = (y * 96 + x) * 4;
+                    patternPixels[offset] = (byte)(x < 48 ? 200 : 20);
+                    patternPixels[offset + 1] = (byte)(x < 48 ? 50 : 180);
+                    patternPixels[offset + 2] = 240;
+                    patternPixels[offset + 3] = (byte)(y < 4 || y > 44 ? 0 : x < 48 ? 255 : 128);
+                }
+                var marker = BitmapSource.Create(96, 48, 96, 96, PixelFormats.Bgra32, null, patternPixels, 96 * 4);
+                var encoder = new PngBitmapEncoder();
+                encoder.Frames.Add(BitmapFrame.Create(marker));
+                using (var stream = File.Create(pattern)) encoder.Save(stream);
+
+                void Set(string name, object value) => originals[name].p.SetValue(selected, value);
+                void Choose(string name, string value) => Set(name, Enum.Parse(originals[name].p.PropertyType, value));
+                object ReadRecipe() => host.GetMethod("ActiveRecipe", Flags)!.Invoke(null, new[] { window })!;
+                var watermarkProfilePath = (string)host.GetProperty("WatermarkProfilePath", Flags)!.GetValue(null)!;
+                using var font = new System.Drawing.Font("Segoe UI", 24, System.Drawing.GraphicsUnit.Pixel);
+                var comparisons = new List<object>();
+                var profile = panel.GetType().Assembly.GetType("HostProfile", true)!;
+                var selection = profile.GetMethod("ReadSelection", Flags)!.Invoke(null, new[] { window })!;
+                var variant = Prop(selection, "Variant")!;
+                var crop = variant.GetType().GetProperty("CropRawUnconstrained", Flags)!;
+                var originalCrop = crop.GetValue(variant)!;
+                var dimensions = (System.Drawing.Size)Prop(Prop(variant, "CoreImage")!, "ImageDimensions")!;
+                suppress.SetValue(selected, true);
+                try
+                {
+                    Choose("DestinationRootFolder", "CustomPath");
+                    Set("DestinationCustomRootFolder", directory);
+                    Set("DestinationSubFolder", string.Empty);
+                    Choose("FileType", "Tiff");
+                    Set("TiffBits", 16);
+                    Choose("WatermarkType", "Image");
+                    Set("WatermarkImagePath", pattern);
+                    Call(selected, "LoadWatermark", watermarkProfilePath);
+                    Check(Prop(selected, "WatermarkImageReference") is BitmapSource,
+                        "Capture One loaded the disposable transparent watermark asset");
+                    Set("WatermarkHImagePlacement", .23f);
+                    Set("WatermarkVImagePlacement", .38f);
+                    Set("WatermarkImageScale", 1.5f);
+                    Set("WatermarkImageOpacity", .65f);
+                    Set("WatermarkText", "Spektrafilm test watermark");
+                    Set("WatermarkTextColor", System.Drawing.Color.FromArgb(213, 182, 112));
+                    Set("WatermarkTextFont", font);
+                    Set("WatermarkHTextPlacement", .74f);
+                    Set("WatermarkVTextPlacement", .25f);
+                    Set("WatermarkTextOpacity", .75f);
+                    Set("WatermarkTextScale", 1.2f);
+                    Value(0, 0);
+                    var profiles = Path.Combine(Path.GetDirectoryName(window.GetType().Assembly.Location)!, "Color Profiles", "Common");
+                    foreach (var (label, name) in new[] { ("srgb", "sRGB Color Space Profile.icm"), ("adobe", "Adobe RGB (1998).icm") })
+                    {
+                        var path = Path.Combine(profiles, name);
+                        var profileHash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path)));
+                        Set("ColorProfilePath", path);
+                        await CheckCurrentWatermark(label, profileHash, label == "srgb" ? new[] { "Image", "Text" } : new[] { "Image" });
+                    }
+                    Set("ColorProfilePath", Path.Combine(profiles, "Adobe RGB (1998).icm"));
+                    Choose("WatermarkType", "Image");
+                    var filmRecipe = ReadRecipe();
+                    var filmCompression = (TiffCompressOption)Prop(filmRecipe, "TiffCompression")!;
+                    var filmProfile = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes((string)Prop(filmRecipe, "ColorProfilePath")!)));
+                    var imageWithoutFilm = await Render("watermark-before-film", ".tif", false, expectedCompression: filmCompression,
+                        expectedProfileSha: filmProfile);
+                    Value(0, 100);
+                    var tiff = await Render("watermark-with-film", ".tif", false, expectedCompression: filmCompression,
+                        expectedProfileSha: filmProfile);
+                    var png = await Render("watermark-with-film-previous", ".png", true, expectedProfileSha: filmProfile);
+                    var commandParity = Difference(tiff, png);
+                    Check(Difference(imageWithoutFilm, tiff).Mean > .01 && commandParity.Mean < 8d / 65535 && commandParity.Maximum < .01,
+                        "native Export and Previous Settings agree on the same processed RGB16 image and watermark");
+
+                    Value(0, 0);
+                    const float centerX = .44f, centerY = .53f, cropWidth = .55f, cropHeight = .65f;
+                    crop.SetValue(variant, Activator.CreateInstance(crop.PropertyType,
+                        new System.Drawing.PointF(dimensions.Width * centerX, dimensions.Height * centerY),
+                        new System.Drawing.SizeF(dimensions.Width * cropWidth, dimensions.Height * cropHeight))!);
+                    var cropped = ReadRecipe();
+                    var croppedDimensions = ((int)Prop(cropped, "Width")!, (int)Prop(cropped, "Height")!);
+                    Check(croppedDimensions != (expectedWidth, expectedHeight), "native watermark comparison has an asymmetric RAW crop");
+                    var cropOrigin = ((int)Math.Round(expectedWidth * (centerX - cropWidth / 2)),
+                        (int)Math.Round(expectedHeight * (centerY - cropHeight / 2)));
+                    await CheckCurrentWatermark("adobe-cropped", filmProfile, new[] { "Image" }, croppedDimensions, cropOrigin);
+                    Choose("CropExportMethod", "Ignore");
+                    await CheckCurrentWatermark("adobe-ignore-crop", filmProfile, new[] { "Image" });
+                }
+                finally
+                {
+                    try
+                    {
+                        crop.SetValue(variant, originalCrop);
+                        foreach (var item in originals.Values) item.p.SetValue(selected, item.Item2);
+                    }
+                    finally { suppress.SetValue(selected, false); }
+                }
+
+                async Task CheckCurrentWatermark(string label, string profileHash, string[] modes,
+                    (int Width, int Height)? geometry = null, (int X, int Y) cropOrigin = default)
+                {
+                    Choose("WatermarkType", "None");
+                    Set("DestinationFilename", label + "-none");
+                    var baseFrame = await CaptureOrdinaryRecipeTiff(directory, label + "-none", profileHash, geometry);
+                    toggle.IsChecked = true;
+                    var recipeCompression = (TiffCompressOption)Prop(ReadRecipe(), "TiffCompression")!;
+                    var basePlugin = await Render(label + "-no-watermark", ".tif", false, expectedCompression: recipeCompression,
+                        expectedProfileSha: profileHash, expectedGeometry: geometry);
+                    foreach (var mode in modes)
+                    {
+                        Choose("WatermarkType", mode);
+                        if (mode == "Image")
+                            Call(selected, "LoadWatermark", watermarkProfilePath);
+                        var recipeWithWatermark = ReadRecipe();
+                        var captured = Prop(recipeWithWatermark, "Watermark");
+                        Check(captured is not null && Prop(recipeWithWatermark, "Omissions")?.ToString() == "None",
+                            $"Capture One returned an immutable {mode} watermark at {label}");
+                        var stem = label + "-" + mode.ToLowerInvariant();
+                        var x = (int)Prop(captured!, "X")! - cropOrigin.X;
+                        var y = (int)Prop(captured!, "Y")! - cropOrigin.Y;
+                        var width = (int)Prop(captured!, "Width")!;
+                        var height = (int)Prop(captured!, "Height")!;
+                        Set("DestinationFilename", stem);
+                        var ordinary = await CaptureOrdinaryRecipeTiff(directory, stem, profileHash, geometry);
+                        toggle.IsChecked = true;
+                        var plugin = await Render(stem + "-spektrafilm", ".tif", false, expectedCompression: recipeCompression,
+                            expectedProfileSha: profileHash, expectedGeometry: geometry);
+                        var result = CompareWatermark(baseFrame, ordinary, basePlugin, plugin, x, y, width, height);
+                        comparisons.Add(new { stem, x, y, width, height, result });
+                        File.WriteAllText(Path.Combine(directory, "watermark-comparisons.json"),
+                            JsonSerializer.Serialize(comparisons, new JsonSerializerOptions { WriteIndented = true }));
+                        Check(result.NativeVisible > 100 && result.Mean < 400 && result.Maximum < 2500
+                            && result.UnmarkedMean < Math.Max(.5, 2 * result.NativeUnmarkedMean) && result.UnmarkedMaximum < 2048,
+                            $"the {label} {mode} watermark follows native placement and opacity "
+                            + $"(mean {result.Mean:F1}, peak {result.Maximum}, unmarked mean {result.UnmarkedMean:F2} codes)");
+                    }
+                }
+            }
+
+            static WatermarkComparison CompareWatermark(BitmapSource nativeBase,
+                BitmapSource nativeMarked, BitmapSource pluginBase, BitmapSource pluginMarked, int x, int y, int width, int height)
+            {
+                var stride = nativeBase.PixelWidth * 6;
+                var frames = new[] { nativeBase, nativeMarked, pluginBase, pluginMarked };
+                var rows = frames.Select(_ => new ushort[stride / 2]).ToArray();
+                var count = 0;
+                var sum = 0L;
+                var maximum = 0;
+                var unmarkedCount = 0;
+                var unmarkedSum = 0L;
+                var nativeUnmarkedSum = 0L;
+                var unmarkedMaximum = 0;
+                var nativeVisible = 0;
+                for (var row = 0; row < nativeBase.PixelHeight; row++)
+                {
+                    var rectangle = new Int32Rect(0, row, nativeBase.PixelWidth, 1);
+                    for (var i = 0; i < frames.Length; i++)
+                        frames[i].CopyPixels(rectangle, rows[i], stride, 0);
+                    for (var i = 0; i < rows[0].Length; i++)
+                    {
+                        var pluginDelta = rows[3][i] - rows[2][i];
+                        var nativeDelta = rows[1][i] - rows[0][i];
+                        if (row < y || row >= y + height || i / 3 < x || i / 3 >= x + width)
+                        {
+                            unmarkedMaximum = Math.Max(unmarkedMaximum, Math.Abs(pluginDelta));
+                            unmarkedSum += Math.Abs(pluginDelta);
+                            nativeUnmarkedSum += Math.Abs(nativeDelta);
+                            unmarkedCount++;
+                            continue;
+                        }
+                        if (Math.Abs(nativeDelta) > 4) nativeVisible++;
+                        var error = Math.Abs(nativeDelta - pluginDelta);
+                        maximum = Math.Max(maximum, error);
+                        sum += error;
+                        count++;
+                    }
+                }
+                return new(sum / (double)count, maximum, unmarkedSum / (double)unmarkedCount,
+                    unmarkedMaximum, nativeUnmarkedSum / (double)unmarkedCount, nativeVisible);
+            }
+
             async Task CheckInputSharpeningModes()
             {
                 var selected = SelectedRecipeForTest(out var suppress);
@@ -913,7 +1116,8 @@ public static partial class StartupHook
                     foreach (var mode in new[] { "LensAndSharpening", "Lens", "Disabled" })
                     {
                         RecipeChoice("SharpeningOutputControl", mode);
-                        var ordinary = await CaptureOrdinary(mode);
+                        RecipeValue("DestinationFilename", mode);
+                        var ordinary = await CaptureOrdinaryRecipeTiff(nativeFolder, mode, profileSha);
                         nativeDefault ??= ordinary;
                         if (mode == "Lens") nativeLens = ordinary;
                         if (mode == "Disabled") nativeDisabled = ordinary;
@@ -960,44 +1164,46 @@ public static partial class StartupHook
                     finally { suppress.SetValue(selected, false); }
                 }
 
-                async Task<BitmapSource> CaptureOrdinary(string mode)
+            }
+
+            async Task<BitmapSource> CaptureOrdinaryRecipeTiff(string directory, string stem, string profileSha,
+                (int Width, int Height)? dimensions = null)
+            {
+                var (width, height) = dimensions ?? (expectedWidth, expectedHeight);
+                toggle.IsChecked = false;
+                var routes = routeCount;
+                var path = Path.Combine(directory, stem + ".tif");
+                Check(!File.Exists(path), "the ordinary command has a new private TIFF destination");
+                ShowNativeDialog(() =>
                 {
-                    RecipeValue("DestinationFilename", mode);
-                    toggle.IsChecked = false;
-                    var routes = routeCount;
-                    var path = Path.Combine(nativeFolder, mode + ".tif");
-                    Check(!File.Exists(path), "the ordinary command has a new private TIFF destination");
-                    ShowNativeDialog(() =>
+                    if (Prop(window, "ExportDialogWindow") is not Window { IsVisible: true } owner
+                        || owner.DataContext is not { } model || Prop(model, "ExportCommand") is not ICommand command
+                        || !command.CanExecute(null) || !CheckNativeLocationSample(owner, directory)
+                        || ReadNativeNamingSample(owner) != stem)
+                        return false;
+                    command.Execute(null);
+                    return true;
+                });
+                var started = Stopwatch.GetTimestamp();
+                while (Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(35))
+                {
+                    try
                     {
-                        if (Prop(window, "ExportDialogWindow") is not Window { IsVisible: true } owner
-                            || owner.DataContext is not { } model || Prop(model, "ExportCommand") is not ICommand command
-                            || !command.CanExecute(null) || !CheckNativeLocationSample(owner, nativeFolder)
-                            || ReadNativeNamingSample(owner) != mode)
-                            return false;
-                        command.Execute(null);
-                        return true;
-                    });
-                    var started = Stopwatch.GetTimestamp();
-                    while (Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(35))
-                    {
-                        try
-                        {
-                            using var stream = File.OpenRead(path);
-                            var frame = BitmapDecoder.Create(stream, BitmapCreateOptions.PreservePixelFormat | BitmapCreateOptions.IgnoreColorProfile,
-                                BitmapCacheOption.OnLoad).Frames.Single();
-                            Check(routeCount == routes && frame.Format == PixelFormats.Rgb48
-                                && frame.PixelWidth == expectedWidth && frame.PixelHeight == expectedHeight,
-                                $"Capture One independently rendered the {mode} comparison TIFF at native recipe size and 16-bit depth");
-                            using var profileStream = frame.ColorContexts!.Single().OpenProfileStream();
-                            Check(Convert.ToHexString(SHA256.HashData(profileStream)) == profileSha,
-                                $"the ordinary {mode} TIFF embeds the same recipe profile");
-                            return frame;
-                        }
-                        catch (Exception error) when (error is IOException or FileFormatException)
-                        { await Task.Delay(100); }
+                        using var stream = File.OpenRead(path);
+                        var frame = BitmapDecoder.Create(stream, BitmapCreateOptions.PreservePixelFormat | BitmapCreateOptions.IgnoreColorProfile,
+                            BitmapCacheOption.OnLoad).Frames.Single();
+                        Check(routeCount == routes && frame.Format == PixelFormats.Rgb48
+                            && frame.PixelWidth == width && frame.PixelHeight == height,
+                            $"Capture One independently rendered {stem} at native recipe size and 16-bit depth");
+                        using var profileStream = frame.ColorContexts!.Single().OpenProfileStream();
+                        Check(Convert.ToHexString(SHA256.HashData(profileStream)) == profileSha,
+                            $"the ordinary {stem} TIFF embeds the same recipe profile");
+                        return frame;
                     }
-                    throw new TimeoutException("Capture One did not publish the independent recipe output at " + path);
+                    catch (Exception error) when (error is IOException or FileFormatException)
+                    { await Task.Delay(100); }
                 }
+                throw new TimeoutException("Capture One did not publish the independent recipe output at " + path);
             }
 
             async Task CheckRecipeRestart()
@@ -1008,14 +1214,14 @@ public static partial class StartupHook
                 var format = type.GetProperty("FileType", Flags)!;
                 var cropMode = type.GetProperty("CropExportMethod", Flags)!;
                 var watermark = type.GetProperty("WatermarkType", Flags)!;
-                var watermarkText = type.GetProperty("WatermarkTextSerialized", Flags)!;
+                var watermarkImage = type.GetProperty("WatermarkImageReference", Flags)!;
                 var sharpening = type.GetProperty("SharpeningOutputControl", Flags)!;
                 var annotations = type.GetProperty("IncludeAnnotations", Flags)!;
                 var initialName = filename.GetValue(selected);
                 var initialFormat = format.GetValue(selected);
                 var initialCropMode = cropMode.GetValue(selected);
                 var initialWatermark = watermark.GetValue(selected);
-                var initialText = watermarkText.GetValue(selected);
+                var initialImage = watermarkImage.GetValue(selected);
                 var initialSharpening = sharpening.GetValue(selected);
                 var initialAnnotations = annotations.GetValue(selected);
                 var counter = counterProperty ?? throw new MissingMemberException(document.GetType().FullName, "OutputCounter");
@@ -1053,11 +1259,11 @@ public static partial class StartupHook
                     }
 
                     filename.SetValue(selected, initialName);
-                    watermarkText.SetValue(selected, "Spektrafilm test watermark");
-                    watermark.SetValue(selected, Enum.Parse(watermark.PropertyType, "Text"));
+                    watermark.SetValue(selected, Enum.Parse(watermark.PropertyType, "Image"));
+                    watermarkImage.SetValue(selected, null);
                     sharpening.SetValue(selected, Enum.Parse(sharpening.PropertyType, "Screen"));
                     Check(Prop(CaptureRecipe(), "Omissions")?.ToString() == "Watermark, Sharpening",
-                        "the selected native recipe captures its configured text watermark and screen sharpening mode");
+                        "the selected native recipe reports an unavailable image watermark and screen sharpening mode");
                     var disclosedExport = await Render("watermark-and-sharpening-omissions", ".tif", true);
                     const string omitted = "recipe watermark, recipe sharpening mode";
                     const string omissionNote = "The export omitted " + omitted + ".";
@@ -1070,7 +1276,7 @@ public static partial class StartupHook
                     Check(unchanged.Mean < 8d / 65535 && unchanged.Maximum < .01,
                         "the disclosed alternative preserves the same RGB16 film result as the baseline");
                     watermark.SetValue(selected, initialWatermark);
-                    watermarkText.SetValue(selected, initialText);
+                    watermarkImage.SetValue(selected, initialImage);
                     sharpening.SetValue(selected, initialSharpening);
 
                     var profile = panel.GetType().Assembly.GetType("HostProfile", true)!;
@@ -1123,7 +1329,7 @@ public static partial class StartupHook
                         filename.SetValue(selected, initialName);
                         cropMode.SetValue(selected, initialCropMode);
                         watermark.SetValue(selected, initialWatermark);
-                        watermarkText.SetValue(selected, initialText);
+                        watermarkImage.SetValue(selected, initialImage);
                         sharpening.SetValue(selected, initialSharpening);
                         annotations.SetValue(selected, initialAnnotations);
                     }
@@ -2265,6 +2471,8 @@ public static partial class StartupHook
     }
 
     private sealed record ExportDifference(int Samples, double Mean, double Maximum, double ChangedFraction);
+    private sealed record WatermarkComparison(double Mean, int Maximum, double UnmarkedMean, int UnmarkedMaximum,
+        double NativeUnmarkedMean, int NativeVisible);
 
     private static ExportDifference Difference(BitmapSource reference, BitmapSource output)
     {

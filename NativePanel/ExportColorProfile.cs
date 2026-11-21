@@ -48,7 +48,7 @@ internal sealed class ExportColorProfile
         _ = destination.Context;
     }
 
-    private static Profile Capture(string label, string path)
+    internal static Profile Capture(string label, string path)
     {
         if (!Path.IsPathFullyQualified(path) || !Uri.TryCreate(path, UriKind.Absolute, out var uri) || !uri.IsFile || uri.IsUnc)
             throw new InvalidDataException($"Choose a local RGB ICC export profile. The selected profile is {label}.");
@@ -87,7 +87,18 @@ internal sealed class ExportColorProfile
         return output;
     }
 
-    private sealed class Profile(string label, Uri uri, string digest)
+    internal BitmapSource ConvertWatermark(BitmapSource image, Profile watermark)
+    {
+        if (image.Format != PixelFormats.Rgba64)
+            throw new InvalidDataException("A recipe watermark requires 16-bit RGB and alpha.");
+        if (watermark.Sha256 == destination.Sha256)
+            return image;
+        var output = new ColorConvertedBitmap(image, watermark.Context, Context, PixelFormats.Rgba64);
+        output.Freeze();
+        return output;
+    }
+
+    internal sealed class Profile(string label, Uri uri, string digest)
     {
         // Delay WIC until approval. It can hold the source file open as long as
         // the color context lives, including through the final encoder.

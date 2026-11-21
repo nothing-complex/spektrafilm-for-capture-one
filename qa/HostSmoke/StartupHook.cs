@@ -271,7 +271,7 @@ public static partial class StartupHook
                 await TestNativeExportInterruption(panel, spatial, interruption);
                 return;
             }
-            if (exportFixture is "1" or "matrix" or "grain" or "clone" or "compression" or "profiles" or "folders" or "panel-modes" or "source-revision" or "masked-source" or "profile-sidecars" or "recipe-restart" or "input-sharpening")
+            if (exportFixture is "1" or "matrix" or "grain" or "clone" or "compression" or "profiles" or "folders" or "panel-modes" or "source-revision" or "masked-source" or "profile-sidecars" or "recipe-restart" or "input-sharpening" or "watermark")
             {
                 var phase = File.ReadAllText(Path.Combine(folder, "phase.txt"));
                 if (exportFixture == "matrix")
@@ -283,7 +283,8 @@ public static partial class StartupHook
                         compareFolders: exportFixture == "folders",
                         comparePanelModes: exportFixture == "panel-modes", changeSourceRevision: exportFixture == "source-revision",
                         compareRecipeRestart: exportFixture == "recipe-restart", compareMaskedSource: exportFixture == "masked-source",
-                        compareProfileSidecars: exportFixture == "profile-sidecars", compareInputSharpening: exportFixture == "input-sharpening");
+                        compareProfileSidecars: exportFixture == "profile-sidecars", compareInputSharpening: exportFixture == "input-sharpening",
+                        compareWatermark: exportFixture == "watermark");
                 File.WriteAllText(Path.Combine(folder, phase + ".passed"), $"PASS {checks} native effects export assertions");
                 return;
             }

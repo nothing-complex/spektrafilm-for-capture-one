@@ -2,7 +2,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Threading;
 
-internal enum RenderAllocation { NativeDevelopment, WorkerTransport, ImageEncoding, ProfileImageEncoding }
+internal enum RenderAllocation { NativeDevelopment, WorkerTransport, ImageEncoding, ProfileImageEncoding, ProfileImageEncodingWithWatermark }
 
 internal sealed class RenderMemoryBudget(Func<long?> availableBytes)
 {
@@ -46,6 +46,7 @@ internal sealed class RenderMemoryBudget(Func<long?> availableBytes)
             RenderAllocation.WorkerTransport => 128 * MiB + pixels * 96,
             RenderAllocation.ImageEncoding => 64 * MiB + pixels * 24,
             RenderAllocation.ProfileImageEncoding => 64 * MiB + pixels * 40,
+            RenderAllocation.ProfileImageEncodingWithWatermark => 64 * MiB + pixels * 56,
             _ => throw new ArgumentOutOfRangeException(nameof(stage)),
         };
     }

@@ -1220,15 +1220,24 @@ internal sealed class SpatialPreview : IDisposable
                     }
                     work.Token.ThrowIfCancellationRequested();
                     Advance(ExportStage.Encoding, "Writing the 16-bit export…", rendered.Crop.Width, rendered.Crop.Height);
-                    using var memory = RenderMemoryBudget.SystemMemory.Reserve(deliveryProfile.RequiresConversion
-                            ? RenderAllocation.ProfileImageEncoding : RenderAllocation.ImageEncoding,
+                    var watermark = recipe?.Watermark;
+                    var convertsProfile = deliveryProfile.RequiresConversion;
+                    var allocation = !convertsProfile ? RenderAllocation.ImageEncoding
+                        : watermark is null ? RenderAllocation.ProfileImageEncoding : RenderAllocation.ProfileImageEncodingWithWatermark;
+                    using var memory = RenderMemoryBudget.SystemMemory.Reserve(allocation,
                         (long)rendered.Crop.Width * rendered.Crop.Height, "Free memory or choose a smaller Export Recipe.");
-                    var deliveryFormat = deliveryProfile.RequiresConversion ? PixelFormats.Rgba64 : outputFormat;
+                    using var watermarkMemory = watermark is null ? null : RenderMemoryBudget.SystemMemory.Reserve(
+                        RenderAllocation.ImageEncoding, (long)watermark.Width * watermark.Height, "Choose a smaller recipe watermark.");
+                    var watermarkPixels = watermark?.Prepare(deliveryProfile, work.Token);
+                    var deliveryFormat = convertsProfile ? PixelFormats.Rgba64 : outputFormat;
                     var encodingStarted = Stopwatch.GetTimestamp();
-                    var image = DecodeExport(source, pixels, strength, input.Space, encoding, deliveryFormat, rendered.Crop, work.Token, dpi);
+                    var image = DecodeExport(source, pixels, strength, input.Space, encoding, deliveryFormat, rendered.Crop, work.Token, dpi,
+                        convertsProfile ? null : watermark, watermarkPixels);
                     var blendAndCropMs = Stopwatch.GetElapsedTime(encodingStarted).TotalMilliseconds;
                     var profileSetupStarted = Stopwatch.GetTimestamp();
                     var output = deliveryProfile.ConvertSrgb(image, outputFormat);
+                    if (convertsProfile && watermark is not null)
+                        output = watermark.Composite(output, rendered.Crop, watermarkPixels!, work.Token);
                     var profileSetupMs = Stopwatch.GetElapsedTime(profileSetupStarted).TotalMilliseconds;
                     var writeStarted = Stopwatch.GetTimestamp();
                     SpektraExport.SaveApproved(approved, output, work.Token, recipe?.Metadata, deliveryProfile,
@@ -1365,6 +1374,7 @@ internal sealed class SpatialPreview : IDisposable
                 {
                     recipe.FormatId, recipe.CropMode, recipe.TiffBits, recipe.Width, recipe.Height, recipe.Scale, recipe.IgnoreCrop,
                     recipe.Resolution, recipe.ResolutionUnit, recipe.TiffCompression, recipe.Sharpening, recipe.Omissions,
+                    Watermark = recipe.Watermark?.Identity,
                     Metadata = recipe.Metadata.CreateXmp(1, 1),
                 },
             });
@@ -2300,13 +2310,15 @@ internal sealed class SpatialPreview : IDisposable
     }
 
     private static BitmapSource DecodeExport(HostImageSource.Frame frame, byte[]? rendered, double strength,
-        PreviewInputSpace space, string outputEncoding, PixelFormat format, System.Drawing.Rectangle crop, CancellationToken token, double dpi)
+        PreviewInputSpace space, string outputEncoding, PixelFormat format, System.Drawing.Rectangle crop, CancellationToken token, double dpi,
+        ExportWatermark? watermark, ushort[]? watermarkPixels)
     {
         var transform = new SrgbDelivery(space, outputEncoding, strength);
         var hasAlpha = format == PixelFormats.Rgba64;
         var channels = hasAlpha ? 4 : 3;
         var stride = checked(crop.Width * channels * sizeof(ushort));
         var pixels = ExportPixels.Encode(frame.Width, crop, frame.FloatBytes, rendered, transform, hasAlpha, token);
+        watermark?.Composite(pixels, channels, crop, watermarkPixels!, token);
         var image = BitmapSource.Create(crop.Width, crop.Height, dpi, dpi, format, null, pixels, stride);
         image.Freeze();
         return image;

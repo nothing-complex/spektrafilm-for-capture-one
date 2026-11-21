@@ -79,6 +79,7 @@ internal static partial class Program
         TestFloatSource();
         TestConversionBudget();
         TestParallelExportPixels();
+        TestExportWatermark();
         TestDraft();
         TestDraftPyramid();
         TestDevelopedFrameDescription();

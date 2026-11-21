@@ -76,7 +76,7 @@ internal static class HostImageSource
         double Resolution, string ResolutionUnit, ExportMetadata Metadata, TiffCompressOption TiffCompression,
         RecipeNaming? Naming, string? SuggestedDirectory, string? ExactDirectory,
         bool AddSuffixToExistingFileName, bool SkipExistingOutput, SharpeningOutputControl Sharpening,
-        SpektraExport.RecipeOmission Omissions)
+        ExportWatermark? Watermark, SpektraExport.RecipeOmission Omissions)
     {
         internal string? SuggestedFilename => Naming?.Stem;
     }
@@ -241,7 +241,9 @@ internal static class HostImageSource
             _ => throw new InvalidOperationException("Choose uncompressed, LZW or ZIP in Capture One’s TIFF recipe."),
         } : TiffCompressOption.Zip;
         var omissions = SpektraExport.RecipeOmission.None;
-        if (recipe.WatermarkType != WatermarkType.None)
+        var watermark = recipe.WatermarkType == WatermarkType.None ? null
+            : NativeExportWatermark.Capture(selection, recipe, settings, (float)scale.Scale, ignoreCrop, WatermarkProfilePath);
+        if (recipe.WatermarkType != WatermarkType.None && watermark is null)
             omissions |= SpektraExport.RecipeOmission.Watermark;
         var sharpening = recipe.SharpeningOutputControl;
         if (sharpening is not (SharpeningOutputControl.LensAndSharpening or SharpeningOutputControl.Lens or SharpeningOutputControl.Disabled))
@@ -255,8 +257,11 @@ internal static class HostImageSource
             scale.ScaledPixelWidth, scale.ScaledPixelHeight, scale.Scale, ignoreCrop, recipe.Resolution, recipe.ResolutionUnit.ToString(),
             metadata, compression, ReadRecipeNaming(selection, recipe), suggestedDirectory, exactDirectory,
             recipe.FileOverwriteAction == ProcessedFileOverwriteAction.Rename,
-            recipe.FileOverwriteAction == ProcessedFileOverwriteAction.Skip, sharpening, omissions);
+            recipe.FileOverwriteAction == ProcessedFileOverwriteAction.Skip, sharpening, watermark, omissions);
     }
+
+    internal static string WatermarkProfilePath =>
+        ((ColorProfileLibrary)ColorProfilesProperty.GetValue(null)!).WatermarkProfilePath;
 
     private static (string? Suggested, string? Exact) ReadRecipeLocation(HostProfile.Selection selection, IDestinationProcessingSettings recipe)
     {
