@@ -8,10 +8,18 @@ internal sealed class DurableLookJournalProbe
     private const int HeaderBytes = 56;
     private const int DigestBytes = 32;
     private readonly string root;
+    private readonly VariantLookGenerationJournal? pair;
     private readonly Dictionary<Guid, byte[]> latest = new();
+    private readonly Dictionary<Guid, string> receipts = new();
 
-    internal DurableLookJournalProbe(string root) => this.root = Directory.CreateDirectory(root).FullName;
-    internal long Bytes => Directory.EnumerateFiles(root, "*.journal").Sum(path => new FileInfo(path).Length);
+    internal DurableLookJournalProbe(string root, VariantLookGenerationJournal? pair)
+    {
+        this.root = Directory.CreateDirectory(root).FullName;
+        this.pair = pair;
+    }
+
+    internal long Bytes => Directory.EnumerateFiles(root, pair is null ? "*.journal" : "*.generations", SearchOption.AllDirectories)
+        .Sum(path => new FileInfo(path).Length);
 
     internal VariantLook? ReadMirror(Guid variant) => latest.ContainsKey(variant)
         ? PanelFiles.ReadPreset<VariantLook>(PathFor(variant, ".json")) : null;
@@ -19,17 +27,27 @@ internal sealed class DurableLookJournalProbe
     internal byte[] Prepare(Guid variant, VariantLook look)
     {
         LookStateValidation.Validate(look);
-        return Encode(variant, latest.GetValueOrDefault(variant), PanelFiles.EncodeCompactPreset(look));
+        var payload = PanelFiles.EncodeCompactPreset(look);
+        return pair is null ? Encode(variant, latest.GetValueOrDefault(variant), payload) : payload;
     }
 
     internal void Commit(Guid variant, byte[] record)
     {
         var previous = latest.GetValueOrDefault(variant);
         var primary = PathFor(variant, ".json");
-        var payload = record.AsSpan(HeaderBytes, record.Length - HeaderBytes - DigestBytes).ToArray();
+        var payload = pair is null ? record.AsSpan(HeaderBytes, record.Length - HeaderBytes - DigestBytes).ToArray() : record;
         VerifyPrimary();
-        Append(PathFor(variant, ".journal"), record);
-        VerifyPrimary();
+        using var owner = pair?.OpenWriter(variant);
+        if (owner is null)
+        {
+            Append(PathFor(variant, ".journal"), record);
+            VerifyPrimary();
+        }
+        else
+        {
+            var committed = owner.Commit(receipts.GetValueOrDefault(variant), payload, verifySource: VerifyPrimary);
+            receipts[variant] = committed.Receipt;
+        }
         if (previous is not null)
         {
             var backup = new byte[52 + previous.Length];
@@ -51,7 +69,8 @@ internal sealed class DurableLookJournalProbe
 
     internal VariantLook ReadVerified(Guid variant)
     {
-        var replay = Replay(PathFor(variant, ".journal"), variant);
+        (byte[]? Latest, byte[]? Previous, bool Incomplete) replay = pair is null ? Replay(PathFor(variant, ".journal"), variant)
+            : pair.Read(variant) is { } saved ? (saved.Current, saved.Previous, false) : default;
         if (replay.Incomplete || replay.Latest is not { } current
             || !File.ReadAllBytes(PathFor(variant, ".json")).AsSpan().SequenceEqual(current)
             || replay.Previous is not { } previous

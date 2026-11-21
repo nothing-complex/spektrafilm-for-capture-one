@@ -4,7 +4,9 @@ using System.Text.Json;
 
 internal static class DurableEditProbe
 {
-    internal static int Run(string directory, bool journalCandidate = false)
+    internal enum Storage { Current, Append, GenerationPair }
+
+    internal static int Run(string directory, Storage storage = Storage.Current)
     {
         directory = Path.GetFullPath(directory);
         if (Directory.Exists(directory)) throw new IOException("Choose a new measurement directory.");
@@ -12,7 +14,8 @@ internal static class DurableEditProbe
         var catalog = Path.Combine(directory, "Measurement.cocatalogdb");
         var store = new VariantLookStore(root, catalog);
         var variants = Enumerable.Range(0, 64).Select(_ => Guid.NewGuid()).ToArray();
-        var journal = journalCandidate ? new DurableLookJournalProbe(directory) : null;
+        var journal = storage == Storage.Current ? null : new DurableLookJournalProbe(directory,
+            storage == Storage.GenerationPair ? new VariantLookGenerationJournal(Path.Combine(directory, "Generation pairs"), store.CatalogIdentity) : null);
         var expected = new VariantLook[variants.Length];
         const int warmup = 256;
         const int measured = 10_000;
@@ -78,7 +81,7 @@ internal static class DurableEditProbe
         var report = JsonSerializer.Serialize(new
         {
             measured, warmup, variants = variants.Length,
-            storage = journal is null ? "current-store" : "experimental-journal-and-buffered-mirrors",
+            storage = storage.ToString(),
             journalBytes = journal?.Bytes,
             readMs = Percentiles(reads), compareMs = Percentiles(comparisons),
             queueMs = Percentiles(prepare), flushMs = Percentiles(commit), queueAndFlushMs = Percentiles(total),

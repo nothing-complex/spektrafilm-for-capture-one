@@ -7,9 +7,13 @@ using System.Text.Json.Nodes;
 if (args is ["--measure-durable-edits", var measurementDirectory])
     return DurableEditProbe.Run(measurementDirectory);
 if (args is ["--measure-look-journal", var journalMeasurementDirectory])
-    return DurableEditProbe.Run(journalMeasurementDirectory, journalCandidate: true);
+    return DurableEditProbe.Run(journalMeasurementDirectory, DurableEditProbe.Storage.Append);
+if (args is ["--measure-look-generation-pair", var pairMeasurementDirectory])
+    return DurableEditProbe.Run(pairMeasurementDirectory, DurableEditProbe.Storage.GenerationPair);
 if (args is ["--hold-look-journal", var journalPath, var journalVariant, var journalStage, var journalMarker])
     return DurableLookJournalProbe.Hold(journalPath, Guid.Parse(journalVariant), journalStage, journalMarker);
+if (args is ["--hold-look-generation", var generationDirectory, var generationCatalog, var generationVariant, var generationStage, var generationMarker])
+    return LookGenerationContracts.Hold(generationDirectory, generationCatalog, Guid.Parse(generationVariant), generationStage, generationMarker);
 if (args is ["--measure-diagnostic-log", var diagnosticsDirectory, var seconds])
     return await PanelLogContracts.SoakAsync(diagnosticsDirectory, int.Parse(seconds, System.Globalization.CultureInfo.InvariantCulture));
 if (args is ["--verify-compiled-controls", var parameterManifest])
@@ -107,6 +111,7 @@ void Throws<T>(string name, Action action) where T : Exception
 }
 
 DurableLookJournalProbe.CheckRecovery(scratch, Check, StartChild);
+LookGenerationContracts.CheckRecovery(scratch, Check, StartChild);
 string StateFile(string root, Guid id) => Directory.GetFiles(root, id.ToString("N") + ".json", SearchOption.AllDirectories).Single();
 var root = Path.Combine(scratch, "Variant looks");
 var catalog = Path.Combine(scratch, "test.cocatalogdb");
