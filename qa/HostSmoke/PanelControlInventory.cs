@@ -399,7 +399,8 @@ public static partial class StartupHook
             ("applyGrain", null), ("restoreGrain", null));
         BindFields(spatial, "viewer-overlay", ("showSource", null), ("holdCompare", null), ("savePreview", null), ("retryViewer", null));
         BindFields(spatial, "viewer-quality", ("previewSize", null), ("dragPreviewSize", null), ("fastSynthesis", null));
-        BindFields(spatial, "native-export", ("cancelExport", null));
+        BindFields(spatial, "native-export", ("cancelExport", null), ("stopExportBatch", null), ("retryExport", null),
+            ("resumeExportBatch", null), ("discardExportBatch", null));
         BindFields(panel, "lut-export", ("cancelLut", null));
         BindFields(panel, "presets", ("cancelBatch", null));
         BindFields(Field(spatial, "histogram")!, "viewer-analysis", ("markHighlights", null));
@@ -442,10 +443,11 @@ public static partial class StartupHook
             ["Staged Capture One grain"] = "presets", ["Master switch"] = "presets",
             ["Copy selected settings"] = "presets", ["Apply copied settings"] = "presets", ["Load selected sections…"] = "presets",
             ["Apply to selected variants…"] = "presets",
-            ["Export with Spektrafilm…"] = "native-export",
             ["Export 33-point LUT…"] = "lut-export", ["Export 65-point LUT…"] = "lut-export",
         };
         Visit((DependencyObject)panel, "Tool");
+        Check(rows.All(row => row.Label is not ("Export with Spektrafilm…" or "Export selected images…")),
+            "the panel has no duplicate entry point for exporting photos");
         rows.AddRange(new PanelControl[]
         {
             new("Tool menu", "Float Tool / Show Floating Tool / Dock Tool", "menu", "floating-tool"),

@@ -205,7 +205,7 @@ internal sealed class ExportHook : IDisposable
         }
         catch (Exception error)
         {
-            confirmationError = "Capture One's Export confirmation is unavailable. Use Export with Spektrafilm in the tool panel.";
+            confirmationError = "Capture One’s Export confirmation could not be connected. Reopen the Export window to try again.";
             reportUnavailable("The Export confirmation could not be connected.");
             StartupHook.Log($"Native Export unsupported [confirmation-adapter]: {error}");
             throw new InvalidOperationException(confirmationError, error);

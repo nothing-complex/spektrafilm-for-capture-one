@@ -580,7 +580,8 @@
       "implemented": [
         "Native Export attach failures now create a persistent panel warning with an explicit alternative export route.",
         "The licensed-host fixture removed each native callback in turn. It verified both delegate lists after first and second binding failures and confirmed an existing Export window stays registered.",
-        "Real startup path reported typed Unavailable state after either missing binding, restored both original delegate lists, retained warning after slider edits, kept direct export available and returned to Connected after rebind."
+        "Real startup path reported typed Unavailable state after either missing binding, restored both original delegate lists, retained warning after slider edits, kept direct export available and returned to Connected after rebind.",
+        "User direction supersedes the original direct-export fallback. The warning remains visible on an unavailable native route, and the panel no longer offers a separate photo export command."
       ],
       "evidence_paths": [
         "NativePanel/StartupHook.cs",
@@ -589,7 +590,8 @@
         ".test-results/host-export-20261119-pass/host-smoke.log",
         ".test-results/host-audit-state-selection-20261119/host-smoke.log",
         "NativePanel/ExportHook.cs",
-        "qa/HostSmoke/StartupHook.cs"
+        "qa/HostSmoke/StartupHook.cs",
+        ".test-results/host-native-photo-export-controls-verified-20261121/panel-control-inventory.json"
       ],
       "remaining_work": [],
       "original_acceptance_tests": [
@@ -1206,7 +1208,8 @@
       "Native batch preflight now checks selected secondary variants when the primary is disabled. An enabled or unresolved saved secondary look prevents silent native fallback. With real Browser selection, the production bridge flags a mixed batch, delegates primary-only and all-disabled selection, and permits the enabled secondary to export alone. The actual four-RAW commands still apply the effects across 40 accepted 16-bit files and pass 213 assertions per launch.",
         "Check the primary variant's saved state while its look controls are loading. Both native routes wait for a ready look when effects would otherwise be lost. An explicitly disabled displayed look still delegates while its state file is temporarily locked. The licensed fixture verifies these routing decisions directly and passes 215 assertions per launch, including 40 accepted 16-bit files from the actual native commands with film and optics.",
         "Toggle actual print diffusion while camera diffusion, halation highlight boost and scatter are active. Both native command files reopen as 16-bit RGB with the recipe ICC and agree within 5.29e-7 mean full scale across 18 million codes each launch. Adding only print diffusion changes mean RGB by 1.244 percent. The expanded native output profile lane passes 129 checks per launch and verifies all nine original recipe files.",
-        "Invoke both actual native commands while an enabled saved look is still loading. Each shows the expected owned Windows warning before any job is accepted. When the look is ready, the same command matrix delivers all 40 high-depth controls and effect files. Both launches pass 222 assertions, including independent selected-variant recovery checks."
+        "Invoke both actual native commands while an enabled saved look is still loading. Each shows the expected owned Windows warning before any job is accepted. When the look is ready, the same command matrix delivers all 40 high-depth controls and effect files. Both launches pass 222 assertions, including independent selected-variant recovery checks.",
+        "Remove the two panel commands that independently initiated photo export. The same render and job pipeline is invoked by Capture One Export and Export with Previous Settings. Native command verification on the revised 16.4 build passed 67 checks; the fixture accepted one job per command and reopened the TIFF and PNG at 16 bits with the selected ICC and applied film, diffusion, halation and scatter. The control inventory keeps job progress, cancellation and recovery actions."
       ],
       "evidence_paths": [
         "NativePanel/StartupHook.cs",
@@ -1232,7 +1235,10 @@
         ".test-results/host-candidate-native-print-diffusion-20261120/host-smoke.log",
         ".test-results/host-candidate-native-print-diffusion-20261120/independent-print-diffusion-rgb16.json",
         ".test-results/host-scoped-variant-save-native-final-20261120/host-smoke.log",
-        ".test-results/host-scoped-variant-save-native-final-20261120/restart-export-selection.json"
+        ".test-results/host-scoped-variant-save-native-final-20261120/restart-export-selection.json",
+        ".test-results/host-native-photo-export-controls-verified-20261121/panel-control-inventory.json",
+        ".test-results/host-native-photo-export-effects-20261121/first-native-effect-export.json",
+        ".test-results/host-native-photo-export-effects-20261121/first.passed"
       ],
       "remaining_work": [
         "Extend confirmation-stage diagnostics when the independent 16.7 compatibility work establishes a supported native adapter."

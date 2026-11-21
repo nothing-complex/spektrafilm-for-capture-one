@@ -128,7 +128,7 @@ internal static class SpektraFilmTool
         }
         internal void ReportLaunchHealth() => LaunchHealth.Report(
             panel.ControlsLoadPhase, panel.ExportBridgeStatus, panel.ViewerStatus);
-        internal Task<bool> ExportAsync(Window? owner) => panel.ExportAsync(useRecipeSize: true, owner);
+        internal Task<bool> ExportAsync(Window? owner) => panel.ExportAsync(owner);
         internal Task<int> ExportBatchAsync(Window? owner) => panel.ExportSelectedImagesWithOwnerAsync(owner, ChooseBatchFolder);
         internal bool ProtectPendingLooks() => panel.ProtectPendingLooks();
         internal void SetExportBridgeStatus(ExportBridgeState state, string? detail = null) => panel.SetExportBridgeStatus(state, detail);
@@ -584,10 +584,7 @@ internal static class SpektraFilmTool
             };
             var exports = new ExportJobJournal(Path.Combine(PanelPreferences.UserDataDirectory(), "Export jobs", looks.CatalogIdentity), StartupHook.Log);
             opticalPreview = SpatialPreview.BuildForPanel(window, document, CurrentSettings, UseSelectedLook, ReadBatchLook, exports);
-            var exportSection = new StackPanel();
-            exportSection.Children.Add(Button("Export selected images…", async () => await ExportSelectedImagesAsync(ChooseBatchFolder)));
-            exportSection.Children.Add(opticalPreview.ExportControls);
-            layout.Children.Insert(3, exportSection);
+            layout.Children.Insert(3, opticalPreview.ExportControls);
             opticalPreview.SettingsChanged += SaveLook;
             opticalPreview.SliderDragActivity += UpdateHistoryGesture;
             opticalPreview.TrackSliderDrag(exposure);
@@ -709,7 +706,7 @@ internal static class SpektraFilmTool
             exportBridgeStatus.Text = state switch
             {
                 ExportBridgeState.Checking => "Checking Capture One Export support…",
-                ExportBridgeState.Unavailable => "Capture One Export is unavailable for film looks. Use Export with Spektrafilm in this panel. " + detail,
+                ExportBridgeState.Unavailable => "Capture One Export is unavailable for film looks. " + detail,
                 _ => string.Empty,
             };
             exportBridgeStatus.Visibility = exportBridgeStatus.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
@@ -863,12 +860,9 @@ internal static class SpektraFilmTool
             section.Children.Add(presets);
             section.Children.Add(MakePresetSections());
 
-            exportButtons.Children.Add(Button("Export with Spektrafilm…", () => ExportAsync(useRecipeSize: false)));
             exportButtons.Children.Add(Button("Export 33-point LUT…", () => ExportLutAsync(33)));
             exportButtons.Children.Add(Button("Export 65-point LUT…", () => ExportLutAsync(65)));
             section.Children.Add(exportButtons);
-            section.Children.Add(new TextBlock { Text = "Image export saves 16-bit TIFF or PNG. Capture One Export uses the recipe's size, crop, resolution and local RGB ICC profile. Export from this panel uses sRGB. The save dialog sets the name. Permitted credits, title, date, rating and all-keyword selections carry over.",
-                TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 5, 0, 0) });
             return Section("presets-and-lut", "Presets and LUT export", section);
         }
 
@@ -1061,9 +1055,6 @@ internal static class SpektraFilmTool
 
         internal bool IsSpektraExportActive => SyncSelection() && IsSpektraFilmEnabled;
 
-        private Task<int> ExportSelectedImagesAsync(Func<OpenFolderDialog, Window?, string?> chooseFolder) =>
-            ExportSelectedImagesWithOwnerAsync(Window.GetWindow(this), chooseFolder);
-
         internal Task<int> ExportSelectedImagesWithOwnerAsync(Window? owner, Func<OpenFolderDialog, Window?, string?> chooseFolder)
         {
             if (disposed || !StocksReady || defaultLook is null)
@@ -1125,8 +1116,8 @@ internal static class SpektraFilmTool
             var outcome = looks.ReadOutcome(variant);
             return outcome.ReadOnly || outcome.Look?.Enabled != false;
         }
-        internal Task<bool> ExportAsync(bool useRecipeSize, Window? owner = null) =>
-            IsSpektraExportActive ? opticalPreview.ExportAsync(useRecipeSize, owner) : Task.FromResult(false);
+        internal Task<bool> ExportAsync(Window? owner) =>
+            IsSpektraExportActive ? opticalPreview.ExportAsync(useRecipeSize: true, owner) : Task.FromResult(false);
         internal bool StocksReady => !disposed && options is not null;
         internal LaunchPhase ControlsLoadPhase => controlsLoadFailed ? LaunchPhase.Failed
             : StocksReady ? LaunchPhase.Ready : LaunchPhase.LoadingControls;

@@ -86,7 +86,7 @@ public static partial class StartupHook
             File.WriteAllBytes(protectedFile, new byte[] { 31, 12, 8, 47 });
             var protectedSha = Digest(protectedFile);
             selected.Select(order[0], order);
-            var running = (Task<int>)Call(panel, "ExportSelectedImagesAsync",
+            var running = (Task<int>)Call(panel, "ExportSelectedImagesWithOwnerAsync", null,
                 (Func<OpenFolderDialog, Window?, string?>)((_, _) => output))!;
             var wait = Stopwatch.StartNew();
             while (!running.IsCompleted && wait.Elapsed < TimeSpan.FromSeconds(75))

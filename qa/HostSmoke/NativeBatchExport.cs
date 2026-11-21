@@ -123,7 +123,7 @@ public static partial class StartupHook
         File.WriteAllText(Path.Combine(folder, "first.passed"), $"PASS {checks} native batch export assertions");
 
         Task<int> Start(Func<OpenFolderDialog, Window?, string?> choose) =>
-            (Task<int>)Call(panel, "ExportSelectedImagesAsync", choose)!;
+            (Task<int>)Call(panel, "ExportSelectedImagesWithOwnerAsync", null, choose)!;
 
         async Task VerifyRecipeFilenamesAndWatermarks()
         {

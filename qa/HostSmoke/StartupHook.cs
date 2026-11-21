@@ -2051,7 +2051,7 @@ public static partial class StartupHook
                     Check(Prop(panel, "ExportBridgeStatus")?.ToString() == "Unavailable"
                         && Prop(panel, "IsSpektraExportActive") is true
                         && ((TextBlock)Field(panel, "exportBridgeStatus")!).Visibility == Visibility.Visible,
-                        name + " reports unavailable native Export while keeping direct export active");
+                        name + " reports unavailable native Export while the selected look remains enabled");
                     Check(routed == 3 && Prop(window, "ExportDialogWindow") is null,
                         name + " did not route a job or retain a dialog owner");
                 }
