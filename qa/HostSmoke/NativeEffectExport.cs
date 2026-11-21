@@ -1730,12 +1730,7 @@ public static partial class StartupHook
                 {
                     var layers = Prop(variant, "LocalAdjustmentsLayers")!;
                     var initialCount = (int)Prop(layers, "Count")!;
-                    var provider = native.Assembly.GetType("P1.C1.Core.Messaging.MessageBusProvider", true)!;
-                    var defaultProvider = provider.GetProperty("DefaultInstance", BindingFlags.Static | Flags)?.GetValue(null)
-                        ?? provider.GetField("DefaultInstance", BindingFlags.Static | Flags)?.GetValue(null)
-                        ?? throw new InvalidOperationException("The native layer fixture cannot find the application message bus.");
-                    var bus = Prop(defaultProvider, "GlobalBus")!;
-                    var layer = Call(layers, "AddNew", variant, "Spektrafilm test mask", bus)!;
+                    var layer = AddFixtureAdjustmentLayer(native, variant, layers);
                     try
                     {
                         Check((int)Prop(layers, "Count")! == initialCount + 1, "the disposable RAW uses a real Capture One adjustment layer");

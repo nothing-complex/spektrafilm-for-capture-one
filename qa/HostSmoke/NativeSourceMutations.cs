@@ -74,12 +74,12 @@ public static partial class StartupHook
             string Model() => (string)Prop(settings, "ModelCoreRepresentation")!;
             var original = await WaitForSource(id);
 
-            async Task Measure(string label, Action apply, Action restore)
+            async Task Measure(string label, Action apply, Action? restore = null, bool cropOnly = false)
             {
                 try
                 {
                     var beforeModel = Model();
-                    var beforePaint = label == "asymmetric crop" ? ReadCropPaint(viewer, spatial) : null;
+                    var beforePaint = cropOnly ? ReadCropPaint(viewer, spatial) : null;
                     var beforeCropIdentity = Field(spatial, "sourceCropIdentity");
                     if (beforePaint is not null)
                         Check(Field(spatial, "sourceCropIdentity") is not null,
@@ -97,7 +97,7 @@ public static partial class StartupHook
                             return string.Join(" | ", keys);
                         }
                         File.AppendAllText(Path.Combine(folder, "native-crop-shape.log"),
-                            $"{format}: {Shape(beforeModel)} -> {Shape(afterModel)}{Environment.NewLine}");
+                            $"{format} {label}: {Shape(beforeModel)} -> {Shape(afterModel)}{Environment.NewLine}");
                         var probe = host.GetMethod("ReadPreviewCropIdentity", Flags)!.Invoke(null, new[] { window, (object)id, expected });
                         File.AppendAllText(Path.Combine(folder, "native-crop-shape.log"),
                             $"{format}: expected {expected}; prior {Key(original)}; candidate {probe is not null}; "
@@ -124,7 +124,7 @@ public static partial class StartupHook
                             $"{format} only the native crop changed, so the Viewer reused the RGB16 buffer and optical bitmap");
                         var difference = CompareCropBitmaps(beforePaint.Bitmap, cropPaint.Bitmap);
                         Check(beforePaint.Transform != cropPaint.Transform || beforePaint.Clip != cropPaint.Clip,
-                            $"{format} asymmetric native crop changes the Viewer presentation");
+                            $"{format} {label} changes the native Viewer presentation");
                         Check(cropPaint.CornerError <= .55 && cropPaint.ClipMatches,
                             $"{format} the optical bitmap maps to all four native canvas corners and the exact native crop clip");
                         Check(difference.Mean < .1 && difference.Percentile999 <= 1 && difference.Maximum <= 8,
@@ -132,8 +132,18 @@ public static partial class StartupHook
                         presentation = new { beforePaint.CornerError, cropCornerError = cropPaint.CornerError,
                             clipMatches = cropPaint.ClipMatches, difference };
                     }
-                    else Check(!ReferenceEquals(Prop(after, "FloatBytes"), Prop(original, "FloatBytes")),
-                        $"{format} {label} develops a fresh pixel buffer");
+                    else
+                    {
+                        Check(!ReferenceEquals(Prop(after, "FloatBytes"), Prop(original, "FloatBytes")),
+                            $"{format} {label} develops a fresh pixel buffer");
+                        if (label is "crop and rotation" or "crop and keystone" or "crop and mask")
+                        {
+                            var geometry = ReadCropPaint(viewer, spatial);
+                            Check(geometry.CornerError <= .55 && geometry.ClipMatches,
+                                $"{format} {label} presents the independently rebuilt source at the new native geometry");
+                            presentation = new { geometry.CornerError, geometry.ClipMatches };
+                        }
+                    }
                     var snapshot = capture.Invoke(null, new[] { window, target, encoding, false })!;
                     var reference = (await Task.Run(() => Call(snapshot, "RenderScaledPreview", 1200, CancellationToken.None)))!;
                     var width = (int)Prop(after, "Width")!;
@@ -152,14 +162,14 @@ public static partial class StartupHook
                     else
                         Check(true, $"{format} {label} cached source matches fresh native development within native repeatability");
                     var change = CompareSamples(original, after);
-                    Check(label == "asymmetric crop"
+                    Check(cropOnly
                             ? change.Mean <= Math.Max(1d / 65535, 2 * nativeRepeat.Mean)
                             : change.Mean > 20 * Math.Max(cachedError.Mean, 1d / 65535),
                         $"{format} {label} has the expected signal in the full-canvas source");
                     results.Add(new { format, label, beforeRevision = RevisionRecord(Key(original)), afterRevision = RevisionRecord(Key(after)),
                         width, height, cachedError, nativeRepeat, change, changedFields, presentation });
                 }
-                finally { restore(); }
+                finally { restore?.Invoke(); }
                 original = await WaitForSource(id);
             }
 
@@ -205,10 +215,52 @@ public static partial class StartupHook
                 original = await WaitForSource(id);
                 Check(CompareCropBitmaps(filmOnly, ReadCropPaint(viewer, spatial).Bitmap).Mean > .5,
                     $"{format} the crop fixture measures an applied spatial look on the live Viewer");
-                await Set("asymmetric crop", crop, cropValue);
+                await Measure("asymmetric crop", () => crop.SetValue(nativeVariant, cropValue), cropOnly: true);
+                await Measure("clear crop", () => crop.SetValue(nativeVariant, oldCrop), cropOnly: true);
+
+                var rotation = native.GetProperty("RotationAdjustment")!;
+                await ApplyChanges("crop and rotation", (rotation, (float)rotation.GetValue(nativeVariant)! + 8f), (crop, cropValue));
+                var keystone = native.GetProperty("KeystoneH")!;
+                var keystoneAmount = native.GetProperty("KeystoneAmount")!;
+                await ApplyChanges("crop and keystone", (keystoneAmount, 100f), (keystone, 14f), (crop, cropValue));
+
+                if (format == "DNG")
+                {
+                    var unproofedBitmap = Field(spatial, "viewerFrame");
+                    await TestProofing(panel, spatial);
+                    Check(ReferenceEquals(Field(spatial, "source"), original)
+                        && ReferenceEquals(Field(spatial, "viewerFrame"), unproofedBitmap),
+                        "recipe proofing changes Viewer presentation without developing or processing a new source");
+                    var unmasked = original;
+                    var layers = native.GetProperty("LocalAdjustmentsLayers")!.GetValue(nativeVariant)!;
+                    var initialCount = (int)Prop(layers, "Count")!;
+                    var layer = AddFixtureAdjustmentLayer(native, nativeVariant, layers);
+                    try
+                    {
+                        var setValue = layer.GetType().GetMethods(Flags).Single(method => method.Name == "SetValue"
+                            && method.IsGenericMethodDefinition && method.GetParameters().Length == 2).MakeGenericMethod(typeof(float));
+                        setValue.Invoke(layer, new object[] { "Exposure", .85f });
+                        Call(layer, "FillMaskNoUndo", nativeVariant);
+                        original = await WaitForSource(id);
+                        Check((int)Prop(layers, "Count")! == initialCount + 1 && CompareSamples(unmasked, original).Mean > .01
+                            && Field(spatial, "sourceCropIdentity") is null,
+                            "the real native adjustment mask changes the developed source and disables crop reuse");
+                        await Measure("crop and mask", () =>
+                        {
+                            Call(layer, "InvertMask", nativeVariant);
+                            crop.SetValue(nativeVariant, cropValue);
+                        });
+                    }
+                    finally
+                    {
+                        Call(layers, "RemoveNoUndo", layer);
+                        Check((int)Prop(layers, "Count")! == initialCount, "the temporary native adjustment layer was removed");
+                    }
+                }
             }
             finally
             {
+                crop.SetValue(nativeVariant, oldCrop);
                 diffusion.SelectedItem = originalFamily;
                 for (var index = 0; index < originalOptics.Length; index++) SetOptic(index, originalOptics[index]);
             }
@@ -227,6 +279,15 @@ public static partial class StartupHook
         File.WriteAllText(Path.Combine(folder, "native-source-mutations.json"), JsonSerializer.Serialize(results, new JsonSerializerOptions { WriteIndented = true }));
         Check(unexpected.Count == 0, "native source mutation parity: " + string.Join("; ", unexpected));
         File.WriteAllText(Path.Combine(folder, "first.passed"), $"PASS {checks} native source mutation assertions");
+    }
+
+    private static object AddFixtureAdjustmentLayer(Type native, object variant, object layers)
+    {
+        var provider = native.Assembly.GetType("P1.C1.Core.Messaging.MessageBusProvider", true)!;
+        var instance = provider.GetProperty("DefaultInstance", Flags)?.GetValue(null)
+            ?? provider.GetField("DefaultInstance", Flags)?.GetValue(null)
+            ?? throw new InvalidOperationException("The native layer fixture cannot find the application message bus.");
+        return Call(layers, "AddNew", variant, "Spektrafilm test mask", Prop(instance, "GlobalBus"))!;
     }
 
     private sealed record CropPaint(BitmapSource Bitmap, Matrix Transform, System.Windows.Rect Clip, double CornerError, bool ClipMatches);

@@ -55,8 +55,7 @@ internal sealed record PreviewCropModel(string PixelSettingsSha256, PreviewCropM
                 var field = cropRow.Groups[2].Value.TrimEnd();
                 if (!field.EndsWith(',')) return null;
                 using var rectangleJson = JsonDocument.Parse(field[..^1]);
-                if (!TryReadRectangle(rectangleJson.RootElement, out var rectangle)) return null;
-                crop = rectangle;
+                if (!TryReadRectangle(rectangleJson.RootElement, out crop)) return null;
                 model = model.Remove(cropRow.Index, cropRow.Length);
                 if (cropRow.Index < counterOffset) counterOffset -= cropRow.Length;
             }
@@ -115,7 +114,7 @@ internal sealed record PreviewCropModel(string PixelSettingsSha256, PreviewCropM
         return closed && found == (crop is null ? 2 : 3);
     }
 
-    private static bool TryReadRectangle(JsonElement crop, out Rectangle rectangle)
+    private static bool TryReadRectangle(JsonElement crop, out Rectangle? rectangle)
     {
         rectangle = default;
         if (crop.ValueKind != JsonValueKind.Object) return false;
@@ -127,10 +126,12 @@ internal sealed record PreviewCropModel(string PixelSettingsSha256, PreviewCropM
                 return false;
         }
         if (fields.Count != 4 || !fields.TryGetValue("x", out var x) || !fields.TryGetValue("y", out var y)
-            || !fields.TryGetValue("width", out var width) || !fields.TryGetValue("height", out var height)
-            || width <= 0 || height <= 0)
+            || !fields.TryGetValue("width", out var width) || !fields.TryGetValue("height", out var height))
             return false;
-        rectangle = new(x, y, width, height);
+        // Capture One can retain an explicit empty rectangle when clearing a crop.
+        if (x == 0 && y == 0 && width == 0 && height == 0) return true;
+        if (width <= 0 || height <= 0) return false;
+        rectangle = new Rectangle(x, y, width, height);
         return true;
     }
 }

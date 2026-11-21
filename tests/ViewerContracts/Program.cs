@@ -417,6 +417,12 @@ internal static partial class Program
         Check(plain.Crop is null && cropped.Crop is { X: 3240, Y: 1800, Width: 4320, Height: 2840 }
             && plain.PixelSettingsSha256 == cropped.PixelSettingsSha256,
             "the native rectangle can be inserted without changing uncropped pixel identity");
+        const string reset = "\"crop\":{\"x\":0,\"y\":0,\"width\":0,\"height\":0},\n";
+        Check(PreviewCropModel.Read(Model(8, reset, settings), 8) == plain,
+            "Capture One's explicit zero crop has the same identity as an absent crop");
+        Check(PreviewCropModel.Read(Model(8, reset.Replace("\"x\":0", "\"x\":10"), settings), 8) is null
+            && PreviewCropModel.Read(Model(8, reset.Replace("\"width\":0", "\"width\":100"), settings), 8) is null,
+            "a partially empty rectangle remains an unsupported crop representation");
         foreach (var edited in new[] { "\"lensDistortionAmount\"", "\"rotation\"", "\"keystone\"" })
         {
             var changedSettings = settings.Replace(edited + ":", edited + ":4", StringComparison.Ordinal);
