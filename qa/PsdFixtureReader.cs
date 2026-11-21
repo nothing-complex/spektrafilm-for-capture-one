@@ -5,7 +5,7 @@ using System.IO;
 
 // Independent reader for the uncompressed RGB16 files produced by fixtures.
 internal sealed record PsdFixture(int Width, int Height, ushort[] Samples, Dictionary<ushort, byte[]> Resources,
-    Dictionary<ushort, string> ResourceNames, PsdFixture.Layer[] Layers)
+    Dictionary<ushort, string> ResourceNames, PsdFixture.Layer[] Layers, ushort Version)
 {
     internal sealed record Layer(string Name, int Left, int Top, int Width, int Height, ushort[] Samples);
 
@@ -69,7 +69,10 @@ internal sealed record PsdFixture(int Width, int Height, ushort[] Samples, Dicti
             return buffer;
         }
 
-        Require(ReadBytes(4).AsSpan().SequenceEqual("8BPS"u8) && Word() == 1, "version");
+        Require(ReadBytes(4).AsSpan().SequenceEqual("8BPS"u8), "signature");
+        var version = Word();
+        Require(version is 1 or 2, "version");
+        long LayerLength() => version == 2 ? BinaryPrimitives.ReverseEndianness(reader.ReadInt64()) : Long();
         Require(Long() == 0 && Word() == 0 && Word() == 3, "RGB channel count");
         var height = checked((int)Long());
         var width = checked((int)Long());
@@ -108,18 +111,18 @@ internal sealed record PsdFixture(int Width, int Height, ushort[] Samples, Dicti
                     samples[(y * width + x) * 3 + channel] = BinaryPrimitives.ReadUInt16BigEndian(row.AsSpan(x * 2));
             }
         }
-        return new(width, height, samples, resources, names, layers);
+        return new(width, height, samples, resources, names, layers, version);
 
         Layer[] ReadLayers()
         {
-            var blockLength = Long();
+            var blockLength = LayerLength();
             if (blockLength == 0) return [];
             var blockEnd = stream.Position + blockLength;
-            Require(blockEnd < stream.Length && Long() == 0 && Long() == 0, "layer and mask framing");
+            Require(blockLength > 0 && blockEnd < stream.Length && LayerLength() == 0 && Long() == 0, "layer and mask framing");
             Require(ReadBytes(8).AsSpan().SequenceEqual("8BIMLr16"u8), "16-bit layer tag");
-            var length = Long();
+            var length = LayerLength();
             var layerEnd = stream.Position + length;
-            Require(layerEnd <= blockEnd && blockEnd - layerEnd < 4, "layer tag extent");
+            Require(length > 0 && layerEnd <= blockEnd && blockEnd - layerEnd < 4, "layer tag extent");
             var layers = new Layer[Word()];
             var counts = new int[layers.Length];
             for (var index = 0; index < layers.Length; index++)
@@ -133,7 +136,7 @@ internal sealed record PsdFixture(int Width, int Height, ushort[] Samples, Dicti
                 var pixels = checked((bottom - top) * (right - left));
                 for (var channel = 0; channel < channels; channel++)
                     Require(Word() == (channel == 3 ? ushort.MaxValue : channel)
-                        && Long() == 2 + pixels * 2L, "layer channel");
+                        && LayerLength() == 2 + pixels * 2L, "layer channel");
                 Require(ReadBytes(8).AsSpan().SequenceEqual("8BIMnorm"u8)
                     && ReadBytes(4).AsSpan().SequenceEqual(new byte[] { 255, 0, 8, 0 }), "normal visible layer");
                 var extra = Long();

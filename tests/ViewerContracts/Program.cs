@@ -173,17 +173,21 @@ internal static partial class Program
         const SpektraExport.Format tiff = SpektraExport.Format.Tiff;
         const SpektraExport.Format png = SpektraExport.Format.Png;
         const SpektraExport.Format psd = SpektraExport.Format.Psd;
+        const SpektraExport.Format psb = SpektraExport.Format.Psb;
         foreach (var (requested, bits, actual, expectedTitle, expectedNote, canSkipRecipeOutput) in new[]
         {
-            ("Tiff", 16, tiff, "Save 16-bit TIFF, PNG or PSD", (string?)null, true),
+            ("Tiff", 16, tiff, "Save 16-bit TIFF, PNG, PSD or PSB", (string?)null, true),
             ("Tiff", 8, tiff, "Recipe requests 8-bit TIFF", "Recipe requested 8-bit TIFF. Saved 16-bit TIFF.", false),
-            ("Png", 0, png, "Save 16-bit TIFF, PNG or PSD", null, true),
-            ("Png", 0, tiff, "Save 16-bit TIFF, PNG or PSD", "Recipe requested PNG. Saved 16-bit TIFF.", true),
+            ("Png", 0, png, "Save 16-bit TIFF, PNG, PSD or PSB", null, true),
+            ("Png", 0, tiff, "Save 16-bit TIFF, PNG, PSD or PSB", "Recipe requested PNG. Saved 16-bit TIFF.", true),
             ("Jpeg", 0, tiff, "Recipe requests JPEG", "Recipe requested JPEG. Saved 16-bit TIFF.", false),
             ("123", 0, png, "Recipe requests a different file format", "Recipe requested a different file format. Saved 16-bit PNG.", false),
-            ("Psd", 16, psd, "Save 16-bit TIFF, PNG or PSD", null, true),
+            ("Psd", 16, psd, "Save 16-bit TIFF, PNG, PSD or PSB", null, true),
             ("Psd", 8, psd, "Recipe requests 8-bit PSD", "Recipe requested 8-bit PSD. Saved 16-bit PSD.", false),
-            ("Psd", 16, tiff, "Save 16-bit TIFF, PNG or PSD", "Recipe requested 16-bit PSD. Saved 16-bit TIFF.", true),
+            ("Psd", 16, tiff, "Save 16-bit TIFF, PNG, PSD or PSB", "Recipe requested 16-bit PSD. Saved 16-bit TIFF.", true),
+            ("Psb", 16, psb, "Save 16-bit TIFF, PNG, PSD or PSB", null, true),
+            ("Psb", 8, psb, "Recipe requests 8-bit PSB", "Recipe requested 8-bit PSB. Saved 16-bit PSB.", false),
+            ("Psb", 16, psd, "Save 16-bit TIFF, PNG, PSD or PSB", "Recipe requested 16-bit PSB. Saved 16-bit PSD.", true),
         })
         {
             var delivery = new SpektraExport.RecipeDelivery(requested, bits, "Respect");
@@ -191,7 +195,7 @@ internal static partial class Program
             Check(title.StartsWith(expectedTitle, StringComparison.Ordinal) && title.Contains("3000 × 2000 · ProPhoto RGB", StringComparison.Ordinal)
                 && delivery.SavedNote(actual) == expectedNote
                 && delivery.CanSkipRecipeOutput == canSkipRecipeOutput
-                && delivery.Extension == (requested switch { "Png" => ".png", "Psd" => ".psd", _ => ".tif" }),
+                && delivery.Extension == (requested switch { "Png" => ".png", "Psd" => ".psd", "Psb" => ".psb", _ => ".tif" }),
                 $"{requested} {bits} recipe states the 16-bit delivery policy and actual saved format");
         }
         var cropPath = new SpektraExport.RecipeDelivery("Psd", 16, "AsPath");
@@ -234,6 +238,12 @@ internal static partial class Program
         Check(unavailableGuides.SaveTitle(3000, 2000, "sRGB").Contains("omits recipe guides", StringComparison.Ordinal)
             && unavailableGuides.SavedNote(psd) == "The export omitted recipe guides.",
             "unavailable native guides are disclosed even in PSD delivery");
+        var largeDocument = editable with { Format = "Psb", HasPsdGuides = true };
+        Check(largeDocument.BatchTitle(2, true) == "Export 2 images as 16-bit PSB · Full image with editable crop paths · Editable guides · Skip existing recipe files"
+            && largeDocument.SavedNote(psb) == "Saved the full image with the editable crop path."
+            && largeDocument.SavedNote(png)?.EndsWith("The export omitted recipe guides.", StringComparison.Ordinal) == true
+            && SpektraExport.FilterFor(psb).EndsWith("|*.psb", StringComparison.Ordinal),
+            "PSB follows the native naming and skip policy and retains the supported editable resources");
     }
 
     private static void TestExportFilenameSuggestion(string folder)

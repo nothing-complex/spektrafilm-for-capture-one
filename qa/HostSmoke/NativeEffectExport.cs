@@ -860,7 +860,7 @@ public static partial class StartupHook
                     {
                         var receipt = Call(Field(spatial, "exportJobs")!, "ReadLatest")!;
                         var note = $"Recipe requested {requested}. Saved 16-bit TIFF.";
-                        Check(offeredTitle?.StartsWith($"Recipe requests {requested} · Save 16-bit TIFF, PNG or PSD", StringComparison.Ordinal) == true,
+                        Check(offeredTitle?.StartsWith($"Recipe requests {requested} · Save 16-bit TIFF, PNG, PSD or PSB", StringComparison.Ordinal) == true,
                             $"Save discloses the {requested} substitution before publication");
                         var describe = spatial.GetType().GetMethod("DescribePreviousExport", Flags)!;
                         Check(Equals(Prop(receipt, "DeliveryNote"), note)
@@ -1377,7 +1377,7 @@ public static partial class StartupHook
                             == "Saved the full image with the editable crop path. The export omitted recipe transparency overlay.",
                             "the native PSD receipt records the included path and omitted transparency overlay");
                         var png = await Render("psd-crop-path-alternative", ".png", false, expectedGeometry: full);
-                        Check(offeredTitle?.StartsWith("Save 16-bit TIFF, PNG or PSD · full image, editable crop path in PSD · omits recipe transparency overlay", StringComparison.Ordinal) == true,
+                        Check(offeredTitle?.StartsWith("Save 16-bit TIFF, PNG, PSD or PSB · full image, editable crop path in PSD or PSB · omits recipe transparency overlay", StringComparison.Ordinal) == true,
                             "the native Save title names the format that retains the crop path and discloses omitted layers");
                         const string note = "Recipe requested 16-bit PSD. Saved 16-bit PNG. Saved the full image. The recipe’s crop path was omitted. The export omitted recipe transparency overlay.";
                         var receipt = Call(Field(spatial, "exportJobs")!, "ReadLatest")!;
@@ -1424,6 +1424,11 @@ public static partial class StartupHook
                                 "recipe approval captures the transparency overlay independently of the Viewer Show switch");
                             var layers = await Render("editable-psd-transparency", ".psd", true, expectedGeometry: full,
                                 expectedCropPath: approvedPath, expectedPsdBackground: uncut, expectedPsdOverlay: "Overlay");
+                            var largeDocument = await Render("editable-psb-transparency", ".psb", false, expectedGeometry: full,
+                                expectedCropPath: approvedPath, expectedPsdBackground: uncut, expectedPsdOverlay: "Overlay");
+                            var containerParity = Difference(layers, largeDocument);
+                            Check(containerParity.Mean < 8d / 65535 && containerParity.Maximum < .01,
+                                "the explicitly chosen PSB preserves the same high-depth film and overlay as the PSD recipe");
                             var flattened = await Render("flattened-png-transparency", ".png", false, expectedGeometry: full);
                             var match = Difference(layers, flattened);
                             Check(Difference(uncut, layers).Mean > .0001 && match.Mean < 8d / 65535 && match.Maximum < .01,
@@ -2398,9 +2403,10 @@ public static partial class StartupHook
                 using var file = File.OpenRead(destination);
                 BitmapSource frame;
                 string actualIcc;
-                if (extension == ".psd")
+                if (extension is ".psd" or ".psb")
                 {
                     var psd = PsdFixture.Read(file);
+                    Check(psd.Version == (extension == ".psb" ? 2 : 1), "the export writes the selected Photoshop container version");
                     if (expectedPsdBackground is not null)
                     {
                         Check(psd.Layers is [var background, var overlay] && background.Name == "Background"
@@ -2473,7 +2479,7 @@ public static partial class StartupHook
                     && detail.GetProperty("InputEncoding").GetString() == inputEncoding
                     && detail.GetProperty("OutputWidth").GetInt32() == width
                     && detail.GetProperty("OutputHeight").GetInt32() == height
-                    && detail.GetProperty("OutputFormat").GetString() == (extension switch { ".psd" => "PSD", ".tif" => "TIFF", _ => "PNG" })
+                    && detail.GetProperty("OutputFormat").GetString() == (extension switch { ".psd" => "PSD", ".psb" => "PSB", ".tif" => "TIFF", _ => "PNG" })
                     && detail.GetProperty("TiffCompression").GetString() == (extension == ".tif"
                         ? (expectedCompression ?? compression).ToString() : null)
                     && detail.GetProperty("TransformsDeliveryProfile").ValueKind is JsonValueKind.True or JsonValueKind.False

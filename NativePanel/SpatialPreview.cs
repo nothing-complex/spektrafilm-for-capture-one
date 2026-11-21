@@ -1314,7 +1314,8 @@ internal sealed class SpatialPreview : IDisposable
                     var annotations = recipe?.Annotations;
                     var hasOverlays = watermark is not null || transparencyOverlay is not null || annotations is not null;
                     var convertsProfile = deliveryProfile.RequiresConversion;
-                    var editableOverlays = hasOverlays && outputContainer == SpektraExport.Format.Psd;
+                    var layeredFormat = SpektraExport.SupportsLayers(outputContainer);
+                    var editableOverlays = hasOverlays && layeredFormat;
                     var deferOverlays = convertsProfile || editableOverlays;
                     var allocation = deferOverlays && hasOverlays ? RenderAllocation.ProfileImageEncodingWithOverlay
                         : !convertsProfile ? RenderAllocation.ImageEncoding
@@ -1346,7 +1347,7 @@ internal sealed class SpatialPreview : IDisposable
                     if (deferOverlays && hasOverlays)
                         output = ExportOverlay.Composite(output, rendered.Crop, overlays, work.Token, layers);
                     var profileSetupMs = Stopwatch.GetElapsedTime(profileSetupStarted).TotalMilliseconds;
-                    var guides = outputContainer == SpektraExport.Format.Psd && recipe?.Guides is { Length: > 0 } availableGuides
+                    var guides = layeredFormat && recipe?.Guides is { Length: > 0 } availableGuides
                         ? PsdGuide.InOutput(availableGuides, source.Width, source.Height, rendered.Crop) : null;
                     var writeStarted = Stopwatch.GetTimestamp();
                     SpektraExport.SaveApproved(approved, output, work.Token, recipe?.Metadata, deliveryProfile,

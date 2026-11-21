@@ -234,7 +234,8 @@ internal static class HostImageSource
         var variant = selection.Variant;
         var metadata = ReadRecipeMetadata(variant, recipe);
         var format = ReadRecipeFormat.Value(recipe);
-        var cropPath = format == FileFormat.Psd && recipe.CropExportMethod == CropExportMethod.AsPath
+        var formatId = format.ToString(); // Older signed host assemblies do not declare the PSB enum constant.
+        var cropPath = formatId is ("Psd" or "Psb") && recipe.CropExportMethod == CropExportMethod.AsPath
             ? ReadPsdCropPath(geometry) : null;
         var compression = format == FileFormat.Tiff ? recipe.TiffCompression switch
         {
@@ -264,7 +265,7 @@ internal static class HostImageSource
         if (recipe.IncludeGuides && guides is null)
             omissions |= SpektraExport.RecipeOmission.Guides;
         var (suggestedDirectory, exactDirectory) = ReadRecipeLocation(selection, recipe);
-        return new RecipeInfo(recipe.Name, format.ToString(), recipe.ColorProfileName, recipe.ColorProfilePath,
+        return new RecipeInfo(recipe.Name, formatId, recipe.ColorProfileName, recipe.ColorProfilePath,
             recipe.CropExportMethod.ToString(), recipe.DestinationRootFolder.ToString(), recipe.DestinationCustomRootFolder,
             recipe.DestinationSubFolder, recipe.DestinationFilename, recipe.DestinationSubName, recipe.TiffBits, recipe.JpegQuality,
             scale.ScaledPixelWidth, scale.ScaledPixelHeight, scale.Scale, ignoreCrop, recipe.Resolution, recipe.ResolutionUnit.ToString(),

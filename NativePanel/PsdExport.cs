@@ -53,7 +53,6 @@ internal readonly record struct PsdLayer(string Name, int Left, int Top, BitmapS
 
 internal static class PsdExport
 {
-    private const int MaximumDimension = 30_000;
     private const int ResolutionResource = 1005;
     private const int IccResource = 1039;
     private const int GuidesResource = 1032;
@@ -62,12 +61,13 @@ internal static class PsdExport
 
     internal static void WriteVerified(Stream stream, BitmapSource image, ExportColorProfile profile, byte[]? xmp,
         CancellationToken stop, PsdCropPath? cropPath = null, IReadOnlyList<PsdGuide>? guides = null,
-        IReadOnlyList<PsdLayer>? layers = null)
+        IReadOnlyList<PsdLayer>? layers = null, bool largeDocument = false)
     {
         var width = image.PixelWidth;
         var height = image.PixelHeight;
-        if (width is < 1 or > MaximumDimension || height is < 1 or > MaximumDimension)
-            throw new InvalidDataException("PSD dimensions must be between 1 and 30,000 pixels.");
+        var maxDimension = largeDocument ? 300_000 : 30_000;
+        if (width < 1 || width > maxDimension || height < 1 || height > maxDimension)
+            throw new InvalidDataException($"Photoshop document dimensions must be between 1 and {maxDimension:N0} pixels.");
 
         using var profileStream = profile.Context.OpenProfileStream();
         if (profileStream.Length is < 128 or > 8 * 1024 * 1024)
@@ -77,8 +77,10 @@ internal static class PsdExport
         if (Convert.ToHexString(SHA256.HashData(icc)) != profile.Sha256)
             throw new InvalidDataException("The PSD export colour profile changed before encoding.");
 
-        var layerHeader = LayerHeader(layers, width, height, out var layerLength, out var layerPadding);
-        var header = Header(image, icc, xmp, cropPath, guides, layerLength);
+        var layerHeader = LayerHeader(layers, width, height, largeDocument, out var layerLength, out var layerPadding);
+        var header = Header(image, icc, xmp, cropPath, guides, layerLength, largeDocument);
+        var expectedLength = header.LongLength + layerLength + 2 + (long)width * height * 6;
+        ValidateContainerSize(expectedLength, largeDocument);
         stream.Write(header);
         stream.Write(layerHeader);
         if (layers is not null)
@@ -88,7 +90,7 @@ internal static class PsdExport
         WriteUInt16(stream, 0); // Uncompressed merged image.
         WritePlanarPixels(stream, image, stop, layerChannels: false);
         stop.ThrowIfCancellationRequested();
-        if (stream.Length != header.LongLength + layerLength + 2 + (long)width * height * 6)
+        if (stream.Length != expectedLength)
             throw new InvalidDataException("The PSD encoder did not preserve the expected 16-bit pixel count.");
         stream.Position = 0;
         VerifyBytes(stream, header);
@@ -97,8 +99,14 @@ internal static class PsdExport
         VerifyBytes(stream, [0, 0]);
     }
 
+    private static void ValidateContainerSize(long length, bool largeDocument)
+    {
+        if (!largeDocument && length > int.MaxValue)
+            throw new InvalidDataException("The 16-bit export would exceed the PSD 2 GB limit. Choose 16-bit PSB or a smaller export size.");
+    }
+
     private static byte[] Header(BitmapSource image, byte[] icc, byte[]? xmp, PsdCropPath? cropPath,
-        IReadOnlyList<PsdGuide>? guides, uint layerLength)
+        IReadOnlyList<PsdGuide>? guides, long layerLength, bool largeDocument)
     {
         using var resources = new MemoryStream();
         using var resolution = new MemoryStream();
@@ -112,7 +120,7 @@ internal static class PsdExport
 
         using var header = new MemoryStream();
         header.Write("8BPS"u8);
-        WriteUInt16(header, 1); // PSD version
+        WriteUInt16(header, largeDocument ? (ushort)2 : (ushort)1);
         WriteUInt32(header, 0);
         WriteUInt16(header, 0); // Reserved
         WriteUInt16(header, 3); // RGB channels
@@ -123,11 +131,12 @@ internal static class PsdExport
         WriteUInt32(header, 0); // RGB does not have a color mode data block.
         WriteUInt32(header, (uint)resources.Length);
         resources.WriteTo(header);
-        WriteUInt32(header, layerLength);
+        WriteLayerLength(header, layerLength, largeDocument);
         return header.ToArray();
     }
 
-    private static byte[] LayerHeader(IReadOnlyList<PsdLayer>? layers, int width, int height, out uint length, out int padding)
+    private static byte[] LayerHeader(IReadOnlyList<PsdLayer>? layers, int width, int height, bool largeDocument,
+        out long length, out int padding)
     {
         length = 0;
         padding = 0;
@@ -152,11 +161,11 @@ internal static class PsdExport
             WriteUInt32(records, (uint)(layer.Top + image.PixelHeight));
             WriteUInt32(records, (uint)(layer.Left + image.PixelWidth));
             WriteUInt16(records, (ushort)channels);
-            var channelLength = checked((uint)(2 + (long)image.PixelWidth * image.PixelHeight * 2));
+            var channelLength = 2 + (long)image.PixelWidth * image.PixelHeight * 2;
             for (var channel = 0; channel < channels; channel++)
             {
                 WriteUInt16(records, channel == 3 ? ushort.MaxValue : (ushort)channel); // -1 is transparency.
-                WriteUInt32(records, channelLength);
+                WriteLayerLength(records, channelLength, largeDocument);
                 pixelsLength += channelLength;
             }
             records.Write("8BIMnorm"u8);
@@ -174,15 +183,16 @@ internal static class PsdExport
 
         var dataLength = records.Length + pixelsLength;
         padding = (int)((4 - dataLength % 4) % 4);
-        const int taggedHeaderLength = 20;
-        if (dataLength + padding + taggedHeaderLength > uint.MaxValue)
-            throw new InvalidDataException("The layers exceed the PSD size limit. Choose a smaller export size.");
-        length = (uint)(dataLength + padding + taggedHeaderLength);
+        var taggedHeaderLength = largeDocument ? 28 : 20;
+        length = dataLength + padding + taggedHeaderLength;
+        ValidateContainerSize(length, largeDocument);
         using var header = new MemoryStream();
-        WriteUInt32(header, 0); // Default layer block is empty for a 16-bit PSD.
+        WriteLayerLength(header, 0, largeDocument); // The default layer block is empty at 16 bits.
         WriteUInt32(header, 0); // No global layer mask.
+        // Both Photoshop versions accept 8BIM. PSB widens the length of
+        // this particular tag independently of that signature.
         header.Write("8BIMLr16"u8);
-        WriteUInt32(header, (uint)dataLength);
+        WriteLayerLength(header, dataLength, largeDocument);
         records.WriteTo(header);
         return header.ToArray();
     }
@@ -305,6 +315,19 @@ internal static class PsdExport
     {
         Span<byte> bytes = stackalloc byte[4];
         BinaryPrimitives.WriteUInt32BigEndian(bytes, value);
+        stream.Write(bytes);
+    }
+
+    private static void WriteLayerLength(Stream stream, long value, bool largeDocument)
+    {
+        if (!largeDocument)
+        {
+            ValidateContainerSize(value, largeDocument);
+            WriteUInt32(stream, checked((uint)value));
+            return;
+        }
+        Span<byte> bytes = stackalloc byte[8];
+        BinaryPrimitives.WriteInt64BigEndian(bytes, value);
         stream.Write(bytes);
     }
 }

@@ -13,14 +13,18 @@ internal static class SpektraExport
     private const string TiffFilter = "16-bit TIFF image|*.tif;*.tiff";
     private const string PngFilter = "16-bit PNG image|*.png";
     private const string PsdFilter = "16-bit Photoshop document|*.psd";
-    internal const string FileFilter = TiffFilter + "|" + PngFilter + "|" + PsdFilter;
+    private const string PsbFilter = "16-bit Photoshop large document|*.psb";
+    internal const string FileFilter = TiffFilter + "|" + PngFilter + "|" + PsdFilter + "|" + PsbFilter;
 
-    internal enum Format { Tiff, Png, Psd }
+    internal enum Format { Tiff, Png, Psd, Psb }
+
+    internal static bool SupportsLayers(Format format) => format is Format.Psd or Format.Psb;
 
     internal static string FilterFor(Format format) => format switch
     {
         Format.Png => PngFilter,
         Format.Psd => PsdFilter,
+        Format.Psb => PsbFilter,
         _ => TiffFilter,
     };
 
@@ -42,9 +46,10 @@ internal static class SpektraExport
         {
             "Png" => ".png",
             "Psd" => ".psd",
+            "Psb" => ".psb",
             _ => ".tif",
         };
-        internal bool CanSkipRecipeOutput => Format is "Png" || Format is ("Tiff" or "Psd") && TiffBits == 16;
+        internal bool CanSkipRecipeOutput => Format is "Png" || Format is ("Tiff" or "Psd" or "Psb") && TiffBits == 16;
         private bool CropPath => CropMode == "AsPath";
         private bool RequiresFormatChange => Format is not null && !CanSkipRecipeOutput;
 
@@ -56,6 +61,8 @@ internal static class SpektraExport
             "Jpeg" or "JpegQuickProof" => "JPEG",
             "Psd" when TiffBits is 8 or 16 => $"{TiffBits}-bit PSD",
             "Psd" => "PSD with a different bit depth",
+            "Psb" when TiffBits is 8 or 16 => $"{TiffBits}-bit PSB",
+            "Psb" => "PSB with a different bit depth",
             "Dng" => "DNG",
             _ => "a different file format",
         };
@@ -65,21 +72,21 @@ internal static class SpektraExport
             if (Format is null)
                 return $"Save 16-bit Spektrafilm export ({profile})";
             var prefix = RequiresFormatChange ? $"Recipe requests {RequestedFormat} · " : "";
-            var crop = CropPath ? HasPsdCropPath ? " · full image, editable crop path in PSD" : " · full image, crop path omitted" : "";
-            var guides = HasPsdGuides ? " · editable guides in PSD" : "";
+            var crop = CropPath ? HasPsdCropPath ? " · full image, editable crop path in PSD or PSB" : " · full image, crop path omitted" : "";
+            var guides = HasPsdGuides ? " · editable guides in PSD or PSB" : "";
             var omissions = DescribeOmissions(Omissions);
             var effects = omissions is null ? "" : $" · omits {omissions}";
-            return $"{prefix}Save 16-bit TIFF, PNG or PSD{crop}{guides}{effects} · {width} × {height} · {profile}";
+            return $"{prefix}Save 16-bit TIFF, PNG, PSD or PSB{crop}{guides}{effects} · {width} × {height} · {profile}";
         }
 
         internal string BatchTitle(int count, bool skipExisting)
         {
-            var format = FormatFor(Extension).ToString().ToUpperInvariant();
-            var title = $"Export {count} images as 16-bit {format}";
+            var format = FormatFor(Extension);
+            var title = $"Export {count} images as 16-bit {format.ToString().ToUpperInvariant()}";
             if (RequiresFormatChange) title += $" · Recipe requests {RequestedFormat}";
             if (CropPath) title += HasPsdCropPath ? " · Full image with editable crop paths" : " · Full image, unavailable crop paths omitted";
-            if (HasPsdGuides && Extension == ".psd") title += " · Editable guides";
-            if (DescribeOmissions(OmissionsFor(FormatFor(Extension))) is { } omissions) title += $" · Omits {omissions}";
+            if (HasPsdGuides && SupportsLayers(format)) title += " · Editable guides";
+            if (DescribeOmissions(OmissionsFor(format)) is { } omissions) title += $" · Omits {omissions}";
             if (skipExisting) title += " · Skip existing recipe files";
             return title;
         }
@@ -99,14 +106,14 @@ internal static class SpektraExport
 
         private string CropPathNote(SpektraExport.Format outputFormat, bool batch)
         {
-            if (HasPsdCropPath && outputFormat == SpektraExport.Format.Psd)
+            if (HasPsdCropPath && SupportsLayers(outputFormat))
                 return batch ? "Saved the full images with their editable crop paths." : "Saved the full image with the editable crop path.";
             return batch ? "Saved the full images. One or more recipe crop paths were omitted."
                 : "Saved the full image. The recipe’s crop path was omitted.";
         }
 
         private RecipeOmission OmissionsFor(SpektraExport.Format output) =>
-            HasPsdGuides && output != SpektraExport.Format.Psd ? Omissions | RecipeOmission.Guides : Omissions;
+            HasPsdGuides && !SupportsLayers(output) ? Omissions | RecipeOmission.Guides : Omissions;
 
         private static string? DescribeOmissions(RecipeOmission omissions)
         {
@@ -172,7 +179,8 @@ internal static class SpektraExport
         ".tif" or ".tiff" => Format.Tiff,
         ".png" => Format.Png,
         ".psd" => Format.Psd,
-        _ => throw new InvalidOperationException("Choose 16-bit TIFF, PNG or PSD for the Spektrafilm file."),
+        ".psb" => Format.Psb,
+        _ => throw new InvalidOperationException("Choose 16-bit TIFF, PNG, PSD or PSB for the Spektrafilm file."),
     };
 
     internal static PixelFormat PixelFormatFor(Format format) => format == Format.Png ? PixelFormats.Rgba64 : PixelFormats.Rgb48;
@@ -207,8 +215,8 @@ internal static class SpektraExport
         {
             stop.ThrowIfCancellationRequested();
             var monitored = stop.CanBeCanceled || reportWrite is not null ? new EncoderStream(stream, stop, reportWrite) : stream;
-            if (output == Format.Psd)
-                PsdExport.WriteVerified(monitored, image, outputProfile, xmp, stop, cropPath, guides, layers);
+            if (SupportsLayers(output))
+                PsdExport.WriteVerified(monitored, image, outputProfile, xmp, stop, cropPath, guides, layers, largeDocument: output == Format.Psb);
             else
                 EncodeWic(stream, monitored);
             if (verified is not null)

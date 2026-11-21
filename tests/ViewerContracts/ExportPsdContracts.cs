@@ -69,7 +69,7 @@ internal static partial class Program
         using (var file = File.OpenRead(path))
         {
             var decoded = PsdFixture.Read(file);
-            Check(decoded.Width == width && decoded.Height == height && decoded.Layers.Length == 0
+            Check(decoded.Version == 1 && decoded.Width == width && decoded.Height == height && decoded.Layers.Length == 0
                 && decoded.Samples.AsSpan().SequenceEqual(samples),
                 "PSD reopens with the exact RGB16 sample in every channel, across multiple row blocks");
             Check(decoded.DpiX == 299.5 && decoded.DpiY == 304.25, "PSD stores both original resolution axes");
@@ -101,6 +101,43 @@ internal static partial class Program
         Check(File.ReadAllBytes(path).SequenceEqual(publishedBytes) && File.ReadAllText(source) == "original test image"
             && !Directory.EnumerateFiles(folder, ".spektra-*.tmp").Any(),
             "canceling a partial PSD write keeps both the verified destination and the original");
+
+        var largeFilm = new LayoutOnlyBitmap(10_000, PixelFormats.Rgb48);
+        var largeLayer = new LayoutOnlyBitmap(10_000, PixelFormats.Rgba64);
+        PsdLayer[] largeLayers = [new("Background", 0, 0, largeFilm), .. Enumerable.Range(1, 5)
+            .Select(index => new PsdLayer($"Overlay {index}", 0, 0, largeLayer))];
+        using var largeLayout = new MemoryStream();
+        var canceled = new CancellationToken(canceled: true);
+        try
+        {
+            PsdExport.WriteVerified(largeLayout, largeFilm, profile, null, canceled, layers: largeLayers);
+            throw new InvalidOperationException("An oversized Photoshop document should require PSB.");
+        }
+        catch (InvalidDataException error)
+        {
+            Check(largeLayout.Length == 0 && error.Message.Contains("PSB", StringComparison.Ordinal),
+                "oversized PSD is rejected before writing pixel data and offers PSB");
+        }
+        try
+        {
+            PsdExport.WriteVerified(largeLayout, largeFilm, profile, null, canceled, layers: largeLayers, largeDocument: true);
+            throw new InvalidOperationException("The PSB probe should stop before copying virtual pixels.");
+        }
+        catch (OperationCanceledException) { }
+        var prefix = largeLayout.ToArray();
+        var layerOffset = 34 + checked((int)BinaryPrimitives.ReadUInt32BigEndian(prefix.AsSpan(30)));
+        var layerLength = BinaryPrimitives.ReadInt64BigEndian(prefix.AsSpan(layerOffset));
+        var taggedLength = BinaryPrimitives.ReadInt64BigEndian(prefix.AsSpan(layerOffset + 28));
+        Check(prefix.Length < 10_000 && taggedLength > uint.MaxValue && layerLength == ((taggedLength + 3) & ~3L) + 28,
+            "PSB writes layer and tag lengths above four GiB without allocating or storing the virtual pixels");
+        var largePath = Path.ChangeExtension(path, ".psb");
+        SpektraExport.SaveApproved(OutputPathGuard.Approve(largePath, source), image, default, metadata, profile);
+        using (var flatPsb = File.OpenRead(largePath))
+        {
+            var decoded = PsdFixture.Read(flatPsb);
+            Check(decoded.Version == 2 && decoded.Layers.Length == 0 && decoded.Samples.AsSpan().SequenceEqual(samples),
+                "a flat RGB16 PSB stores its required eight-byte empty layer section and exact pixels");
+        }
 
         TestPsdOverlays();
         if (writeReference)
@@ -160,6 +197,27 @@ internal static partial class Program
             Check(decoded.Samples.AsSpan().SequenceEqual(expectedMerged)
                 && Convert.ToHexString(SHA256.HashData(decoded.Resources[1039])) == profile.Sha256,
                 "the RGB16 composite matches the layer stack with the same embedded ICC");
+            var psbPath = Path.ChangeExtension(output, ".psb");
+            ExportPublication? psbReceipt = null;
+            SpektraExport.SaveApproved(OutputPathGuard.Approve(psbPath, source), composed, default, metadata, profile,
+                cropPath: pathCrop, guides: guides, layers: layers, verified: receipt => psbReceipt = receipt);
+            using (var psbFile = File.OpenRead(psbPath))
+            {
+                var psb = PsdFixture.Read(psbFile);
+                Check(psb.Version == 2 && psb.Samples.AsSpan().SequenceEqual(expectedMerged)
+                    && psb.Layers.Length == decoded.Layers.Length
+                    && psb.Layers.Zip(decoded.Layers).All(pair => pair.First with { Samples = pair.Second.Samples } == pair.Second
+                        && pair.First.Samples.AsSpan().SequenceEqual(pair.Second.Samples)),
+                    "the PSB layer and channel lengths are wide and every layer and merged sample matches");
+                Check(psb.Resources.Count == decoded.Resources.Count && psb.Resources.All(pair => pair.Value.AsSpan().SequenceEqual(decoded.Resources[pair.Key]))
+                    && psb.ReadCropPath().AsSpan().SequenceEqual(decoded.ReadCropPath())
+                    && psb.ReadGuides().AsSpan().SequenceEqual(decoded.ReadGuides()),
+                    "PSB keeps the same exact ICC, XMP, DPI, editable crop path and guide resources");
+                psbFile.Position = 0;
+                Check(psbReceipt is { } receipt && receipt.Length == psbFile.Length
+                    && receipt.Sha256 == Convert.ToHexString(SHA256.HashData(psbFile)),
+                    "the published PSB receipt verifies the complete large-document container");
+            }
             foreach (var invisible in new[] { watermark with { X = 0 }, watermark with { Opacity = 0 },
                 watermark with { Bgra = new byte[watermark.Bgra.Length] } })
             {
@@ -196,5 +254,15 @@ internal static partial class Program
                 BinaryPrimitives.WriteUInt16BigEndian(reference.AsSpan(index * 2), pixels[index]);
             File.WriteAllBytes(Path.Combine(folder, name), reference);
         }
+    }
+
+    private sealed class LayoutOnlyBitmap(int edge, PixelFormat format) : BitmapSource
+    {
+        public override int PixelWidth => edge;
+        public override int PixelHeight => edge;
+        public override double DpiX => 300;
+        public override double DpiY => 300;
+        public override PixelFormat Format => format;
+        protected override System.Windows.Freezable CreateInstanceCore() => new LayoutOnlyBitmap(edge, format);
     }
 }
