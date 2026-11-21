@@ -190,7 +190,7 @@ public static partial class StartupHook
         string caseName, bool compareGrain = false, bool compareClone = false, bool compareCompression = false,
         bool compareFolders = false, bool comparePanelModes = false, bool compareProfiles = false,
         bool changeSourceRevision = false, bool compareRecipeRestart = false, bool compareMaskedSource = false,
-        bool compareProfileSidecars = false, bool compareLccSidecar = false)
+        bool compareProfileSidecars = false, bool compareLccSidecar = false, bool compareInputSharpening = false)
     {
         var toggle = (CheckBox)Field(panel, "enableSpektraFilm")!;
         var inputEncoding = (string)Prop(((ComboBox)Field(spatial, "inputSpace")!).SelectedItem, "Id")!;
@@ -309,6 +309,11 @@ public static partial class StartupHook
             Value(3, 0);
             Value(4, 0);
             Diffusion("off");
+            if (compareInputSharpening)
+            {
+                await CheckInputSharpeningModes();
+                return;
+            }
             Value(0, 0);
             var unprocessed = compareFolders
                 ? await RenderAfterNativeDevelopment()
@@ -860,6 +865,139 @@ public static partial class StartupHook
                     }
                 }
 
+            }
+
+            async Task CheckInputSharpeningModes()
+            {
+                var selected = SelectedRecipeForTest(out var suppress);
+                var manager = ((Delegate)Field(bridge!, "destinations")!).DynamicInvoke()!;
+                var enabled = ((IEnumerable)Prop(manager, "EnabledDestinations")!).Cast<object>().ToArray();
+                Check(enabled.Length == 1 && Equals(Prop(enabled[0], "Name"), Prop(selected, "Name")),
+                    "only the selected native recipe is enabled for the independent test exports");
+                var profile = panel.GetType().Assembly.GetType("HostProfile", true)!;
+                var variant = Prop(profile.GetMethod("ReadSelection", Flags)!.Invoke(null, new[] { window })!, "Variant")!;
+                var core = AppDomain.CurrentDomain.GetAssemblies().Single(a => a.GetName().Name == "P1.C1.Core")
+                    .GetType("P1.C1.Core.ICoreVariant", true)!;
+                var originalRecipe = new[] { "DestinationRootFolder", "DestinationCustomRootFolder", "DestinationSubFolder",
+                    "DestinationFilename", "FileType", "TiffBits", "ColorProfilePath", "SharpeningOutputControl", "WatermarkType" }
+                    .Select(name => selected.GetType().GetProperty(name, Flags)!).ToDictionary(p => p.Name, p => (p, p.GetValue(selected)));
+                var originalVariant = new[] { "UnsharpMaskAmount", "UnsharpMaskRadius", "UnsharpMaskThreshold", "LensDiffractionCorrectionEnabled" }
+                    .Select(name => core.GetProperty(name)!).ToDictionary(p => p.Name, p => (p, p.GetValue(variant)));
+                var nativeFolder = Directory.CreateDirectory(Path.Combine(folder, caseName + "-ordinary-sharpening")).FullName;
+                void RecipeValue(string name, object value) => originalRecipe[name].p.SetValue(selected, value);
+                void RecipeChoice(string name, string value) => RecipeValue(name, Enum.Parse(originalRecipe[name].p.PropertyType, value));
+                void NativeValue(string name, object value) => originalVariant[name].p.SetValue(variant, value);
+                object CaptureRecipe() => host.GetMethod("ActiveRecipe", Flags)!.Invoke(null, new[] { window })!;
+                var workingSpace = Enum.Parse(host.Assembly.GetType("PreviewInputSpace", true)!, "Srgb");
+                var (profilePath, profileSha) = ((string, string))host.GetMethod("ResolvePreviewProfile", Flags)!
+                    .Invoke(null, new[] { workingSpace })!;
+                var results = new Dictionary<string, object>();
+                suppress.SetValue(selected, true);
+                try
+                {
+                    RecipeChoice("DestinationRootFolder", "CustomPath");
+                    RecipeValue("DestinationCustomRootFolder", nativeFolder);
+                    RecipeValue("DestinationSubFolder", string.Empty);
+                    RecipeChoice("FileType", "Tiff");
+                    RecipeValue("TiffBits", 16);
+                    // Use the same working profile so the comparison isolates
+                    // sharpening from WIC versus Capture One ICC conversion.
+                    RecipeValue("ColorProfilePath", profilePath);
+                    RecipeChoice("WatermarkType", "None");
+                    NativeValue("UnsharpMaskAmount", 500f);
+                    NativeValue("UnsharpMaskRadius", 2.4f);
+                    NativeValue("UnsharpMaskThreshold", 0f);
+                    NativeValue("LensDiffractionCorrectionEnabled", true);
+                    Value(0, 0);
+                    BitmapSource? nativeDefault = null, nativeLens = null, nativeDisabled = null;
+                    foreach (var mode in new[] { "LensAndSharpening", "Lens", "Disabled" })
+                    {
+                        RecipeChoice("SharpeningOutputControl", mode);
+                        var ordinary = await CaptureOrdinary(mode);
+                        nativeDefault ??= ordinary;
+                        if (mode == "Lens") nativeLens = ordinary;
+                        if (mode == "Disabled") nativeDisabled = ordinary;
+                        toggle.IsChecked = true;
+                        var selectedRecipe = CaptureRecipe();
+                        Check(Prop(selectedRecipe, "Sharpening")?.ToString() == mode
+                            && Prop(selectedRecipe, "Omissions")?.ToString() == "None",
+                            $"the live recipe captures {mode} as supported");
+                        var filmFree = await Render("selected-" + mode, ".tif", true,
+                            expectedCompression: (TiffCompressOption)Prop(selectedRecipe, "TiffCompression")!, expectedProfileSha: profileSha);
+                        var agreement = Difference(ordinary, filmFree);
+                        var correction = Difference(nativeDefault, ordinary);
+                        Check(agreement.Mean < 8d / 65535 && agreement.Maximum < .01,
+                            $"the recipe's {mode} changes match an ordinary Capture One export");
+                        if (mode != "LensAndSharpening")
+                            Check(correction.Mean > .00005 && correction.ChangedFraction > .08,
+                                $"ordinary Capture One removes visible sharpening with {mode}");
+                        results.Add(mode, new { agreement, correction });
+                    }
+
+                    Value(0, 100);
+                    Diffusion("pro_mist");
+                    RecipeChoice("SharpeningOutputControl", "Disabled");
+                    var tiff = await Render("disabled-sharpening-with-film", ".tif", false,
+                        expectedCompression: (TiffCompressOption)Prop(CaptureRecipe(), "TiffCompression")!, expectedProfileSha: profileSha);
+                    var png = await Render("disabled-sharpening-with-film-previous", ".png", true, expectedProfileSha: profileSha);
+                    var commandAgreement = Difference(tiff, png);
+                    var lensDifference = Difference(nativeLens!, nativeDisabled!);
+                    Check(commandAgreement.Mean < 8d / 65535 && commandAgreement.Maximum < .01
+                        && Difference(nativeDisabled!, tiff).Mean > .02,
+                        "both native routes preserve the same high-depth applied film and optics with sharpening disabled");
+                    Check(Equals(core.GetProperty("UnsharpMaskAmount")!.GetValue(variant), 500f),
+                        "the export never edits Capture One's saved variant sharpening");
+                    File.WriteAllText(Path.Combine(folder, caseName + "-native-input-sharpening.json"),
+                        JsonSerializer.Serialize(new { profileSha256 = profileSha, results, lensDifference, commandAgreement }));
+                }
+                finally
+                {
+                    try
+                    {
+                        foreach (var item in originalVariant.Values) item.p.SetValue(variant, item.Item2);
+                        foreach (var item in originalRecipe.Values) item.p.SetValue(selected, item.Item2);
+                    }
+                    finally { suppress.SetValue(selected, false); }
+                }
+
+                async Task<BitmapSource> CaptureOrdinary(string mode)
+                {
+                    RecipeValue("DestinationFilename", mode);
+                    toggle.IsChecked = false;
+                    var routes = routeCount;
+                    var path = Path.Combine(nativeFolder, mode + ".tif");
+                    Check(!File.Exists(path), "the ordinary command has a new private TIFF destination");
+                    ShowNativeDialog(() =>
+                    {
+                        if (Prop(window, "ExportDialogWindow") is not Window { IsVisible: true } owner
+                            || owner.DataContext is not { } model || Prop(model, "ExportCommand") is not ICommand command
+                            || !command.CanExecute(null) || !CheckNativeLocationSample(owner, nativeFolder)
+                            || ReadNativeNamingSample(owner) != mode)
+                            return false;
+                        command.Execute(null);
+                        return true;
+                    });
+                    var started = Stopwatch.GetTimestamp();
+                    while (Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(35))
+                    {
+                        try
+                        {
+                            using var stream = File.OpenRead(path);
+                            var frame = BitmapDecoder.Create(stream, BitmapCreateOptions.PreservePixelFormat | BitmapCreateOptions.IgnoreColorProfile,
+                                BitmapCacheOption.OnLoad).Frames.Single();
+                            Check(routeCount == routes && frame.Format == PixelFormats.Rgb48
+                                && frame.PixelWidth == expectedWidth && frame.PixelHeight == expectedHeight,
+                                $"Capture One independently rendered the {mode} comparison TIFF at native recipe size and 16-bit depth");
+                            using var profileStream = frame.ColorContexts!.Single().OpenProfileStream();
+                            Check(Convert.ToHexString(SHA256.HashData(profileStream)) == profileSha,
+                                $"the ordinary {mode} TIFF embeds the same recipe profile");
+                            return frame;
+                        }
+                        catch (Exception error) when (error is IOException or FileFormatException)
+                        { await Task.Delay(100); }
+                    }
+                    throw new TimeoutException("Capture One did not publish the independent recipe output at " + path);
+                }
             }
 
             async Task CheckRecipeRestart()
@@ -1851,6 +1989,7 @@ public static partial class StartupHook
             {
                 var (width, height) = expectedGeometry ?? (expectedWidth, expectedHeight);
                 var before = routeCount;
+                var expectedFilm = (double)Prop(strength, "Value")! > 0;
                 job = null;
                 offeredFilename = null;
                 offeredDirectory = null;
@@ -1937,7 +2076,6 @@ public static partial class StartupHook
                     $"{kind} finished its own export receipt");
                 var detail = await WaitForTiming((Guid)Prop(receipt, "JobId")!);
                 var film = detail.GetProperty("FilmRenderAndTransportMs");
-                var expectedFilm = kind != "no-film-reference";
                 var stages = new[] { "ViewerDrainMs", "NativeDevelopmentMs", "BlendAndCropMs", "IccProfileSetupMs", "EncodeVerifyAndCommitMs" }
                     .Select(key => detail.GetProperty(key).GetDouble()).ToArray();
                 var filmMs = film.ValueKind == JsonValueKind.Number ? film.GetDouble() : 0;

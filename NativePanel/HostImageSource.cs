@@ -75,7 +75,8 @@ internal static class HostImageSource
         string Suffix, int TiffBits, int JpegQuality, int Width, int Height, double Scale, bool IgnoreCrop,
         double Resolution, string ResolutionUnit, ExportMetadata Metadata, TiffCompressOption TiffCompression,
         RecipeNaming? Naming, string? SuggestedDirectory, string? ExactDirectory,
-        bool AddSuffixToExistingFileName, bool SkipExistingOutput, SpektraExport.RecipeOmission Omissions)
+        bool AddSuffixToExistingFileName, bool SkipExistingOutput, SharpeningOutputControl Sharpening,
+        SpektraExport.RecipeOmission Omissions)
     {
         internal string? SuggestedFilename => Naming?.Stem;
     }
@@ -242,7 +243,8 @@ internal static class HostImageSource
         var omissions = SpektraExport.RecipeOmission.None;
         if (recipe.WatermarkType != WatermarkType.None)
             omissions |= SpektraExport.RecipeOmission.Watermark;
-        if (recipe.SharpeningOutputControl != SharpeningOutputControl.LensAndSharpening)
+        var sharpening = recipe.SharpeningOutputControl;
+        if (sharpening is not (SharpeningOutputControl.LensAndSharpening or SharpeningOutputControl.Lens or SharpeningOutputControl.Disabled))
             omissions |= SpektraExport.RecipeOmission.Sharpening;
         if (format == FileFormat.Psd && (recipe.IncludeAnnotations || recipe.IncludeOverlay || recipe.IncludeGuides))
             omissions |= SpektraExport.RecipeOmission.PsdLayers;
@@ -253,7 +255,7 @@ internal static class HostImageSource
             scale.ScaledPixelWidth, scale.ScaledPixelHeight, scale.Scale, ignoreCrop, recipe.Resolution, recipe.ResolutionUnit.ToString(),
             metadata, compression, ReadRecipeNaming(selection, recipe), suggestedDirectory, exactDirectory,
             recipe.FileOverwriteAction == ProcessedFileOverwriteAction.Rename,
-            recipe.FileOverwriteAction == ProcessedFileOverwriteAction.Skip, omissions);
+            recipe.FileOverwriteAction == ProcessedFileOverwriteAction.Skip, sharpening, omissions);
     }
 
     private static (string? Suggested, string? Exact) ReadRecipeLocation(HostProfile.Selection selection, IDestinationProcessingSettings recipe)
@@ -644,6 +646,18 @@ internal static class HostImageSource
             renderSettings.cropHeight = canvas.Height;
             renderSettings.cropScale = (float)scale;
             renderSettings.cropScaleView = 1;
+            if (options.FollowRecipeSize && recipe is { Sharpening: SharpeningOutputControl.Lens or SharpeningOutputControl.Disabled })
+            {
+                // Apply only the recipe's RAW-development override. Geometry
+                // and the working profile belong to the full-canvas film input.
+                var adjustments = new FileDestination
+                {
+                    CropExportMethod = CropExportMethod.Default,
+                    SharpeningOutputControl = recipe.Sharpening,
+                    Scale = renderSettings.cropScale,
+                };
+                renderSettings = adjustments.OverrideSettings(renderSettings, argRecipeProofingMode: false);
+            }
 
             var pixels = checked((long)Math.Ceiling(canvas.Width * scale) * (long)Math.Ceiling(canvas.Height * scale));
             using var memory = RenderMemoryBudget.SystemMemory.Reserve(RenderAllocation.NativeDevelopment, pixels,

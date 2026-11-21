@@ -1698,7 +1698,8 @@
         "A 175-check native 16.4 launch covers a JPEG recipe through Export and an 8-bit TIFF recipe through Previous Settings. Both identify the replacement before Save, persist the note after publication and produce actual 3000 by 2000 RGB16 TIFFs with the exact ICC and decoded low bits. Both native commands also honor PNG Skip. The five Skip jobs have no renderer events. All nine recipe files and the source catalog verify. Pass 12,519 portable Viewer/export checks.",
         "The exact audit.34 package passes 91 launch and 72 restart checks with the counter deliberately retained on the copied catalog. Native Export writes Restart 041.tif and advances the counter from 41 to 44. After clean close and relaunch, Previous Settings reads 44 with increment 3, writes Restart 044.tif and advances to 47. Both open as RGB16 TIFFs with the selected ICC. A real asymmetric crop and PSD AsPath recipe in the same run offer a disclosed full-canvas PNG alternative. The resulting RGBA16 PNG matches the Ignore Crop TIFF within the native fixture's pixel tolerances, and an independent reader verifies its dimensions, depth and exact ICC. All nine native recipe files and the source catalog verify.",
         "An occupied 8-bit TIFF recipe path set to Skip now opens Save for the explicitly disclosed 16-bit alternative. The source build passes 185 licensed 16.4 checks including the alternative export, the unchanged occupied file and normal 16-bit TIFF/PNG Skip. All nine backed-up recipe files and the source catalog verify. Pass 12,519 host-independent assertions.",
-        "Save and completed history identify omitted recipe watermarks, non-default sharpening modes, and requested PSD annotation, overlay or guide layers. The licensed 16.4 fixture exercises a text watermark and screen sharpening on a TIFF recipe, plus an annotation layer and editable crop path on a PSD recipe. The alternatives reopen at 16 bits with the exact ICC, and the film result matches its high-depth reference within the fixture tolerances. Pass 100 launch and 72 restart checks plus 12,521 host-independent assertions. The source catalog and all nine original recipes verify. Signed 16.7.8.3529 reference build matches all 574 host references."
+        "Save and completed history identify omitted recipe watermarks, non-default sharpening modes, and requested PSD annotation, overlay or guide layers. The licensed 16.4 fixture exercises a text watermark and screen sharpening on a TIFF recipe, plus an annotation layer and editable crop path on a PSD recipe. The alternatives reopen at 16 bits with the exact ICC, and the film result matches its high-depth reference within the fixture tolerances. Pass 100 launch and 72 restart checks plus 12,521 host-independent assertions. The source catalog and all nine original recipes verify. Signed 16.7.8.3529 reference build matches all 574 host references.",
+        "Capture the recipe sharpening mode and call Capture One's own RAW-development overrides for Disable All and the stored lens-only mode. Retain full-canvas geometry, the working ICC and the native variant's saved settings. Include the mode in the verified retry identity. Pass 77 licensed checks and independently compare all 18 million 16-bit samples per matched-sRGB TIFF. Disable All and lens-only match ordinary native exports within a mean of 0.050 and 0.061 codes respectively, and the two modes differ by 113.32 codes on average with diffraction correction enabled. Both native Spektrafilm commands produce the same high-depth film result with sharpening disabled. Verify the TIFF and PNG ICC and the donor and recipe hashes. Pass 12,572 Windows contracts and match 715 compiled references across 16.4 and signed 16.7.8.3529."
       ],
       "evidence_paths": [
         "NativePanel/SpektraFilmTool.cs",
@@ -1745,11 +1746,16 @@
         ".test-results/native-recipe-skip-alternative-contracts-20261120.log",
         ".test-results/host-native-recipe-omissions-20261120/host-smoke.log",
         ".test-results/recipe-effects-contract-20261120/reference-comparison.json",
-        ".test-results/native-recipe-omissions-final-contracts-20261120.log"
+        ".test-results/native-recipe-omissions-final-contracts-20261120.log",
+        ".test-results/host-native-input-sharpening-srgb-20261121/host-smoke.log",
+        ".test-results/host-native-input-sharpening-srgb-20261121/first-native-input-sharpening.json",
+        ".test-results/host-native-input-sharpening-srgb-20261121/independent-native-input-sharpening.json",
+        ".test-results/native-sharpening-16.7-reference-20261121/comparison.json",
+        ".test-results/host-native-sharpening-omission-regression-20261121/host-smoke.log"
       ],
       "remaining_work": [
         "Directory creation and the full location token matrix, automatic Overwrite behavior, tiling and other format and quality settings beyond the explicit 16-bit TIFF/PNG save policy remain open.",
-        "Implement and compare native watermark compositing, recipe sharpening overrides, PSD paths and layers, and the remaining delivery settings and sidecars. The 16-bit alternative explicitly discloses the proven omissions. Explicit overwrite still requires Save approval."
+        "Implement and compare native watermark compositing, post-film Screen and Print output sharpening, PSD paths and layers, and the remaining delivery settings and sidecars. The 16-bit alternative explicitly discloses the proven omissions. Explicit overwrite still requires Save approval."
       ],
       "original_acceptance_tests": [
         "Table-driven JPEG, PNG, TIFF 8/16-bit, unknown-format, custom ICC, image-folder/custom-folder/subfolder/token/suffix and duplicate-name cases.",

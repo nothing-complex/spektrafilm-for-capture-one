@@ -27,6 +27,7 @@ $hostArgs = @{
 .\qa\HostSmoke\Run-HostSmoke.ps1 @hostArgs -ColorMatrix -ResultsDirectory "$trial\source-colour"
 .\qa\HostSmoke\Run-HostSmoke.ps1 @hostArgs -NativeEffectExportMatrix -ResultsDirectory "$trial\native-export"
 .\qa\HostSmoke\Run-HostSmoke.ps1 @hostArgs -NativeEffectOutputProfiles -ResultsDirectory "$trial\recipe-profiles"
+.\qa\HostSmoke\Run-HostSmoke.ps1 @hostArgs -NativeEffectInputSharpening -ResultsDirectory "$trial\recipe-sharpening"
 .\qa\HostSmoke\Run-HostSmoke.ps1 @hostArgs -NativeEffectFolders -ResultsDirectory "$trial\recipe-paths"
 .\qa\HostSmoke\Run-HostSmoke.ps1 @hostArgs -FloatingWorkspaceLayout -ResultsDirectory "$trial\floating"
 .\qa\HostSmoke\Run-HostSmoke.ps1 @hostArgs -DurableSliderEdits -ResultsDirectory "$trial\durability"

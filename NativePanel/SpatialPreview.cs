@@ -1364,7 +1364,7 @@ internal sealed class SpatialPreview : IDisposable
                 Recipe = recipe is null ? null : new
                 {
                     recipe.FormatId, recipe.CropMode, recipe.TiffBits, recipe.Width, recipe.Height, recipe.Scale, recipe.IgnoreCrop,
-                    recipe.Resolution, recipe.ResolutionUnit, recipe.TiffCompression, recipe.Omissions,
+                    recipe.Resolution, recipe.ResolutionUnit, recipe.TiffCompression, recipe.Sharpening, recipe.Omissions,
                     Metadata = recipe.Metadata.CreateXmp(1, 1),
                 },
             });

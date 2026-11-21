@@ -51,6 +51,7 @@ param(
     [switch] $NativeEffectOutputProfiles,
     [switch] $NativeEffectFolders,
     [switch] $NativeEffectRecipeRestart,
+    [switch] $NativeEffectInputSharpening,
     [switch] $NativeEffectPanelModes,
     [switch] $NativeEffectSourceRevision,
     [switch] $NativeEffectMaskedSource,
@@ -123,7 +124,7 @@ if ($SavedLooksBackup -and (!$NativeSettingsConfig -or $UpgradeFromPackage -or $
     throw 'Moved-catalog look verification requires a single disposable catalog and a native preferences backup.'
 }
 if ($NativeEffectClone) { $NativeEffectGrain=$true; $SkipRestart=$true }
-$isolatedEffects=@($NativeEffectCompression,$NativeEffectOutputProfiles,$NativeEffectFolders,$NativeEffectPanelModes,$NativeEffectSourceRevision,$NativeEffectMaskedSource,$NativeEffectProfileSidecars,$NativeEffectRecipeRestart) | Where-Object { $_ }
+$isolatedEffects=@($NativeEffectCompression,$NativeEffectOutputProfiles,$NativeEffectFolders,$NativeEffectPanelModes,$NativeEffectSourceRevision,$NativeEffectMaskedSource,$NativeEffectProfileSidecars,$NativeEffectRecipeRestart,$NativeEffectInputSharpening) | Where-Object { $_ }
 if ($NativeEffectRecipeRestart -and $SkipRestart) { throw 'The native recipe persistence fixture requires both launches.' }
 if ($isolatedEffects -and (!$NativeSettingsConfig -or $NativeEffectGrain -or $NativeEffectExportMatrix -or
     $UpgradeFromPackage -or @($isolatedEffects).Count -ne 1)) {
@@ -579,7 +580,7 @@ function Get-ScopedNativeFolder([string] $name) {
     }
     return $directory
 }
-if ($NativeBatchExport -or $NativeExportSelection -or $NativeOriginalReplacement -or $NativeDeliveryProfileApproval -or $NativeRetrySourceApproval -or $NativeEffectCompression -or $NativeEffectOutputProfiles -or $NativeEffectFolders -or $NativeEffectSourceRevision -or $NativeEffectMaskedSource -or $NativeEffectProfileSidecars -or $NativeEffectRecipeRestart) {
+if ($NativeBatchExport -or $NativeExportSelection -or $NativeOriginalReplacement -or $NativeDeliveryProfileApproval -or $NativeRetrySourceApproval -or $NativeEffectCompression -or $NativeEffectOutputProfiles -or $NativeEffectFolders -or $NativeEffectSourceRevision -or $NativeEffectMaskedSource -or $NativeEffectProfileSidecars -or $NativeEffectRecipeRestart -or $NativeEffectInputSharpening) {
     # Capture One 16.7.8 ApplicationSettings uses Recipes165 and migrates Recipes143.
     $recipeRoot=Get-ScopedNativeFolder $(if ($hostVersion -ceq '16.7.8.3529') { 'Recipes165' } else { 'Recipes143' })
     $nativeRecipes=$recipeRoot.FullName
@@ -830,7 +831,7 @@ try {
     $env:SPEKTRAFILM_HOST_VIEWER_STRESS=if($ViewerStress){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_VIEWER_CACHE_ALLOWANCE=if($ViewerCacheAllowance){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_PANEL_INVENTORY=if($PanelInventory){'1'}else{$null}
-    $env:SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT=if($NativeRetrySourceApproval){'retry-source-approval'}elseif($NativeDeliveryProfileApproval){'delivery-approval'}elseif($NativeExportSelection){'selection'}elseif($NativeEffectExportMatrix){'matrix'}elseif($NativeEffectClone){'clone'}elseif($NativeEffectGrain){'grain'}elseif($NativeEffectCompression){'compression'}elseif($NativeEffectOutputProfiles){'profiles'}elseif($NativeEffectFolders){'folders'}elseif($NativeEffectPanelModes){'panel-modes'}elseif($NativeEffectSourceRevision){'source-revision'}elseif($NativeEffectMaskedSource){'masked-source'}elseif($NativeEffectProfileSidecars){'profile-sidecars'}elseif($NativeEffectRecipeRestart){'recipe-restart'}elseif($NativeEffectExport){'1'}else{$null}
+    $env:SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT=if($NativeRetrySourceApproval){'retry-source-approval'}elseif($NativeDeliveryProfileApproval){'delivery-approval'}elseif($NativeExportSelection){'selection'}elseif($NativeEffectExportMatrix){'matrix'}elseif($NativeEffectClone){'clone'}elseif($NativeEffectGrain){'grain'}elseif($NativeEffectCompression){'compression'}elseif($NativeEffectOutputProfiles){'profiles'}elseif($NativeEffectFolders){'folders'}elseif($NativeEffectPanelModes){'panel-modes'}elseif($NativeEffectSourceRevision){'source-revision'}elseif($NativeEffectMaskedSource){'masked-source'}elseif($NativeEffectProfileSidecars){'profile-sidecars'}elseif($NativeEffectRecipeRestart){'recipe-restart'}elseif($NativeEffectInputSharpening){'input-sharpening'}elseif($NativeEffectExport){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_MOVED_LOOK_BACKUP=$SavedLooksBackup
     $env:SPEKTRAFILM_EXPECTED_CONTROL_INVENTORY=Join-Path $root 'qa\panel-controls.json'
     $env:SPEKTRAFILM_SHOW_TOOL=if($ShowTool){'1'}else{$null}
