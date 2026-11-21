@@ -25,6 +25,8 @@ param(
     [ValidateRange(0,200)][int] $NativeLifetimeCycles=0,
     [switch] $ViewerNativeBaseline,
     [switch] $DurableSliderEdits,
+    [switch] $JournalLookSaves,
+    [switch] $ViewerDuringDurableEdits,
     [switch] $NativeSliderInteraction,
     [switch] $NativeOpticalAvailability,
     [switch] $NativeLookBatch,
@@ -292,6 +294,10 @@ if ($CatalogIsolation -and ($SkipRestart -or $CheckOrdinaryLaunch -or $ColorMatr
 if ($ViewerLayouts -and (!$NativeSettingsConfig -or $CatalogIsolation -or $ColorMatrix -or $CheckOrdinaryLaunch)) {
     throw 'The Viewer layouts fixture requires a verified preferences backup and runs as a separate launch.'
 }
+if (($JournalLookSaves -or $ViewerDuringDurableEdits) -and (!$DurableSliderEdits -or !$NativeSettingsConfig)) {
+    throw 'Journal and live Viewer measurements need the durable slider fixture and verified preferences backup.'
+}
+if ($ViewerDuringDurableEdits) { $ShowTool=$true }
 if ($DurableSliderEdits -and ($CatalogIsolation -or $ViewerLayouts -or $SkipRestart -or $ColorMatrix -or $CheckOrdinaryLaunch)) {
     throw 'The durable slider fixture requires its own first launch and restart.'
 }
@@ -818,7 +824,8 @@ $names=@(
     'SPEKTRAFILM_HOST_NATIVE_EFFECT_EXPORT','SPEKTRAFILM_HOST_MOVED_LOOK_BACKUP',
     'SPEKTRAFILM_SHOW_TOOL','SPEKTRAFILM_HOST_PROOF_TEST','SPEKTRAFILM_HOST_CATALOG_ISOLATION',
     'SPEKTRAFILM_HOST_VIEWER_LAYOUTS','SPEKTRAFILM_HOST_FLOATING_WORKSPACE','SPEKTRAFILM_HOST_NATIVE_WORKSPACE_SWITCH','SPEKTRAFILM_HOST_NATIVE_WORKSPACE_ORDER','SPEKTRAFILM_HOST_NATIVE_TAB_REMOVAL',
-    'SPEKTRAFILM_HOST_DURABLE_EDITS','SPEKTRAFILM_HOST_SLIDER_INTERACTION','SPEKTRAFILM_HOST_OPTICAL_AVAILABILITY','SPEKTRAFILM_HOST_LOOK_BATCH','SPEKTRAFILM_HOST_BATCH_EXPORT','SPEKTRAFILM_HOST_VARIANT_LINEAGE','SPEKTRAFILM_HOST_SUPPORT_DIAGNOSTICS','SPEKTRAFILM_HOST_METADATA_FIXTURE',
+    'SPEKTRAFILM_HOST_DURABLE_EDITS','SPEKTRAFILM_HOST_JOURNAL_SAVES','SPEKTRAFILM_HOST_DURABLE_VIEWER',
+    'SPEKTRAFILM_HOST_SLIDER_INTERACTION','SPEKTRAFILM_HOST_OPTICAL_AVAILABILITY','SPEKTRAFILM_HOST_LOOK_BATCH','SPEKTRAFILM_HOST_BATCH_EXPORT','SPEKTRAFILM_HOST_VARIANT_LINEAGE','SPEKTRAFILM_HOST_SUPPORT_DIAGNOSTICS','SPEKTRAFILM_HOST_METADATA_FIXTURE',
     'SPEKTRAFILM_HOST_VIEWER_CHURN','SPEKTRAFILM_HOST_VIEWER_CHURN_RESOLUTION','SPEKTRAFILM_HOST_VIEWER_TELEMETRY_SECONDS','SPEKTRAFILM_HOST_EXPORT_INTERRUPTION',
     'SPEKTRAFILM_HOST_NATIVE_VIEWER_BASELINE','SPEKTRAFILM_HOST_OTHER_CATALOG',
     'SPEKTRAFILM_HOST_NATIVE_LIFETIME',
@@ -852,6 +859,8 @@ try {
     $env:SPEKTRAFILM_HOST_NATIVE_WORKSPACE_ORDER=$workspaceFixtureName
     $env:SPEKTRAFILM_HOST_NATIVE_TAB_REMOVAL=if($NativeTabRemoval){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_DURABLE_EDITS=if($DurableSliderEdits){'1'}else{$null}
+    $env:SPEKTRAFILM_HOST_JOURNAL_SAVES=if($JournalLookSaves){'1'}else{$null}
+    $env:SPEKTRAFILM_HOST_DURABLE_VIEWER=if($ViewerDuringDurableEdits){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_LOOK_BATCH=if($NativeLookBatchCrash){'crash'}elseif($NativeLookBatch){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_SLIDER_INTERACTION=if($NativeSliderInteraction){'1'}else{$null}
     $env:SPEKTRAFILM_HOST_OPTICAL_AVAILABILITY=if($NativeOpticalAvailability){'1'}else{$null}
@@ -893,7 +902,7 @@ try {
                 $ready=Wait-SpektrafilmPanel $process $status $env:SPEKTRAFILM_LAUNCH_ID 90
                 $ready | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $folder ($phase+'.ready.json'))
             }
-            $deadline=[DateTime]::UtcNow.AddMinutes($(if($ViewerTelemetrySeconds){$ViewerTelemetrySeconds / 60 + 4}elseif($ViewerChurn -or $NativeLifetimeCycles){10}elseif($NativeDevelopmentDeadline){6}else{4}))
+            $deadline=[DateTime]::UtcNow.AddMinutes($(if($ViewerTelemetrySeconds){$ViewerTelemetrySeconds / 60 + 4}elseif($ViewerChurn -or $NativeLifetimeCycles -or $ViewerDuringDurableEdits){10}elseif($NativeDevelopmentDeadline){6}else{4}))
             $result=Join-Path $folder ($phase+'.passed')
             $failure=Join-Path $folder 'failed.txt'
             while(!(Test-Path -LiteralPath $result)){

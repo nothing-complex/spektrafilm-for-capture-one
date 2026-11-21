@@ -14,6 +14,24 @@ internal static class ApprovedCatalog
         SelectedDatabase is not null && PathMatches(documentPath, SelectedDatabase)
         && (PathMatches(activePath, SelectedDatabase) || PathMatches(activePath, SelectedDirectory));
 
+    internal static bool IsJournalSaveFixture(string? requested, string catalog, string dataRoot)
+    {
+        if (requested != "1" || !Matches(Path.GetFileName(catalog), "Host Smoke.cocatalogdb")
+            || !PathMatches(Path.GetDirectoryName(catalog), Path.TrimEndingDirectorySeparator(dataRoot)))
+            return false;
+        try
+        {
+            var marker = new FileInfo(Path.Combine(dataRoot, "disposable-catalog.marker"));
+            var directory = new DirectoryInfo(dataRoot);
+            if ((marker.Attributes & (FileAttributes.Directory | FileAttributes.ReparsePoint)) != 0
+                || (directory.Attributes & FileAttributes.ReparsePoint) != 0 || marker.Length != 64)
+                return false;
+            var hash = File.ReadAllText(marker.FullName);
+            return hash.Length == 64 && Array.TrueForAll(hash.ToCharArray(), Uri.IsHexDigit);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { return false; }
+    }
+
     private static bool PathMatches(string? value, string? expected)
     {
         if (expected is null || string.IsNullOrWhiteSpace(value))

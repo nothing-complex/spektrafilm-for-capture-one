@@ -94,6 +94,8 @@ The next project-only cleanup freed 3.13 GiB on D: under `.test-results`. It rem
 
 After the watermark comparisons, another 1.53 GiB on D: was reclaimed from superseded TIFF and PNG test outputs. The final native comparisons, missing-watermark fixture, earlier comparison metrics and logs remain available. See `.test-results/project-watermark-scratch-cleanup-20261121-042059.json` and its CSV inventory.
 
+The next project-only pass freed 2.14 GiB on D: by removing 64 superseded TIFF and PNG test exports from four older disposable runs. It retained the matching replacement comparisons, a sample from each earlier run, all logs, receipts, catalogs and backups. See `.test-results/project-superseded-comparisons-20261121-062543.csv`. This pass made no changes on C:.
+
 Live-host scope: the tool and native Export binding attached; tested slider movements persisted; legacy preview preference keys were accepted; the second process restored exposure 1.2 and a disabled master without losing the tool. Capture One logged a native 6000 × 4000 DNG source at 16 bits, and explicit 720/1200 scaled source checks passed. The GPU-to-TIFF assertion used the **1200 px scaled frame**, float32 processing and RGB48 output with expected dimensions. It did **not** exercise a full 24 MP GPU export, `ExportAsync` through the native dialog, every recipe, export during image navigation, all cameras/profiles, power-loss durability or visual proofing parity. Native grain normal apply/restore passed; actual host setter-failure injection remains open.
 
 The host tests ran against product commit `285f0aa`; the later runtime package commit changes only the CI test runner. The final package and installed runtime were checked again. The current initial draft also uses original high-depth development (`RenderDraft` / `RenderPurpose.Draft`), not the old 8-bit proxy route.
@@ -604,6 +606,9 @@ Evidence is in `.test-results/audit6-package-verify-20261120/result.json`.
 - [x] Force Capture One termination after the edits, then reopen the disposable catalog. Restore all final values, master switches and exact file hashes. The focused fixture passed 16 first-launch checks and 20 restart checks alongside 10,000 individual write checks.
 - [x] Measure the WPF event and durable acknowledgement together at p50 3.10 ms, p95 3.76 ms and p99 6.42 ms. The maximum was 97.24 ms. Viewer work was paused for this latency measurement.
 - [ ] Verify physical disk-full and OS crash boundaries. Evaluate journaling and compaction against this baseline while preserving per-movement acknowledgement.
+
+- [x] Add an opt-in live Viewer workload to the licensed fixture. Run `qa/HostSmoke/Run-HostSmoke.ps1 -DurableSliderEdits -JournalLookSaves -ViewerDuringDurableEdits` with the closed Online RAW donor, the verified preferences path and a new results directory. The workload asks for 720 px drag and 1200 px settled previews and verifies that the selected RAW is actually painted. It records the real native slider event and save time independently of the 20 ms between movements. After the forced restart it will compare the exact journal and loose files, slider values and both master states. Omit `-JournalLookSaves` for the paired live baseline.
+- [ ] Run both live paths on a licensed host that reaches panel readiness. The guarded fixture passed 961 state checks, and both panel and hook built without warnings. Capture One exited with code −1 before the panel was ready. The donor catalog and preferences hashes match their original values. There is no active Viewer latency or restart measurement from this attempt. See `.test-results/journal-native-durability-20261121`.
 
 Evidence is under `.test-results/host-10000-restart-20261120`.
 

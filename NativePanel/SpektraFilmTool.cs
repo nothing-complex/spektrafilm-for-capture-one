@@ -535,8 +535,11 @@ internal static class SpektraFilmTool
             };
             selections = (ISelectedCollectionsProvider)document;
             var catalog = ApprovedCatalog.SelectedDatabase ?? throw new InvalidOperationException("No catalog selected for Spektrafilm.");
-            var root = Path.Combine(PanelPreferences.UserDataDirectory(), "Variant looks");
-            looks = new VariantLookStore(root, catalog);
+            var dataRoot = PanelPreferences.UserDataDirectory();
+            var root = Path.Combine(dataRoot, "Variant looks");
+            var journalFixture = ApprovedCatalog.IsJournalSaveFixture(
+                Environment.GetEnvironmentVariable("SPEKTRAFILM_HOST_JOURNAL_SAVES"), catalog, dataRoot);
+            looks = new VariantLookStore(root, catalog, useGenerationWriter: journalFixture);
             Foreground = Brushes.Gainsboro;
             enableSpektraFilm.IsEnabled = false;
             var layout = new StackPanel { Margin = new Thickness(8, 5, 8, 9) };

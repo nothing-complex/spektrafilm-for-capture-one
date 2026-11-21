@@ -127,6 +127,18 @@ Check("startup selection parses a fully qualified catalog without requiring disk
 Check("startup selection refuses relative catalogs and other document types",
     ApprovedCatalog.ParseSelection("relative.cocatalogdb") is null
     && ApprovedCatalog.ParseSelection(Path.ChangeExtension(catalog, ".cosessiondb")) is null);
+var journalFixtureRoot = Directory.CreateDirectory(Path.Combine(scratch, "journal-fixture-approval")).FullName;
+var journalFixtureCatalog = Path.Combine(journalFixtureRoot, "Host Smoke.cocatalogdb");
+var journalFixtureMarker = Path.Combine(journalFixtureRoot, "disposable-catalog.marker");
+Check("journal fixture mode requires its disposable marker", !ApprovedCatalog.IsJournalSaveFixture("1", journalFixtureCatalog, journalFixtureRoot));
+File.WriteAllText(journalFixtureMarker, new string('x', 64));
+Check("journal fixture mode requires a valid donor hash marker", !ApprovedCatalog.IsJournalSaveFixture("1", journalFixtureCatalog, journalFixtureRoot));
+File.WriteAllText(journalFixtureMarker, new string('A', 64));
+Check("journal fixture mode requires explicit selection and the same disposable catalog directory",
+    ApprovedCatalog.IsJournalSaveFixture("1", journalFixtureCatalog, journalFixtureRoot)
+    && !ApprovedCatalog.IsJournalSaveFixture(null, journalFixtureCatalog, journalFixtureRoot)
+    && !ApprovedCatalog.IsJournalSaveFixture("1", catalog, scratch)
+    && !ApprovedCatalog.IsJournalSaveFixture("1", Path.Combine(scratch, "Host Smoke.cocatalogdb"), journalFixtureRoot));
 if (OperatingSystem.IsWindows())
 {
     const string unavailableShare = @"\\example.invalid\fixture-share\nested\..\test.cocatalogdb";
